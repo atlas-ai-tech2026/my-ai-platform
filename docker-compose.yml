@@ -1,0 +1,35 @@
+# Local reproduction of the production stack.
+#   docker compose up --build
+# Web  → http://localhost:8080
+# API  → http://localhost:3001  (also reachable via web at /api/*)
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    container_name: voxel-api
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+      FAL_KEY: ${FAL_KEY:-}
+    ports:
+      - "3001:3001"
+    volumes:
+      # Persist entities.json across container rebuilds
+      - voxel-data:/app/data
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+    container_name: voxel-web
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    depends_on:
+      - api
+
+volumes:
+  voxel-data:

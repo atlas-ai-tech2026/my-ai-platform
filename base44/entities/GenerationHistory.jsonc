@@ -1,0 +1,57 @@
+{
+  "name": "GenerationHistory",
+  "type": "object",
+  "properties": {
+    "type": {
+      "type": "string",
+      "enum": [
+        "image",
+        "video"
+      ]
+    },
+    "model": {
+      "type": "string"
+    },
+    "prompt": {
+      "type": "string"
+    },
+    "result_url": {
+      "type": "string"
+    },
+    "job_id": {
+      "type": "string"
+    },
+    "model_id": {
+      "type": "string"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "completed",
+        "failed"
+      ],
+      "default": "completed"
+    },
+    "ratio": {
+      "type": "string"
+    },
+    "duration": {
+      "type": "number"
+    },
+    "saved": {
+      "type": "boolean",
+      "default": false
+    },
+    "style": {
+      "type": "string"
+    },
+    "quality": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "prompt"
+  ]
+}
