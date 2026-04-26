@@ -29,9 +29,6 @@ function CreditButton({ credits = 40000, total = 50000, renewsOn = 'May 15, 2026
   const redHot = '#FF2A2A';
   const C = 22;
   const CIRC = 2 * Math.PI * C;
-  // Ring represents REMAINING credits. Full balance → full ring.
-  // As credits are consumed the bright arc shrinks clockwise, "running out"
-  // as the user runs out. Empty balance → no ring.
   const dashOffset = CIRC * (1 - pctRemaining);
 
   return (
@@ -253,7 +250,7 @@ export default function Navbar() {
         backdropFilter: 'blur(12px)',
       }}
     >
-      <div className="w-full px-4 sm:px-6 lg:px-8">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16">
           {/* Logo */}
           <Link to={createPageUrl('Explore')} className="flex-shrink-0">

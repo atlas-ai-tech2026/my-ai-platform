@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { Sparkles, ChevronDown, Minus, Plus, Pencil, Type, X, Check, Video } from 'lucide-react';
+import { Sparkles, ChevronDown, Minus, Plus, Pencil, Type, X, Check, Video, ArrowUp, ImagePlus, ArrowLeftRight } from 'lucide-react';
 import PageSwitcher from '@/components/common/PageSwitcher';
 import { base44 } from '@/api/base44Client';
 import { detectCompositionIntent } from '@/lib/enhancePrompt';
@@ -388,17 +388,20 @@ const injectPill = {
 };
 
 // ─── Chip ────────────────────────────────────────────────────────────────────
+// Reference-style chips: near-invisible on the glass, soft inner blur.
 const chipBase = {
-  display: 'inline-flex', alignItems: 'center', gap: 4,
-  height: 30, padding: '0 10px',
-  background: 'rgba(255,255,255,0.07)',
-  border: '1px solid rgba(255,255,255,0.11)',
-  borderRadius: 999, fontSize: 12,
+  display: 'inline-flex', alignItems: 'center', gap: 7,
+  height: 34, padding: '0 14px',
+  background: 'rgba(255,255,255,0.035)',
+  border: '1px solid rgba(255,255,255,0.05)',
+  borderRadius: 999, fontSize: 13,
   fontFamily: '"DM Sans", sans-serif',
   color: 'rgba(255,255,255,0.82)',
   cursor: 'pointer', whiteSpace: 'nowrap',
-  transition: 'all 0.18s ease',
+  transition: 'all 0.2s ease',
   flexShrink: 0,
+  backdropFilter: 'blur(12px)',
+  WebkitBackdropFilter: 'blur(12px)',
 };
 
 // ─── Main Component ───────────────────────────────────────────────────────────
@@ -582,24 +585,33 @@ export default function ImagePromptBar({
           70%  { transform: scale(1.08); }
           100% { transform: scale(1); }
         }
+        @keyframes imgSpin { to { transform: rotate(360deg); } }
+        @keyframes imgFadeIn { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: translateY(0); } }
       `}</style>
 
       <PageSwitcher />
 
-      {/* ── Fixed Bar ── */}
+      {/* ── Fixed Bar — ultra-transparent frosted glass (reference) ── */}
       <div style={{
         position: 'fixed',
         bottom: 28,
         left: '50%',
         transform: 'translateX(-50%)',
-        width: 'min(880px, 92vw)',
-        background: 'rgba(18,18,22,0.45)',
-        backdropFilter: 'blur(36px) saturate(1.8)',
-        WebkitBackdropFilter: 'blur(36px) saturate(1.8)',
-        border: '1px solid rgba(255,255,255,0.1)',
-        borderRadius: 22,
+        width: 'min(920px, 92vw)',
+        // Much more transparent so the scene bleeds through — the hallmark of the reference
+        background: 'rgba(30,30,36,0.22)',
+        backdropFilter: 'blur(64px) saturate(1.4)',
+        WebkitBackdropFilter: 'blur(64px) saturate(1.4)',
+        // Hair-thin luminous border — almost invisible against light, catches dark bg
+        border: '1px solid rgba(255,255,255,0.08)',
+        borderRadius: 30,
         overflow: 'hidden',
-        boxShadow: '0 8px 48px rgba(0,0,0,0.6), 0 1px 0 rgba(255,255,255,0.05) inset, 0 -1px 0 rgba(0,0,0,0.3) inset',
+        // Soft ambient bloom + subtle inner highlight on the top edge
+        boxShadow:
+          '0 28px 80px rgba(0,0,0,0.45),' +
+          '0 4px 16px rgba(0,0,0,0.25),' +
+          '0 1px 0 rgba(255,255,255,0.1) inset,' +
+          '0 -1px 0 rgba(0,0,0,0.25) inset',
         transition: 'all 0.32s cubic-bezier(0.4,0,0.2,1)',
         zIndex: 100,
       }}>
@@ -628,24 +640,15 @@ export default function ImagePromptBar({
         {/* ── Content Padding ── */}
         <div style={{ padding: '16px 16px 0 16px', position: 'relative' }}>
 
-          {/* Top-right corner buttons */}
-          <div style={{ position: 'absolute', top: 14, right: 14, display: 'flex', alignItems: 'center', gap: 6 }}>
-            <button
-              onClick={() => setNegativeActive(false)}
-              title="Collapse"
-              style={{ width: 34, height: 34, background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 9, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'rgba(255,255,255,0.6)', transition: 'background 0.18s' }}
-              onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.14)'}
-              onMouseLeave={e => e.currentTarget.style.background = 'rgba(255,255,255,0.08)'}
-            >
-              <span style={{ fontSize: 14 }}>←</span>
-            </button>
+          {/* Top-right corner — ghost icons only */}
+          <div style={{ position: 'absolute', top: 12, right: 12, display: 'flex', alignItems: 'center', gap: 2 }}>
             <button
               title="Enhance text"
-              style={{ width: 34, height: 34, background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 9, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'rgba(255,255,255,0.6)', transition: 'background 0.18s' }}
-              onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.14)'}
-              onMouseLeave={e => e.currentTarget.style.background = 'rgba(255,255,255,0.08)'}
+              style={{ width: 30, height: 30, background: 'transparent', border: 'none', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'rgba(255,255,255,0.42)', transition: 'all 0.18s' }}
+              onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.06)'; e.currentTarget.style.color = 'rgba(255,255,255,0.85)'; }}
+              onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'rgba(255,255,255,0.42)'; }}
             >
-              <Type className="w-3.5 h-3.5" />
+              <Type className="w-[14px] h-[14px]" />
             </button>
           </div>
 
@@ -684,15 +687,24 @@ export default function ImagePromptBar({
             </div>
           )}
           {uploadedImages.length === 0 && (
-            <div style={{ marginBottom:10 }}>
+            <div style={{ display:'flex', alignItems:'center', gap:4, marginBottom:8 }}>
               <button
                 onClick={() => imgInputRef.current && imgInputRef.current.click()}
-                style={{ width:32, height:32, background:'rgba(255,255,255,0.07)', border:'1px solid rgba(255,255,255,0.1)', borderRadius:8, display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', color:'rgba(255,255,255,0.7)', transition:'background 0.18s' }}
-                onMouseEnter={e => e.currentTarget.style.background='rgba(255,255,255,0.13)'}
-                onMouseLeave={e => e.currentTarget.style.background='rgba(255,255,255,0.07)'}
+                style={{ width:30, height:30, background:'transparent', border:'none', borderRadius:8, display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', color:'rgba(255,255,255,0.55)', transition:'all 0.18s' }}
+                onMouseEnter={e => { e.currentTarget.style.background='rgba(255,255,255,0.06)'; e.currentTarget.style.color='rgba(255,255,255,0.92)'; }}
+                onMouseLeave={e => { e.currentTarget.style.background='transparent'; e.currentTarget.style.color='rgba(255,255,255,0.55)'; }}
                 title="Upload reference image"
               >
-                <Plus className="w-4 h-4" />
+                <ImagePlus className="w-[15px] h-[15px]" />
+              </button>
+              <button
+                onClick={() => imgInputRef.current && imgInputRef.current.click()}
+                style={{ width:30, height:30, background:'transparent', border:'none', borderRadius:8, display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', color:'rgba(255,255,255,0.55)', transition:'all 0.18s' }}
+                onMouseEnter={e => { e.currentTarget.style.background='rgba(255,255,255,0.06)'; e.currentTarget.style.color='rgba(255,255,255,0.92)'; }}
+                onMouseLeave={e => { e.currentTarget.style.background='transparent'; e.currentTarget.style.color='rgba(255,255,255,0.55)'; }}
+                title="Swap / transform"
+              >
+                <ArrowLeftRight className="w-[14px] h-[14px]" />
               </button>
             </div>
           )}
@@ -797,11 +809,10 @@ export default function ImagePromptBar({
           )}
         </div>
 
-        {/* ── Chips Row ── */}
+        {/* ── Chips Row — no divider, soft pills, circular send on the right ── */}
         <div style={{
-          borderTop: '1px solid rgba(255,255,255,0.06)',
-          padding: '8px 12px 10px 12px',
-          display: 'flex', alignItems: 'center', gap: 6,
+          padding: '6px 14px 14px 14px',
+          display: 'flex', alignItems: 'center', gap: 7,
           flexWrap: 'wrap',
         }}
           className="hide-scrollbar"
@@ -811,23 +822,23 @@ export default function ImagePromptBar({
             onClick={() => { closeAll(); setShowModelModal(v => !v); }}
             style={{
               ...chipBase,
-              background: showModelModal ? 'rgba(255,255,255,0.12)' : chipBase.background,
-              border: showModelModal ? '1px solid rgba(255,255,255,0.22)' : chipBase.border,
+              background: showModelModal ? 'rgba(255,255,255,0.09)' : chipBase.background,
+              borderColor: showModelModal ? 'rgba(255,255,255,0.14)' : chipBase.border,
             }}
-            onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.12)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.2)'; }}
-            onMouseLeave={e => { e.currentTarget.style.background = showModelModal ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.07)'; e.currentTarget.style.borderColor = showModelModal ? 'rgba(255,255,255,0.22)' : 'rgba(255,255,255,0.11)'; }}
+            onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.08)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.12)'; }}
+            onMouseLeave={e => { e.currentTarget.style.background = showModelModal ? 'rgba(255,255,255,0.09)' : 'rgba(255,255,255,0.045)'; e.currentTarget.style.borderColor = showModelModal ? 'rgba(255,255,255,0.14)' : 'rgba(255,255,255,0.07)'; }}
           >
             <BrandDot brand={model.brand} />
             <span>{model.name}</span>
-            <ChevronDown className="w-3 h-3" style={{ color: 'rgba(255,255,255,0.4)' }} />
+            <ChevronDown className="w-3 h-3" style={{ color: 'rgba(255,255,255,0.35)' }} />
           </button>
 
           {/* Aspect Ratio */}
           <button
             onClick={() => { closeAll(); setShowAspectDrop(v => !v); }}
-            style={{ ...chipBase, background: showAspectDrop ? 'rgba(255,255,255,0.12)' : chipBase.background }}
-            onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.12)'}
-            onMouseLeave={e => e.currentTarget.style.background = showAspectDrop ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.07)'}
+            style={{ ...chipBase, background: showAspectDrop ? 'rgba(255,255,255,0.09)' : chipBase.background }}
+            onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.08)'}
+            onMouseLeave={e => e.currentTarget.style.background = showAspectDrop ? 'rgba(255,255,255,0.09)' : 'rgba(255,255,255,0.045)'}
           >
             {(() => { const r = ASPECT_RATIOS.find(a => a.value === aspectRatio); return r ? <AspectIcon w={r.w} h={r.h} active={true} /> : null; })()}
             <span>{aspectRatio}</span>
@@ -836,11 +847,11 @@ export default function ImagePromptBar({
           {/* Quality */}
           <button
             onClick={() => { closeAll(); setShowQualityDrop(v => !v); }}
-            style={{ ...chipBase, background: showQualityDrop ? 'rgba(255,255,255,0.12)' : chipBase.background }}
-            onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.12)'}
-            onMouseLeave={e => e.currentTarget.style.background = showQualityDrop ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.07)'}
+            style={{ ...chipBase, background: showQualityDrop ? 'rgba(255,255,255,0.09)' : chipBase.background }}
+            onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.08)'}
+            onMouseLeave={e => e.currentTarget.style.background = showQualityDrop ? 'rgba(255,255,255,0.09)' : 'rgba(255,255,255,0.045)'}
           >
-            <span style={{ color: '#E01E1E', fontSize: 14 }}>♡</span>
+            <span style={{ color: 'rgba(255,255,255,0.6)', fontSize: 12 }}>✦</span>
             <span>{quality}</span>
           </button>
 
@@ -872,11 +883,11 @@ export default function ImagePromptBar({
             onClick={() => setNegativeActive(v => !v)}
             style={{
               ...chipBase,
-              background: negativeActive ? 'rgba(255,255,255,0.13)' : chipBase.background,
-              border: negativeActive ? '1px solid rgba(255,255,255,0.28)' : chipBase.border,
+              background: negativeActive ? 'rgba(255,255,255,0.09)' : chipBase.background,
+              borderColor: negativeActive ? 'rgba(255,255,255,0.16)' : chipBase.border,
             }}
-            onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.12)'}
-            onMouseLeave={e => e.currentTarget.style.background = negativeActive ? 'rgba(255,255,255,0.13)' : 'rgba(255,255,255,0.07)'}
+            onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.08)'}
+            onMouseLeave={e => e.currentTarget.style.background = negativeActive ? 'rgba(255,255,255,0.09)' : 'rgba(255,255,255,0.045)'}
           >
             Negative Prompt{negativeActive ? ' ●' : ''}
           </button>
@@ -886,13 +897,13 @@ export default function ImagePromptBar({
             onClick={() => { const next = !showStylePop; closeAll(); setShowStylePop(next); }}
             style={{
               ...chipBase,
-              background: showStylePop || style ? 'rgba(255,255,255,0.12)' : chipBase.background,
-              border: showStylePop || style ? '1px solid rgba(255,255,255,0.22)' : chipBase.border,
+              background: showStylePop || style ? 'rgba(255,255,255,0.09)' : chipBase.background,
+              borderColor: showStylePop || style ? 'rgba(255,255,255,0.14)' : chipBase.border,
             }}
-            onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.12)'}
-            onMouseLeave={e => e.currentTarget.style.background = showStylePop || style ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.07)'}
+            onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.08)'}
+            onMouseLeave={e => e.currentTarget.style.background = showStylePop || style ? 'rgba(255,255,255,0.09)' : 'rgba(255,255,255,0.045)'}
           >
-            <span style={{ fontSize: 14 }}>⊕</span>
+            <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.55)' }}>◇</span>
             <span>{style || 'Style'}</span>
           </button>
 
@@ -902,12 +913,12 @@ export default function ImagePromptBar({
             style={{
               ...chipBase,
               position: 'relative',
-              background: cameraOpen || cameraSelection?.camera ? 'rgba(255,255,255,0.12)' : chipBase.background,
-              border: cameraOpen || cameraSelection?.camera ? '1px solid rgba(204,34,0,0.5)' : chipBase.border,
-              color: cameraOpen || cameraSelection?.camera ? '#FF6644' : chipBase.color,
+              background: cameraOpen || cameraSelection?.camera ? 'rgba(224,30,30,0.09)' : chipBase.background,
+              borderColor: cameraOpen || cameraSelection?.camera ? 'rgba(224,30,30,0.35)' : chipBase.border,
+              color: cameraOpen || cameraSelection?.camera ? '#FF8070' : chipBase.color,
             }}
-            onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.12)'}
-            onMouseLeave={e => e.currentTarget.style.background = cameraOpen || cameraSelection?.camera ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.07)'}
+            onMouseEnter={e => { if (!(cameraOpen || cameraSelection?.camera)) e.currentTarget.style.background = 'rgba(255,255,255,0.08)'; }}
+            onMouseLeave={e => e.currentTarget.style.background = cameraOpen || cameraSelection?.camera ? 'rgba(224,30,30,0.09)' : 'rgba(255,255,255,0.045)'}
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M23 7l-7 5 7 5V7z" />
@@ -919,30 +930,42 @@ export default function ImagePromptBar({
             )}
           </button>
 
-          {/* Generate button — styled like video */}
+          {/* Generate — frosted translucent send button with halo, reference-style */}
           <button
             onClick={handleGenerate}
             disabled={isGenerating}
+            title="Generate"
+            className="img-send-btn"
             style={{
-              height: 34, padding: '0 16px',
-              background: isGenerating ? 'rgba(139,0,0,0.5)' : 'linear-gradient(90deg, #CC0000 0%, #FF2222 50%, #E01E1E 100%)',
-              border: 'none', borderRadius: 12, color: '#fff', fontSize: 13, fontWeight: 700,
-              fontFamily: '"DM Sans", sans-serif',
+              marginLeft: 'auto',
+              width: 42, height: 42, borderRadius: '50%',
+              // Frosted translucent — NOT solid white. Lets the glass behind bleed.
+              background: isGenerating
+                ? 'rgba(255,255,255,0.3)'
+                : 'linear-gradient(180deg, rgba(255,255,255,0.88) 0%, rgba(240,240,245,0.72) 100%)',
+              border: '1px solid rgba(255,255,255,0.45)',
+              backdropFilter: 'blur(16px)',
+              WebkitBackdropFilter: 'blur(16px)',
+              color: '#14141a',
               cursor: isGenerating ? 'not-allowed' : 'pointer',
-              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
               flexShrink: 0,
-              boxShadow: isGenerating ? 'none' : '0 2px 20px rgba(224,30,30,0.35)',
-              transition: 'all 0.2s',
+              // Soft glowing halo (the reference's signature) + subtle inner highlight
+              boxShadow: isGenerating
+                ? 'none'
+                : '0 0 0 1px rgba(255,255,255,0.1),' +
+                  '0 0 24px rgba(255,255,255,0.22),' +
+                  '0 6px 22px rgba(0,0,0,0.35),' +
+                  '0 1px 0 rgba(255,255,255,0.95) inset',
+              transition: 'transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease',
             }}
-            onMouseEnter={e => { if (!isGenerating) { e.currentTarget.style.background = 'linear-gradient(90deg, #DD0000 0%, #FF3333 50%, #FF2020 100%)'; e.currentTarget.style.boxShadow = '0 4px 28px rgba(224,30,30,0.55)'; e.currentTarget.style.transform = 'translateY(-1px)'; }}}
-            onMouseLeave={e => { if (!isGenerating) { e.currentTarget.style.background = 'linear-gradient(90deg, #CC0000 0%, #FF2222 50%, #E01E1E 100%)'; e.currentTarget.style.boxShadow = '0 2px 20px rgba(224,30,30,0.35)'; e.currentTarget.style.transform = 'none'; }}}
+            onMouseEnter={e => { if (!isGenerating) { e.currentTarget.style.transform = 'translateY(-1px) scale(1.03)'; e.currentTarget.style.boxShadow = '0 0 0 1px rgba(255,255,255,0.18),0 0 36px rgba(255,255,255,0.35),0 8px 28px rgba(0,0,0,0.45),0 1px 0 rgba(255,255,255,0.95) inset'; e.currentTarget.style.background = 'linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(245,245,250,0.85) 100%)'; }}}
+            onMouseLeave={e => { if (!isGenerating) { e.currentTarget.style.transform = 'none'; e.currentTarget.style.boxShadow = '0 0 0 1px rgba(255,255,255,0.1),0 0 24px rgba(255,255,255,0.22),0 6px 22px rgba(0,0,0,0.35),0 1px 0 rgba(255,255,255,0.95) inset'; e.currentTarget.style.background = 'linear-gradient(180deg, rgba(255,255,255,0.88) 0%, rgba(240,240,245,0.72) 100%)'; }}}
           >
-            {isGenerating ? 'Generating...' : (
-              <>
-                <span>Generate</span>
-                <Sparkles className="w-4 h-4" style={{ opacity: 0.9 }} />
-                <span style={{ fontSize: 13, fontWeight: 700, opacity: 0.9 }}>1.5</span>
-              </>
+            {isGenerating ? (
+              <div style={{ width: 16, height: 16, border: '2px solid rgba(20,20,26,0.2)', borderTopColor: '#14141a', borderRadius: '50%', animation: 'imgSpin 0.8s linear infinite' }} />
+            ) : (
+              <ArrowUp className="w-[19px] h-[19px]" strokeWidth={2.6} style={{ color: '#14141a' }} />
             )}
           </button>
         </div>

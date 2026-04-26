@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Voxel — Image page design exploration</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Anton&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=DM+Sans:wght@400;500;600;700&family=Playfair+Display:ital,wght@0,400;0,500;0,600;1,400;1,500&display=swap" rel="stylesheet" />
+<style>
+  html, body { margin: 0; padding: 0; background: #f0eee9; font-family: -apple-system, BlinkMacSystemFont, sans-serif; }
+  /* Use Playfair Display as the "GT Sectra" fallback for the editorial direction */
+  *[style*="GT Sectra"] { font-family: "Playfair Display", "Times New Roman", serif !important; }
+</style>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel" src="explorations/design-canvas.jsx"></script>
+  <script type="text/babel" src="explorations/direction-1-current.jsx"></script>
+  <script type="text/babel" src="explorations/direction-2-highkey.jsx"></script>
+  <script type="text/babel" src="explorations/direction-3-editorial.jsx"></script>
+  <script type="text/babel" src="explorations/direction-4-glass.jsx"></script>
+  <script type="text/babel" src="explorations/direction-4-explore.jsx"></script>
+  <script type="text/babel" src="explorations/voxel-image-onbrand.jsx"></script>
+  <script type="text/babel" src="explorations/voxel-image-glassbar.jsx"></script>
+  <script type="text/babel" src="explorations/voxel-video-pages.jsx"></script>
+  <script type="text/babel" src="explorations/explore-v1-editorial.jsx"></script>
+  <script type="text/babel" src="explorations/explore-v2-cinematic.jsx"></script>
+  <script type="text/babel" src="explorations/explore-v3-rows.jsx"></script>
+  <script type="text/babel" src="explorations/explore-v4-bento.jsx"></script>
+  <script type="text/babel" src="explorations/voxel-navbar.jsx"></script>
+  <script type="text/babel">
+    const W = 1440;
+    const H = 900;
+
+    function App() {
+      return (
+        <DesignCanvas>
+          <DCSection id="intro" title="Voxel — Image page directions" subtitle="Current design + 3 alternatives. Click any label or expand icon to focus fullscreen. Drag the ⋮⋮ handle to reorder.">
+            <DCArtboard id="current" label="1 · Current Voxel — near-black + red glow" width={W} height={H}>
+              <D1_CurrentVoxel />
+            </DCArtboard>
+            <DCArtboard id="highkey" label="2 · High-key light — paper + ink" width={W} height={H}>
+              <D2_HighKey />
+            </DCArtboard>
+            <DCArtboard id="editorial" label="3 · Editorial dark — warm + serif" width={W} height={H}>
+              <D3_Editorial />
+            </DCArtboard>
+            <DCArtboard id="glass" label="4 · Content-first glass (picked)" width={W} height={H}>
+              <D4_ContentGlass />
+            </DCArtboard>
+          </DCSection>
+          <DCSection id="explore" title="Explore page — Direction 4 (original)" subtitle="Community feed using the same glass / near-black / red-accent system as the picked Image page.">
+            <DCArtboard id="d4-explore" label="Explore · content-first glass" width={W} height={H}>
+              <D4_Explore />
+            </DCArtboard>
+          </DCSection>
+          <DCSection id="image-onbrand" title="Image page — Voxel brand-aligned" subtitle="Direction 4 DNA retuned to Voxel's true identity: Anton display type, VOXEL wordmark, red #E01E1E as brand primary, 'Create without limits' editorial voice.">
+            <DCArtboard id="img-onbrand" label="Image · on-brand Voxel" width={W} height={H}>
+              <V_ImageOnBrand />
+            </DCArtboard>
+            <DCArtboard id="img-glassbar" label="Image · GLASS prompt bar (full page)" width={W} height={H}>
+              <V_ImageGlassBar />
+            </DCArtboard>
+            <DCArtboard id="img-glass-closeup" label="Image · GLASS bar close-up" width={1200} height={720}>
+              <V_GlassBarCloseup />
+            </DCArtboard>
+          </DCSection>
+          <DCSection id="explore-variations" title="Explore page — 4 new on-brand directions" subtitle="Four distinct layout approaches, all using Voxel's true brand DNA (Anton, red, black). Compare and pick, or mix.">
+            <DCArtboard id="exp-v1" label="V1 · Editorial magazine — hero + asymmetric spread" width={W} height={H}>
+              <V_Explore_V1 />
+            </DCArtboard>
+            <DCArtboard id="exp-v2" label="V2 · Cinematic full-bleed hero — movie poster" width={W} height={H}>
+              <V_Explore_V2 />
+            </DCArtboard>
+            <DCArtboard id="exp-v3" label="V3 · Category rows — streaming-style browse" width={W} height={H}>
+              <V_Explore_V3 />
+            </DCArtboard>
+            <DCArtboard id="exp-v4" label="V4 · Dense bento grid — power-user mosaic" width={W} height={H}>
+              <V_Explore_V4 />
+            </DCArtboard>
+          </DCSection>
+          <DCSection id="video-pages" title="Video page — 4 directions" subtitle="Kling 3.0 frame-to-video workflow. All on-brand (Anton, red, near-black) with the prompt + model panel on the right and the creations feed on the left. Pick one, mix, or comment.">
+            <DCArtboard id="vid-v1" label="V1 · Split sidebar — solid dark panel" width={W} height={H}>
+              <V_Video_V1 />
+            </DCArtboard>
+            <DCArtboard id="vid-v2" label="V2 · Glass panel + bento feed" width={W} height={H}>
+              <V_Video_V2 />
+            </DCArtboard>
+            <DCArtboard id="vid-v3" label="V3 · Cinematic preview stage" width={W} height={H}>
+              <V_Video_V3 />
+            </DCArtboard>
+            <DCArtboard id="vid-v4" label="V4 · Streaming rows + floating side sheet" width={W} height={H}>
+              <V_Video_V4 />
+            </DCArtboard>
+          </DCSection>
+          <DCSection id="navbar" title="Global navbar — circular credit button" subtitle="Sits in the top-right of every page. Click the red circle to see credits remaining, per-category usage, plan tier, and renewal date.">
+            <DCArtboard id="navbar-states" label="Navbar · collapsed + expanded states" width={1440} height={720}>
+              <V_Navbar />
+            </DCArtboard>
+          </DCSection>
+        </DesignCanvas>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>

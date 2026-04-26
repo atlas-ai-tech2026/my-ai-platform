@@ -10,10 +10,14 @@ services:
       dockerfile: Dockerfile.api
     container_name: voxel-api
     restart: unless-stopped
+    env_file:
+      # Load FAL_KEY and other secrets from server/.env.
+      # Without this, the container starts with an empty FAL_KEY and every
+      # /api/generate call fails. Keep this line — do not rely on the shell env.
+      - ./server/.env
     environment:
       NODE_ENV: production
       PORT: 3001
-      FAL_KEY: ${FAL_KEY:-}
     ports:
       - "3001:3001"
     volumes:

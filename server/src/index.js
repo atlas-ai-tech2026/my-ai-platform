@@ -1,4 +1,3 @@
-import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import multer from 'multer';
@@ -6,6 +5,15 @@ import { fal } from '@fal-ai/client';
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import dotenv from 'dotenv';
+
+// Load server/.env relative to THIS source file (not process.cwd()) so the
+// API works no matter which directory the harness/launch config runs it
+// from. Without this, FAL_KEY silently goes missing and every generate
+// or enhance call fails with no obvious cause.
+dotenv.config({
+  path: path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../.env'),
+});
 
 // Surface silent crashes instead of exiting quietly
 process.on('uncaughtException', (e) => console.error('[FATAL] uncaughtException:', e));
@@ -23,7 +31,24 @@ const FAL_KEY = (process.env.FAL_KEY || '').trim();
 if (FAL_KEY) {
   fal.config({ credentials: FAL_KEY });
 } else {
-  console.warn('⚠ FAL_KEY not set — generation will fail');
+  console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  console.error('[FATAL-CONFIG] FAL_KEY is not set.');
+  console.error('  Local dev  : ensure server/.env contains FAL_KEY=...');
+  console.error('  Docker     : docker-compose.yml must load ./server/.env');
+  console.error('  All FAL-backed routes will return 503 until fixed.');
+  console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+}
+
+// Middleware used by routes that hit the FAL API. Returns a readable 503
+// instead of letting downstream calls throw a cryptic SDK error.
+function requireFalKey(req, res, next) {
+  if (!FAL_KEY) {
+    return res.status(503).json({
+      error:
+        'FAL_KEY not configured on the server — generation is disabled. Check server/.env and restart the API.',
+    });
+  }
+  next();
 }
 
 // ─── IMAGE MODEL CONFIG ────────────────────────────────────────────
@@ -600,6 +625,57 @@ app.post('/api/llm', async (req, res) => {
   } catch (error) {
     console.error('LLM error:', error.message);
     res.status(500).json({ error: 'LLM generation failed' });
+  }
+});
+
+// ─── PROMPT ENHANCER ──────────────────────────────────────────────
+// Takes the user's prompt, runs it through fal.ai's `any-llm` (Gemini
+// Flash for speed/cost), returns a richer cinematic rewrite. Used by the
+// red bolt button in the Image and Video prompt areas.
+app.post('/api/enhance-prompt', requireFalKey, async (req, res) => {
+  const { prompt, type } = req.body || {};
+  if (!prompt || typeof prompt !== 'string' || !prompt.trim()) {
+    return res.status(400).json({ error: 'prompt required' });
+  }
+
+  const isVideo = type === 'video';
+  const system = isVideo
+    ? `You rewrite short user prompts into vivid VIDEO generation prompts.
+Output ONLY the rewritten prompt — no preamble, no markdown, no quotes.
+Add cinematic details: subject, setting, lighting, lens, camera motion, atmosphere, color palette.
+Keep the original intent. 60–110 words. One paragraph.`
+    : `You rewrite short user prompts into vivid IMAGE generation prompts.
+Output ONLY the rewritten prompt — no preamble, no markdown, no quotes.
+Add visual details: subject, setting, lighting, lens, framing, mood, color, texture.
+Keep the original intent. 50–90 words. One paragraph.`;
+
+  try {
+    const result = await fal.subscribe('fal-ai/any-llm', {
+      input: {
+        model: 'google/gemini-flash-1.5',
+        prompt: prompt.trim(),
+        system_prompt: system,
+      },
+      logs: false,
+    });
+    // any-llm returns the text under .output (sometimes nested in .data)
+    const raw =
+      result?.data?.output ??
+      result?.output ??
+      result?.data?.text ??
+      result?.text ??
+      '';
+    const enhanced = String(raw).trim();
+    if (!enhanced) {
+      console.error('[ENHANCE] empty LLM response. Raw:', JSON.stringify(result, null, 2));
+      return res.status(502).json({
+        error: 'Enhancer returned no output. Try again or rephrase your prompt.',
+      });
+    }
+    return res.json({ prompt: enhanced });
+  } catch (e) {
+    console.error('[ENHANCE] ❌ LLM error:', e.message);
+    return res.status(500).json({ error: 'Enhancer failed: ' + e.message });
   }
 });
 

@@ -1,0 +1,101 @@
+# DigitalOcean App Platform spec for Voxel.AI.
+# Doctl ref: https://docs.digitalocean.com/products/app-platform/reference/app-spec/
+#
+# Two services, both built from this repo's existing Dockerfiles:
+#   • api  — Node/Express backend (Dockerfile.api), exposed under /api
+#   • web  — Vite build behind nginx (Dockerfile.web), serves the SPA + reverse-proxies /api/*
+#
+# Deploy:
+#   1. Push this file to the branch you want App Platform to track (default: main).
+#   2. In the DO dashboard → Apps → Create App → choose "GitHub" → pick this repo and branch.
+#      DO will detect .do/app.yaml automatically.
+#   3. Set the FAL_KEY secret in the dashboard (Settings → App-Level Env or per-service).
+#   4. First deploy. Watch the api logs for "[voxel-api] listening on :3001 — FAL_KEY=true".
+#
+# IMPORTANT — persistence caveat:
+#   Until docs/PLAN.md "Step 2 — Postgres migration" lands, generation history lives in
+#   server/data/entities.json on the container's ephemeral filesystem. App Platform
+#   wipes that on every restart/redeploy. To survive restarts you must either:
+#     (a) finish the Postgres migration and add a managed PG database here (commented
+#         block at the bottom is ready to uncomment), or
+#     (b) accept that history resets on each deploy.
+
+name: voxel-ai
+region: nyc
+
+services:
+  # ─── Backend API ───────────────────────────────────────────────────────
+  - name: api
+    dockerfile_path: Dockerfile.api
+    source_dir: /
+    github:
+      repo: REPLACE_WITH_OWNER/voxel-ai     # e.g. atlas-saltconsultancy/voxel-ai
+      branch: main
+      deploy_on_push: true
+
+    instance_size_slug: basic-xxs           # ~$5/mo, bump to basic-xs for higher load
+    instance_count: 1
+    http_port: 3001
+
+    routes:
+      # All /api/* traffic from the public domain reaches this service.
+      - path: /api
+
+    health_check:
+      http_path: /api/health
+      initial_delay_seconds: 10
+      period_seconds: 15
+      timeout_seconds: 3
+      success_threshold: 1
+      failure_threshold: 3
+
+    envs:
+      - key: NODE_ENV
+        scope: RUN_TIME
+        value: production
+      - key: PORT
+        scope: RUN_TIME
+        value: "3001"
+      - key: FAL_KEY
+        scope: RUN_TIME
+        type: SECRET                        # Paste real key in DO dashboard, never commit
+      # Uncomment once the Postgres migration is done:
+      # - key: DATABASE_URL
+      #   scope: RUN_TIME
+      #   value: ${db.DATABASE_URL}
+
+  # ─── Web (Vite SPA behind nginx) ───────────────────────────────────────
+  - name: web
+    dockerfile_path: Dockerfile.web
+    source_dir: /
+    github:
+      repo: REPLACE_WITH_OWNER/voxel-ai
+      branch: main
+      deploy_on_push: true
+
+    instance_size_slug: basic-xxs
+    instance_count: 1
+    http_port: 80
+
+    routes:
+      # Catch-all for the SPA. nginx.conf already handles internal /api/*
+      # forwarding to http://api:3001 — App Platform resolves the service
+      # name `api` to the API container's internal address.
+      - path: /
+
+    envs:
+      - key: NODE_ENV
+        scope: BUILD_TIME
+        value: production
+
+# ─── Managed Postgres (commented until Step 2 migration is in) ───────────
+# Uncomment once server/src/index.js stops writing to entities.json and
+# starts using `pg` against process.env.DATABASE_URL. See docs/PLAN.md.
+#
+# databases:
+#   - name: db
+#     engine: PG
+#     version: "16"
+#     size: db-s-dev-database     # ~$15/mo, smallest managed PG
+#     num_nodes: 1
+#     production: false           # set true when you're past dev
