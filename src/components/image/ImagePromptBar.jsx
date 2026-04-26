@@ -316,12 +316,12 @@ function StylePopup({ selected, onSelect, onClose }) {
       width: 'min(360px, 92vw)',
       maxHeight: '70vh',
       overflowY: 'auto',
-      background: 'rgba(22,22,26,0.97)',
-      backdropFilter: 'blur(40px) saturate(1.8)',
-      WebkitBackdropFilter: 'blur(40px) saturate(1.8)',
-      border: '1px solid rgba(255,255,255,0.09)',
-      borderRadius: 18,
-      boxShadow: '0 -12px 60px rgba(0,0,0,0.8)',
+      background: 'rgba(18,18,22,0.45)',
+      backdropFilter: 'blur(36px) saturate(1.8)',
+      WebkitBackdropFilter: 'blur(36px) saturate(1.8)',
+      border: '1px solid rgba(255,255,255,0.1)',
+      borderRadius: 22,
+      boxShadow: '0 8px 48px rgba(0,0,0,0.6), 0 1px 0 rgba(255,255,255,0.05) inset, 0 -1px 0 rgba(0,0,0,0.3) inset',
       padding: '14px 0 8px 0',
       zIndex: 200,
       animation: 'imgStyleSlideUp 0.25s cubic-bezier(0.4,0,0.2,1)',
@@ -892,7 +892,7 @@ export default function ImagePromptBar({
             Negative Prompt{negativeActive ? ' ●' : ''}
           </button>
 
-          {/* Style chip */}
+          {/* Style chip — plain trigger; selection state is shown by the floating red chip above the textarea */}
           <button
             onClick={() => { const next = !showStylePop; closeAll(); setShowStylePop(next); }}
             style={{

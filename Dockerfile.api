@@ -15,11 +15,13 @@ RUN mkdir -p /app/data
 VOLUME ["/app/data"]
 
 ENV NODE_ENV=production
-ENV PORT=3001
-EXPOSE 3001
+# DO App Platform defaults $PORT to 8080. Keep parity so the platform's own
+# port probe works even before our explicit health_check kicks in.
+ENV PORT=8080
+EXPOSE 8080
 
 # Healthcheck hits the /api/health endpoint we added
-HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-  CMD wget -qO- http://localhost:3001/api/health || exit 1
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+  CMD wget -qO- http://localhost:8080/api/health || exit 1
 
 CMD ["node", "src/index.js"]

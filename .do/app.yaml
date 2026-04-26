@@ -1,101 +1,72 @@
-# DigitalOcean App Platform spec for Voxel.AI.
-# Doctl ref: https://docs.digitalocean.com/products/app-platform/reference/app-spec/
-#
-# Two services, both built from this repo's existing Dockerfiles:
-#   • api  — Node/Express backend (Dockerfile.api), exposed under /api
-#   • web  — Vite build behind nginx (Dockerfile.web), serves the SPA + reverse-proxies /api/*
-#
-# Deploy:
-#   1. Push this file to the branch you want App Platform to track (default: main).
-#   2. In the DO dashboard → Apps → Create App → choose "GitHub" → pick this repo and branch.
-#      DO will detect .do/app.yaml automatically.
-#   3. Set the FAL_KEY secret in the dashboard (Settings → App-Level Env or per-service).
-#   4. First deploy. Watch the api logs for "[voxel-api] listening on :3001 — FAL_KEY=true".
-#
-# IMPORTANT — persistence caveat:
-#   Until docs/PLAN.md "Step 2 — Postgres migration" lands, generation history lives in
-#   server/data/entities.json on the container's ephemeral filesystem. App Platform
-#   wipes that on every restart/redeploy. To survive restarts you must either:
-#     (a) finish the Postgres migration and add a managed PG database here (commented
-#         block at the bottom is ready to uncomment), or
-#     (b) accept that history resets on each deploy.
-
 name: voxel-ai
 region: nyc
 
+# Single-service Node buildpack deploy.
+# Express serves the built Vite frontend (dist/) AND the /api/* routes from
+# one process on $PORT (8080). Procfile defines the start command.
+#
+# DO's Node buildpack runs `npm ci && npm run build` automatically when it
+# detects a build script in package.json, but we set build_command
+# explicitly so the server's deps are installed too.
+#
+# Replaced an earlier two-service Dockerfile-based spec (api + web behind
+# nginx). Switched to single-service buildpack because (a) DO was ignoring
+# the dockerfile_path and falling back to buildpack anyway, (b) one process
+# is simpler to debug, (c) this also fixes the 'vite: not found' build
+# failure caused by NODE_ENV=production at build time skipping devDeps —
+# build tools now live in `dependencies` and NODE_ENV is RUN_TIME-only.
+
 services:
-  # ─── Backend API ───────────────────────────────────────────────────────
-  - name: api
-    dockerfile_path: Dockerfile.api
-    source_dir: /
+  - name: web
     github:
-      repo: REPLACE_WITH_OWNER/voxel-ai     # e.g. atlas-saltconsultancy/voxel-ai
+      repo: atlas-ai-tech2026/my-ai-platform
       branch: main
       deploy_on_push: true
-
-    instance_size_slug: basic-xxs           # ~$5/mo, bump to basic-xs for higher load
+    environment_slug: node-js
+    build_command: npm ci && npm run build && npm --prefix server ci --omit=dev
+    run_command: node server/src/index.js
+    http_port: 8080
     instance_count: 1
-    http_port: 3001
-
+    instance_size_slug: basic-xxs
     routes:
-      # All /api/* traffic from the public domain reaches this service.
-      - path: /api
-
+      - path: /
     health_check:
       http_path: /api/health
-      initial_delay_seconds: 10
-      period_seconds: 15
-      timeout_seconds: 3
+      initial_delay_seconds: 30
+      period_seconds: 10
+      timeout_seconds: 5
       success_threshold: 1
-      failure_threshold: 3
-
+      failure_threshold: 6
     envs:
+      # NODE_ENV must NOT be set at BUILD_TIME — npm ci skips devDependencies
+      # when it sees NODE_ENV=production, which would break the Vite build.
+      # Set it only at RUN_TIME so Express still runs in production mode.
       - key: NODE_ENV
-        scope: RUN_TIME
         value: production
-      - key: PORT
         scope: RUN_TIME
-        value: "3001"
-      - key: FAL_KEY
-        scope: RUN_TIME
-        type: SECRET                        # Paste real key in DO dashboard, never commit
-      # Uncomment once the Postgres migration is done:
-      # - key: DATABASE_URL
-      #   scope: RUN_TIME
-      #   value: ${db.DATABASE_URL}
-
-  # ─── Web (Vite SPA behind nginx) ───────────────────────────────────────
-  - name: web
-    dockerfile_path: Dockerfile.web
-    source_dir: /
-    github:
-      repo: REPLACE_WITH_OWNER/voxel-ai
-      branch: main
-      deploy_on_push: true
-
-    instance_size_slug: basic-xxs
-    instance_count: 1
-    http_port: 80
-
-    routes:
-      # Catch-all for the SPA. nginx.conf already handles internal /api/*
-      # forwarding to http://api:3001 — App Platform resolves the service
-      # name `api` to the API container's internal address.
-      - path: /
-
-    envs:
-      - key: NODE_ENV
+      # Belt-and-suspenders: explicitly tell npm to install ALL deps at build,
+      # in case any other env var or buildpack default flips NODE_ENV on us.
+      - key: NPM_CONFIG_PRODUCTION
+        value: "false"
         scope: BUILD_TIME
-        value: production
+      - key: PORT
+        value: "8080"
+        scope: RUN_TIME
+      - key: FAL_KEY
+        type: SECRET
+        scope: RUN_TIME
 
-# ─── Managed Postgres (commented until Step 2 migration is in) ───────────
-# Uncomment once server/src/index.js stops writing to entities.json and
-# starts using `pg` against process.env.DATABASE_URL. See docs/PLAN.md.
+# NOTE: Postgres still pending (Step 2 of docs/PLAN.md). Until then, history
+# lives in entities.json on the container's ephemeral disk and is wiped on
+# every redeploy. To add later:
 #
 # databases:
 #   - name: db
 #     engine: PG
 #     version: "16"
-#     size: db-s-dev-database     # ~$15/mo, smallest managed PG
-#     num_nodes: 1
-#     production: false           # set true when you're past dev
+#     production: false
+#
+# and on the web service envs add:
+#   - key: DATABASE_URL
+#     value: ${db.DATABASE_URL}
+#     scope: RUN_TIME

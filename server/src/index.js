@@ -782,6 +782,23 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', fal_configured: !!FAL_KEY });
 });
 
+// ─── STATIC FRONTEND (production / DO buildpack) ──────────────────
+// In dev, Vite serves the SPA on :5173 and proxies /api → :3001.
+// In prod (DO buildpack or any single-process deploy), Express serves
+// the built dist/ for everything that isn't /api/*. Skipped if dist
+// doesn't exist (e.g. running just the api locally).
+import { existsSync } from 'node:fs';
+const DIST_DIR = path.resolve(__dirname, '../../dist');
+if (existsSync(DIST_DIR)) {
+  app.use(express.static(DIST_DIR, { maxAge: '1y', index: false }));
+  app.get(/^\/(?!api\/).*/, (req, res) => {
+    res.sendFile(path.join(DIST_DIR, 'index.html'));
+  });
+  console.log(`[voxel-api] serving static frontend from ${DIST_DIR}`);
+} else {
+  console.log(`[voxel-api] no dist/ found at ${DIST_DIR} — running api-only`);
+}
+
 // ─── START SERVER ──────────────────────────────────────────────────
 app.listen(PORT, () => {
   const entityCount = Object.values(entityStore).reduce((n, arr) => n + (Array.isArray(arr) ? arr.length : 0), 0);

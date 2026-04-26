@@ -2,6 +2,10 @@
 #   docker compose up --build
 # Web  → http://localhost:8080
 # API  → http://localhost:3001  (also reachable via web at /api/*)
+#
+# Both containers internally listen on 8080 (matching DO App Platform).
+# We map the host port 3001 → container 8080 for the api so the local
+# CLAUDE.md docs (and the Vite dev proxy) keep pointing at :3001.
 
 services:
   api:
@@ -17,9 +21,13 @@ services:
       - ./server/.env
     environment:
       NODE_ENV: production
-      PORT: 3001
+      # Container listens on 8080 (matches DO App Platform); host maps
+      # localhost:3001 → container:8080 below so the Vite dev proxy and the
+      # CLAUDE.md docs keep pointing at :3001 unchanged.
+      PORT: 8080
+      # FAL_KEY is loaded via env_file above — do not duplicate here.
     ports:
-      - "3001:3001"
+      - "3001:8080"
     volumes:
       # Persist entities.json across container rebuilds
       - voxel-data:/app/data
@@ -31,7 +39,7 @@ services:
     container_name: voxel-web
     restart: unless-stopped
     ports:
-      - "8080:80"
+      - "8080:8080"
     depends_on:
       - api
 
