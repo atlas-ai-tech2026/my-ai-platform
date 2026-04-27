@@ -52,21 +52,19 @@ services:
       - key: PORT
         value: "8080"
         scope: RUN_TIME
-      - key: FAL_KEY
-        type: SECRET
-        scope: RUN_TIME
 
-# NOTE: Postgres still pending (Step 2 of docs/PLAN.md). Until then, history
-# lives in entities.json on the container's ephemeral disk and is wiped on
-# every redeploy. To add later:
+# Secrets (FAL_KEY, JWT_SECRET, DATABASE_URL) are intentionally NOT declared
+# in this spec. Why: when a key is declared here as `type: SECRET` with no
+# value, it creates a component-level "slot" that can shadow an app-level
+# value with the same key. We hit exactly this — FAL_KEY appeared set in the
+# DO dashboard but the runtime container saw it empty.
 #
-# databases:
-#   - name: db
-#     engine: PG
-#     version: "16"
-#     production: false
+# Manage these in DO Dashboard → your app → Settings → App-Level
+# Environment Variables. Add each one:
 #
-# and on the web service envs add:
-#   - key: DATABASE_URL
-#     value: ${db.DATABASE_URL}
-#     scope: RUN_TIME
+#   FAL_KEY        (Encrypted)  scope=Run Time
+#   JWT_SECRET     (Encrypted)  scope=Run Time
+#   DATABASE_URL   (Plain or Encrypted) scope=Run Time
+#                  Tip: set value to ${voxel-db.DATABASE_URL} so DO injects
+#                  the connection string from the attached database
+#                  automatically and rotates it if you re-attach.

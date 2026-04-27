@@ -1,8 +1,16 @@
 // ─── Postgres pool + boot-time schema ───────────────────────────────────────
 //
-// DigitalOcean Managed Postgres requires SSL. We use rejectUnauthorized: false
-// because DO's CA isn't in the default trust store; the connection is still
-// encrypted, we just don't verify the cert chain. Same pattern Heroku uses.
+// DigitalOcean Managed Postgres uses a CA-signed cert that Node's default
+// trust store doesn't include, so we connect without chain verification.
+// The connection is still encrypted (TLS); we're just not checking who
+// signed the cert. Same pattern Heroku/Render/Railway PG users follow.
+//
+// SUBTLE GOTCHA: DO's DATABASE_URL ends with `?sslmode=require`. When `pg`
+// parses that, it builds an internal ssl config from the URL parameter that
+// can OVERRIDE the `ssl` option we pass below — this manifests as the dread
+// "self-signed certificate in certificate chain" error on Node 22+. Fix:
+// strip sslmode from the URL before handing it to Pool, so our explicit
+// `ssl: { rejectUnauthorized: false }` is the sole source of truth.
 //
 // If DATABASE_URL is not set, this module exports `pool = null` and `isReady()`
 // returns false — the server still boots so local dev (without Postgres) and
@@ -14,9 +22,22 @@ const { Pool } = pg;
 
 const DATABASE_URL = (process.env.DATABASE_URL || '').trim();
 
+// Strip ?sslmode=... so our explicit `ssl` config below wins.
+function stripSslmode(rawUrl) {
+  if (!rawUrl) return rawUrl;
+  try {
+    const u = new URL(rawUrl);
+    u.searchParams.delete('sslmode');
+    return u.toString();
+  } catch {
+    // Not a parseable URL (unlikely); pass through and hope for the best.
+    return rawUrl;
+  }
+}
+
 export const pool = DATABASE_URL
   ? new Pool({
-      connectionString: DATABASE_URL,
+      connectionString: stripSslmode(DATABASE_URL),
       ssl: { rejectUnauthorized: false },
       // Conservative defaults for a basic-xxs instance.
       max: 10,

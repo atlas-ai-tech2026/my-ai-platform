@@ -22,6 +22,20 @@ dotenv.config({
 process.on('uncaughtException', (e) => console.error('[FATAL] uncaughtException:', e));
 process.on('unhandledRejection', (e) => console.error('[UNHANDLED] rejection:', e));
 
+// One-shot diagnostic at startup. Prints which env vars are present and how
+// long their values are, NEVER the values themselves. This is what tells you
+// definitively whether DO is injecting the secret you set in the dashboard
+// (vs. it being silently missing, mistyped, or shadowed by a spec slot).
+const _envSummary = ['FAL_KEY', 'JWT_SECRET', 'DATABASE_URL', 'PORT', 'NODE_ENV']
+  .map((k) => {
+    const v = process.env[k];
+    if (v === undefined) return `${k}=✗MISSING`;
+    if (v === '') return `${k}=✗EMPTY`;
+    return `${k}=✓set(${v.length}ch)`;
+  })
+  .join(' ');
+console.log(`[voxel-api] env summary: ${_envSummary}`);
+
 const app = express();
 const PORT = process.env.PORT || 3001;
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
