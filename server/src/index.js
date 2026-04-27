@@ -6,6 +6,9 @@ import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import dotenv from 'dotenv';
+import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
+import { pool, isReady as dbReady, migrate } from './db.js';
 
 // Load server/.env relative to THIS source file (not process.cwd()) so the
 // API works no matter which directory the harness/launch config runs it
@@ -50,6 +53,44 @@ function requireFalKey(req, res, next) {
   }
   next();
 }
+
+// ─── AUTH CONFIG ────────────────────────────────────────────────────
+// JWT_SECRET must be set in production. We deliberately refuse to fall back
+// to a hardcoded default — silent insecure-default secrets are how every
+// "we got owned" story starts. Auth routes 503 if it's missing.
+const JWT_SECRET = (process.env.JWT_SECRET || '').trim();
+const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
+const BCRYPT_ROUNDS = 12;
+
+if (!JWT_SECRET) {
+  console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  console.error('[FATAL-CONFIG] JWT_SECRET is not set.');
+  console.error('  Generate one with:  node -e "console.log(require(\'crypto\').randomBytes(48).toString(\'hex\'))"');
+  console.error('  Local dev  : add JWT_SECRET=... to server/.env');
+  console.error('  DO deploy  : add it as an Encrypted env var in App Platform');
+  console.error('  /api/auth/* will return 503 until set.');
+  console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+}
+
+// Both auth routes need (a) a reachable DB, (b) JWT_SECRET. Combine the
+// guards so the error response is uniform.
+function requireAuthInfra(req, res, next) {
+  if (!dbReady()) {
+    return res.status(503).json({
+      error: 'Database not configured — set DATABASE_URL and restart the API.',
+    });
+  }
+  if (!JWT_SECRET) {
+    return res.status(503).json({
+      error: 'Auth not configured — set JWT_SECRET and restart the API.',
+    });
+  }
+  next();
+}
+
+// Email regex: deliberately loose. Real validation = "send a confirmation
+// email and see what happens." This just rejects obvious garbage.
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 // ─── IMAGE MODEL CONFIG ────────────────────────────────────────────
 // t2i  = text-to-image endpoint (no images)
@@ -777,9 +818,101 @@ app.delete('/api/entities/:name/:id', (req, res) => {
   res.json({ success: true });
 });
 
+// ─── AUTH: REGISTER ─────────────────────────────────────────────────
+app.post('/api/auth/register', requireAuthInfra, async (req, res) => {
+  try {
+    const email = String(req.body?.email || '').trim().toLowerCase();
+    const password = String(req.body?.password || '');
+
+    if (!EMAIL_RE.test(email)) {
+      return res.status(400).json({ error: 'Invalid email address.' });
+    }
+    if (password.length < 8) {
+      return res.status(400).json({ error: 'Password must be at least 8 characters.' });
+    }
+
+    const password_hash = await bcrypt.hash(password, BCRYPT_ROUNDS);
+
+    let result;
+    try {
+      result = await pool.query(
+        `INSERT INTO users (email, password_hash, credits, role)
+         VALUES ($1, $2, 0, 'user')
+         RETURNING id, email, credits, role, created_at`,
+        [email, password_hash]
+      );
+    } catch (err) {
+      // 23505 = unique_violation (email already exists)
+      if (err.code === '23505') {
+        return res.status(409).json({ error: 'An account with that email already exists.' });
+      }
+      throw err;
+    }
+
+    const user = result.rows[0];
+    const token = jwt.sign(
+      { sub: user.id, email: user.email, role: user.role },
+      JWT_SECRET,
+      { expiresIn: JWT_EXPIRES_IN }
+    );
+
+    res.status(201).json({ token, user });
+  } catch (err) {
+    console.error('[auth/register] error:', err);
+    res.status(500).json({ error: 'Registration failed.' });
+  }
+});
+
+// ─── AUTH: LOGIN ────────────────────────────────────────────────────
+// Note: we deliberately return the same 401 message whether the email is
+// unknown OR the password is wrong. Distinguishing them leaks which emails
+// have accounts (user-enumeration attack).
+app.post('/api/auth/login', requireAuthInfra, async (req, res) => {
+  try {
+    const email = String(req.body?.email || '').trim().toLowerCase();
+    const password = String(req.body?.password || '');
+
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Email and password are required.' });
+    }
+
+    const { rows } = await pool.query(
+      `SELECT id, email, password_hash, credits, role, created_at
+       FROM users WHERE email = $1 LIMIT 1`,
+      [email]
+    );
+    const row = rows[0];
+
+    // Run bcrypt.compare even on miss to keep timing roughly constant.
+    const dummyHash = '$2a$12$0123456789012345678901uA1B2C3D4E5F6G7H8I9J0K1L2M3N4O5';
+    const ok = await bcrypt.compare(password, row?.password_hash || dummyHash);
+
+    if (!row || !ok) {
+      return res.status(401).json({ error: 'Invalid email or password.' });
+    }
+
+    const token = jwt.sign(
+      { sub: row.id, email: row.email, role: row.role },
+      JWT_SECRET,
+      { expiresIn: JWT_EXPIRES_IN }
+    );
+
+    const { password_hash, ...user } = row; // never ship the hash to the client
+    res.json({ token, user });
+  } catch (err) {
+    console.error('[auth/login] error:', err);
+    res.status(500).json({ error: 'Login failed.' });
+  }
+});
+
 // ─── HEALTH CHECK ──────────────────────────────────────────────────
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', fal_configured: !!FAL_KEY });
+  res.json({
+    status: 'ok',
+    fal_configured: !!FAL_KEY,
+    db_configured: dbReady(),
+    auth_configured: !!JWT_SECRET,
+  });
 });
 
 // ─── STATIC FRONTEND (production / DO buildpack) ──────────────────
@@ -800,7 +933,22 @@ if (existsSync(DIST_DIR)) {
 }
 
 // ─── START SERVER ──────────────────────────────────────────────────
-app.listen(PORT, () => {
-  const entityCount = Object.values(entityStore).reduce((n, arr) => n + (Array.isArray(arr) ? arr.length : 0), 0);
-  console.log(`[voxel-api] listening on :${PORT} — FAL_KEY=${!!FAL_KEY}, entities=${entityCount}`);
-});
+// Run DB migrations FIRST (await), then listen. If the DB is unreachable we
+// still listen — non-auth routes keep working, auth returns 503 with a clear
+// message. This is intentional: a transient PG outage shouldn't take down
+// the whole API.
+function startListening() {
+  app.listen(PORT, () => {
+    const entityCount = Object.values(entityStore).reduce((n, arr) => n + (Array.isArray(arr) ? arr.length : 0), 0);
+    console.log(
+      `[voxel-api] listening on :${PORT} — FAL_KEY=${!!FAL_KEY}, db=${dbReady()}, jwt=${!!JWT_SECRET}, entities=${entityCount}`
+    );
+  });
+}
+
+migrate()
+  .then(startListening)
+  .catch((err) => {
+    console.error('[voxel-api] continuing despite migration error:', err.message);
+    startListening();
+  });
