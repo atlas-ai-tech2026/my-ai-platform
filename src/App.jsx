@@ -6,6 +6,15 @@ import { BrowserRouter as Router, Route, Routes } from 'react-router-dom';
 import PageNotFound from './lib/PageNotFound';
 import { AuthProvider, useAuth } from '@/lib/AuthContext';
 import UserNotRegisteredError from '@/components/UserNotRegisteredError';
+import AdminPanel from '@/pages/AdminPanel';
+import AdminGuard from '@/components/admin/AdminGuard';
+
+// Obscure URL for the admin panel — security through obscurity is NOT a real
+// defense, but it does keep automated scanners from probing /admin. Real
+// security is enforced in AdminGuard (JWT + role check) and on the server
+// (every /api/admin/* route requires role='admin'). Keep this string
+// unguessable enough that it doesn't appear in any sitemap or public link.
+const ADMIN_ROUTE = '/x7k9-control-panel-mh2024';
 
 const { Pages, Layout, mainPage } = pagesConfig;
 const mainPageKey = mainPage ?? Object.keys(Pages)[0];
@@ -45,6 +54,14 @@ const AuthenticatedApp = () => {
         <LayoutWrapper currentPageName={mainPageKey}>
           <MainPage />
         </LayoutWrapper>
+      } />
+      {/* Admin panel — does NOT use the LayoutWrapper (no shared chrome).
+          AdminGuard renders its own login form when no admin token is
+          present and redirects non-admins to "/". */}
+      <Route path={ADMIN_ROUTE} element={
+        <AdminGuard>
+          <AdminPanel />
+        </AdminGuard>
       } />
       {Object.entries(Pages).map(([path, Page]) => (
         <Route

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { X, Mail, Eye, EyeOff, ArrowRight } from 'lucide-react';
 import { base44 } from '@/api/base44Client';
+import { adminApi, ApiError, VOXEL_TOKEN_KEY } from '@/lib/adminApi';
 
 const font = '"DM Sans", sans-serif';
 
@@ -30,27 +31,96 @@ const MicrosoftIcon = () => (
 );
 
 export default function LoginModal({ onClose, initialMode = 'login' }) {
-  const [mode, setMode] = useState(initialMode); // 'login' | 'signup' | 'email'
+  // `view` controls layout (provider buttons vs email form).
+  // `intent` is preserved across the view switch — when the user clicks
+  // "Continue with Email" from the signup screen we still want the form to
+  // act as a signup. Without this, clicking Email always reset to login.
+  const [view, setView] = useState('options'); // 'options' | 'email'
+  const [intent, setIntent] = useState(initialMode === 'signup' ? 'signup' : 'login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPass, setShowPass] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [errorMsg, setErrorMsg] = useState('');
+  const [successMsg, setSuccessMsg] = useState('');
 
+  // Apple sign-in removed per product decision (single mobile-keyboard
+  // owner, no Apple Developer account). Google + Microsoft will be wired
+  // in a later phase via OAuth — for now those buttons are placeholders.
   const providers = [
-    { label: 'Continue with Google', icon: <GoogleIcon />, provider: 'google' },
-    { label: 'Continue with Apple', icon: <AppleIcon />, dark: true, provider: 'apple' },
+    { label: 'Continue with Google',    icon: <GoogleIcon />,    provider: 'google' },
     { label: 'Continue with Microsoft', icon: <MicrosoftIcon />, provider: 'microsoft' },
   ];
 
   const handleProviderLogin = (provider) => {
-    base44.auth.redirectToLogin(window.location.href, { provider });
+    // OAuth not yet wired. Show a friendly inline message rather than calling
+    // the dead Base44 redirect, which silently no-ops on this site.
+    setErrorMsg(`${provider[0].toUpperCase() + provider.slice(1)} sign-in is coming soon. Use email for now.`);
   };
 
+  // Show the email form. The previous version called base44.auth.redirectToLogin
+  // here, which was a leftover Base44 SDK call that does nothing on this site
+  // — so clicking the button appeared to do nothing. Now it switches views
+  // to render the email/password form already coded below.
   const handleEmailLogin = () => {
-    base44.auth.redirectToLogin(window.location.href);
+    setErrorMsg('');
+    setSuccessMsg('');
+    setView('email');
   };
 
-  const isSignup = mode === 'signup';
-  const isEmail = mode === 'email';
+  // Real submit handler. Hits our /api/auth/register or /api/auth/login
+  // (depending on intent) and stores the JWT in localStorage so the rest of
+  // the app — and the admin panel — can read it.
+  const handleEmailSubmit = async (e) => {
+    e?.preventDefault?.();
+    setErrorMsg('');
+    setSuccessMsg('');
+
+    const cleanEmail = email.trim().toLowerCase();
+    if (!cleanEmail || !password) {
+      setErrorMsg('Email and password are required.');
+      return;
+    }
+    if (intent === 'signup' && password.length < 8) {
+      setErrorMsg('Password must be at least 8 characters.');
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      const r = intent === 'signup'
+        ? await adminApi.register(cleanEmail, password)
+        : await adminApi.login(cleanEmail, password);
+
+      // Store the JWT under the same key the admin panel reads from.
+      localStorage.setItem(VOXEL_TOKEN_KEY, r.token);
+
+      if (intent === 'signup') {
+        setSuccessMsg('Account created. You can now sign in.');
+        // Brief pause so the user sees the success message, then close.
+        setTimeout(() => onClose?.(), 1200);
+      } else {
+        // Successful login — close immediately so the parent can react.
+        onClose?.();
+      }
+    } catch (err) {
+      if (err instanceof ApiError) {
+        if (err.status === 409) setErrorMsg('An account with that email already exists. Try signing in.');
+        else if (err.status === 401) setErrorMsg('Invalid email or password.');
+        else if (err.status === 429) setErrorMsg('Too many attempts. Try again in a few minutes.');
+        else if (err.status === 400) setErrorMsg(err.body?.error || 'Invalid email or password.');
+        else if (err.status === 503) setErrorMsg('Sign-in temporarily unavailable. Try again shortly.');
+        else setErrorMsg(err.body?.error || 'Sign-in failed. Try again.');
+      } else {
+        setErrorMsg('Network error. Check your connection and try again.');
+      }
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const isSignup = intent === 'signup';
+  const isEmail = view === 'email';
 
   return (
     <div
@@ -88,12 +158,14 @@ export default function LoginModal({ onClose, initialMode = 'login' }) {
 
           {/* Email/password form */}
           {isEmail ? (
-            <>
+            <form onSubmit={handleEmailSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 <div>
                   <label style={{ fontSize: 12, color: 'rgba(255,255,255,0.45)', display: 'block', marginBottom: 6 }}>Email</label>
                   <input
                     type="email"
+                    autoFocus
+                    required
                     value={email}
                     onChange={e => setEmail(e.target.value)}
                     placeholder="you@example.com"
@@ -103,10 +175,14 @@ export default function LoginModal({ onClose, initialMode = 'login' }) {
                   />
                 </div>
                 <div>
-                  <label style={{ fontSize: 12, color: 'rgba(255,255,255,0.45)', display: 'block', marginBottom: 6 }}>Password</label>
+                  <label style={{ fontSize: 12, color: 'rgba(255,255,255,0.45)', display: 'block', marginBottom: 6 }}>
+                    Password{isSignup && <span style={{ color: 'rgba(255,255,255,0.3)', marginLeft: 6 }}>(min 8 chars)</span>}
+                  </label>
                   <div style={{ position: 'relative' }}>
                     <input
                       type={showPass ? 'text' : 'password'}
+                      required
+                      minLength={isSignup ? 8 : undefined}
                       value={password}
                       onChange={e => setPassword(e.target.value)}
                       placeholder="••••••••"
@@ -115,6 +191,7 @@ export default function LoginModal({ onClose, initialMode = 'login' }) {
                       onBlur={e => e.target.style.borderColor = 'rgba(255,255,255,0.1)'}
                     />
                     <button
+                      type="button"
                       onClick={() => setShowPass(v => !v)}
                       style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,0.35)', padding: 0, display: 'flex' }}
                     >
@@ -124,19 +201,45 @@ export default function LoginModal({ onClose, initialMode = 'login' }) {
                 </div>
               </div>
 
-              <button
-                style={{ width: '100%', padding: '12px 0', borderRadius: 12, background: 'linear-gradient(135deg,#CC0000,#FF2222)', border: 'none', cursor: 'pointer', fontSize: 14, fontWeight: 700, color: '#fff', fontFamily: font, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 4 }}
-              >
-                {isSignup ? 'Create Account' : 'Sign In'} <ArrowRight size={15} />
-              </button>
+              {errorMsg && (
+                <div style={{ padding: '10px 12px', borderRadius: 9, background: 'rgba(224,30,30,0.1)', border: '1px solid rgba(224,30,30,0.4)', color: '#ff7777', fontSize: 12, marginTop: 4 }}>
+                  {errorMsg}
+                </div>
+              )}
+              {successMsg && (
+                <div style={{ padding: '10px 12px', borderRadius: 9, background: 'rgba(60,200,120,0.1)', border: '1px solid rgba(60,200,120,0.4)', color: '#88ee88', fontSize: 12, marginTop: 4 }}>
+                  {successMsg}
+                </div>
+              )}
 
               <button
-                onClick={() => setMode(isSignup ? 'signup' : 'login')}
+                type="submit"
+                disabled={submitting}
+                style={{ width: '100%', padding: '12px 0', borderRadius: 12, background: submitting ? 'rgba(139,0,0,0.5)' : 'linear-gradient(135deg,#CC0000,#FF2222)', border: 'none', cursor: submitting ? 'wait' : 'pointer', fontSize: 14, fontWeight: 700, color: '#fff', fontFamily: font, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 4 }}
+              >
+                {submitting ? 'Working…' : (isSignup ? 'Create Account' : 'Sign In')}
+                {!submitting && <ArrowRight size={15} />}
+              </button>
+
+              <p style={{ margin: '6px 0 0', fontSize: 13, color: 'rgba(255,255,255,0.35)', textAlign: 'center' }}>
+                {isSignup ? 'Already have an account? ' : "Don't have an account? "}
+                <button
+                  type="button"
+                  onClick={() => { setIntent(isSignup ? 'login' : 'signup'); setErrorMsg(''); setSuccessMsg(''); }}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, color: '#FF4444', fontFamily: font, padding: 0, fontWeight: 600 }}
+                >
+                  {isSignup ? 'Sign in' : 'Sign up'}
+                </button>
+              </p>
+
+              <button
+                type="button"
+                onClick={() => { setView('options'); setErrorMsg(''); setSuccessMsg(''); }}
                 style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, color: 'rgba(255,255,255,0.35)', fontFamily: font, textAlign: 'center', marginTop: 2 }}
               >
                 ← Back to options
               </button>
-            </>
+            </form>
           ) : (
             <>
               {/* Provider buttons */}
@@ -171,11 +274,18 @@ export default function LoginModal({ onClose, initialMode = 'login' }) {
                 <span style={{ flex: 1, textAlign: 'left' }}>Continue with Email</span>
               </button>
 
+              {/* Surface a friendly message if a provider was clicked but isn't wired yet. */}
+              {errorMsg && (
+                <div style={{ padding: '10px 12px', borderRadius: 9, background: 'rgba(255,200,50,0.08)', border: '1px solid rgba(255,200,50,0.3)', color: '#ffcc66', fontSize: 12 }}>
+                  {errorMsg}
+                </div>
+              )}
+
               {/* Toggle login/signup */}
               <p style={{ margin: '6px 0 0', fontSize: 13, color: 'rgba(255,255,255,0.35)', textAlign: 'center' }}>
                 {isSignup ? 'Already have an account? ' : "Don't have an account? "}
                 <button
-                  onClick={() => setMode(isSignup ? 'login' : 'signup')}
+                  onClick={() => { setIntent(isSignup ? 'login' : 'signup'); setErrorMsg(''); }}
                   style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, color: '#FF4444', fontFamily: font, padding: 0, fontWeight: 600 }}
                 >
                   {isSignup ? 'Sign in' : 'Sign up'}

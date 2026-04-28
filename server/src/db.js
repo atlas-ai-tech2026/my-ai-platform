@@ -57,16 +57,28 @@ if (pool) {
   });
 }
 
+// Email of the single admin user. Promoted to role='admin' on every boot
+// (idempotent — only updates if the row exists and isn't already admin).
+// Configurable via env so we can flip admins without a code change.
+export const ADMIN_EMAIL = (process.env.ADMIN_EMAIL || 'info@voxel-ai.ai')
+  .trim()
+  .toLowerCase();
+
 // Run migrations once at boot. Idempotent — safe to call on every start.
-// Using `IF NOT EXISTS` so deploys never break on already-migrated databases.
+// All wrapped in a single transaction so a partial failure can't leave the
+// schema half-migrated.
 export async function migrate() {
   if (!pool) {
     console.warn('[db] DATABASE_URL not set — skipping migrations. Auth routes will return 503.');
     return;
   }
 
+  const client = await pool.connect();
   try {
-    await pool.query(`
+    await client.query('BEGIN');
+
+    // ─── users (base table) ─────────────────────────────────────────
+    await client.query(`
       CREATE TABLE IF NOT EXISTS users (
         id            SERIAL       PRIMARY KEY,
         email         VARCHAR(255) NOT NULL UNIQUE,
@@ -76,16 +88,94 @@ export async function migrate() {
         created_at    TIMESTAMPTZ  NOT NULL DEFAULT NOW()
       );
     `);
+    await client.query(`CREATE INDEX IF NOT EXISTS users_email_idx ON users (email);`);
 
-    // Lower-case email lookups should hit an index. Email is already UNIQUE,
-    // but the unique index is on the exact-case value; we always store lower.
-    await pool.query(`CREATE INDEX IF NOT EXISTS users_email_idx ON users (email);`);
+    // ─── users column upgrades (idempotent) ─────────────────────────
+    // Switch credits to NUMERIC(10,2) so future per-image cost of 1.5 works
+    // without another migration. Casting via USING is a no-op for existing
+    // INTEGER values.
+    await client.query(`
+      DO $$
+      BEGIN
+        IF (SELECT data_type FROM information_schema.columns
+            WHERE table_name='users' AND column_name='credits') = 'integer' THEN
+          ALTER TABLE users ALTER COLUMN credits TYPE NUMERIC(10,2)
+            USING credits::NUMERIC(10,2);
+        END IF;
+      END $$;
+    `);
+    await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS banned        BOOLEAN     NOT NULL DEFAULT FALSE;`);
+    await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS package       VARCHAR(64);`);
+    await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMPTZ;`);
+    await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_ip INET;`);
 
-    console.log('[db] migrations ok — users table ready');
+    // ─── credits_history ────────────────────────────────────────────
+    // Append-only audit of every credit movement. amount is signed:
+    // positive = grant/refund, negative = spend/revoke.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS credits_history (
+        id            SERIAL PRIMARY KEY,
+        user_id       INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        amount        NUMERIC(10,2) NOT NULL,
+        action        VARCHAR(32)   NOT NULL,
+        admin_email   VARCHAR(255),
+        reason        TEXT,
+        ip_address    INET,
+        created_at    TIMESTAMPTZ   NOT NULL DEFAULT NOW()
+      );
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS credits_history_user_idx ON credits_history (user_id, created_at DESC);`);
+
+    // ─── admin_audit_log ────────────────────────────────────────────
+    // Every admin API call is logged here. Used for "who did what / from
+    // where / when" investigations and for the "Last admin login" banner.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS admin_audit_log (
+        id              SERIAL PRIMARY KEY,
+        admin_id        INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        admin_email     VARCHAR(255) NOT NULL,
+        route           VARCHAR(255) NOT NULL,
+        method          VARCHAR(8)   NOT NULL,
+        target_user_id  INTEGER,
+        payload_summary JSONB,
+        ip_address      INET,
+        user_agent      TEXT,
+        created_at      TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+      );
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS admin_audit_recent_idx ON admin_audit_log (created_at DESC);`);
+
+    // ─── failed_logins ──────────────────────────────────────────────
+    // Per-IP failed login tracking for brute-force throttling.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS failed_logins (
+        id          SERIAL PRIMARY KEY,
+        email       VARCHAR(255),
+        ip_address  INET NOT NULL,
+        user_agent  TEXT,
+        created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS failed_logins_ip_recent_idx ON failed_logins (ip_address, created_at DESC);`);
+
+    // ─── one-shot admin promotion ───────────────────────────────────
+    const promoted = await client.query(
+      `UPDATE users SET role = 'admin' WHERE email = $1 AND role <> 'admin' RETURNING id`,
+      [ADMIN_EMAIL]
+    );
+    if (promoted.rowCount > 0) {
+      console.log(`[db] promoted ${ADMIN_EMAIL} → role=admin`);
+    }
+
+    await client.query('COMMIT');
+    console.log('[db] migrations ok — users + credits_history + admin_audit_log + failed_logins ready');
   } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
     console.error('[db] migration FAILED:', err.message);
     // Don't crash the process — let other routes keep serving. Auth will 503
     // until the DB is reachable.
     throw err;
+  } finally {
+    client.release();
   }
 }
