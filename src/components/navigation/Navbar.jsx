@@ -156,7 +156,32 @@ function CreditButton({ user }) {
             }}>{pkg}</div>
           </div>
 
-          <div style={{ height: 18 }} />
+          {/* Signed-in identity row — replaces the old "Renews on" line.
+              Tells the user which account they're logged in with so they
+              don't accidentally top up the wrong inbox. The email truncates
+              with ellipsis so long addresses don't blow out the popover. */}
+          <div style={{
+            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+            gap: 10, padding: '11px 13px',
+            background: 'rgba(255,255,255,0.04)',
+            border: '1px solid rgba(255,255,255,0.08)',
+            borderRadius: 10, marginBottom: 14,
+          }}>
+            <span style={{ fontSize: 11.5, color: 'rgba(255,255,255,0.6)', flexShrink: 0 }}>
+              Signed in as
+            </span>
+            <span
+              style={{
+                fontSize: 11.5, color: '#FFF',
+                fontFamily: '"JetBrains Mono", monospace',
+                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                minWidth: 0,
+              }}
+              title={user?.email || ''}
+            >
+              {user?.email || '—'}
+            </span>
+          </div>
 
           <Link
             to={createPageUrl('Pricing')}
