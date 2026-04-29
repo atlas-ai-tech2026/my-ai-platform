@@ -5,7 +5,7 @@ import { pagesConfig } from './pages.config'
 import { BrowserRouter as Router, Route, Routes } from 'react-router-dom';
 import PageNotFound from './lib/PageNotFound';
 import { AuthProvider, useAuth } from '@/lib/AuthContext';
-import UserNotRegisteredError from '@/components/UserNotRegisteredError';
+import LoginModal from '@/components/auth/LoginModal';
 import AdminPanel from '@/pages/AdminPanel';
 import AdminGuard from '@/components/admin/AdminGuard';
 
@@ -24,30 +24,25 @@ const LayoutWrapper = ({ children, currentPageName }) => Layout ?
   <Layout currentPageName={currentPageName}>{children}</Layout>
   : <>{children}</>;
 
+// One LoginModal mounted at app level, controlled by AuthContext. Anywhere
+// in the tree that calls `useAuth().openAuthModal('signup' | 'login')` will
+// pop this modal — including Image/Video generate handlers and the navbar.
+const GlobalAuthModal = () => {
+  const { authModalMode, closeAuthModal, handleAuthSuccess } = useAuth();
+  if (!authModalMode) return null;
+  return (
+    <LoginModal
+      initialMode={authModalMode}
+      onClose={closeAuthModal}
+      onSuccess={handleAuthSuccess}
+    />
+  );
+};
+
 const AuthenticatedApp = () => {
-  const { isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin } = useAuth();
-
-  // Show loading spinner while checking app public settings or auth
-  if (isLoadingPublicSettings || isLoadingAuth) {
-    return (
-      <div className="fixed inset-0 flex items-center justify-center">
-        <div className="w-8 h-8 border-4 border-slate-200 border-t-slate-800 rounded-full animate-spin"></div>
-      </div>
-    );
-  }
-
-  // Handle authentication errors
-  if (authError) {
-    if (authError.type === 'user_not_registered') {
-      return <UserNotRegisteredError />;
-    } else if (authError.type === 'auth_required') {
-      // Redirect to login automatically
-      navigateToLogin();
-      return null;
-    }
-  }
-
-  // Render the main app
+  // Note: we intentionally do NOT block the public site on auth state.
+  // Unauthenticated visitors can browse Explore/Image/Video/etc.; the
+  // sign-up wall fires only when they try to actually generate.
   return (
     <Routes>
       <Route path="/" element={
@@ -87,6 +82,7 @@ function App() {
       <QueryClientProvider client={queryClientInstance}>
         <Router>
           <AuthenticatedApp />
+          <GlobalAuthModal />
         </Router>
         <Toaster />
       </QueryClientProvider>

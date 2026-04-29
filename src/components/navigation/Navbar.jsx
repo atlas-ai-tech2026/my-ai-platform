@@ -2,9 +2,9 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import VoxelLogo from '../VoxelLogo';
-import { Menu, X } from 'lucide-react';
+import { Menu, X, LogOut } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import LoginModal from '../auth/LoginModal';
+import { useAuth } from '@/lib/AuthContext';
 
 // ─── Credit Button ──────────────────────────────────────────────────────────
 // Dark circle body + red progress ring around it + red ✦ glyph inside.
@@ -222,11 +222,36 @@ const secondaryNavItems = [
   { name: 'Pricing', path: 'Pricing' },
 ];
 
+// Compact "you're signed in" pill: shows the local-part of the email and a
+// log-out icon. Replaces the Login + Sign Up buttons once the user is
+// authenticated so signups produce visible feedback (the previous version
+// always rendered the login buttons, which made successful signups feel
+// like nothing happened).
+function UserPill({ email, onLogout }) {
+  const localPart = (email || '').split('@')[0] || 'account';
+  return (
+    <div className="flex items-center gap-2 pl-3 pr-2 py-1.5 rounded-full border border-border bg-background-secondary">
+      <span className="text-sm font-medium text-white truncate max-w-[140px]" title={email}>
+        {localPart}
+      </span>
+      <button
+        type="button"
+        onClick={onLogout}
+        className="p-1 rounded-full hover:bg-muted text-foreground-muted hover:text-white transition-colors"
+        aria-label="Sign out"
+        title="Sign out"
+      >
+        <LogOut size={14} />
+      </button>
+    </div>
+  );
+}
+
 export default function Navbar() {
   const location = useLocation();
   const [scrolled, setScrolled] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [authModal, setAuthModal] = useState(null); // 'login' | 'signup'
+  const { user, isAuthenticated, openAuthModal, logout } = useAuth();
 
   useEffect(() => {
     const handleScroll = () => {
@@ -311,12 +336,18 @@ export default function Navbar() {
 
           {/* Auth Buttons + Credit */}
           <div className="hidden lg:flex items-center gap-3">
-            <Button variant="ghost" className="text-foreground-secondary hover:text-white" onClick={() => setAuthModal('login')}>
-              Login
-            </Button>
-            <Button className="bg-primary hover:bg-primary-hover text-white" onClick={() => setAuthModal('signup')}>
-              Sign Up →
-            </Button>
+            {isAuthenticated ? (
+              <UserPill email={user?.email} onLogout={logout} />
+            ) : (
+              <>
+                <Button variant="ghost" className="text-foreground-secondary hover:text-white" onClick={() => openAuthModal('login')}>
+                  Login
+                </Button>
+                <Button className="bg-primary hover:bg-primary-hover text-white" onClick={() => openAuthModal('signup')}>
+                  Sign Up →
+                </Button>
+              </>
+            )}
             <CreditButton credits={40000} total={50000} renewsOn="May 15, 2026" plan="PRO" />
           </div>
 
@@ -369,25 +400,24 @@ export default function Navbar() {
             
             <div className="h-px bg-border my-2" />
             
-            <div className="flex gap-2 pt-2">
-              <Button variant="outline" className="flex-1 border-border text-white" onClick={() => { setMobileOpen(false); setAuthModal('login'); }}>
-                Login
-              </Button>
-              <Button className="flex-1 bg-primary hover:bg-primary-hover text-white" onClick={() => { setMobileOpen(false); setAuthModal('signup'); }}>
-                Sign Up
-              </Button>
-            </div>
+            {isAuthenticated ? (
+              <div className="flex items-center justify-between gap-2 pt-2 px-2">
+                <UserPill email={user?.email} onLogout={() => { setMobileOpen(false); logout(); }} />
+              </div>
+            ) : (
+              <div className="flex gap-2 pt-2">
+                <Button variant="outline" className="flex-1 border-border text-white" onClick={() => { setMobileOpen(false); openAuthModal('login'); }}>
+                  Login
+                </Button>
+                <Button className="flex-1 bg-primary hover:bg-primary-hover text-white" onClick={() => { setMobileOpen(false); openAuthModal('signup'); }}>
+                  Sign Up
+                </Button>
+              </div>
+            )}
           </div>
         </div>
       )}
     </nav>
-
-    {authModal && (
-      <LoginModal
-        initialMode={authModal}
-        onClose={() => setAuthModal(null)}
-      />
-    )}
     </>
   );
 }

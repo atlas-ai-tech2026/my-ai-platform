@@ -9,10 +9,25 @@ import SeedanceLeftPanel from '@/components/video/SeedanceLeftPanel';
 import SeedanceRightPanel from '@/components/video/SeedanceRightPanel';
 import { toast } from 'sonner';
 import { prepareImageForFal } from '@/lib/uploadToFal';
+import { useAuth } from '@/lib/AuthContext';
+import { VOXEL_TOKEN_KEY } from '@/lib/adminApi';
+
+// /api/generate-video and /api/generate-video-ref both go through verifyJwt
+// on the server. The raw fetch calls in this file don't go through the
+// axios client that auto-attaches the bearer token, so we build the
+// auth-aware headers explicitly.
+function authJsonHeaders() {
+  const token = localStorage.getItem(VOXEL_TOKEN_KEY);
+  return {
+    'Content-Type': 'application/json',
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  };
+}
 
 const DEFAULT_MODEL = { id: 'kling-3', name: 'Kling 3.0', brand: 'Kling', color: '#2563EB' };
 
 export default function Video() {
+  const { isAuthenticated, openAuthModal } = useAuth();
   const [prompt, setPrompt] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
   const [count, setCount] = useState(1);
@@ -119,6 +134,11 @@ export default function Video() {
   // ─── Standard video generate ───
   const handleGenerate = async () => {
     if (!prompt.trim()) { toast.error('Please enter a prompt'); return; }
+    if (!isAuthenticated) {
+      toast.info('Sign up to start generating — it takes 10 seconds.');
+      openAuthModal('signup');
+      return;
+    }
     setIsGenerating(true);
     try {
       let imageUrl = null;
@@ -133,7 +153,7 @@ export default function Video() {
 
       const response = await fetch('/api/generate-video', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: authJsonHeaders(),
         body: JSON.stringify({
           model: model.name, prompt: finalPrompt,
           duration: parseInt(duration) || 5,
@@ -273,6 +293,11 @@ export default function Video() {
   //   Images as start/end frame → image-to-video (start_frame, end_frame)
   const handleSeedanceGenerate = async () => {
     if (!prompt.trim()) { toast.error('Please enter a prompt'); return; }
+    if (!isAuthenticated) {
+      toast.info('Sign up to start generating — it takes 10 seconds.');
+      openAuthModal('signup');
+      return;
+    }
     setIsGenerating(true);
     try {
       const readyImages = seedanceMedia.images.filter(i => i.url && (i.status === 'uploaded' || i.status === 'approved'));
@@ -320,7 +345,7 @@ export default function Video() {
 
       const response = await fetch('/api/generate-video-ref', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: authJsonHeaders(),
         body: JSON.stringify(body),
       });
 

@@ -1,90 +1,98 @@
-import React, { createContext, useState, useContext, useEffect } from 'react';
-import { base44 } from '@/api/base44Client';
+import React, { createContext, useState, useContext, useEffect, useCallback } from 'react';
+import { VOXEL_TOKEN_KEY } from '@/lib/adminApi';
 
-const AuthContext = createContext();
+// Single source of truth for the public site's auth state.
+//
+// Responsibilities:
+//   1. Read the JWT from localStorage on mount and resolve the current user
+//      via GET /api/auth/me (the same endpoint the admin panel uses).
+//   2. Hold the global "auth modal" state so that any component — Navbar,
+//      Image/Video generate handlers, etc. — can pop the sign-up/sign-in
+//      modal with `openAuthModal('signup' | 'login')` instead of each page
+//      re-implementing its own modal state.
+//   3. Expose `handleAuthSuccess()` for the modal to call after a successful
+//      register/login so the rest of the app re-reads /me and the navbar
+//      flips from "Sign Up / Login" to the user's email + Sign Out.
+//
+// Previous version called dead `base44.auth.*` SDK methods (Base44 was
+// removed from the project) which silently no-op'd, so signups appeared to
+// "do nothing" — modal closed but the navbar never updated.
+
+const AuthContext = createContext(null);
+
+async function fetchMe() {
+  const token = localStorage.getItem(VOXEL_TOKEN_KEY);
+  if (!token) return null;
+  let res;
+  try {
+    res = await fetch('/api/auth/me', {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+  } catch (err) {
+    console.error('[auth] /me network error:', err.message);
+    return null;
+  }
+  if (res.status === 401 || res.status === 403) {
+    // Token invalid/expired — drop it so the user sees the unauthenticated UI.
+    localStorage.removeItem(VOXEL_TOKEN_KEY);
+    return null;
+  }
+  if (!res.ok) {
+    console.error('[auth] /me unexpected status:', res.status);
+    return null;
+  }
+  const data = await res.json().catch(() => null);
+  return data?.user || null;
+}
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isLoadingAuth, setIsLoadingAuth] = useState(true);
-  const [isLoadingPublicSettings, setIsLoadingPublicSettings] = useState(false);
-  const [authError, setAuthError] = useState(null);
-  const [appPublicSettings, setAppPublicSettings] = useState({});
+  // 'login' | 'signup' | null
+  const [authModalMode, setAuthModalMode] = useState(null);
 
-  useEffect(() => {
-    checkAppState();
+  const refresh = useCallback(async () => {
+    const u = await fetchMe();
+    setUser(u);
+    setIsLoadingAuth(false);
   }, []);
 
-  const checkAppState = async () => {
-    try {
-      setIsLoadingAuth(true);
-      setAuthError(null);
+  useEffect(() => { refresh(); }, [refresh]);
 
-      const token = localStorage.getItem('voxel_token');
-      if (token) {
-        await checkUserAuth();
-      } else {
-        setIsLoadingAuth(false);
-        setIsAuthenticated(false);
-      }
-    } catch (error) {
-      console.error('Unexpected error:', error);
-      setAuthError({
-        type: 'unknown',
-        message: error.message || 'An unexpected error occurred'
-      });
-      setIsLoadingAuth(false);
-    }
-  };
+  const openAuthModal = useCallback((mode = 'login') => {
+    setAuthModalMode(mode === 'signup' ? 'signup' : 'login');
+  }, []);
 
-  const checkUserAuth = async () => {
-    try {
-      setIsLoadingAuth(true);
-      const currentUser = await base44.auth.me();
-      if (currentUser) {
-        setUser(currentUser);
-        setIsAuthenticated(true);
-      } else {
-        setIsAuthenticated(false);
-      }
-      setIsLoadingAuth(false);
-    } catch (error) {
-      console.error('User auth check failed:', error);
-      setIsLoadingAuth(false);
-      setIsAuthenticated(false);
+  const closeAuthModal = useCallback(() => {
+    setAuthModalMode(null);
+  }, []);
 
-      if (error?.response?.status === 401 || error?.response?.status === 403) {
-        localStorage.removeItem('voxel_token');
-        localStorage.removeItem('voxel_user');
-        setAuthError({
-          type: 'auth_required',
-          message: 'Authentication required'
-        });
-      }
-    }
-  };
+  // The modal calls this after a successful register/login — it has already
+  // stashed the JWT in localStorage. We re-fetch /me so the user object
+  // reflects server-side fields (credits, role, package) instead of trusting
+  // anything the modal passed us.
+  const handleAuthSuccess = useCallback(async () => {
+    await refresh();
+    setAuthModalMode(null);
+  }, [refresh]);
 
-  const logout = (shouldRedirect = true) => {
+  const logout = useCallback(() => {
+    localStorage.removeItem(VOXEL_TOKEN_KEY);
+    localStorage.removeItem('voxel_user');
     setUser(null);
-    setIsAuthenticated(false);
-    base44.auth.logout(shouldRedirect ? window.location.href : undefined);
-  };
-
-  const navigateToLogin = () => {
-    base44.auth.redirectToLogin(window.location.href);
-  };
+  }, []);
 
   return (
     <AuthContext.Provider value={{
       user,
-      isAuthenticated,
+      isAuthenticated: !!user,
       isLoadingAuth,
-      isLoadingPublicSettings,
-      authError,
-      appPublicSettings,
+      authModalMode,
+      openAuthModal,
+      closeAuthModal,
+      handleAuthSuccess,
+      refresh,
       logout,
-      navigateToLogin,
-      checkAppState
     }}>
       {children}
     </AuthContext.Provider>
