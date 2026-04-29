@@ -19,6 +19,7 @@ import TemplateModal from '@/components/common/TemplateModal';
 import ImageDetailModal from '@/components/image/ImageDetailModal';
 import { History, Globe, Heart, Download, RefreshCw, Maximize2, Sparkles, X } from 'lucide-react';
 import { toast } from 'sonner';
+import { useAuth } from '@/lib/AuthContext';
 
 const MODEL_SUBTITLES = {
   'Nano Banana Pro': 'Create stunning, high-aesthetic images in seconds',
@@ -212,6 +213,7 @@ function ImageCard({ img, index, onExpand, onLoaded }) {
 }
 
 export default function Image() {
+  const { isAuthenticated, openAuthModal, refresh: refreshAuth } = useAuth();
   const [selectedModel, setSelectedModel] = useState({ id: 'nano-pro', name: 'Nano Banana Pro' });
   const [prompt, setPrompt] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
@@ -260,6 +262,14 @@ export default function Image() {
 
   const handleGenerate = async () => {
     if (!prompt.trim()) { toast.error('Please enter a prompt'); return; }
+    // Sign-up wall: an unauthenticated user clicking Generate gets the
+    // sign-up modal instead of a silent backend 401. The modal closes on
+    // success and they can hit Generate again.
+    if (!isAuthenticated) {
+      toast.info('Sign up to start generating — it takes 10 seconds.');
+      openAuthModal('signup');
+      return;
+    }
     setIsGenerating(true);
     setActiveTab('history');
     try {
@@ -353,9 +363,17 @@ export default function Image() {
       } else {
         toast.error('Generation failed — please try again');
       }
+      // Pull the post-charge balance into the navbar pill. Fire-and-forget;
+      // the next /api/auth/me round-trip will reflect the deduction. Also
+      // safe to call when generation failed — it'll just return the
+      // unchanged balance.
+      refreshAuth();
     } catch (err) {
       console.error('[Generate] ❌ Error:', err);
       toast.error(err.message || 'Generation failed — please try again');
+      // If the throw was from a 402 InsufficientCredits, refreshing also
+      // makes sure the displayed balance matches what the server thinks.
+      refreshAuth();
     } finally {
       setIsGenerating(false);
     }

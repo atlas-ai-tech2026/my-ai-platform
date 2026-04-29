@@ -2,20 +2,26 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import VoxelLogo from '../VoxelLogo';
-import { Menu, X } from 'lucide-react';
+import { Menu, X, LogOut } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import LoginModal from '../auth/LoginModal';
+import { useAuth } from '@/lib/AuthContext';
 
 // ─── Credit Button ──────────────────────────────────────────────────────────
 // Dark circle body + red progress ring around it + red ✦ glyph inside.
-// The ring's bright arc depletes clockwise as credits are used.
-function CreditButton({ credits = 40000, total = 50000, renewsOn = 'May 15, 2026', plan = 'PRO' }) {
+// Reads the live balance off the AuthContext user object. We deliberately
+// do NOT show a "X of N total" or "renews on" line — there is no credit
+// cap or renewal date in the schema yet (no packages table, no Stripe).
+// The ring is full when balance > 0, empty at zero — once a real cap
+// exists, replace `pctRemaining` with `balance / cap`.
+function CreditButton({ user }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
 
-  const remaining = credits;
-  const used = Math.max(0, total - remaining);
-  const pctRemaining = Math.min(1, Math.max(0, remaining / total));
+  // Postgres NUMERIC arrives as a string ("0.00", "20.00"); coerce.
+  const balance = Number(user?.credits || 0);
+  const remaining = Math.floor(balance);
+  const pkg = user?.package || 'Free';
+  const pctRemaining = balance > 0 ? 1 : 0;
 
   useEffect(() => {
     const onDoc = (e) => {
@@ -29,9 +35,6 @@ function CreditButton({ credits = 40000, total = 50000, renewsOn = 'May 15, 2026
   const redHot = '#FF2A2A';
   const C = 22;
   const CIRC = 2 * Math.PI * C;
-  // Ring represents REMAINING credits. Full balance → full ring.
-  // As credits are consumed the bright arc shrinks clockwise, "running out"
-  // as the user runs out. Empty balance → no ring.
   const dashOffset = CIRC * (1 - pctRemaining);
 
   return (
@@ -142,7 +145,7 @@ function CreditButton({ credits = 40000, total = 50000, renewsOn = 'May 15, 2026
                 {remaining.toLocaleString()}
               </div>
               <div style={{ fontSize: 11.5, color: 'rgba(255,255,255,0.5)', marginTop: 5 }}>
-                of {total.toLocaleString()} total
+                {remaining === 0 ? 'No credits left' : 'available to spend'}
               </div>
             </div>
             <div style={{
@@ -150,37 +153,33 @@ function CreditButton({ credits = 40000, total = 50000, renewsOn = 'May 15, 2026
               background: 'rgba(224,30,30,0.15)',
               border: `1px solid ${red}`, color: red,
               letterSpacing: '0.08em', textTransform: 'uppercase',
-            }}>{plan}</div>
+            }}>{pkg}</div>
           </div>
 
-          <div style={{ height: 6, background: 'rgba(255,255,255,0.06)', borderRadius: 999, overflow: 'hidden', marginBottom: 8 }}>
-            <div style={{
-              height: '100%',
-              width: `${pctRemaining * 100}%`,
-              background: `linear-gradient(90deg, ${redHot}, ${red})`,
-              borderRadius: 999,
-              boxShadow: `0 0 12px ${red}`,
-            }} />
-          </div>
-          <div style={{
-            display: 'flex', justifyContent: 'space-between',
-            fontSize: 10.5, fontFamily: '"JetBrains Mono", monospace',
-            color: 'rgba(255,255,255,0.5)', marginBottom: 18,
-          }}>
-            <span>{used.toLocaleString()} used</span>
-            <span>{Math.round(pctRemaining * 100)}% remaining</span>
-          </div>
-
+          {/* Signed-in identity row — replaces the old "Renews on" line.
+              Tells the user which account they're logged in with so they
+              don't accidentally top up the wrong inbox. The email truncates
+              with ellipsis so long addresses don't blow out the popover. */}
           <div style={{
             display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-            padding: '11px 13px',
+            gap: 10, padding: '11px 13px',
             background: 'rgba(255,255,255,0.04)',
             border: '1px solid rgba(255,255,255,0.08)',
             borderRadius: 10, marginBottom: 14,
           }}>
-            <span style={{ fontSize: 11.5, color: 'rgba(255,255,255,0.6)' }}>Renews on</span>
-            <span style={{ fontSize: 11.5, color: '#FFF', fontFamily: '"JetBrains Mono", monospace' }}>
-              {renewsOn}
+            <span style={{ fontSize: 11.5, color: 'rgba(255,255,255,0.6)', flexShrink: 0 }}>
+              Signed in as
+            </span>
+            <span
+              style={{
+                fontSize: 11.5, color: '#FFF',
+                fontFamily: '"JetBrains Mono", monospace',
+                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                minWidth: 0,
+              }}
+              title={user?.email || ''}
+            >
+              {user?.email || '—'}
             </span>
           </div>
 
@@ -222,11 +221,36 @@ const secondaryNavItems = [
   { name: 'Pricing', path: 'Pricing' },
 ];
 
+// Compact "you're signed in" pill: shows the local-part of the email and a
+// log-out icon. Replaces the Login + Sign Up buttons once the user is
+// authenticated so signups produce visible feedback (the previous version
+// always rendered the login buttons, which made successful signups feel
+// like nothing happened).
+function UserPill({ email, onLogout }) {
+  const localPart = (email || '').split('@')[0] || 'account';
+  return (
+    <div className="flex items-center gap-2 pl-3 pr-2 py-1.5 rounded-full border border-border bg-background-secondary">
+      <span className="text-sm font-medium text-white truncate max-w-[140px]" title={email}>
+        {localPart}
+      </span>
+      <button
+        type="button"
+        onClick={onLogout}
+        className="p-1 rounded-full hover:bg-muted text-foreground-muted hover:text-white transition-colors"
+        aria-label="Sign out"
+        title="Sign out"
+      >
+        <LogOut size={14} />
+      </button>
+    </div>
+  );
+}
+
 export default function Navbar() {
   const location = useLocation();
   const [scrolled, setScrolled] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [authModal, setAuthModal] = useState(null); // 'login' | 'signup'
+  const { user, isAuthenticated, openAuthModal, logout } = useAuth();
 
   useEffect(() => {
     const handleScroll = () => {
@@ -311,13 +335,21 @@ export default function Navbar() {
 
           {/* Auth Buttons + Credit */}
           <div className="hidden lg:flex items-center gap-3">
-            <Button variant="ghost" className="text-foreground-secondary hover:text-white" onClick={() => setAuthModal('login')}>
-              Login
-            </Button>
-            <Button className="bg-primary hover:bg-primary-hover text-white" onClick={() => setAuthModal('signup')}>
-              Sign Up →
-            </Button>
-            <CreditButton credits={40000} total={50000} renewsOn="May 15, 2026" plan="PRO" />
+            {isAuthenticated ? (
+              <>
+                <UserPill email={user?.email} onLogout={logout} />
+                <CreditButton user={user} />
+              </>
+            ) : (
+              <>
+                <Button variant="ghost" className="text-foreground-secondary hover:text-white" onClick={() => openAuthModal('login')}>
+                  Login
+                </Button>
+                <Button className="bg-primary hover:bg-primary-hover text-white" onClick={() => openAuthModal('signup')}>
+                  Sign Up →
+                </Button>
+              </>
+            )}
           </div>
 
           {/* Mobile Menu Button */}
@@ -369,25 +401,24 @@ export default function Navbar() {
             
             <div className="h-px bg-border my-2" />
             
-            <div className="flex gap-2 pt-2">
-              <Button variant="outline" className="flex-1 border-border text-white" onClick={() => { setMobileOpen(false); setAuthModal('login'); }}>
-                Login
-              </Button>
-              <Button className="flex-1 bg-primary hover:bg-primary-hover text-white" onClick={() => { setMobileOpen(false); setAuthModal('signup'); }}>
-                Sign Up
-              </Button>
-            </div>
+            {isAuthenticated ? (
+              <div className="flex items-center justify-between gap-2 pt-2 px-2">
+                <UserPill email={user?.email} onLogout={() => { setMobileOpen(false); logout(); }} />
+              </div>
+            ) : (
+              <div className="flex gap-2 pt-2">
+                <Button variant="outline" className="flex-1 border-border text-white" onClick={() => { setMobileOpen(false); openAuthModal('login'); }}>
+                  Login
+                </Button>
+                <Button className="flex-1 bg-primary hover:bg-primary-hover text-white" onClick={() => { setMobileOpen(false); openAuthModal('signup'); }}>
+                  Sign Up
+                </Button>
+              </div>
+            )}
           </div>
         </div>
       )}
     </nav>
-
-    {authModal && (
-      <LoginModal
-        initialMode={authModal}
-        onClose={() => setAuthModal(null)}
-      />
-    )}
     </>
   );
 }

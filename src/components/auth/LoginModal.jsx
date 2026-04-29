@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import { X, Mail, Eye, EyeOff, ArrowRight } from 'lucide-react';
-import { base44 } from '@/api/base44Client';
 import { adminApi, ApiError, VOXEL_TOKEN_KEY } from '@/lib/adminApi';
 
 const font = '"DM Sans", sans-serif';
@@ -30,7 +29,10 @@ const MicrosoftIcon = () => (
   </svg>
 );
 
-export default function LoginModal({ onClose, initialMode = 'login' }) {
+// `onSuccess` is the AuthContext callback that re-fetches /api/auth/me and
+// closes the modal. Falls back to plain `onClose` when not provided so the
+// admin panel and any other ad-hoc caller still works.
+export default function LoginModal({ onClose, onSuccess, initialMode = 'login' }) {
   // `view` controls layout (provider buttons vs email form).
   // `intent` is preserved across the view switch — when the user clicks
   // "Continue with Email" from the signup screen we still want the form to
@@ -95,13 +97,17 @@ export default function LoginModal({ onClose, initialMode = 'login' }) {
       // Store the JWT under the same key the admin panel reads from.
       localStorage.setItem(VOXEL_TOKEN_KEY, r.token);
 
+      // Notify the AuthProvider so the navbar flips to the user's email and
+      // any pending generate flow can proceed. If no onSuccess (legacy
+      // call-sites), fall back to closing the modal.
+      const finish = onSuccess || onClose;
+
       if (intent === 'signup') {
-        setSuccessMsg('Account created. You can now sign in.');
-        // Brief pause so the user sees the success message, then close.
-        setTimeout(() => onClose?.(), 1200);
+        setSuccessMsg("Account created. You're signed in.");
+        // Brief pause so the user sees the success message, then refresh.
+        setTimeout(() => finish?.(), 800);
       } else {
-        // Successful login — close immediately so the parent can react.
-        onClose?.();
+        finish?.();
       }
     } catch (err) {
       if (err instanceof ApiError) {
