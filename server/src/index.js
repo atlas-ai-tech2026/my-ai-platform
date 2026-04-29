@@ -1136,6 +1136,25 @@ app.post('/api/auth/login', authLimiter, requireAuthInfra, async (req, res) => {
   }
 });
 
+// ─── /api/auth/me ──────────────────────────────────────────────────
+// Returns the current user based on the JWT. Reads fresh from DB so
+// credits/ban/role reflect the latest state, not what was baked into
+// the token at login time.
+app.get('/api/auth/me', verifyJwt, async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, email, credits, role, banned, package, created_at
+         FROM users WHERE id = $1`,
+      [req.user.id]
+    );
+    if (!rows[0]) return res.status(401).json({ error: 'Account no longer exists.' });
+    res.json({ user: rows[0] });
+  } catch (err) {
+    console.error('[auth/me] error:', err);
+    res.status(500).json({ error: 'Failed to load user.' });
+  }
+});
+
 // ─── ADMIN: AUDIT MIDDLEWARE ───────────────────────────────────────
 // Runs after verifyJwt + requireAdmin. Records the call into admin_audit_log
 // BEFORE the route handler runs so even routes that throw still leave a
