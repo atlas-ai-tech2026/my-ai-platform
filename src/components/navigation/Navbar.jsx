@@ -8,14 +8,20 @@ import { useAuth } from '@/lib/AuthContext';
 
 // ─── Credit Button ──────────────────────────────────────────────────────────
 // Dark circle body + red progress ring around it + red ✦ glyph inside.
-// The ring's bright arc depletes clockwise as credits are used.
-function CreditButton({ credits = 40000, total = 50000, renewsOn = 'May 15, 2026', plan = 'PRO' }) {
+// Reads the live balance off the AuthContext user object. We deliberately
+// do NOT show a "X of N total" or "renews on" line — there is no credit
+// cap or renewal date in the schema yet (no packages table, no Stripe).
+// The ring is full when balance > 0, empty at zero — once a real cap
+// exists, replace `pctRemaining` with `balance / cap`.
+function CreditButton({ user }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
 
-  const remaining = credits;
-  const used = Math.max(0, total - remaining);
-  const pctRemaining = Math.min(1, Math.max(0, remaining / total));
+  // Postgres NUMERIC arrives as a string ("0.00", "20.00"); coerce.
+  const balance = Number(user?.credits || 0);
+  const remaining = Math.floor(balance);
+  const pkg = user?.package || 'Free';
+  const pctRemaining = balance > 0 ? 1 : 0;
 
   useEffect(() => {
     const onDoc = (e) => {
@@ -29,9 +35,6 @@ function CreditButton({ credits = 40000, total = 50000, renewsOn = 'May 15, 2026
   const redHot = '#FF2A2A';
   const C = 22;
   const CIRC = 2 * Math.PI * C;
-  // Ring represents REMAINING credits. Full balance → full ring.
-  // As credits are consumed the bright arc shrinks clockwise, "running out"
-  // as the user runs out. Empty balance → no ring.
   const dashOffset = CIRC * (1 - pctRemaining);
 
   return (
@@ -142,7 +145,7 @@ function CreditButton({ credits = 40000, total = 50000, renewsOn = 'May 15, 2026
                 {remaining.toLocaleString()}
               </div>
               <div style={{ fontSize: 11.5, color: 'rgba(255,255,255,0.5)', marginTop: 5 }}>
-                of {total.toLocaleString()} total
+                {remaining === 0 ? 'No credits left' : 'available to spend'}
               </div>
             </div>
             <div style={{
@@ -150,39 +153,10 @@ function CreditButton({ credits = 40000, total = 50000, renewsOn = 'May 15, 2026
               background: 'rgba(224,30,30,0.15)',
               border: `1px solid ${red}`, color: red,
               letterSpacing: '0.08em', textTransform: 'uppercase',
-            }}>{plan}</div>
+            }}>{pkg}</div>
           </div>
 
-          <div style={{ height: 6, background: 'rgba(255,255,255,0.06)', borderRadius: 999, overflow: 'hidden', marginBottom: 8 }}>
-            <div style={{
-              height: '100%',
-              width: `${pctRemaining * 100}%`,
-              background: `linear-gradient(90deg, ${redHot}, ${red})`,
-              borderRadius: 999,
-              boxShadow: `0 0 12px ${red}`,
-            }} />
-          </div>
-          <div style={{
-            display: 'flex', justifyContent: 'space-between',
-            fontSize: 10.5, fontFamily: '"JetBrains Mono", monospace',
-            color: 'rgba(255,255,255,0.5)', marginBottom: 18,
-          }}>
-            <span>{used.toLocaleString()} used</span>
-            <span>{Math.round(pctRemaining * 100)}% remaining</span>
-          </div>
-
-          <div style={{
-            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-            padding: '11px 13px',
-            background: 'rgba(255,255,255,0.04)',
-            border: '1px solid rgba(255,255,255,0.08)',
-            borderRadius: 10, marginBottom: 14,
-          }}>
-            <span style={{ fontSize: 11.5, color: 'rgba(255,255,255,0.6)' }}>Renews on</span>
-            <span style={{ fontSize: 11.5, color: '#FFF', fontFamily: '"JetBrains Mono", monospace' }}>
-              {renewsOn}
-            </span>
-          </div>
+          <div style={{ height: 18 }} />
 
           <Link
             to={createPageUrl('Pricing')}
@@ -337,7 +311,10 @@ export default function Navbar() {
           {/* Auth Buttons + Credit */}
           <div className="hidden lg:flex items-center gap-3">
             {isAuthenticated ? (
-              <UserPill email={user?.email} onLogout={logout} />
+              <>
+                <UserPill email={user?.email} onLogout={logout} />
+                <CreditButton user={user} />
+              </>
             ) : (
               <>
                 <Button variant="ghost" className="text-foreground-secondary hover:text-white" onClick={() => openAuthModal('login')}>
@@ -348,7 +325,6 @@ export default function Navbar() {
                 </Button>
               </>
             )}
-            <CreditButton credits={40000} total={50000} renewsOn="May 15, 2026" plan="PRO" />
           </div>
 
           {/* Mobile Menu Button */}

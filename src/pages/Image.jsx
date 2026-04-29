@@ -213,7 +213,7 @@ function ImageCard({ img, index, onExpand, onLoaded }) {
 }
 
 export default function Image() {
-  const { isAuthenticated, openAuthModal } = useAuth();
+  const { isAuthenticated, openAuthModal, refresh: refreshAuth } = useAuth();
   const [selectedModel, setSelectedModel] = useState({ id: 'nano-pro', name: 'Nano Banana Pro' });
   const [prompt, setPrompt] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
@@ -363,9 +363,17 @@ export default function Image() {
       } else {
         toast.error('Generation failed — please try again');
       }
+      // Pull the post-charge balance into the navbar pill. Fire-and-forget;
+      // the next /api/auth/me round-trip will reflect the deduction. Also
+      // safe to call when generation failed — it'll just return the
+      // unchanged balance.
+      refreshAuth();
     } catch (err) {
       console.error('[Generate] ❌ Error:', err);
       toast.error(err.message || 'Generation failed — please try again');
+      // If the throw was from a 402 InsufficientCredits, refreshing also
+      // makes sure the displayed balance matches what the server thinks.
+      refreshAuth();
     } finally {
       setIsGenerating(false);
     }

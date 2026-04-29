@@ -1,4 +1,4 @@
-import React, { createContext, useState, useContext, useEffect, useCallback } from 'react';
+import React, { createContext, useState, useContext, useEffect, useCallback, useRef } from 'react';
 import { VOXEL_TOKEN_KEY } from '@/lib/adminApi';
 
 // Single source of truth for the public site's auth state.
@@ -45,19 +45,39 @@ async function fetchMe() {
   return data?.user || null;
 }
 
+// Minimum gap between two `refresh()` calls triggered by the focus
+// listener. Without this, alt-tabbing back and forth would hammer
+// /api/auth/me. Manual `refresh()` calls (post-generate, after login)
+// bypass the throttle.
+const FOCUS_REFRESH_THROTTLE_MS = 10_000;
+
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [isLoadingAuth, setIsLoadingAuth] = useState(true);
   // 'login' | 'signup' | null
   const [authModalMode, setAuthModalMode] = useState(null);
+  const lastRefreshAt = useRef(0);
 
   const refresh = useCallback(async () => {
+    lastRefreshAt.current = Date.now();
     const u = await fetchMe();
     setUser(u);
     setIsLoadingAuth(false);
   }, []);
 
   useEffect(() => { refresh(); }, [refresh]);
+
+  // Pick up out-of-band balance changes (admin granted credits, generate on
+  // another tab, etc.) the next time the user tabs back to this window.
+  // Throttled so rapid focus-blur flicker doesn't spam /me.
+  useEffect(() => {
+    const onFocus = () => {
+      const sinceLast = Date.now() - lastRefreshAt.current;
+      if (sinceLast >= FOCUS_REFRESH_THROTTLE_MS) refresh();
+    };
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  }, [refresh]);
 
   const openAuthModal = useCallback((mode = 'login') => {
     setAuthModalMode(mode === 'signup' ? 'signup' : 'login');

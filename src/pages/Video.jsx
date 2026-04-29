@@ -27,7 +27,7 @@ function authJsonHeaders() {
 const DEFAULT_MODEL = { id: 'kling-3', name: 'Kling 3.0', brand: 'Kling', color: '#2563EB' };
 
 export default function Video() {
-  const { isAuthenticated, openAuthModal } = useAuth();
+  const { isAuthenticated, openAuthModal, refresh: refreshAuth } = useAuth();
   const [prompt, setPrompt] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
   const [count, setCount] = useState(1);
@@ -163,7 +163,12 @@ export default function Video() {
         }),
       });
       const data = await response.json();
-      if (!response.ok || !data.job_id) { toast.error(data.error || 'Video generation failed'); return; }
+      if (!response.ok || !data.job_id) {
+        toast.error(data.error || 'Video generation failed');
+        // 402 / banned / etc. — pull the latest balance into the navbar.
+        refreshAuth();
+        return;
+      }
 
       const saved = await History_.create({
         type: 'video', model: model.name, prompt,
@@ -173,7 +178,12 @@ export default function Video() {
       setVideos(prev => [{ id: saved.id, prompt, model: model.name, duration: parseInt(duration) || 5, aspectRatio, status: 'pending', job_id: data.job_id, model_id: data.model_id, created_date: saved.created_date }, ...prev]);
       pollVideo(saved.id, data.job_id, data.model_id);
       toast.success('Video generating — you can keep working!');
-    } catch (err) { toast.error(err.message || 'Video generation failed'); }
+      // Charge happens at submit (not at poll-completion), so refresh now.
+      refreshAuth();
+    } catch (err) {
+      toast.error(err.message || 'Video generation failed');
+      refreshAuth();
+    }
     finally { setIsGenerating(false); }
   };
 
@@ -350,7 +360,11 @@ export default function Video() {
       });
 
       const data = await response.json();
-      if (!response.ok || !data.job_id) { toast.error(data.error || 'Generation failed'); return; }
+      if (!response.ok || !data.job_id) {
+        toast.error(data.error || 'Generation failed');
+        refreshAuth();
+        return;
+      }
 
       const saved = await History_.create({
         type: 'video', model: 'Seedance 2.0', prompt,
@@ -361,7 +375,11 @@ export default function Video() {
       setVideos(prev => [{ id: saved.id, prompt, model: 'Seedance 2.0', duration: seedanceDuration, aspectRatio: seedanceAspect, status: 'pending', job_id: data.job_id, model_id: data.model_id, created_date: saved.created_date }, ...prev]);
       pollVideo(saved.id, data.job_id, data.model_id);
       toast.success('Seedance generating — you can keep working!');
-    } catch (err) { toast.error(err.message || 'Generation failed'); }
+      refreshAuth();
+    } catch (err) {
+      toast.error(err.message || 'Generation failed');
+      refreshAuth();
+    }
     finally { setIsGenerating(false); }
   };
 
