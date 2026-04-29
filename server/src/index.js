@@ -922,9 +922,21 @@ function getStore(name) {
   return entityStore[name];
 }
 
-app.post('/api/entities/:name/filter', (req, res) => {
+// ─── ENTITY STORE — PER-USER ISOLATION ─────────────────────────────
+// Every entity is owned by exactly one user (req.user.id). All four
+// routes require a valid JWT and only ever touch rows where
+// `user_id === req.user.id`. Pre-existing rows without `user_id` (from
+// before this gating was added) are invisible to every user — they sit
+// orphaned on disk until manually cleaned up.
+//
+// On PUT/DELETE we deliberately return 404 (not 403) when the row exists
+// but belongs to someone else, so the API doesn't leak that another
+// user's record with that ID exists.
+
+app.post('/api/entities/:name/filter', verifyJwt, (req, res) => {
   const { query, sort, limit } = req.body;
-  let items = getStore(req.params.name);
+  const userId = req.user.id;
+  let items = getStore(req.params.name).filter(i => i.user_id === userId);
   if (query) {
     items = items.filter(item => Object.entries(query).every(([k, v]) => item[k] === v));
   }
@@ -939,9 +951,10 @@ app.post('/api/entities/:name/filter', (req, res) => {
   res.json(limit ? items.slice(0, limit) : items);
 });
 
-app.get('/api/entities/:name', (req, res) => {
+app.get('/api/entities/:name', verifyJwt, (req, res) => {
   const { sort, limit } = req.query;
-  let items = getStore(req.params.name);
+  const userId = req.user.id;
+  let items = getStore(req.params.name).filter(i => i.user_id === userId);
   if (sort) {
     const desc = sort.startsWith('-');
     const field = desc ? sort.slice(1) : sort;
@@ -953,11 +966,16 @@ app.get('/api/entities/:name', (req, res) => {
   res.json(limit ? items.slice(0, Number(limit)) : items);
 });
 
-app.post('/api/entities/:name', (req, res) => {
+app.post('/api/entities/:name', verifyJwt, (req, res) => {
   const store = getStore(req.params.name);
+  // Strip any client-supplied user_id from the body before stamping the
+  // server-side one, so a malicious client can't masquerade as another
+  // user by sending `{user_id: 99, ...}`.
+  const { user_id: _ignored, ...body } = req.body || {};
   const item = {
-    ...req.body,
+    ...body,
     id: crypto.randomUUID(),
+    user_id: req.user.id,
     created_date: new Date().toISOString(),
     updated_date: new Date().toISOString(),
   };
@@ -966,19 +984,25 @@ app.post('/api/entities/:name', (req, res) => {
   res.json(item);
 });
 
-app.put('/api/entities/:name/:id', (req, res) => {
+app.put('/api/entities/:name/:id', verifyJwt, (req, res) => {
   const store = getStore(req.params.name);
   const idx = store.findIndex(i => i.id === req.params.id);
-  if (idx === -1) return res.status(404).json({ error: 'Not found' });
-  store[idx] = { ...store[idx], ...req.body, updated_date: new Date().toISOString() };
+  if (idx === -1 || store[idx].user_id !== req.user.id) {
+    return res.status(404).json({ error: 'Not found' });
+  }
+  // user_id is immutable from the client side.
+  const { user_id: _ignored, ...body } = req.body || {};
+  store[idx] = { ...store[idx], ...body, updated_date: new Date().toISOString() };
   scheduleFlush();
   res.json(store[idx]);
 });
 
-app.delete('/api/entities/:name/:id', (req, res) => {
+app.delete('/api/entities/:name/:id', verifyJwt, (req, res) => {
   const store = getStore(req.params.name);
   const idx = store.findIndex(i => i.id === req.params.id);
-  if (idx === -1) return res.status(404).json({ error: 'Not found' });
+  if (idx === -1 || store[idx].user_id !== req.user.id) {
+    return res.status(404).json({ error: 'Not found' });
+  }
   store.splice(idx, 1);
   scheduleFlush();
   res.json({ success: true });

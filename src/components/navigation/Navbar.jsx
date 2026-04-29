@@ -6,13 +6,21 @@ import { Menu, X, LogOut } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/lib/AuthContext';
 
+// Placeholder cap-per-package until a real packages table exists.
+// The progress bar and the outer ring fill against this denominator;
+// values are display-only — backend doesn't enforce them yet. Tweak
+// freely once Stripe lands and packages become a real backend concept.
+const PACKAGE_CAPS = {
+  Free:   100,
+  Pro:    5_000,
+  Studio: 50_000,
+};
+
 // ─── Credit Button ──────────────────────────────────────────────────────────
 // Dark circle body + red progress ring around it + red ✦ glyph inside.
-// Reads the live balance off the AuthContext user object. We deliberately
-// do NOT show a "X of N total" or "renews on" line — there is no credit
-// cap or renewal date in the schema yet (no packages table, no Stripe).
-// The ring is full when balance > 0, empty at zero — once a real cap
-// exists, replace `pctRemaining` with `balance / cap`.
+// Reads the live balance off the AuthContext user object. The cap comes
+// from PACKAGE_CAPS (see top of file) — placeholder until a real
+// packages table exists.
 function CreditButton({ user }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
@@ -21,7 +29,11 @@ function CreditButton({ user }) {
   const balance = Number(user?.credits || 0);
   const remaining = Math.floor(balance);
   const pkg = user?.package || 'Free';
-  const pctRemaining = balance > 0 ? 1 : 0;
+  // Fall back to max(100, balance) so admin-granted balances above the
+  // package cap don't render with the bar overflowing past 100%.
+  const cap = PACKAGE_CAPS[pkg] || Math.max(100, balance);
+  const used = Math.max(0, cap - remaining);
+  const pctRemaining = Math.min(1, Math.max(0, balance / cap));
 
   useEffect(() => {
     const onDoc = (e) => {
@@ -145,7 +157,7 @@ function CreditButton({ user }) {
                 {remaining.toLocaleString()}
               </div>
               <div style={{ fontSize: 11.5, color: 'rgba(255,255,255,0.5)', marginTop: 5 }}>
-                {remaining === 0 ? 'No credits left' : 'available to spend'}
+                of {cap.toLocaleString()} total
               </div>
             </div>
             <div style={{
@@ -154,6 +166,25 @@ function CreditButton({ user }) {
               border: `1px solid ${red}`, color: red,
               letterSpacing: '0.08em', textTransform: 'uppercase',
             }}>{pkg}</div>
+          </div>
+
+          {/* Linear progress bar — fills proportional to balance / cap. */}
+          <div style={{ height: 6, background: 'rgba(255,255,255,0.06)', borderRadius: 999, overflow: 'hidden', marginBottom: 8 }}>
+            <div style={{
+              height: '100%',
+              width: `${pctRemaining * 100}%`,
+              background: `linear-gradient(90deg, ${redHot}, ${red})`,
+              borderRadius: 999,
+              boxShadow: `0 0 12px ${red}`,
+            }} />
+          </div>
+          <div style={{
+            display: 'flex', justifyContent: 'space-between',
+            fontSize: 10.5, fontFamily: '"JetBrains Mono", monospace',
+            color: 'rgba(255,255,255,0.5)', marginBottom: 14,
+          }}>
+            <span>{used.toLocaleString()} used</span>
+            <span>{Math.round(pctRemaining * 100)}% remaining</span>
           </div>
 
           {/* Signed-in identity row — replaces the old "Renews on" line.
