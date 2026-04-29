@@ -13,8 +13,15 @@
 import jwt from 'jsonwebtoken';
 import { pool } from '../db.js';
 
+// Read + trim once at module load so we always verify with the SAME secret
+// that index.js used to sign. Without the trim, a JWT_SECRET pasted into the
+// hosting provider with a stray trailing newline/space would cause every
+// admin request to 401 with "Invalid or expired token" — login signs with
+// the trimmed value, verify reads the raw env var, they don't match.
+const JWT_SECRET = (process.env.JWT_SECRET || '').trim();
+
 export function verifyJwt(req, res, next) {
-  if (!process.env.JWT_SECRET) {
+  if (!JWT_SECRET) {
     return res.status(503).json({ error: 'Auth not configured on server.' });
   }
   const auth = req.get('authorization') || '';
@@ -23,7 +30,7 @@ export function verifyJwt(req, res, next) {
     return res.status(401).json({ error: 'Missing bearer token.' });
   }
   try {
-    const payload = jwt.verify(m[1], process.env.JWT_SECRET);
+    const payload = jwt.verify(m[1], JWT_SECRET);
     // Standard JWT field is `sub` (subject) — we put user id there at issue time.
     req.user = {
       id: payload.sub,
