@@ -416,33 +416,23 @@ export default function Video() {
         }} />
       </div>
 
-      {/* Left main — feed (was on the right; flipped per V_Video_V1).
-          Carries the hero block + Creations/Collections pills + grid. */}
-      <div style={{ position: 'relative', zIndex: 2, flex: 1, height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-        <VideoRightArea
-          videos={videos} isGenerating={isGenerating}
-          durationMs={3000} aspectRatio={isSeedance2 ? seedanceAspect : aspectRatio}
-          onRecreate={(t) => setPrompt(t.prompt)}
-          onVideoClick={(v) => setSelectedVideo(v)}
-          modelName={isSeedance2 ? 'Seedance 2.0' : (model?.name || 'Kling 3.0')}
-        />
-      </div>
-
-      {/* Right glass panel — controls (was VideoLeftPanel on the left).
-          380px transparent glass per the V_Video_V1 spec; the inner
-          component contributes its own padding so we just wrap with the
-          glass surface + radius + border + shadow. */}
+      {/* LEFT — glass control panel (was on the right pre-#9). 380px wide,
+          hugs the left edge. Margin flipped from `20 20 20 0` →
+          `20 0 20 20`. Inner panel uses flex: 1 + min-height: 0 so the
+          textarea can shrink and the GENERATE footer pins to the bottom
+          regardless of viewport height (no scrolling needed). */}
       <div style={{
         position: 'relative', zIndex: 2,
-        width: 380, margin: '20px 20px 20px 0',
+        width: 380, margin: '20px 0 20px 20px',
         borderRadius: 22,
         background: 'rgba(20,18,20,0.38)',
         backdropFilter: 'blur(36px) saturate(1.4)',
         WebkitBackdropFilter: 'blur(36px) saturate(1.4)',
         border: '1px solid rgba(255,255,255,0.1)',
         boxShadow: '0 30px 80px rgba(0,0,0,0.55), 0 1px 0 rgba(255,255,255,0.12) inset, 0 0 60px rgba(224,30,30,0.08)',
-        overflow: 'auto',
+        overflow: 'hidden',
         flexShrink: 0,
+        display: 'flex', flexDirection: 'column',
       }}>
         {isSeedance2 ? (
           <SeedanceLeftPanel
@@ -484,6 +474,18 @@ export default function Video() {
             onCameraMotionChange={setCameraMotion}
           />
         )}
+      </div>
+
+      {/* RIGHT — feed / history. Carries the BRING IT TO LIFE hero +
+          Creations/Collections pills + 3-col grid. */}
+      <div style={{ position: 'relative', zIndex: 2, flex: 1, height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        <VideoRightArea
+          videos={videos} isGenerating={isGenerating}
+          durationMs={3000} aspectRatio={isSeedance2 ? seedanceAspect : aspectRatio}
+          onRecreate={(t) => setPrompt(t.prompt)}
+          onVideoClick={(v) => setSelectedVideo(v)}
+          modelName={isSeedance2 ? 'Seedance 2.0' : (model?.name || 'Kling 3.0')}
+        />
       </div>
 
       {/* Seedance media popup overlay */}

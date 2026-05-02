@@ -42,7 +42,7 @@ function OptionChip({ icon, label, value, toggle = false, on = false, onToggle, 
     <div
       onClick={onClick}
       style={{
-        padding: '8px 10px', borderRadius: 10,
+        padding: '7px 9px', borderRadius: 10,
         background: 'rgba(255,255,255,0.03)',
         border: '1px solid rgba(255,255,255,0.08)',
         cursor: onClick || toggle ? 'pointer' : 'default',
@@ -134,8 +134,9 @@ export default function VideoLeftPanel({
 
   return (
     <div style={{
-      display: 'flex', flexDirection: 'column', gap: 14,
-      padding: '20px 20px 24px',
+      display: 'flex', flexDirection: 'column', gap: 10,
+      padding: '16px 16px 20px',
+      height: '100%', minHeight: 0,
       fontFamily: '"DM Sans", sans-serif',
     }}>
       <style>{`
@@ -179,24 +180,24 @@ export default function VideoLeftPanel({
               key={tab.id}
               onClick={() => setMode(tab.id)}
               style={{
-                padding: '18px 12px', borderRadius: 14,
+                padding: '14px 10px', borderRadius: 12,
                 background: active
                   ? `linear-gradient(180deg, ${RED}, ${RED_DEEP})`
                   : 'rgba(255,255,255,0.04)',
                 border: `1px solid ${active ? RED_HOT : 'rgba(255,255,255,0.08)'}`,
                 color: active ? '#FFF' : 'rgba(255,255,255,0.85)',
                 textAlign: 'center', cursor: 'pointer',
-                fontSize: 13, fontWeight: active ? 700 : 600,
+                fontSize: 12.5, fontWeight: active ? 700 : 600,
                 boxShadow: active
                   ? `0 0 24px rgba(224,30,30,0.45), 0 1px 0 rgba(255,255,255,0.20) inset`
                   : 'none',
                 transition: 'filter 0.15s',
-                display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6,
+                display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4,
               }}
               className="vlf-hover"
             >
               <span style={{
-                fontSize: 28, lineHeight: 1,
+                fontSize: 22, lineHeight: 1,
                 filter: active ? 'drop-shadow(0 2px 6px rgba(0,0,0,0.4))' : 'none',
               }}>{tab.icon}</span>
               {tab.label}
@@ -209,20 +210,20 @@ export default function VideoLeftPanel({
       <button
         onClick={onModelClick}
         style={{
-          padding: '12px 14px', borderRadius: 14,
+          padding: '10px 12px', borderRadius: 12,
           background: 'rgba(255,255,255,0.04)',
           border: '1px solid rgba(255,255,255,0.08)',
-          display: 'flex', alignItems: 'center', gap: 12,
+          display: 'flex', alignItems: 'center', gap: 10,
           cursor: 'pointer', textAlign: 'left',
           transition: 'filter 0.15s',
         }}
         className="vlf-hover"
       >
         <div style={{
-          width: 38, height: 38, borderRadius: '50%',
+          width: 34, height: 34, borderRadius: '50%',
           background: 'linear-gradient(135deg, #3a5edc, #1a2e8e)',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
-          fontSize: 16, fontWeight: 800, color: '#FFF',
+          fontSize: 15, fontWeight: 800, color: '#FFF',
           flexShrink: 0,
         }}>
           {(model?.brand || model?.name || 'K').charAt(0)}
@@ -239,14 +240,14 @@ export default function VideoLeftPanel({
       {/* §3.4 — Set start & end frame (only when in frame mode) */}
       {mode === 'frame' && (
         <div>
-          <div style={{ fontSize: 13, fontWeight: 700, color: '#FFF', marginBottom: 10 }}>
+          <div style={{ fontSize: 12.5, fontWeight: 700, color: '#FFF', marginBottom: 8 }}>
             Set start &amp; end frame
           </div>
           <div style={{
-            padding: 14, borderRadius: 14,
+            padding: 10, borderRadius: 12,
             background: 'rgba(255,255,255,0.02)',
             border: '1px solid rgba(255,255,255,0.07)',
-            display: 'flex', gap: 10, alignItems: 'center',
+            display: 'flex', gap: 8, alignItems: 'center',
           }}>
             {/* Start uploader */}
             <FrameUploader
@@ -293,9 +294,12 @@ export default function VideoLeftPanel({
         </div>
       )}
 
-      {/* §3.5 — Prompt textarea */}
-      <div>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+      {/* §3.5 — Prompt textarea. flex: 1 + min-height: 0 lets the textarea
+          consume whatever vertical space is left after the rest of the
+          panel; if space is tight it shrinks to ~80 px so the GENERATE
+          footer below stays visible without scrolling. */}
+      <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
           <span style={{ fontSize: 13, fontWeight: 700, color: '#FFF' }}>Describe your video</span>
           <button
             type="button"
@@ -315,20 +319,21 @@ export default function VideoLeftPanel({
           </button>
         </div>
         <div style={{
-          padding: 14, borderRadius: 14,
+          padding: 12, borderRadius: 12,
           background: 'rgba(255,255,255,0.02)',
           border: '1px solid rgba(255,255,255,0.07)',
-          minHeight: 130, position: 'relative',
+          flex: 1, minHeight: 80, position: 'relative',
+          display: 'flex', flexDirection: 'column',
         }}>
           <textarea
             className="vlf-textarea"
             value={prompt}
             onChange={e => onPromptChange?.(e.target.value)}
             placeholder="Describe scene transitions, camera movement trajectories, or character actions with text to precisely control the entire video from beginning to end."
-            rows={4}
             style={{
               width: '100%',
-              minHeight: 100,
+              flex: 1,
+              minHeight: 0,
               background: 'transparent',
               border: 'none',
               outline: 'none',
@@ -367,18 +372,18 @@ export default function VideoLeftPanel({
           onClick={() => setShowCameraDrop(v => !v)}
           style={{
             width: '100%',
-            padding: '12px 14px', borderRadius: 12,
+            padding: '10px 12px', borderRadius: 10,
             background: 'rgba(255,255,255,0.03)',
             border: '1px solid rgba(255,255,255,0.08)',
             display: 'flex', alignItems: 'center', gap: 10,
-            fontSize: 13, fontWeight: 500,
+            fontSize: 12.5, fontWeight: 500,
             color: selectedMotion ? '#FFF' : 'rgba(255,255,255,0.85)',
             cursor: 'pointer', textAlign: 'left',
             transition: 'filter 0.15s',
           }}
           className="vlf-hover"
         >
-          <Video style={{ width: 15, height: 15, color: selectedMotion ? RED : 'rgba(255,255,255,0.7)' }} />
+          <Video style={{ width: 14, height: 14, color: selectedMotion ? RED : 'rgba(255,255,255,0.7)' }} />
           <span>{selectedMotion ? `Camera Motion · ${selectedMotion.label}` : 'Camera Motion'}</span>
           <ChevronDown
             style={{
