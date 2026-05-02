@@ -266,8 +266,8 @@ export default function Image() {
     // sign-up modal instead of a silent backend 401. The modal closes on
     // success and they can hit Generate again.
     if (!isAuthenticated) {
-      toast.info('Sign up to start generating — it takes 10 seconds.');
-      openAuthModal('signup');
+      toast.info('Please sign in to generate.');
+      openAuthModal('login');
       return;
     }
     setIsGenerating(true);
@@ -370,7 +370,23 @@ export default function Image() {
       refreshAuth();
     } catch (err) {
       console.error('[Generate] ❌ Error:', err);
-      toast.error(err.message || 'Generation failed — please try again');
+      // axios attaches the real backend response under `err.response.data`.
+      // Surface the backend's `error` string when available (e.g.
+      // "Not enough credits, please contact admin") so the user sees
+      // something actionable instead of a generic axios message.
+      const status = err.response?.status;
+      const backendMsg = err.response?.data?.error;
+      if (status === 401) {
+        // Token expired between page load and Generate click — drop it and
+        // re-open the login modal so the user can re-authenticate without
+        // losing the page.
+        toast.error('Your session expired — please sign in again.');
+        openAuthModal('login');
+      } else if (status === 402) {
+        toast.error(backendMsg || 'Not enough credits — ask the admin to add more.');
+      } else {
+        toast.error(backendMsg || err.message || 'Generation failed — please try again');
+      }
       // If the throw was from a 402 InsufficientCredits, refreshing also
       // makes sure the displayed balance matches what the server thinks.
       refreshAuth();

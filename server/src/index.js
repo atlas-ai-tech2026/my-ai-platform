@@ -1028,7 +1028,7 @@ app.post('/api/auth/register', authLimiter, requireAuthInfra, async (req, res) =
       result = await pool.query(
         `INSERT INTO users (email, password_hash, credits, role)
          VALUES ($1, $2, 0, 'user')
-         RETURNING id, email, credits, role, banned, package, created_at`,
+         RETURNING id, email, credits, credit_limit, role, banned, package, created_at`,
         [email, password_hash]
       );
     } catch (err) {
@@ -1103,7 +1103,7 @@ app.post('/api/auth/login', authLimiter, requireAuthInfra, async (req, res) => {
     }
 
     const { rows } = await pool.query(
-      `SELECT id, email, password_hash, credits, role, banned, package, created_at
+      `SELECT id, email, password_hash, credits, credit_limit, role, banned, package, created_at
          FROM users WHERE email = $1 LIMIT 1`,
       [email]
     );
@@ -1167,7 +1167,7 @@ app.post('/api/auth/login', authLimiter, requireAuthInfra, async (req, res) => {
 app.get('/api/auth/me', verifyJwt, async (req, res) => {
   try {
     const { rows } = await pool.query(
-      `SELECT id, email, credits, role, banned, package, created_at
+      `SELECT id, email, credits, credit_limit, role, banned, package, created_at
          FROM users WHERE id = $1`,
       [req.user.id]
     );
@@ -1216,7 +1216,7 @@ app.get('/api/admin/users', adminGate, async (req, res) => {
 
     const [usersRes, totalRes] = await Promise.all([
       pool.query(
-        `SELECT id, email, credits, role, banned, package, created_at, last_login_at, last_login_ip
+        `SELECT id, email, credits, credit_limit, role, banned, package, created_at, last_login_at, last_login_ip
            FROM users ORDER BY id DESC LIMIT $1 OFFSET $2`,
         [limit, offset]
       ),
@@ -1244,7 +1244,7 @@ app.get('/api/admin/users/search', adminGate, async (req, res) => {
     // ILIKE with parameterized argument — SQL-injection safe. Cap to 50 so
     // a single-letter search doesn't return the whole DB.
     const { rows } = await pool.query(
-      `SELECT id, email, credits, role, banned, package, created_at, last_login_at
+      `SELECT id, email, credits, credit_limit, role, banned, package, created_at, last_login_at
          FROM users WHERE email ILIKE $1 ORDER BY id DESC LIMIT 50`,
       [`%${q}%`]
     );
@@ -1286,7 +1286,7 @@ app.post('/api/admin/users/:id/credits', adminGate, async (req, res) => {
 
       // Lock the row so concurrent admin updates don't stomp each other.
       const cur = await client.query(
-        `SELECT credits FROM users WHERE id = $1 FOR UPDATE`,
+        `SELECT credits, credit_limit FROM users WHERE id = $1 FOR UPDATE`,
         [targetId]
       );
       if (cur.rowCount === 0) {
@@ -1294,6 +1294,7 @@ app.post('/api/admin/users/:id/credits', adminGate, async (req, res) => {
         return res.status(404).json({ error: 'User not found.' });
       }
       const before = Number(cur.rows[0].credits);
+      const limitBefore = Number(cur.rows[0].credit_limit);
 
       let after;
       if (action === 'grant')  after = before + amount;
@@ -1301,10 +1302,18 @@ app.post('/api/admin/users/:id/credits', adminGate, async (req, res) => {
       if (action === 'set')    after = amount;
       const delta = Number((after - before).toFixed(2));
 
+      // credit_limit grows on `grant` and on `set` when the new balance
+      // exceeds the previous limit. Revokes don't lower it — the bar should
+      // still show "X of Y granted" so the user can see they've used most
+      // of their grant.
+      let limitAfter = limitBefore;
+      if (action === 'grant') limitAfter = limitBefore + amount;
+      if (action === 'set')   limitAfter = Math.max(limitBefore, after);
+
       const upd = await client.query(
-        `UPDATE users SET credits = $1 WHERE id = $2
-         RETURNING id, email, credits, role, banned, package`,
-        [after, targetId]
+        `UPDATE users SET credits = $1, credit_limit = $2 WHERE id = $3
+         RETURNING id, email, credits, credit_limit, role, banned, package`,
+        [after, limitAfter, targetId]
       );
       await client.query(
         `INSERT INTO credits_history
@@ -1348,7 +1357,7 @@ app.post('/api/admin/users/:id/ban', adminGate, async (req, res) => {
 
     const upd = await pool.query(
       `UPDATE users SET banned = $1 WHERE id = $2
-       RETURNING id, email, credits, role, banned, package`,
+       RETURNING id, email, credits, credit_limit, role, banned, package`,
       [banned, targetId]
     );
 

@@ -6,34 +6,29 @@ import { Menu, X, LogOut } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/lib/AuthContext';
 
-// Placeholder cap-per-package until a real packages table exists.
-// The progress bar and the outer ring fill against this denominator;
-// values are display-only — backend doesn't enforce them yet. Tweak
-// freely once Stripe lands and packages become a real backend concept.
-const PACKAGE_CAPS = {
-  Free:   100,
-  Pro:    5_000,
-  Studio: 50_000,
-};
 
 // ─── Credit Button ──────────────────────────────────────────────────────────
 // Dark circle body + red progress ring around it + red ✦ glyph inside.
-// Reads the live balance off the AuthContext user object. The cap comes
-// from PACKAGE_CAPS (see top of file) — placeholder until a real
-// packages table exists.
+// Reads the live balance + per-user lifetime cap off the AuthContext
+// user object. Cap = `credit_limit` (sum of all positive admin grants);
+// it grows on grant/set and never shrinks on revoke or spend, so the
+// bar shows "X of Y granted" — answers "how much have I used out of
+// what the admin gave me."
 function CreditButton({ user }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
 
   // Postgres NUMERIC arrives as a string ("0.00", "20.00"); coerce.
   const balance = Number(user?.credits || 0);
+  const limit = Number(user?.credit_limit || 0);
   const remaining = Math.floor(balance);
   const pkg = user?.package || 'Free';
-  // Fall back to max(100, balance) so admin-granted balances above the
-  // package cap don't render with the bar overflowing past 100%.
-  const cap = PACKAGE_CAPS[pkg] || Math.max(100, balance);
+  // No grants yet → no meaningful denominator. Show an empty bar with a
+  // helper line ("Awaiting credits…") instead of dividing by zero.
+  const hasLimit = limit > 0;
+  const cap = hasLimit ? limit : Math.max(1, balance);
   const used = Math.max(0, cap - remaining);
-  const pctRemaining = Math.min(1, Math.max(0, balance / cap));
+  const pctRemaining = hasLimit ? Math.min(1, Math.max(0, balance / cap)) : 0;
 
   useEffect(() => {
     const onDoc = (e) => {
@@ -157,7 +152,7 @@ function CreditButton({ user }) {
                 {remaining.toLocaleString()}
               </div>
               <div style={{ fontSize: 11.5, color: 'rgba(255,255,255,0.5)', marginTop: 5 }}>
-                of {cap.toLocaleString()} total
+                {hasLimit ? `of ${cap.toLocaleString()} granted` : 'Awaiting credits from admin'}
               </div>
             </div>
             <div style={{
@@ -168,24 +163,30 @@ function CreditButton({ user }) {
             }}>{pkg}</div>
           </div>
 
-          {/* Linear progress bar — fills proportional to balance / cap. */}
-          <div style={{ height: 6, background: 'rgba(255,255,255,0.06)', borderRadius: 999, overflow: 'hidden', marginBottom: 8 }}>
-            <div style={{
-              height: '100%',
-              width: `${pctRemaining * 100}%`,
-              background: `linear-gradient(90deg, ${redHot}, ${red})`,
-              borderRadius: 999,
-              boxShadow: `0 0 12px ${red}`,
-            }} />
-          </div>
-          <div style={{
-            display: 'flex', justifyContent: 'space-between',
-            fontSize: 10.5, fontFamily: '"JetBrains Mono", monospace',
-            color: 'rgba(255,255,255,0.5)', marginBottom: 14,
-          }}>
-            <span>{used.toLocaleString()} used</span>
-            <span>{Math.round(pctRemaining * 100)}% remaining</span>
-          </div>
+          {/* Progress bar — fills `balance / credit_limit`. Hidden until the
+              user has had at least one grant; otherwise we'd render a
+              meaningless empty bar. */}
+          {hasLimit && (
+            <>
+              <div style={{ height: 6, background: 'rgba(255,255,255,0.06)', borderRadius: 999, overflow: 'hidden', marginBottom: 8 }}>
+                <div style={{
+                  height: '100%',
+                  width: `${pctRemaining * 100}%`,
+                  background: `linear-gradient(90deg, ${redHot}, ${red})`,
+                  borderRadius: 999,
+                  boxShadow: `0 0 12px ${red}`,
+                }} />
+              </div>
+              <div style={{
+                display: 'flex', justifyContent: 'space-between',
+                fontSize: 10.5, fontFamily: '"JetBrains Mono", monospace',
+                color: 'rgba(255,255,255,0.5)', marginBottom: 14,
+              }}>
+                <span>{used.toLocaleString()} used</span>
+                <span>{Math.round(pctRemaining * 100)}% remaining</span>
+              </div>
+            </>
+          )}
 
           {/* Signed-in identity row — replaces the old "Renews on" line.
               Tells the user which account they're logged in with so they
