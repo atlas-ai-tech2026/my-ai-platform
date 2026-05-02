@@ -135,8 +135,8 @@ export default function Video() {
   const handleGenerate = async () => {
     if (!prompt.trim()) { toast.error('Please enter a prompt'); return; }
     if (!isAuthenticated) {
-      toast.info('Sign up to start generating — it takes 10 seconds.');
-      openAuthModal('signup');
+      toast.info('Please sign in to generate.');
+      openAuthModal('login');
       return;
     }
     setIsGenerating(true);
@@ -164,7 +164,14 @@ export default function Video() {
       });
       const data = await response.json();
       if (!response.ok || !data.job_id) {
-        toast.error(data.error || 'Video generation failed');
+        if (response.status === 401) {
+          toast.error('Your session expired — please sign in again.');
+          openAuthModal('login');
+        } else if (response.status === 402) {
+          toast.error(data.error || 'Not enough credits — ask the admin to add more.');
+        } else {
+          toast.error(data.error || 'Video generation failed');
+        }
         // 402 / banned / etc. — pull the latest balance into the navbar.
         refreshAuth();
         return;
@@ -304,8 +311,8 @@ export default function Video() {
   const handleSeedanceGenerate = async () => {
     if (!prompt.trim()) { toast.error('Please enter a prompt'); return; }
     if (!isAuthenticated) {
-      toast.info('Sign up to start generating — it takes 10 seconds.');
-      openAuthModal('signup');
+      toast.info('Please sign in to generate.');
+      openAuthModal('login');
       return;
     }
     setIsGenerating(true);
@@ -361,7 +368,14 @@ export default function Video() {
 
       const data = await response.json();
       if (!response.ok || !data.job_id) {
-        toast.error(data.error || 'Generation failed');
+        if (response.status === 401) {
+          toast.error('Your session expired — please sign in again.');
+          openAuthModal('login');
+        } else if (response.status === 402) {
+          toast.error(data.error || 'Not enough credits — ask the admin to add more.');
+        } else {
+          toast.error(data.error || 'Generation failed');
+        }
         refreshAuth();
         return;
       }
