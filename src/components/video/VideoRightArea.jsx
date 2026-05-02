@@ -44,28 +44,30 @@ function LoadingVideoCard({ durationMs = 3000, ratio = '16/9' }) {
   const msg = STAGES[stageIndex]?.msg || 'Processing...';
 
   return (
-    <div style={{ background: '#161616', borderRadius: 14, border: '1px solid rgba(224,30,30,0.25)', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-      {/* Preview shimmer */}
-      <div style={{ aspectRatio: '16/9', background: 'linear-gradient(135deg, #1a0000 0%, #2a0a0a 50%, #1a1a1a 100%)', position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
-        {/* Animated shimmer overlay */}
-        <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(90deg, transparent 0%, rgba(224,30,30,0.07) 50%, transparent 100%)', backgroundSize: '200% 100%', animation: 'shimmer 1.6s linear infinite' }} />
-        <style>{`@keyframes shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}`}</style>
-        {/* Spinning icon */}
-        <div style={{ width: 48, height: 48, borderRadius: '50%', background: 'rgba(224,30,30,0.12)', border: '1px solid rgba(224,30,30,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', animation: 'spin 1.8s linear infinite' }}>
-          <style>{`@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}`}</style>
-          <Sparkles className="w-5 h-5" style={{ color: '#FF4444' }} />
+    <div style={{
+      aspectRatio: '16/9', borderRadius: 14, overflow: 'hidden', position: 'relative',
+      background: 'linear-gradient(135deg,#2a0a0a,#6B1515)',
+      border: '1px solid #E01E1E',
+      boxShadow: '0 0 30px rgba(224,30,30,0.35), 0 12px 36px rgba(0,0,0,0.5)',
+    }}>
+      <div style={{
+        position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column',
+        alignItems: 'center', justifyContent: 'center', gap: 10,
+      }}>
+        <div style={{ fontSize: 24, color: '#FFF' }}>✦</div>
+        <div style={{
+          fontSize: 10, color: '#E01E1E', fontWeight: 700,
+          fontFamily: '"JetBrains Mono", monospace',
+          letterSpacing: '0.14em', textTransform: 'uppercase',
+        }}>Generating · {pct}%</div>
+        <div style={{ width: '70%', height: 3, background: 'rgba(255,255,255,0.1)', borderRadius: 999 }}>
+          <div style={{
+            height: '100%', width: `${pct}%`,
+            background: '#E01E1E', boxShadow: '0 0 10px #E01E1E',
+            borderRadius: 999, transition: 'width 0.12s ease',
+          }} />
         </div>
-      </div>
-      {/* Progress */}
-      <div style={{ padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <span style={{ fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.7)', fontFamily: font }}>Generating...</span>
-          <span style={{ fontSize: 12, fontWeight: 700, color: '#FF4444', fontFamily: font }}>{pct}%</span>
-        </div>
-        <div style={{ height: 4, background: '#2A2A2A', borderRadius: 999, overflow: 'hidden' }}>
-          <div style={{ height: '100%', width: `${pct}%`, background: 'linear-gradient(90deg, #CC0000, #FF2222)', borderRadius: 999, transition: 'width 0.12s ease', boxShadow: '0 0 6px rgba(224,30,30,0.5)' }} />
-        </div>
-        <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', fontFamily: font }}>{msg}</span>
+        <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.55)' }}>{msg}</div>
       </div>
     </div>
   );
@@ -80,45 +82,62 @@ const RATIO_MAP = {
   '21:9': '21/9',
 };
 
-export default function VideoRightArea({ videos = [], isGenerating = false, durationMs = 3000, aspectRatio = 'Auto', onVideoClick, leftPanelWidth = 450 }) {
+export default function VideoRightArea({ videos = [], isGenerating = false, durationMs = 3000, aspectRatio = 'Auto', onVideoClick, modelName = 'Kling 3.0' }) {
   const ratio = RATIO_MAP[aspectRatio] || '16/9';
   const [activeTab, setActiveTab] = useState('creations');
 
   return (
-    <div style={{ flex: 1, height:'100%', overflowY:'auto', background:'#0D0D0D', borderLeft:'1px solid #0D0D0D', display:'flex', flexDirection:'column' }}>
-      {/* Tabs row */}
-      <div style={{ display:'flex', alignItems:'center', gap:8, padding:'14px 20px', borderBottom:'1px solid #0D0D0D', position:'sticky', top:0, background:'#0D0D0D', zIndex:5 }}>
-        <div style={{ display:'flex', alignItems:'center', gap:6, flex:1 }}>
-          {[{ id:'creations', label:'Creations', icon:'🎬', arrow:true }, { id:'collections', label:'Collections', icon:'📁' }].map(tab => (
+    <div style={{ flex: 1, height:'100%', overflowY:'auto', background:'transparent', display:'flex', flexDirection:'column', padding: '24px 28px' }}>
+      {/* Hero block — eyebrow + Anton 44 + Creations/Collections pills.
+          Replaces the previous tabs+toolbar row per V_Video_V1. */}
+      <div style={{ display:'flex', alignItems:'baseline', justifyContent:'space-between', marginBottom: 16, flexWrap: 'wrap', gap: 12 }}>
+        <div>
+          <div style={{
+            display:'inline-flex', alignItems:'center', gap: 8,
+            fontSize: 10.5, color: '#E01E1E',
+            fontFamily: '"JetBrains Mono", monospace',
+            letterSpacing: '0.14em', textTransform: 'uppercase',
+            marginBottom: 8, fontWeight: 600,
+          }}>
+            <span style={{
+              width: 6, height: 6, borderRadius: '50%',
+              background: '#E01E1E',
+              boxShadow: '0 0 10px #E01E1E',
+              animation: 'glowPulse2 2s ease-in-out infinite',
+            }} />
+            {modelName} · Frame to Video
+          </div>
+          <div style={{
+            fontFamily: 'Anton, sans-serif',
+            fontSize: 44, letterSpacing: '0.01em', lineHeight: 0.95,
+            color: '#FFF', textTransform: 'uppercase',
+          }}>
+            BRING IT TO LIFE
+          </div>
+        </div>
+        <div style={{ display:'flex', alignItems:'center', gap: 6 }}>
+          {[
+            { id: 'creations', label: 'Creations', icon: '✦' },
+            { id: 'collections', label: 'Collections', icon: null },
+          ].map(tab => (
             <button key={tab.id} onClick={() => setActiveTab(tab.id)} style={{
-              display:'flex', alignItems:'center', gap:6, padding:'7px 16px', borderRadius:999,
-              fontSize:13, fontFamily:font, cursor:'pointer', transition:'all 0.18s',
-              background: activeTab===tab.id ? 'rgba(255,255,255,0.08)' : 'transparent',
-              border: activeTab===tab.id ? '1px solid rgba(255,255,255,0.12)' : '1px solid transparent',
-              color: activeTab===tab.id ? '#fff' : 'rgba(255,255,255,0.4)',
-              fontWeight: activeTab===tab.id ? 600 : 400,
+              display:'inline-flex', alignItems:'center', gap: 7,
+              padding: '7px 14px', borderRadius: 999, fontSize: 12, fontWeight: 500,
+              background: activeTab === tab.id ? 'rgba(255,255,255,0.1)' : 'rgba(255,255,255,0.04)',
+              border: `1px solid ${activeTab === tab.id ? 'rgba(255,255,255,0.18)' : 'rgba(255,255,255,0.08)'}`,
+              color: activeTab === tab.id ? '#FFF' : 'rgba(255,255,255,0.6)',
+              backdropFilter: 'blur(14px)',
+              cursor: 'pointer', fontFamily: font,
+              transition: 'all 0.15s',
             }}>
-              <span>{tab.icon}</span>{tab.label}
-              {tab.arrow && <ChevronDown className="w-3 h-3" />}
+              {tab.icon && <span style={{ color: '#E01E1E' }}>{tab.icon}</span>}
+              {tab.label}
+              {tab.id === 'creations' && <ChevronDown className="w-3 h-3" />}
             </button>
           ))}
         </div>
-        <div style={{ display:'flex', alignItems:'center', gap:4 }}>
-          {[SlidersHorizontal, MessageSquare, Video, Music].map((Icon, i) => (
-            <button key={i} style={{ width:30, height:30, background:'transparent', border:'none', cursor:'pointer', color:'rgba(255,255,255,0.3)', display:'flex', alignItems:'center', justifyContent:'center', borderRadius:6 }}
-              onMouseEnter={e => e.currentTarget.style.color='rgba(255,255,255,0.7)'}
-              onMouseLeave={e => e.currentTarget.style.color='rgba(255,255,255,0.3)'}
-            ><Icon className="w-4 h-4" /></button>
-          ))}
-          <button style={{ padding:'5px 12px', background:'rgba(255,255,255,0.1)', border:'1px solid rgba(255,255,255,0.15)', borderRadius:999, fontSize:12, color:'#fff', fontWeight:600, fontFamily:font, cursor:'pointer' }}>All</button>
-          {[Star, Filter, Grid, Search].map((Icon, i) => (
-            <button key={i} style={{ width:30, height:30, background:'transparent', border:'none', cursor:'pointer', color:'rgba(255,255,255,0.3)', display:'flex', alignItems:'center', justifyContent:'center', borderRadius:6 }}
-              onMouseEnter={e => e.currentTarget.style.color='rgba(255,255,255,0.7)'}
-              onMouseLeave={e => e.currentTarget.style.color='rgba(255,255,255,0.3)'}
-            ><Icon className="w-4 h-4" /></button>
-          ))}
-        </div>
       </div>
+      <style>{`@keyframes glowPulse2{0%,100%{opacity:0.5}50%{opacity:1}}`}</style>
 
       {/* Creations area */}
       {videos.length === 0 && !isGenerating ? (
@@ -137,7 +156,7 @@ export default function VideoRightArea({ videos = [], isGenerating = false, dura
           <p style={{ fontSize:14, color:'rgba(255,255,255,0.25)', fontFamily:font }}>No items to display</p>
         </div>
       ) : (
-        <div style={{ padding:20, display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(220px,1fr))', gap:14 }}>
+        <div style={{ display:'grid', gridTemplateColumns:'repeat(3, minmax(0, 1fr))', gap:12 }}>
           {/* Loading card — shown first while generating */}
           {isGenerating && <LoadingVideoCard durationMs={durationMs} ratio={ratio} />}
           {/* Completed videos */}
