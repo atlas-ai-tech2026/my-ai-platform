@@ -12,6 +12,7 @@
 // version; we only rewrote the rendering.
 import React, { useState } from 'react';
 import { ArrowLeft, ChevronDown, Minus, Plus, ArrowLeftRight, Zap, Music, Monitor, Clock, RatioIcon, Video } from 'lucide-react';
+import { toast } from 'sonner';
 
 const CAMERA_MOTIONS = [
   { id: 'zoom-in',   icon: '🔍+', label: 'Zoom In'   },
@@ -42,7 +43,7 @@ function OptionChip({ icon, label, value, toggle = false, on = false, onToggle, 
     <div
       onClick={onClick}
       style={{
-        padding: '7px 9px', borderRadius: 10,
+        padding: '6px 8px', borderRadius: 9,
         background: 'rgba(255,255,255,0.03)',
         border: '1px solid rgba(255,255,255,0.08)',
         cursor: onClick || toggle ? 'pointer' : 'default',
@@ -51,11 +52,11 @@ function OptionChip({ icon, label, value, toggle = false, on = false, onToggle, 
       onMouseEnter={e => { e.currentTarget.style.filter = 'brightness(1.12)'; }}
       onMouseLeave={e => { e.currentTarget.style.filter = 'none'; }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 10, color: 'rgba(255,255,255,0.55)' }}>
-        <span style={{ fontSize: 11 }}>{icon}</span>{label}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 9.5, color: 'rgba(255,255,255,0.55)' }}>
+        <span style={{ fontSize: 10 }}>{icon}</span>{label}
       </div>
       <div style={{
-        fontSize: 12, fontWeight: 700, color: '#FFF',
+        fontSize: 11.5, fontWeight: 700, color: '#FFF',
         display: 'flex', alignItems: 'center', marginTop: 2,
       }}>
         <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{value}</span>
@@ -130,7 +131,24 @@ export default function VideoLeftPanel({
 
   const selectedMotion = CAMERA_MOTIONS.find(m => m.id === cameraMotion);
   const canSwap = !!(startFrame || endFrame);
-  const generateDisabled = isGenerating || (mode === 'frame' && !startFrame) || !prompt?.trim();
+  // Visual "incomplete" cue (50% opacity) when prereqs aren't met, but the
+  // button is still clickable — onClick now runs the validation and shows
+  // a clear toast for whichever piece is missing instead of silently
+  // doing nothing. `disabled` is only set while a generation is in flight.
+  const prereqsMissing = (mode === 'frame' && !startFrame) || !prompt?.trim();
+
+  const handleGenerateClick = () => {
+    if (isGenerating) return;
+    if (mode === 'frame' && !startFrame) {
+      toast.error('Add a start frame to generate');
+      return;
+    }
+    if (!prompt?.trim()) {
+      toast.error('Type a prompt to generate');
+      return;
+    }
+    onGenerate?.();
+  };
 
   return (
     <div style={{
@@ -150,11 +168,11 @@ export default function VideoLeftPanel({
       `}</style>
 
       {/* §3.1 — Header: back button + title */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <button
           aria-label="Back"
           style={{
-            width: 28, height: 28, borderRadius: 8,
+            width: 26, height: 26, borderRadius: 7,
             background: 'rgba(255,255,255,0.04)',
             border: '1px solid rgba(255,255,255,0.06)',
             color: 'rgba(255,255,255,0.7)',
@@ -163,9 +181,9 @@ export default function VideoLeftPanel({
           }}
           className="vlf-hover"
         >
-          <ArrowLeft style={{ width: 14, height: 14 }} />
+          <ArrowLeft style={{ width: 13, height: 13 }} />
         </button>
-        <span style={{ fontSize: 16, fontWeight: 700, color: '#FFF' }}>Frame to Video</span>
+        <span style={{ fontSize: 14, fontWeight: 700, color: '#FFF' }}>Frame to Video</span>
       </div>
 
       {/* §3.2 — Mode tiles (Start/End Frame active red, Text dim) */}
@@ -180,24 +198,24 @@ export default function VideoLeftPanel({
               key={tab.id}
               onClick={() => setMode(tab.id)}
               style={{
-                padding: '14px 10px', borderRadius: 12,
+                padding: '10px 8px', borderRadius: 11,
                 background: active
                   ? `linear-gradient(180deg, ${RED}, ${RED_DEEP})`
                   : 'rgba(255,255,255,0.04)',
                 border: `1px solid ${active ? RED_HOT : 'rgba(255,255,255,0.08)'}`,
                 color: active ? '#FFF' : 'rgba(255,255,255,0.85)',
                 textAlign: 'center', cursor: 'pointer',
-                fontSize: 12.5, fontWeight: active ? 700 : 600,
+                fontSize: 12, fontWeight: active ? 700 : 600,
                 boxShadow: active
-                  ? `0 0 24px rgba(224,30,30,0.45), 0 1px 0 rgba(255,255,255,0.20) inset`
+                  ? `0 0 22px rgba(224,30,30,0.45), 0 1px 0 rgba(255,255,255,0.20) inset`
                   : 'none',
                 transition: 'filter 0.15s',
-                display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4,
+                display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3,
               }}
               className="vlf-hover"
             >
               <span style={{
-                fontSize: 22, lineHeight: 1,
+                fontSize: 18, lineHeight: 1,
                 filter: active ? 'drop-shadow(0 2px 6px rgba(0,0,0,0.4))' : 'none',
               }}>{tab.icon}</span>
               {tab.label}
@@ -240,14 +258,14 @@ export default function VideoLeftPanel({
       {/* §3.4 — Set start & end frame (only when in frame mode) */}
       {mode === 'frame' && (
         <div>
-          <div style={{ fontSize: 12.5, fontWeight: 700, color: '#FFF', marginBottom: 8 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: '#FFF', marginBottom: 6 }}>
             Set start &amp; end frame
           </div>
           <div style={{
-            padding: 10, borderRadius: 12,
+            padding: 8, borderRadius: 11,
             background: 'rgba(255,255,255,0.02)',
             border: '1px solid rgba(255,255,255,0.07)',
-            display: 'flex', gap: 8, alignItems: 'center',
+            display: 'flex', gap: 6, alignItems: 'center',
           }}>
             {/* Start uploader */}
             <FrameUploader
@@ -470,28 +488,33 @@ export default function VideoLeftPanel({
         />
       </div>
 
-      {/* §3.8 — Count stepper + GENERATE capsule */}
+      {/* §3.8 — Count stepper + GENERATE capsule. Both 32 px tall.
+          Generate's `disabled` is intentionally NOT set when prereqs
+          (prompt / start frame) are missing — only when `isGenerating`.
+          The click handler runs the validation and shows a clear toast
+          for whichever prerequisite is missing, so the user gets
+          actionable feedback instead of a silent dim button. */}
       <div style={{ display: 'flex', gap: 8, marginTop: 'auto' }}>
         {/* Count stepper — single bordered row */}
         <div style={{
           display: 'flex', alignItems: 'center',
-          border: '1px solid rgba(255,255,255,0.10)', borderRadius: 10,
+          border: '1px solid rgba(255,255,255,0.10)', borderRadius: 9,
           overflow: 'hidden',
         }}>
           <button
             type="button"
             onClick={() => onCountChange?.(Math.max(1, (count || 1) - 1))}
             style={{
-              padding: '0 10px', height: 36,
+              padding: '0 9px', height: 32,
               background: 'transparent', border: 'none',
               color: 'rgba(255,255,255,0.7)', cursor: 'pointer',
               display: 'flex', alignItems: 'center',
             }}
-          ><Minus style={{ width: 12, height: 12 }} /></button>
+          ><Minus style={{ width: 11, height: 11 }} /></button>
           <div style={{
-            padding: '0 10px', height: 36,
+            padding: '0 9px', height: 32,
             display: 'flex', alignItems: 'center',
-            fontFamily: '"JetBrains Mono", monospace', fontSize: 12, color: '#FFF',
+            fontFamily: '"JetBrains Mono", monospace', fontSize: 11.5, color: '#FFF',
             borderLeft: '1px solid rgba(255,255,255,0.10)',
             borderRight: '1px solid rgba(255,255,255,0.10)',
           }}>{count || 1} / 4</div>
@@ -499,43 +522,43 @@ export default function VideoLeftPanel({
             type="button"
             onClick={() => onCountChange?.(Math.min(4, (count || 1) + 1))}
             style={{
-              padding: '0 10px', height: 36,
+              padding: '0 9px', height: 32,
               background: 'transparent', border: 'none',
               color: 'rgba(255,255,255,0.7)', cursor: 'pointer',
               display: 'flex', alignItems: 'center',
             }}
-          ><Plus style={{ width: 12, height: 12 }} /></button>
+          ><Plus style={{ width: 11, height: 11 }} /></button>
         </div>
 
-        {/* GENERATE capsule */}
+        {/* GENERATE capsule — clickable always (handler shows toast on missing prereqs) */}
         <button
           type="button"
-          onClick={() => !generateDisabled && onGenerate?.()}
-          disabled={generateDisabled}
+          onClick={handleGenerateClick}
+          disabled={isGenerating}
           style={{
-            flex: 1, height: 36, borderRadius: 10, border: 'none',
+            flex: 1, height: 32, borderRadius: 9, border: 'none',
             background: isGenerating
               ? 'rgba(139,15,15,0.6)'
               : `linear-gradient(180deg, ${RED_HOT}, ${RED_DEEP})`,
             color: '#FFF',
             fontFamily: 'Anton, sans-serif',
             letterSpacing: '0.06em', textTransform: 'uppercase',
-            fontSize: 13, fontWeight: 700,
+            fontSize: 12.5, fontWeight: 700,
             display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-            cursor: generateDisabled ? 'not-allowed' : 'pointer',
-            opacity: generateDisabled && !isGenerating ? 0.5 : 1,
+            cursor: isGenerating ? 'not-allowed' : 'pointer',
+            opacity: prereqsMissing && !isGenerating ? 0.7 : 1,
             boxShadow: isGenerating ? 'none' : `
-              0 0 28px rgba(224,30,30,0.53),
-              0 4px 14px rgba(139,15,15,0.5),
+              0 0 24px rgba(224,30,30,0.53),
+              0 4px 12px rgba(139,15,15,0.5),
               0 1px 0 rgba(255,255,255,0.25) inset
             `,
-            transition: 'box-shadow 0.18s, transform 0.15s',
+            transition: 'box-shadow 0.18s, transform 0.15s, opacity 0.18s',
           }}
-          onMouseEnter={e => { if (!generateDisabled) { e.currentTarget.style.boxShadow = '0 0 36px rgba(224,30,30,0.7), 0 6px 18px rgba(139,15,15,0.6), 0 1px 0 rgba(255,255,255,0.3) inset'; e.currentTarget.style.transform = 'translateY(-1px)'; }}}
-          onMouseLeave={e => { if (!generateDisabled) { e.currentTarget.style.boxShadow = '0 0 28px rgba(224,30,30,0.53), 0 4px 14px rgba(139,15,15,0.5), 0 1px 0 rgba(255,255,255,0.25) inset'; e.currentTarget.style.transform = 'none'; }}}
+          onMouseEnter={e => { if (!isGenerating) { e.currentTarget.style.boxShadow = '0 0 32px rgba(224,30,30,0.7), 0 6px 16px rgba(139,15,15,0.6), 0 1px 0 rgba(255,255,255,0.3) inset'; e.currentTarget.style.transform = 'translateY(-1px)'; }}}
+          onMouseLeave={e => { if (!isGenerating) { e.currentTarget.style.boxShadow = '0 0 24px rgba(224,30,30,0.53), 0 4px 12px rgba(139,15,15,0.5), 0 1px 0 rgba(255,255,255,0.25) inset'; e.currentTarget.style.transform = 'none'; }}}
         >
           <span>{isGenerating ? 'Generating' : 'Generate'}</span>
-          <span style={{ fontSize: 14 }}>→</span>
+          <span style={{ fontSize: 13 }}>→</span>
         </button>
       </div>
     </div>
@@ -590,14 +613,14 @@ function FrameUploader({ type, frameUrl, onUpload, onClear, dim, caption }) {
             onChange={e => onUpload(type, e)}
           />
           <div style={{
-            width: 36, height: 36, borderRadius: '50%',
+            width: 30, height: 30, borderRadius: '50%',
             background: dim ? 'rgba(139,15,15,0.45)' : RED,
             color: dim ? 'rgba(255,255,255,0.65)' : '#FFF',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: 22, fontWeight: 300,
-            boxShadow: dim ? 'none' : `0 0 14px rgba(224,30,30,0.45)`,
+            fontSize: 18, fontWeight: 300,
+            boxShadow: dim ? 'none' : `0 0 12px rgba(224,30,30,0.45)`,
           }}>+</div>
-          <div>{caption}<br/>frame</div>
+          <div style={{ fontSize: 10.5 }}>{caption}<br/>frame</div>
         </label>
       )}
     </div>
