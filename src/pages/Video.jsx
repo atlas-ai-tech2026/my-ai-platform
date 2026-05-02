@@ -398,57 +398,93 @@ export default function Video() {
   };
 
   return (
-    <div style={{ display: 'flex', background: '#0A0A0A', height: 'calc(100vh - 64px)', overflow: 'hidden' }}>
-      {/* Left panel */}
-      {isSeedance2 ? (
-        <SeedanceLeftPanel
-          prompt={prompt}
-          onPromptChange={setPrompt}
-          onGenerate={handleSeedanceGenerate}
-          isGenerating={isGenerating}
-          model={model}
-          onModelClick={() => setShowModelModal(true)}
-          duration={seedanceDuration}
-          onDurationChange={setSeedanceDuration}
-          aspectRatio={seedanceAspect}
-          onAspectRatioChange={setSeedanceAspect}
-          resolution={seedanceRes}
-          onResolutionChange={setSeedanceRes}
-          audioOn={seedanceAudioOn}
-          onAudioToggle={() => setSeedanceAudioOn(v => !v)}
-          media={seedanceMedia}
-          onMediaRemove={handleSeedanceMediaRemove}
-          onCheckEligibility={handleCheckEligibility}
-          elements={seedanceElements}
-          onElementsClick={() => setShowSeedanceMediaPopup(true)}
-          showMediaPopup={showSeedanceMediaPopup}
-          onCloseMediaPopup={() => setShowSeedanceMediaPopup(false)}
-          imageRoles={seedanceImageRoles}
-          onImageRoleChange={handleImageRoleChange}
-        />
-      ) : (
-        <VideoLeftPanel
-          prompt={prompt} onPromptChange={setPrompt}
-          onGenerate={handleGenerate} isGenerating={isGenerating}
-          count={count} onCountChange={setCount}
-          model={model} onModelClick={() => setShowModelModal(true)}
-          duration={duration} onDurationChange={setDuration}
-          resolution={resolution} onResolutionChange={setResolution}
-          aspectRatio={aspectRatio} onAspectRatioChange={setAspectRatio}
-          startFrame={startFrame} endFrame={endFrame}
-          onStartFrameChange={setStartFrame} onEndFrameChange={setEndFrame}
-          onCameraMotionChange={setCameraMotion}
-        />
-      )}
+    <div style={{ display: 'flex', background: '#0A0A0A', height: 'calc(100vh - 64px)', overflow: 'hidden', position: 'relative' }}>
 
-      {/* Right panel — ALWAYS show video history for all models */}
-      <VideoRightArea
-        videos={videos} isGenerating={isGenerating}
-        durationMs={3000} aspectRatio={isSeedance2 ? seedanceAspect : aspectRatio}
-        onRecreate={(t) => setPrompt(t.prompt)}
-        onVideoClick={(v) => setSelectedVideo(v)}
-        leftPanelWidth={380}
-      />
+      {/* Red ambient glow background — clean, no noise. zIndex 0 so the
+          panels render above. Matches the brand contract from
+          design_handoff_voxel — same pattern used on the Image page. */}
+      <div style={{ position: 'absolute', inset: 0, zIndex: 0, pointerEvents: 'none' }}>
+        <div style={{
+          position: 'absolute', top: '-20%', right: '-10%', width: 900, height: 900,
+          background: 'radial-gradient(circle, rgba(224,30,30,0.28), transparent 60%)',
+          filter: 'blur(60px)',
+        }} />
+        <div style={{
+          position: 'absolute', bottom: '-20%', left: '-10%', width: 700, height: 700,
+          background: 'radial-gradient(circle, rgba(139,15,15,0.4), transparent 65%)',
+          filter: 'blur(60px)',
+        }} />
+      </div>
+
+      {/* Left main — feed (was on the right; flipped per V_Video_V1).
+          Carries the hero block + Creations/Collections pills + grid. */}
+      <div style={{ position: 'relative', zIndex: 2, flex: 1, height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        <VideoRightArea
+          videos={videos} isGenerating={isGenerating}
+          durationMs={3000} aspectRatio={isSeedance2 ? seedanceAspect : aspectRatio}
+          onRecreate={(t) => setPrompt(t.prompt)}
+          onVideoClick={(v) => setSelectedVideo(v)}
+          modelName={isSeedance2 ? 'Seedance 2.0' : (model?.name || 'Kling 3.0')}
+        />
+      </div>
+
+      {/* Right glass panel — controls (was VideoLeftPanel on the left).
+          380px transparent glass per the V_Video_V1 spec; the inner
+          component contributes its own padding so we just wrap with the
+          glass surface + radius + border + shadow. */}
+      <div style={{
+        position: 'relative', zIndex: 2,
+        width: 380, margin: '20px 20px 20px 0',
+        borderRadius: 22,
+        background: 'rgba(20,18,20,0.38)',
+        backdropFilter: 'blur(36px) saturate(1.4)',
+        WebkitBackdropFilter: 'blur(36px) saturate(1.4)',
+        border: '1px solid rgba(255,255,255,0.1)',
+        boxShadow: '0 30px 80px rgba(0,0,0,0.55), 0 1px 0 rgba(255,255,255,0.12) inset, 0 0 60px rgba(224,30,30,0.08)',
+        overflow: 'auto',
+        flexShrink: 0,
+      }}>
+        {isSeedance2 ? (
+          <SeedanceLeftPanel
+            prompt={prompt}
+            onPromptChange={setPrompt}
+            onGenerate={handleSeedanceGenerate}
+            isGenerating={isGenerating}
+            model={model}
+            onModelClick={() => setShowModelModal(true)}
+            duration={seedanceDuration}
+            onDurationChange={setSeedanceDuration}
+            aspectRatio={seedanceAspect}
+            onAspectRatioChange={setSeedanceAspect}
+            resolution={seedanceRes}
+            onResolutionChange={setSeedanceRes}
+            audioOn={seedanceAudioOn}
+            onAudioToggle={() => setSeedanceAudioOn(v => !v)}
+            media={seedanceMedia}
+            onMediaRemove={handleSeedanceMediaRemove}
+            onCheckEligibility={handleCheckEligibility}
+            elements={seedanceElements}
+            onElementsClick={() => setShowSeedanceMediaPopup(true)}
+            showMediaPopup={showSeedanceMediaPopup}
+            onCloseMediaPopup={() => setShowSeedanceMediaPopup(false)}
+            imageRoles={seedanceImageRoles}
+            onImageRoleChange={handleImageRoleChange}
+          />
+        ) : (
+          <VideoLeftPanel
+            prompt={prompt} onPromptChange={setPrompt}
+            onGenerate={handleGenerate} isGenerating={isGenerating}
+            count={count} onCountChange={setCount}
+            model={model} onModelClick={() => setShowModelModal(true)}
+            duration={duration} onDurationChange={setDuration}
+            resolution={resolution} onResolutionChange={setResolution}
+            aspectRatio={aspectRatio} onAspectRatioChange={setAspectRatio}
+            startFrame={startFrame} endFrame={endFrame}
+            onStartFrameChange={setStartFrame} onEndFrameChange={setEndFrame}
+            onCameraMotionChange={setCameraMotion}
+          />
+        )}
+      </div>
 
       {/* Seedance media popup overlay */}
       {isSeedance2 && showSeedanceMediaPopup && (
