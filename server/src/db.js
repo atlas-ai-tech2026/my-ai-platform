@@ -108,6 +108,17 @@ export async function migrate() {
     await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS package       VARCHAR(64);`);
     await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMPTZ;`);
     await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_ip INET;`);
+    // credit_limit = the user's "lifetime cap" — sum of all positive grants
+    // by an admin. Unlike `credits` (the spendable balance), this only ever
+    // grows on `grant`, and is bumped to `max(credit_limit, target)` on a
+    // `set` action that lifts the target above the previous max. It's the
+    // denominator used by the navbar progress bar / outer ring so the
+    // user sees "X of Y granted" rather than a hardcoded package cap.
+    await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS credit_limit NUMERIC(10,2) NOT NULL DEFAULT 0;`);
+    // One-shot backfill for users that already had credits before this
+    // column existed: floor the limit at their current balance so the bar
+    // doesn't render at >100%. Idempotent — only lifts, never lowers.
+    await client.query(`UPDATE users SET credit_limit = GREATEST(credit_limit, credits);`);
 
     // ─── credits_history ────────────────────────────────────────────
     // Append-only audit of every credit movement. amount is signed:
