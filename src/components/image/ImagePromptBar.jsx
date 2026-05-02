@@ -591,27 +591,27 @@ export default function ImagePromptBar({
 
       <PageSwitcher />
 
-      {/* ── Fixed Bar — ultra-transparent frosted glass (reference) ── */}
+      {/* ── Fixed Bar — red-tinted dark glass per VOXEL_IMAGE_PAGE_SPEC §A2.1.
+          Dark `rgba(15,8,8,0.65)` fill so cinema imagery still bleeds through
+          the heavy blur, faint red border, and a multi-layer shadow with a
+          warm red halo to match the brand cinema aesthetic. ── */}
       <div style={{
         position: 'fixed',
         bottom: 28,
         left: '50%',
         transform: 'translateX(-50%)',
-        width: 'min(920px, 92vw)',
-        // Much more transparent so the scene bleeds through — the hallmark of the reference
-        background: 'rgba(30,30,36,0.22)',
-        backdropFilter: 'blur(64px) saturate(1.4)',
-        WebkitBackdropFilter: 'blur(64px) saturate(1.4)',
-        // Hair-thin luminous border — almost invisible against light, catches dark bg
-        border: '1px solid rgba(255,255,255,0.08)',
-        borderRadius: 30,
-        overflow: 'hidden',
-        // Soft ambient bloom + subtle inner highlight on the top edge
+        width: 'min(900px, 94%)',
+        background: 'rgba(15,8,8,0.65)',
+        backdropFilter: 'blur(50px) saturate(1.6)',
+        WebkitBackdropFilter: 'blur(50px) saturate(1.6)',
+        border: '1px solid rgba(224,30,30,0.2)',
+        borderRadius: 20,
+        overflow: 'visible',
         boxShadow:
-          '0 28px 80px rgba(0,0,0,0.45),' +
-          '0 4px 16px rgba(0,0,0,0.25),' +
-          '0 1px 0 rgba(255,255,255,0.1) inset,' +
-          '0 -1px 0 rgba(0,0,0,0.25) inset',
+          '0 24px 70px rgba(0,0,0,0.6),' +
+          '0 0 40px rgba(224,30,30,0.15),' +
+          '0 1px 0 rgba(255,255,255,0.08) inset',
+        padding: '14px 16px 12px',
         transition: 'all 0.32s cubic-bezier(0.4,0,0.2,1)',
         zIndex: 100,
       }}>
@@ -627,13 +627,15 @@ export default function ImagePromptBar({
             cursor: 'ns-resize', zIndex: 20,
           }}
         >
+          {/* Drag handle — brand red at rest per spec §A2.2 */}
           <div style={{
-            width: 44, height: 4, borderRadius: 3,
-            background: 'rgba(255,255,255,0.22)',
+            width: 48, height: 4, borderRadius: 3,
+            background: 'rgba(224,30,30,0.55)',
+            boxShadow: '0 0 8px rgba(224,30,30,0.5)',
             transition: 'background 0.15s, width 0.15s',
           }}
-            onMouseEnter={e => { e.currentTarget.style.background = 'rgba(224,30,30,0.7)'; e.currentTarget.style.width = '60px'; }}
-            onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.22)'; e.currentTarget.style.width = '44px'; }}
+            onMouseEnter={e => { e.currentTarget.style.background = '#E01E1E'; e.currentTarget.style.width = '60px'; }}
+            onMouseLeave={e => { e.currentTarget.style.background = 'rgba(224,30,30,0.55)'; e.currentTarget.style.width = '48px'; }}
           />
         </div>
 
@@ -710,25 +712,30 @@ export default function ImagePromptBar({
           )}
           <style>{`.remove-img-btn { display: none !important; } div:hover > .remove-img-btn { display: flex !important; }`}</style>
 
-          {/* Camera selection badges — persistent after modal closes */}
+          {/* Camera selection — single red Anton-style pill per spec §A2.3.
+              Replaces the previous "INJECTING:" label + multiple white pills
+              with one compact pill summarizing the whole selection. */}
           {(cameraSelection?.camera || cameraSelection?.focalLength || cameraSelection?.lens || cameraSelection?.fstop) && (
             <div style={{
               display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap',
               marginBottom: 10,
             }}>
               <span style={{
-                fontSize: 9, letterSpacing: '0.14em', textTransform: 'uppercase',
-                color: 'rgba(255,255,255,0.4)', fontWeight: 600,
-              }}>Injecting:</span>
-              {cameraSelection.camera && (
-                <span style={injectPill}>
-                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
-                  {cameraSelection.camera.name}
-                </span>
-              )}
-              {cameraSelection.focalLength && <span style={injectPill}>{cameraSelection.focalLength}</span>}
-              {cameraSelection.lens && <span style={injectPill}>{cameraSelection.lens.name}</span>}
-              {cameraSelection.fstop && <span style={injectPill}>{cameraSelection.fstop}</span>}
+                display: 'inline-flex', alignItems: 'center', gap: 6,
+                padding: '4px 10px', borderRadius: 4,
+                background: '#E01E1E', color: '#FFF',
+                fontSize: 9.5, fontWeight: 700,
+                letterSpacing: '0.08em', textTransform: 'uppercase',
+                fontFamily: '"DM Sans", sans-serif',
+                boxShadow: '0 0 16px rgba(224,30,30,0.5)',
+              }}>
+                {[
+                  cameraSelection.camera?.name,
+                  cameraSelection.focalLength,
+                  cameraSelection.lens?.name,
+                  cameraSelection.fstop,
+                ].filter(Boolean).join(' · ')}
+              </span>
               <button
                 onClick={() => onCameraChange?.({ camera: null, focalLength: null, lens: null, fstop: null })}
                 style={{
@@ -759,7 +766,7 @@ export default function ImagePromptBar({
                 width: '100%', height: promptHeight, minHeight: MIN_HEIGHT,
                 background: 'transparent', border: 'none', outline: 'none',
                 color: '#fff', fontSize: 15, fontFamily: '"DM Sans", sans-serif',
-                resize: 'none', lineHeight: 1.6, caretColor: 'white',
+                resize: 'none', lineHeight: 1.6, caretColor: '#E01E1E',
               }}
             />
           </div>
@@ -817,20 +824,23 @@ export default function ImagePromptBar({
         }}
           className="hide-scrollbar"
         >
-          {/* Model chip */}
+          {/* Model chip — red-tinted active style per spec §A2.7. The model
+              chip is the only chip that gets the red treatment when not
+              modal-open; all other chips keep the white-transparent style. */}
           <button
             onClick={() => { closeAll(); setShowModelModal(v => !v); }}
             style={{
               ...chipBase,
-              background: showModelModal ? 'rgba(255,255,255,0.09)' : chipBase.background,
-              borderColor: showModelModal ? 'rgba(255,255,255,0.14)' : chipBase.border,
+              background: showModelModal ? 'rgba(255,255,255,0.09)' : 'rgba(224,30,30,0.16)',
+              borderColor: showModelModal ? 'rgba(255,255,255,0.14)' : 'rgba(224,30,30,0.5)',
+              color: showModelModal ? chipBase.color : '#FFB5B5',
             }}
-            onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.08)'; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.12)'; }}
-            onMouseLeave={e => { e.currentTarget.style.background = showModelModal ? 'rgba(255,255,255,0.09)' : 'rgba(255,255,255,0.045)'; e.currentTarget.style.borderColor = showModelModal ? 'rgba(255,255,255,0.14)' : 'rgba(255,255,255,0.07)'; }}
+            onMouseEnter={e => { e.currentTarget.style.background = showModelModal ? 'rgba(255,255,255,0.12)' : 'rgba(224,30,30,0.22)'; }}
+            onMouseLeave={e => { e.currentTarget.style.background = showModelModal ? 'rgba(255,255,255,0.09)' : 'rgba(224,30,30,0.16)'; }}
           >
-            <BrandDot brand={model.brand} />
+            <span style={{ width: 7, height: 7, background: '#E01E1E', borderRadius: 999, boxShadow: '0 0 6px #E01E1E' }} />
             <span>{model.name}</span>
-            <ChevronDown className="w-3 h-3" style={{ color: 'rgba(255,255,255,0.35)' }} />
+            <ChevronDown className="w-3 h-3" style={{ color: showModelModal ? 'rgba(255,255,255,0.35)' : 'rgba(255,181,181,0.6)' }} />
           </button>
 
           {/* Aspect Ratio */}
@@ -930,44 +940,59 @@ export default function ImagePromptBar({
             )}
           </button>
 
-          {/* Generate — frosted translucent send button with halo, reference-style */}
-          <button
-            onClick={handleGenerate}
-            disabled={isGenerating}
-            title="Generate"
-            className="img-send-btn"
-            style={{
-              marginLeft: 'auto',
-              width: 42, height: 42, borderRadius: '50%',
-              // Frosted translucent — NOT solid white. Lets the glass behind bleed.
-              background: isGenerating
-                ? 'rgba(255,255,255,0.3)'
-                : 'linear-gradient(180deg, rgba(255,255,255,0.88) 0%, rgba(240,240,245,0.72) 100%)',
-              border: '1px solid rgba(255,255,255,0.45)',
-              backdropFilter: 'blur(16px)',
-              WebkitBackdropFilter: 'blur(16px)',
-              color: '#14141a',
-              cursor: isGenerating ? 'not-allowed' : 'pointer',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              flexShrink: 0,
-              // Soft glowing halo (the reference's signature) + subtle inner highlight
-              boxShadow: isGenerating
-                ? 'none'
-                : '0 0 0 1px rgba(255,255,255,0.1),' +
-                  '0 0 24px rgba(255,255,255,0.22),' +
-                  '0 6px 22px rgba(0,0,0,0.35),' +
-                  '0 1px 0 rgba(255,255,255,0.95) inset',
-              transition: 'transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease',
-            }}
-            onMouseEnter={e => { if (!isGenerating) { e.currentTarget.style.transform = 'translateY(-1px) scale(1.03)'; e.currentTarget.style.boxShadow = '0 0 0 1px rgba(255,255,255,0.18),0 0 36px rgba(255,255,255,0.35),0 8px 28px rgba(0,0,0,0.45),0 1px 0 rgba(255,255,255,0.95) inset'; e.currentTarget.style.background = 'linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(245,245,250,0.85) 100%)'; }}}
-            onMouseLeave={e => { if (!isGenerating) { e.currentTarget.style.transform = 'none'; e.currentTarget.style.boxShadow = '0 0 0 1px rgba(255,255,255,0.1),0 0 24px rgba(255,255,255,0.22),0 6px 22px rgba(0,0,0,0.35),0 1px 0 rgba(255,255,255,0.95) inset'; e.currentTarget.style.background = 'linear-gradient(180deg, rgba(255,255,255,0.88) 0%, rgba(240,240,245,0.72) 100%)'; }}}
-          >
-            {isGenerating ? (
-              <div style={{ width: 16, height: 16, border: '2px solid rgba(20,20,26,0.2)', borderTopColor: '#14141a', borderRadius: '50%', animation: 'imgSpin 0.8s linear infinite' }} />
-            ) : (
-              <ArrowUp className="w-[19px] h-[19px]" strokeWidth={2.6} style={{ color: '#14141a' }} />
-            )}
-          </button>
+          {/* Right cluster: credit indicator + Generate capsule per spec §A2.5-A2.6.
+              `model.credits ✦` in JetBrains Mono sits to the LEFT of the
+              capsule. The Generate button is now an Anton uppercase capsule
+              with the brand red gradient and the documented multi-layer
+              red glow shadow. */}
+          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div
+              style={{
+                fontSize: 10, color: 'rgba(255,255,255,0.55)',
+                fontFamily: '"JetBrains Mono", monospace',
+                letterSpacing: '0.06em',
+              }}
+              title={`${model.credits} credits per image`}
+            >{model.credits} ✦</div>
+            <button
+              onClick={handleGenerate}
+              disabled={isGenerating}
+              title="Generate"
+              className="img-send-btn"
+              style={{
+                height: 40, padding: '0 22px', borderRadius: 999, border: 'none',
+                background: isGenerating
+                  ? 'rgba(139,15,15,0.6)'
+                  : 'linear-gradient(180deg, #FF2A2A, #8B0F0F)',
+                color: '#FFF', fontSize: 13, fontWeight: 700,
+                fontFamily: 'Anton, sans-serif',
+                letterSpacing: '0.06em', textTransform: 'uppercase',
+                display: 'flex', alignItems: 'center', gap: 8,
+                cursor: isGenerating ? 'not-allowed' : 'pointer',
+                flexShrink: 0,
+                boxShadow: isGenerating
+                  ? 'none'
+                  : '0 0 30px rgba(224,30,30,0.55),' +
+                    '0 6px 20px rgba(139,15,15,0.5),' +
+                    '0 1px 0 rgba(255,255,255,0.25) inset',
+                transition: 'transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease',
+              }}
+              onMouseEnter={e => { if (!isGenerating) { e.currentTarget.style.transform = 'translateY(-1px)'; e.currentTarget.style.boxShadow = '0 0 40px rgba(224,30,30,0.7), 0 8px 26px rgba(139,15,15,0.6), 0 1px 0 rgba(255,255,255,0.3) inset'; }}}
+              onMouseLeave={e => { if (!isGenerating) { e.currentTarget.style.transform = 'none'; e.currentTarget.style.boxShadow = '0 0 30px rgba(224,30,30,0.55), 0 6px 20px rgba(139,15,15,0.5), 0 1px 0 rgba(255,255,255,0.25) inset'; }}}
+            >
+              {isGenerating ? (
+                <>
+                  <div style={{ width: 13, height: 13, border: '2px solid rgba(255,255,255,0.4)', borderTopColor: '#FFF', borderRadius: '50%', animation: 'imgSpin 0.8s linear infinite' }} />
+                  <span>GENERATING</span>
+                </>
+              ) : (
+                <>
+                  <span>GENERATE</span>
+                  <span style={{ fontSize: 14 }}>→</span>
+                </>
+              )}
+            </button>
+          </div>
         </div>
 
       </div>

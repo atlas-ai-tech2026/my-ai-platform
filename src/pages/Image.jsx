@@ -85,7 +85,9 @@ function buildFinalPrompt(userPrompt, cameraState) {
   return parts.join(', ');
 }
 
-// Loading card component
+// Loading card component — red-glow treatment per VOXEL_IMAGE_PAGE_SPEC §A1.5
+// Replaces the previous shimmer-gradient with a translucent red-bordered
+// card, blurred radial blob, ✦ glyph, and a "RENDERING N%" mono caption.
 function LoadingCard({ index = 0 }) {
   const [pct, setPct] = useState(0);
   const intervalRef = useRef(null);
@@ -102,34 +104,51 @@ function LoadingCard({ index = 0 }) {
 
   return (
     <div style={{
-      borderRadius: 14, border: '1px solid rgba(224,30,30,0.3)',
-      overflow: 'hidden', background: '#161616',
+      borderRadius: 12, border: '1px solid #E01E1E',
+      overflow: 'hidden', background: 'rgba(20,10,10,0.6)',
+      backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
       display: 'flex', flexDirection: 'column', width: '100%', aspectRatio: '1 / 1',
-      position: 'relative'
+      position: 'relative',
+      boxShadow: '0 0 30px rgba(224,30,30,0.35), 0 12px 36px rgba(0,0,0,0.5)',
     }}>
-      {/* Shimmer */}
-      <div style={{ flex: 1, background: 'linear-gradient(135deg, #1a0000 0%, #2a0a0a 50%, #1a1a1a 100%)', position: 'relative', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(90deg, transparent 0%, rgba(224,30,30,0.08) 50%, transparent 100%)', backgroundSize: '200% 100%', animation: 'imgShimmer 1.6s linear infinite' }} />
-        <div style={{ width: 44, height: 44, borderRadius: '50%', background: 'rgba(224,30,30,0.12)', border: '1px solid rgba(224,30,30,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', animation: 'imgSpin 1.8s linear infinite' }}>
-          <Sparkles style={{ width: 18, height: 18, color: '#FF4444' }} />
-        </div>
+      {/* Red glow blob + ✦ glyph centered */}
+      <div style={{
+        flex: 1, position: 'relative',
+        background: 'linear-gradient(135deg,rgba(224,30,30,0.2),rgba(139,15,15,0.4))',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+      }}>
+        <div style={{
+          width: 40, height: 40, borderRadius: '50%',
+          background: 'radial-gradient(circle, #FF2A2A, transparent)',
+          filter: 'blur(8px)', opacity: 0.8,
+        }} />
+        <div style={{ position: 'absolute', fontSize: 20, color: '#FFF' }}>✦</div>
       </div>
-      {/* Progress bar */}
-      <div style={{ padding: '8px 10px', background: '#161616' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5 }}>
-          <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)', fontFamily: font }}>Generating...</span>
-          <span style={{ fontSize: 11, fontWeight: 700, color: '#FF4444', fontFamily: font }}>{pct}%</span>
-        </div>
-        <div style={{ height: 3, background: '#2A2A2A', borderRadius: 999 }}>
-          <div style={{ height: '100%', width: `${pct}%`, background: 'linear-gradient(90deg, #CC0000, #FF2222)', borderRadius: 999, transition: 'width 0.12s ease', boxShadow: '0 0 6px rgba(224,30,30,0.5)' }} />
+      {/* Footer: RENDERING N% in JetBrains Mono red, 2px progress bar */}
+      <div style={{ padding: '10px 12px' }}>
+        <div style={{
+          fontSize: 10, color: '#E01E1E', fontWeight: 700,
+          fontFamily: '"JetBrains Mono", monospace', marginBottom: 5,
+          letterSpacing: '0.1em', textTransform: 'uppercase',
+        }}>Rendering {pct}%</div>
+        <div style={{ height: 2, background: 'rgba(255,255,255,0.1)', borderRadius: 999 }}>
+          <div style={{
+            height: '100%', width: `${pct}%`,
+            background: '#E01E1E', borderRadius: 999,
+            boxShadow: '0 0 10px #E01E1E',
+            transition: 'width 0.12s ease',
+          }} />
         </div>
       </div>
     </div>);
 
 }
 
-// Single image card
-function ImageCard({ img, index, onExpand, onLoaded }) {
+// Single image card — polished per VOXEL_IMAGE_PAGE_SPEC §A1.3-A1.4.
+// Hairline white border, radius 12, deep shadow, faint inner radial
+// highlight overlay, optional NEW MODEL pill on the first card when the
+// selected model carries a NEW badge.
+function ImageCard({ img, index, onExpand, onLoaded, isFirst = false, modelBadge = null }) {
   const [hovered, setHovered] = useState(false);
   const [imgLoaded, setImgLoaded] = useState(false);
   const h = HEIGHTS[index % HEIGHTS.length];
@@ -137,10 +156,33 @@ function ImageCard({ img, index, onExpand, onLoaded }) {
 
   return (
     <div
-      style={{ borderRadius: 14, overflow: 'hidden', background: img.gradient, cursor: 'pointer', position: 'relative', width: '100%', aspectRatio: '1 / 1' }}
+      style={{
+        borderRadius: 12, overflow: 'hidden',
+        background: img.gradient, cursor: 'pointer',
+        position: 'relative', width: '100%', aspectRatio: '1 / 1',
+        border: '1px solid rgba(255,255,255,0.06)',
+        boxShadow: '0 12px 36px rgba(0,0,0,0.5)',
+      }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       onClick={() => imgLoaded && onExpand(img)}>
+
+      {/* Faint inner radial highlight overlay — adds dimension without noise */}
+      <div style={{
+        position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 1,
+        background: 'radial-gradient(ellipse at 30% 70%, rgba(255,255,255,0.18), transparent 55%)',
+      }} />
+
+      {/* NEW MODEL pill on first card when the selected model has badge='NEW' */}
+      {isFirst && modelBadge === 'NEW' && (
+        <div style={{
+          position: 'absolute', top: 10, left: 10, zIndex: 3,
+          padding: '4px 9px', borderRadius: 4,
+          background: '#E01E1E', fontSize: 9, fontWeight: 800,
+          letterSpacing: '0.1em', textTransform: 'uppercase',
+          fontFamily: '"DM Sans", sans-serif', color: '#FFF',
+        }}>NEW MODEL</div>
+      )}
 
       {img.url && (
         <img
@@ -411,7 +453,7 @@ export default function Image() {
   const hasContent = displayImages.length > 0 || isGenerating;
 
   return (
-    <div style={{ minHeight: 'calc(100vh - 64px)', background: '#141414', display: 'flex', flexDirection: 'column', position: 'relative' }}>
+    <div style={{ minHeight: 'calc(100vh - 64px)', background: '#0A0A0A', display: 'flex', flexDirection: 'column', position: 'relative' }}>
 
       <style>{`
         @keyframes imgShimmer { 0%{background-position:200% 0} 100%{background-position:-200% 0} }
@@ -420,56 +462,88 @@ export default function Image() {
         @keyframes glowPulse2 { 0%,100%{opacity:0.5} 50%{opacity:1} }
       `}</style>
 
-      {/* Tabs row */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 20px', borderBottom: '1px solid #1A1A1A', background: '#141414', position: 'sticky', top: 0, zIndex: 10 }}>
-        {['history', 'saved', 'community'].map(tab => (
-          <button key={tab}
-            onClick={() => setActiveTab(tab)}
-            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 14px', borderRadius: 999, fontSize: 13, color: activeTab === tab ? '#fff' : '#666', border: `1px solid ${activeTab === tab ? 'rgba(255,255,255,0.2)' : '#2A2A2A'}`, background: activeTab === tab ? 'rgba(255,255,255,0.08)' : 'transparent', cursor: 'pointer', fontFamily: font, transition: 'all 0.15s', fontWeight: activeTab === tab ? 600 : 400, textTransform: 'capitalize' }}>
-            {tab === 'history' && <History style={{ width: 14, height: 14 }} />}
-            {tab === 'saved' && <Heart style={{ width: 14, height: 14 }} />}
-            {tab === 'community' && <Globe style={{ width: 14, height: 14 }} />}
-            {tab}
-          </button>
-        ))}
+      {/* Red ambient glow background — clean, no noise. Lives at zIndex 0,
+          content sits above at zIndex 2. Matches the design handoff brand
+          contract: cinema feel, deep blacks, two corner red glows. */}
+      <div style={{ position: 'absolute', inset: 0, zIndex: 0, pointerEvents: 'none' }}>
+        <div style={{
+          position: 'absolute', top: '-20%', right: '-10%', width: 900, height: 900,
+          background: 'radial-gradient(circle, rgba(224,30,30,0.28), transparent 60%)',
+          filter: 'blur(60px)',
+        }} />
+        <div style={{
+          position: 'absolute', bottom: '-20%', left: '-10%', width: 700, height: 700,
+          background: 'radial-gradient(circle, rgba(139,15,15,0.4), transparent 65%)',
+          filter: 'blur(60px)',
+        }} />
+      </div>
+
+      {/* Model hero — eyebrow + Anton headline on the left, tabs on the right.
+          Replaces the old sticky tabs row + isometric cube empty state. The
+          hero is always visible, even with content (it's tall enough to read
+          at the top of any feed). */}
+      <div style={{
+        position: 'relative', zIndex: 2,
+        padding: '20px 28px 0',
+        display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between',
+        flexWrap: 'wrap', gap: 16,
+      }}>
+        <div>
+          <div style={{
+            display: 'inline-flex', alignItems: 'center', gap: 8,
+            fontSize: 10.5, color: '#E01E1E',
+            fontFamily: '"JetBrains Mono", monospace',
+            letterSpacing: '0.14em', textTransform: 'uppercase', marginBottom: 10,
+            fontWeight: 600,
+          }}>
+            <span style={{
+              width: 6, height: 6, borderRadius: '50%',
+              background: '#E01E1E',
+              boxShadow: '0 0 10px #E01E1E',
+              animation: 'glowPulse2 2s ease-in-out infinite',
+            }} />
+            Flagship · {selectedModel.name}
+          </div>
+          <div style={{
+            fontFamily: 'Anton, sans-serif',
+            fontSize: 52, letterSpacing: '0.01em', lineHeight: 0.95,
+            color: '#FFF', textTransform: 'uppercase',
+            margin: 0,
+          }}>
+            CREATE WITHOUT LIMITS
+          </div>
+          <div style={{ marginTop: 10, fontSize: 14, color: 'rgba(255,255,255,0.6)', maxWidth: 560 }}>
+            {MODEL_SUBTITLES[selectedModel.name] || '4K image generation with cinematic control. Describe anything, generate in seconds.'}
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {['history', 'saved', 'community'].map(tab => (
+            <button key={tab} onClick={() => setActiveTab(tab)} style={{
+              padding: '7px 14px', fontSize: 12, fontWeight: 500, borderRadius: 999,
+              background: activeTab === tab ? 'rgba(255,255,255,0.1)' : 'rgba(255,255,255,0.04)',
+              border: `1px solid ${activeTab === tab ? 'rgba(255,255,255,0.18)' : 'rgba(255,255,255,0.08)'}`,
+              color: activeTab === tab ? '#FFF' : 'rgba(255,255,255,0.6)',
+              backdropFilter: 'blur(14px)',
+              cursor: 'pointer', textTransform: 'capitalize',
+              fontFamily: font, display: 'inline-flex', alignItems: 'center', gap: 6,
+              transition: 'all 0.15s',
+            }}>
+              {tab === 'history' && <History style={{ width: 12, height: 12 }} />}
+              {tab === 'saved' && <Heart style={{ width: 12, height: 12 }} />}
+              {tab === 'community' && <Globe style={{ width: 12, height: 12 }} />}
+              {tab}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Main content */}
-      <div style={{ flex: 1, overflowY: 'auto', paddingBottom: 180 }}>
+      <div style={{ position: 'relative', zIndex: 2, flex: 1, overflowY: 'auto', paddingBottom: 180 }}>
 
-        {/* Empty state */}
-        {!hasContent &&
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: 'calc(100vh - 200px)', textAlign: 'center', padding: '0 16px' }} className="bg-[#1f1e1e]">
-            <div style={{ position: 'relative', width: 110, height: 110, marginBottom: 32 }}>
-              <span style={{ position: 'absolute', top: -8, right: -4, fontSize: 18, color: '#E01E1E', animation: 'glowPulse2 2s ease-in-out infinite' }}>✦</span>
-              <span style={{ position: 'absolute', top: 20, right: -18, fontSize: 11, color: '#ff5555', animation: 'glowPulse2 2s ease-in-out infinite', animationDelay: '0.7s' }}>✦</span>
-              <span style={{ position: 'absolute', bottom: 0, left: -10, fontSize: 14, color: '#8B0000', animation: 'glowPulse2 2s ease-in-out infinite', animationDelay: '1.4s' }}>✦</span>
-              <svg width="110" height="110" viewBox="0 0 110 110" fill="none">
-                <defs>
-                  <linearGradient id="ig1" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stopColor="#8B0000" /><stop offset="100%" stopColor="#E01E1E" /></linearGradient>
-                  <linearGradient id="ig2" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stopColor="#5a0000" /><stop offset="100%" stopColor="#8B0000" /></linearGradient>
-                  <linearGradient id="ig3" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stopColor="#3a0000" /><stop offset="100%" stopColor="#5a0000" /></linearGradient>
-                </defs>
-                <rect x="18" y="30" width="60" height="52" rx="8" fill="url(#ig1)" />
-                <path d="M18 30 L38 14 L98 14 L78 30 Z" fill="url(#ig2)" />
-                <path d="M78 30 L98 14 L98 66 L78 82 Z" fill="url(#ig3)" />
-                <circle cx="38" cy="50" r="7" fill="rgba(255,255,255,0.25)" />
-                <path d="M22 74 L36 56 L50 68 L62 54 L76 74 Z" fill="rgba(255,255,255,0.18)" />
-              </svg>
-            </div>
-            <h1 style={{ fontFamily: 'Anton, sans-serif', fontSize: 'clamp(48px, 7vw, 88px)', color: '#fff', lineHeight: 1, margin: '0 0 12px 0', textTransform: 'uppercase' }}>
-              {selectedModel.name}
-            </h1>
-            <p style={{ fontFamily: font, fontSize: 15, color: '#555', margin: 0 }}>
-              {MODEL_SUBTITLES[selectedModel.name] || 'Create stunning images in seconds'}
-            </p>
-          </div>
-        }
-
-        {/* Masonry grid */}
-        {hasContent &&
+        {/* Masonry grid (always rendered — when empty, only loading cards / nothing) */}
         <div style={{
-          display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 10, padding: '14px 14px'
+          display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 10, padding: '20px 28px 14px'
         }}>
             {/* Loading cards */}
             {isGenerating && Array.from({ length: imageCount }).map((_, i) =>
@@ -480,11 +554,10 @@ export default function Image() {
             {/* Generated images */}
             {displayImages.map((img, i) =>
           <div key={img.id} style={{ animation: 'imgFadeIn 0.4s ease forwards' }}>
-                <ImageCard img={img} index={i} onExpand={setDetailImage} onLoaded={() => {}} />
+                <ImageCard img={img} index={i} onExpand={setDetailImage} onLoaded={() => {}} isFirst={i === 0} modelBadge={selectedModel.badge} />
               </div>
           )}
-          </div>
-        }
+        </div>
       </div>
 
       {/* Prompt bar */}
