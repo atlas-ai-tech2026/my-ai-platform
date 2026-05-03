@@ -141,6 +141,7 @@ export default function Video() {
     }
     setIsGenerating(true);
     try {
+      // Upload frames ONCE — same uploaded URLs reused for every variant.
       let imageUrl = null;
       let tailImageUrl = null;
       if (startFrame) imageUrl = await prepareImageForFal(startFrame, 0);
@@ -151,40 +152,66 @@ export default function Video() {
         ? `${prompt.trim()}, camera motion: ${cameraMotion.label.toLowerCase()}`
         : prompt;
 
-      const response = await fetch('/api/generate-video', {
-        method: 'POST',
-        headers: authJsonHeaders(),
-        body: JSON.stringify({
-          model: model.name, prompt: finalPrompt,
-          duration: parseInt(duration) || 5,
-          aspect_ratio: aspectRatio === 'Auto' ? '16:9' : aspectRatio,
-          ...(imageUrl ? { image_url: imageUrl } : {}),
-          ...(tailImageUrl ? { tail_image_url: tailImageUrl } : {}),
-        }),
-      });
-      const data = await response.json();
-      if (!response.ok || !data.job_id) {
-        if (response.status === 401) {
+      const dur = parseInt(duration) || 5;
+      const ratio = aspectRatio === 'Auto' ? '16:9' : aspectRatio;
+      const payload = {
+        model: model.name, prompt: finalPrompt,
+        duration: dur, aspect_ratio: ratio,
+        ...(imageUrl ? { image_url: imageUrl } : {}),
+        ...(tailImageUrl ? { tail_image_url: tailImageUrl } : {}),
+      };
+
+      const N = Math.max(1, Math.min(4, count || 1));
+
+      const generateOne = async () => {
+        try {
+          const response = await fetch('/api/generate-video', {
+            method: 'POST',
+            headers: authJsonHeaders(),
+            body: JSON.stringify(payload),
+          });
+          const data = await response.json();
+          if (!response.ok || !data.job_id) {
+            return { ok: false, status: response.status, error: data.error };
+          }
+          const saved = await History_.create({
+            type: 'video', model: model.name, prompt,
+            job_id: data.job_id, model_id: data.model_id,
+            status: 'pending', duration: dur, ratio: aspectRatio,
+          });
+          setVideos(prev => [{ id: saved.id, prompt, model: model.name, duration: dur, aspectRatio, status: 'pending', job_id: data.job_id, model_id: data.model_id, created_date: saved.created_date }, ...prev]);
+          pollVideo(saved.id, data.job_id, data.model_id);
+          return { ok: true };
+        } catch (err) {
+          return { ok: false, status: 0, error: err.message };
+        }
+      };
+
+      const results = await Promise.allSettled(
+        Array.from({ length: N }, () => generateOne())
+      );
+      const outcomes = results.map(r => r.status === 'fulfilled' ? r.value : { ok: false, status: 0, error: r.reason?.message });
+      const successes = outcomes.filter(o => o.ok).length;
+      const failures = outcomes.filter(o => !o.ok);
+
+      if (successes === N) {
+        toast.success(N === 1 ? 'Video generating — you can keep working!' : `Generating ${N} videos — you can keep working!`);
+      } else if (successes > 0) {
+        const first = failures[0];
+        const reason = first.status === 402 ? 'not enough credits for the rest' : (first.error || 'failed');
+        toast.warning(`Started ${successes} of ${N} — ${reason}`);
+      } else {
+        const first = failures[0] || { status: 0, error: 'Video generation failed' };
+        if (first.status === 401) {
           toast.error('Your session expired — please sign in again.');
           openAuthModal('login');
-        } else if (response.status === 402) {
-          toast.error(data.error || 'Not enough credits — ask the admin to add more.');
+        } else if (first.status === 402) {
+          toast.error(first.error || 'Not enough credits — ask the admin to add more.');
         } else {
-          toast.error(data.error || 'Video generation failed');
+          toast.error(first.error || 'Video generation failed');
         }
-        // 402 / banned / etc. — pull the latest balance into the navbar.
-        refreshAuth();
-        return;
       }
 
-      const saved = await History_.create({
-        type: 'video', model: model.name, prompt,
-        job_id: data.job_id, model_id: data.model_id,
-        status: 'pending', duration: parseInt(duration) || 5, ratio: aspectRatio,
-      });
-      setVideos(prev => [{ id: saved.id, prompt, model: model.name, duration: parseInt(duration) || 5, aspectRatio, status: 'pending', job_id: data.job_id, model_id: data.model_id, created_date: saved.created_date }, ...prev]);
-      pollVideo(saved.id, data.job_id, data.model_id);
-      toast.success('Video generating — you can keep working!');
       // Charge happens at submit (not at poll-completion), so refresh now.
       refreshAuth();
     } catch (err) {
