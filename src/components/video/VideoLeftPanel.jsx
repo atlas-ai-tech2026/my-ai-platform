@@ -312,12 +312,13 @@ export default function VideoLeftPanel({
         </div>
       )}
 
-      {/* §3.5 — Prompt textarea. flex: 1 + min-height: 0 lets the textarea
-          consume whatever vertical space is left after the rest of the
-          panel; if space is tight it shrinks to ~80 px so the GENERATE
-          footer below stays visible without scrolling. */}
-      <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+      {/* §3.5 — Prompt textarea. Fixed 110 px tall (per user request).
+          The footer's `marginTop: auto` keeps GENERATE pinned to the
+          bottom of the panel; the leftover space sits between the
+          options grid and the footer when the panel is taller than
+          its content. */}
+      <div style={{ display: 'flex', flexDirection: 'column' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
           <span style={{ fontSize: 13, fontWeight: 700, color: '#FFF' }}>Describe your video</span>
           <button
             type="button"
@@ -337,31 +338,31 @@ export default function VideoLeftPanel({
           </button>
         </div>
         <div style={{
-          padding: 12, borderRadius: 12,
+          padding: 10, borderRadius: 12,
           background: 'rgba(255,255,255,0.02)',
           border: '1px solid rgba(255,255,255,0.07)',
-          flex: 1, minHeight: 80, position: 'relative',
+          height: 110, position: 'relative',
           display: 'flex', flexDirection: 'column',
         }}>
           <textarea
             className="vlf-textarea"
             value={prompt}
             onChange={e => onPromptChange?.(e.target.value)}
-            placeholder="Describe scene transitions, camera movement trajectories, or character actions with text to precisely control the entire video from beginning to end."
+            placeholder="Describe the scene transition and camera movement, character action"
             style={{
               width: '100%',
-              flex: 1,
+              height: '100%',
               minHeight: 0,
               background: 'transparent',
               border: 'none',
               outline: 'none',
               resize: 'none',
               color: '#FFF',
-              fontSize: 13,
-              lineHeight: 1.5,
+              fontSize: 12.5,
+              lineHeight: 1.45,
               fontFamily: '"DM Sans", sans-serif',
               caretColor: RED,
-              paddingBottom: 36, // make room for the ⚡ pill anchored bottom-left
+              paddingBottom: 32, // make room for the ⚡ pill anchored bottom-left
               boxSizing: 'border-box',
             }}
           />
