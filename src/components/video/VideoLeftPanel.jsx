@@ -495,7 +495,7 @@ export default function VideoLeftPanel({
           The click handler runs the validation and shows a clear toast
           for whichever prerequisite is missing, so the user gets
           actionable feedback instead of a silent dim button. */}
-      <div style={{ display: 'flex', gap: 8, marginTop: 'auto' }}>
+      <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
         {/* Count stepper — single bordered row */}
         <div style={{
           display: 'flex', alignItems: 'center',
