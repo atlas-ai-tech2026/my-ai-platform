@@ -43,7 +43,7 @@ function OptionChip({ icon, label, value, toggle = false, on = false, onToggle, 
     <div
       onClick={onClick}
       style={{
-        padding: '6px 8px', borderRadius: 9,
+        padding: '5px 7px', borderRadius: 8,
         background: 'rgba(255,255,255,0.03)',
         border: '1px solid rgba(255,255,255,0.08)',
         cursor: onClick || toggle ? 'pointer' : 'default',
@@ -52,12 +52,12 @@ function OptionChip({ icon, label, value, toggle = false, on = false, onToggle, 
       onMouseEnter={e => { e.currentTarget.style.filter = 'brightness(1.12)'; }}
       onMouseLeave={e => { e.currentTarget.style.filter = 'none'; }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 9.5, color: 'rgba(255,255,255,0.55)' }}>
-        <span style={{ fontSize: 10 }}>{icon}</span>{label}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 9, color: 'rgba(255,255,255,0.55)' }}>
+        <span style={{ fontSize: 9.5 }}>{icon}</span>{label}
       </div>
       <div style={{
-        fontSize: 11.5, fontWeight: 700, color: '#FFF',
-        display: 'flex', alignItems: 'center', marginTop: 2,
+        fontSize: 11, fontWeight: 700, color: '#FFF',
+        display: 'flex', alignItems: 'center', marginTop: 1,
       }}>
         <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{value}</span>
         {toggle && (
@@ -152,8 +152,8 @@ export default function VideoLeftPanel({
 
   return (
     <div style={{
-      display: 'flex', flexDirection: 'column', gap: 10,
-      padding: '16px 16px 20px',
+      display: 'flex', flexDirection: 'column', gap: 8,
+      padding: '14px 14px 16px',
       height: '100%', minHeight: 0,
       fontFamily: '"DM Sans", sans-serif',
     }}>
@@ -198,24 +198,24 @@ export default function VideoLeftPanel({
               key={tab.id}
               onClick={() => setMode(tab.id)}
               style={{
-                padding: '10px 8px', borderRadius: 11,
+                padding: '8px 6px', borderRadius: 10,
                 background: active
                   ? `linear-gradient(180deg, ${RED}, ${RED_DEEP})`
                   : 'rgba(255,255,255,0.04)',
                 border: `1px solid ${active ? RED_HOT : 'rgba(255,255,255,0.08)'}`,
                 color: active ? '#FFF' : 'rgba(255,255,255,0.85)',
                 textAlign: 'center', cursor: 'pointer',
-                fontSize: 12, fontWeight: active ? 700 : 600,
+                fontSize: 11.5, fontWeight: active ? 700 : 600,
                 boxShadow: active
-                  ? `0 0 22px rgba(224,30,30,0.45), 0 1px 0 rgba(255,255,255,0.20) inset`
+                  ? `0 0 18px rgba(224,30,30,0.45), 0 1px 0 rgba(255,255,255,0.20) inset`
                   : 'none',
                 transition: 'filter 0.15s',
-                display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3,
+                display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2,
               }}
               className="vlf-hover"
             >
               <span style={{
-                fontSize: 18, lineHeight: 1,
+                fontSize: 16, lineHeight: 1,
                 filter: active ? 'drop-shadow(0 2px 6px rgba(0,0,0,0.4))' : 'none',
               }}>{tab.icon}</span>
               {tab.label}
@@ -228,31 +228,31 @@ export default function VideoLeftPanel({
       <button
         onClick={onModelClick}
         style={{
-          padding: '10px 12px', borderRadius: 12,
+          padding: '8px 10px', borderRadius: 11,
           background: 'rgba(255,255,255,0.04)',
           border: '1px solid rgba(255,255,255,0.08)',
-          display: 'flex', alignItems: 'center', gap: 10,
+          display: 'flex', alignItems: 'center', gap: 9,
           cursor: 'pointer', textAlign: 'left',
           transition: 'filter 0.15s',
         }}
         className="vlf-hover"
       >
         <div style={{
-          width: 34, height: 34, borderRadius: '50%',
+          width: 30, height: 30, borderRadius: '50%',
           background: 'linear-gradient(135deg, #3a5edc, #1a2e8e)',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
-          fontSize: 15, fontWeight: 800, color: '#FFF',
+          fontSize: 14, fontWeight: 800, color: '#FFF',
           flexShrink: 0,
         }}>
           {(model?.brand || model?.name || 'K').charAt(0)}
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.55)' }}>Model</div>
-          <div style={{ fontSize: 15, fontWeight: 700, color: '#FFF', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+          <div style={{ fontSize: 10.5, color: 'rgba(255,255,255,0.55)' }}>Model</div>
+          <div style={{ fontSize: 14, fontWeight: 700, color: '#FFF', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
             {model?.name || 'Kling 3.0'}
           </div>
         </div>
-        <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: 16 }}>›</span>
+        <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: 14 }}>›</span>
       </button>
 
       {/* §3.4 — Set start & end frame (only when in frame mode) */}
@@ -262,10 +262,10 @@ export default function VideoLeftPanel({
             Set start &amp; end frame
           </div>
           <div style={{
-            padding: 8, borderRadius: 11,
+            padding: 6, borderRadius: 10,
             background: 'rgba(255,255,255,0.02)',
             border: '1px solid rgba(255,255,255,0.07)',
-            display: 'flex', gap: 6, alignItems: 'center',
+            display: 'flex', gap: 5, alignItems: 'center',
           }}>
             {/* Start uploader */}
             <FrameUploader
@@ -390,18 +390,18 @@ export default function VideoLeftPanel({
           onClick={() => setShowCameraDrop(v => !v)}
           style={{
             width: '100%',
-            padding: '10px 12px', borderRadius: 10,
+            padding: '8px 10px', borderRadius: 10,
             background: 'rgba(255,255,255,0.03)',
             border: '1px solid rgba(255,255,255,0.08)',
-            display: 'flex', alignItems: 'center', gap: 10,
-            fontSize: 12.5, fontWeight: 500,
+            display: 'flex', alignItems: 'center', gap: 8,
+            fontSize: 12, fontWeight: 500,
             color: selectedMotion ? '#FFF' : 'rgba(255,255,255,0.85)',
             cursor: 'pointer', textAlign: 'left',
             transition: 'filter 0.15s',
           }}
           className="vlf-hover"
         >
-          <Video style={{ width: 14, height: 14, color: selectedMotion ? RED : 'rgba(255,255,255,0.7)' }} />
+          <Video style={{ width: 13, height: 13, color: selectedMotion ? RED : 'rgba(255,255,255,0.7)' }} />
           <span>{selectedMotion ? `Camera Motion · ${selectedMotion.label}` : 'Camera Motion'}</span>
           <ChevronDown
             style={{
@@ -505,16 +505,16 @@ export default function VideoLeftPanel({
             type="button"
             onClick={() => onCountChange?.(Math.max(1, (count || 1) - 1))}
             style={{
-              padding: '0 9px', height: 32,
+              padding: '0 8px', height: 28,
               background: 'transparent', border: 'none',
               color: 'rgba(255,255,255,0.7)', cursor: 'pointer',
               display: 'flex', alignItems: 'center',
             }}
-          ><Minus style={{ width: 11, height: 11 }} /></button>
+          ><Minus style={{ width: 10, height: 10 }} /></button>
           <div style={{
-            padding: '0 9px', height: 32,
+            padding: '0 8px', height: 28,
             display: 'flex', alignItems: 'center',
-            fontFamily: '"JetBrains Mono", monospace', fontSize: 11.5, color: '#FFF',
+            fontFamily: '"JetBrains Mono", monospace', fontSize: 11, color: '#FFF',
             borderLeft: '1px solid rgba(255,255,255,0.10)',
             borderRight: '1px solid rgba(255,255,255,0.10)',
           }}>{count || 1} / 4</div>
@@ -522,12 +522,12 @@ export default function VideoLeftPanel({
             type="button"
             onClick={() => onCountChange?.(Math.min(4, (count || 1) + 1))}
             style={{
-              padding: '0 9px', height: 32,
+              padding: '0 8px', height: 28,
               background: 'transparent', border: 'none',
               color: 'rgba(255,255,255,0.7)', cursor: 'pointer',
               display: 'flex', alignItems: 'center',
             }}
-          ><Plus style={{ width: 11, height: 11 }} /></button>
+          ><Plus style={{ width: 10, height: 10 }} /></button>
         </div>
 
         {/* GENERATE capsule — clickable always (handler shows toast on missing prereqs) */}
@@ -536,29 +536,29 @@ export default function VideoLeftPanel({
           onClick={handleGenerateClick}
           disabled={isGenerating}
           style={{
-            flex: 1, height: 32, borderRadius: 9, border: 'none',
+            flex: 1, height: 28, borderRadius: 8, border: 'none',
             background: isGenerating
               ? 'rgba(139,15,15,0.6)'
               : `linear-gradient(180deg, ${RED_HOT}, ${RED_DEEP})`,
             color: '#FFF',
             fontFamily: 'Anton, sans-serif',
             letterSpacing: '0.06em', textTransform: 'uppercase',
-            fontSize: 12.5, fontWeight: 700,
-            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+            fontSize: 12, fontWeight: 700,
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7,
             cursor: isGenerating ? 'not-allowed' : 'pointer',
             opacity: prereqsMissing && !isGenerating ? 0.7 : 1,
             boxShadow: isGenerating ? 'none' : `
-              0 0 24px rgba(224,30,30,0.53),
-              0 4px 12px rgba(139,15,15,0.5),
+              0 0 22px rgba(224,30,30,0.53),
+              0 4px 10px rgba(139,15,15,0.5),
               0 1px 0 rgba(255,255,255,0.25) inset
             `,
             transition: 'box-shadow 0.18s, transform 0.15s, opacity 0.18s',
           }}
-          onMouseEnter={e => { if (!isGenerating) { e.currentTarget.style.boxShadow = '0 0 32px rgba(224,30,30,0.7), 0 6px 16px rgba(139,15,15,0.6), 0 1px 0 rgba(255,255,255,0.3) inset'; e.currentTarget.style.transform = 'translateY(-1px)'; }}}
-          onMouseLeave={e => { if (!isGenerating) { e.currentTarget.style.boxShadow = '0 0 24px rgba(224,30,30,0.53), 0 4px 12px rgba(139,15,15,0.5), 0 1px 0 rgba(255,255,255,0.25) inset'; e.currentTarget.style.transform = 'none'; }}}
+          onMouseEnter={e => { if (!isGenerating) { e.currentTarget.style.boxShadow = '0 0 28px rgba(224,30,30,0.7), 0 6px 14px rgba(139,15,15,0.6), 0 1px 0 rgba(255,255,255,0.3) inset'; e.currentTarget.style.transform = 'translateY(-1px)'; }}}
+          onMouseLeave={e => { if (!isGenerating) { e.currentTarget.style.boxShadow = '0 0 22px rgba(224,30,30,0.53), 0 4px 10px rgba(139,15,15,0.5), 0 1px 0 rgba(255,255,255,0.25) inset'; e.currentTarget.style.transform = 'none'; }}}
         >
           <span>{isGenerating ? 'Generating' : 'Generate'}</span>
-          <span style={{ fontSize: 13 }}>→</span>
+          <span style={{ fontSize: 12 }}>→</span>
         </button>
       </div>
     </div>
@@ -571,7 +571,10 @@ function FrameUploader({ type, frameUrl, onUpload, onClear, dim, caption }) {
   return (
     <div
       style={{
-        flex: 1, aspectRatio: '4/3', borderRadius: 10,
+        // Explicit short height (78 px) instead of an aspect ratio —
+        // 4/3 made the boxes ~150 px tall in a 380-wide panel which
+        // chewed up the prompt textarea space.
+        flex: 1, height: 78, borderRadius: 10,
         background: dim ? 'rgba(255,255,255,0.02)' : 'rgba(255,255,255,0.03)',
         border: `1px solid ${dim ? 'rgba(255,255,255,0.05)' : 'rgba(255,255,255,0.06)'}`,
         position: 'relative', overflow: 'hidden',
@@ -601,10 +604,11 @@ function FrameUploader({ type, frameUrl, onUpload, onClear, dim, caption }) {
       ) : (
         <label style={{
           position: 'absolute', inset: 0,
-          display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
           gap: 8, cursor: 'pointer',
           color: dim ? 'rgba(255,255,255,0.45)' : 'rgba(255,255,255,0.7)',
-          fontSize: 11, fontWeight: 500, textAlign: 'center', lineHeight: 1.3,
+          fontSize: 10.5, fontWeight: 500, lineHeight: 1.25,
+          padding: '0 8px',
         }}>
           <input
             type="file"
@@ -613,14 +617,14 @@ function FrameUploader({ type, frameUrl, onUpload, onClear, dim, caption }) {
             onChange={e => onUpload(type, e)}
           />
           <div style={{
-            width: 30, height: 30, borderRadius: '50%',
+            width: 26, height: 26, borderRadius: '50%',
             background: dim ? 'rgba(139,15,15,0.45)' : RED,
             color: dim ? 'rgba(255,255,255,0.65)' : '#FFF',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: 18, fontWeight: 300,
-            boxShadow: dim ? 'none' : `0 0 12px rgba(224,30,30,0.45)`,
+            fontSize: 16, fontWeight: 300, flexShrink: 0,
+            boxShadow: dim ? 'none' : `0 0 10px rgba(224,30,30,0.4)`,
           }}>+</div>
-          <div style={{ fontSize: 10.5 }}>{caption}<br/>frame</div>
+          <div style={{ fontSize: 10 }}>{caption}<br/>frame</div>
         </label>
       )}
     </div>
