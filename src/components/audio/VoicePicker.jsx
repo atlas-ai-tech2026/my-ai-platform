@@ -192,37 +192,72 @@ export default function VoicePicker({ value, onChange }) {
             accents={ACCENTS}
           />
 
-          {/* Voice list (scrollable) + bottom fade hinting at more rows */}
-          <div style={{ position: 'relative', flex: 1, minHeight: 0 }}>
-            <div style={{ overflowY: 'auto', height: '100%', padding: 6 }}>
-              {filtered.length === 0 && (
-                <div style={{
-                  padding: '20px 12px', textAlign: 'center',
-                  color: 'rgba(255,255,255,0.4)', fontSize: 12,
-                }}>No voices match.</div>
-              )}
-              {filtered.map(v => (
-                <VoiceRow
-                  key={v.name}
-                  voice={v}
-                  isActive={v.name === current.name}
-                  isLoading={loadingName === v.name}
-                  isPlaying={playingName === v.name}
-                  onSelect={() => { onChange?.(v.name); setOpen(false); }}
-                  onPreview={() => handlePreview(v)}
-                />
-              ))}
-            </div>
-            {filtered.length > 6 && (
+          {/* Voice list (scrollable) + bottom fade hinting at more rows.
+              `flex: 1` + `min-height: 0` + `overflow-y: auto` directly on
+              the SAME element — the prior nested wrapper with
+              `height: 100%` doesn't resolve in all browsers because
+              `flex: 1`'s computed height isn't a "definite" value for
+              percentage children to inherit, so the inner div grew
+              beyond the popover's max-height and the scrollbar fell
+              outside the clipped region. */}
+          <div className="voxel-voice-scroll" style={{
+            position: 'relative',
+            flex: 1, minHeight: 0,
+            overflowY: 'auto',
+            padding: 6,
+            // Stop wheel events from "chaining" to the parent ScriptPanel
+            // when this list reaches its scroll edge — without this the
+            // user's mousewheel scrolls the panel instead of the list.
+            overscrollBehavior: 'contain',
+          }}>
+            <style>{`
+              /* Force a visible custom scrollbar so users on macOS (where
+                 native scrollbars are hidden until active scroll) realise
+                 the list IS scrollable. */
+              .voxel-voice-scroll {
+                scrollbar-width: thin;
+                scrollbar-color: rgba(224,30,30,0.6) rgba(255,255,255,0.05);
+              }
+              .voxel-voice-scroll::-webkit-scrollbar { width: 8px; }
+              .voxel-voice-scroll::-webkit-scrollbar-track {
+                background: rgba(255,255,255,0.04);
+                border-radius: 999px;
+              }
+              .voxel-voice-scroll::-webkit-scrollbar-thumb {
+                background: linear-gradient(180deg, rgba(224,30,30,0.7), rgba(139,15,15,0.7));
+                border-radius: 999px;
+              }
+              .voxel-voice-scroll::-webkit-scrollbar-thumb:hover {
+                background: linear-gradient(180deg, rgba(255,42,42,0.9), rgba(139,15,15,0.9));
+              }
+            `}</style>
+            {filtered.length === 0 && (
               <div style={{
-                position: 'absolute',
-                left: 0, right: 0, bottom: 0,
-                height: 32,
-                background: 'linear-gradient(180deg, transparent, rgba(20,18,20,0.97))',
-                pointerEvents: 'none',
-              }} />
+                padding: '20px 12px', textAlign: 'center',
+                color: 'rgba(255,255,255,0.4)', fontSize: 12,
+              }}>No voices match.</div>
             )}
+            {filtered.map(v => (
+              <VoiceRow
+                key={v.name}
+                voice={v}
+                isActive={v.name === current.name}
+                isLoading={loadingName === v.name}
+                isPlaying={playingName === v.name}
+                onSelect={() => { onChange?.(v.name); setOpen(false); }}
+                onPreview={() => handlePreview(v)}
+              />
+            ))}
           </div>
+          {filtered.length > 6 && (
+            <div style={{
+              position: 'absolute',
+              left: 0, right: 0, bottom: 0,
+              height: 32,
+              background: 'linear-gradient(180deg, transparent, rgba(20,18,20,0.97))',
+              pointerEvents: 'none',
+            }} />
+          )}
 
           {/* Spinner CSS */}
           <style>{`
