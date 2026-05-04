@@ -14,9 +14,7 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { ChevronRight } from 'lucide-react';
 import { toast } from 'sonner';
-import { useAuth } from '@/lib/AuthContext';
-import { VOICES, ACCENTS, PREVIEW_TEXT } from './voices';
-import { authJsonHeaders } from './audioUtils';
+import { VOICES, ACCENTS } from './voices';
 import VoiceRow from './VoiceRow';
 import VoicePopoverHeader from './VoicePopoverHeader';
 
@@ -25,7 +23,6 @@ import VoicePopoverHeader from './VoicePopoverHeader';
 const previewCache = new Map();
 
 export default function VoicePicker({ value, onChange }) {
-  const { isAuthenticated, openAuthModal } = useAuth();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [accent, setAccent] = useState('All');
@@ -94,36 +91,23 @@ export default function VoicePicker({ value, onChange }) {
       return;
     }
 
-    // Not signed in → open the login modal directly. Without this the
-    // user just sees a transient toast and assumes the button is broken.
-    if (!isAuthenticated) {
-      toast.info('Sign in to preview voices.');
-      openAuthModal?.('login');
-      return;
-    }
-
+    // Previews use the public /api/tts/preview route. No auth required —
+    // the server returns a fixed sample text for each voice and caches
+    // the result by voice name (first listener pays the FAL call,
+    // everyone after gets it free). The main Synthesize button still
+    // requires auth — that's the right gate for "spend a credit on the
+    // user's actual script", not for browsing voices.
     setLoadingName(voice.name);
     try {
-      const resp = await fetch('/api/tts', {
+      const resp = await fetch('/api/tts/preview', {
         method: 'POST',
-        headers: authJsonHeaders(),
-        body: JSON.stringify({
-          model: 'eleven-v3',
-          text: PREVIEW_TEXT,
-          voice: voice.name,
-          stability: 0.5,
-        }),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ voice: voice.name }),
       });
       const data = await resp.json();
       if (!resp.ok || !data.audio_url) {
-        if (resp.status === 401) {
-          toast.error('Your session expired — sign in again.');
-          openAuthModal?.('login');
-        } else if (resp.status === 402) {
-          toast.error('Not enough credits to preview.');
-        } else {
-          toast.error(data.error || 'Preview failed');
-        }
+        if (resp.status === 429) toast.error('Too many previews — try again in an hour.');
+        else toast.error(data.error || 'Preview failed');
         return;
       }
       previewCache.set(voice.name, data.audio_url);
