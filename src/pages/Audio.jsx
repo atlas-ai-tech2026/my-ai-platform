@@ -36,7 +36,6 @@ export default function Audio() {
   const [audioDuration, setAudioDuration] = useState(PREVIEW_DURATION);
   const [playhead, setPlayhead] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [selection, setSelection] = useState({ start: 0.18, end: 0.42 });
   const [isSynthesizing, setIsSynthesizing] = useState(false);
 
   // ─── Script panel state (sent to /api/tts) ───
@@ -266,8 +265,7 @@ export default function Audio() {
             onPlayToggle={handlePlayToggle}
             onSkipStart={handleSkipStart}
             onSkipEnd={handleSkipEnd}
-            selection={selection}
-            onSelectionChange={setSelection}
+            audioUrl={audioUrl}
             trackTitle={modeLabel.trackTitle}
             voiceLabel={modeLabel.voiceLabel}
           />

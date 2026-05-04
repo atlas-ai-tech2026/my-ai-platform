@@ -22,7 +22,17 @@ export function fmtTime(sec, withMs = false) {
   return `${String(m).padStart(2, '0')}:${String(whole).padStart(2, '0')}.${String(ms).padStart(3, '0')}`;
 }
 
-export function TrackHeader({ trackTitle, voiceLabel }) {
+export function TrackHeader({ trackTitle, voiceLabel, audioUrl }) {
+  // Solo + Mute were removed (no real mixer behind them); Export was
+  // renamed Download and now actually downloads the rendered MP3 via
+  // the existing /api/download proxy (which sets the right
+  // Content-Disposition so the browser saves the file instead of
+  // navigating to it).
+  const canDownload = !!audioUrl;
+  const downloadHref = canDownload
+    ? `/api/download?url=${encodeURIComponent(audioUrl)}&filename=voxel-voice-${Date.now()}.mp3`
+    : undefined;
+
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
       <div style={{
@@ -42,26 +52,30 @@ export function TrackHeader({ trackTitle, voiceLabel }) {
           marginTop: 2,
         }}>{voiceLabel}</div>
       </div>
-      <div style={{ display: 'flex', gap: 6 }}>
-        {['Solo', 'Mute', 'Export'].map(label => (
-          <button
-            key={label}
-            type="button"
-            style={{
-              padding: '6px 12px', borderRadius: 8,
-              background: 'rgba(255,255,255,0.05)',
-              border: '1px solid rgba(255,255,255,0.10)',
-              color: 'rgba(255,255,255,0.85)',
-              fontSize: 11, fontWeight: 600,
-              fontFamily: '"DM Sans", sans-serif',
-              cursor: 'pointer',
-              transition: 'background 0.15s',
-            }}
-            onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.1)'; }}
-            onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; }}
-          >{label}</button>
-        ))}
-      </div>
+      <a
+        href={downloadHref}
+        download
+        title={canDownload ? 'Download the rendered MP3' : 'Synthesize first to enable Download'}
+        aria-disabled={!canDownload}
+        onClick={canDownload ? undefined : (e) => e.preventDefault()}
+        style={{
+          padding: '6px 14px', borderRadius: 8,
+          background: 'rgba(255,255,255,0.05)',
+          border: '1px solid rgba(255,255,255,0.10)',
+          color: canDownload ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.35)',
+          fontSize: 11, fontWeight: 600,
+          fontFamily: '"DM Sans", sans-serif',
+          cursor: canDownload ? 'pointer' : 'not-allowed',
+          textDecoration: 'none',
+          display: 'inline-flex', alignItems: 'center', gap: 5,
+          transition: 'background 0.15s',
+          opacity: canDownload ? 1 : 0.55,
+        }}
+        onMouseEnter={e => { if (canDownload) e.currentTarget.style.background = 'rgba(255,255,255,0.1)'; }}
+        onMouseLeave={e => { if (canDownload) e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; }}
+      >
+        ⤓ Download
+      </a>
     </div>
   );
 }
