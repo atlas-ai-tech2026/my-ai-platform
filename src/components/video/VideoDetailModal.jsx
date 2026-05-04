@@ -300,7 +300,15 @@ export default function VideoDetailModal({ video, videos = [], onClose, onNaviga
               <div>
                 <span style={{ fontSize:10, fontWeight:700, color:'rgba(255,255,255,0.3)', fontFamily:font, textTransform:'uppercase', letterSpacing:'0.08em', display:'block', marginBottom:8 }}>Details</span>
                 <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:6 }}>
-                  {[{label:'Duration',value: video.duration ? (String(video.duration).endsWith('s') ? video.duration : video.duration+'s') : '5s'},{label:'Model',value:video.model||'Kling 2.6'},{label:'Resolution',value:video.resolution||'1080p'},{label:'FPS',value:'24'}].map(({label,value})=>(
+                  {[
+                    {label:'Duration',value: video.duration ? (String(video.duration).endsWith('s') ? video.duration : video.duration+'s') : '5s'},
+                    {label:'Model',value:video.model||'Kling 2.6'},
+                    {label:'Resolution',value: video.quality || video.resolution || '1080p'},
+                    {label:'FPS',value:'24'},
+                    // Edit-Video / Motion-Control extras: only render when present.
+                    ...(typeof video.keep_audio === 'boolean' ? [{label:'Audio',value: video.keep_audio ? 'Keep' : 'Off'}] : []),
+                    ...(typeof video.scene_control === 'boolean' ? [{label:'Scene control',value: video.scene_control ? 'On' : 'Off'}] : []),
+                  ].map(({label,value})=>(
                     <div key={label} style={{ background:'rgba(255,255,255,0.03)', borderRadius:10, padding:'8px 10px', border:'1px solid rgba(255,255,255,0.06)' }}>
                       <p style={{ margin:0, fontSize:9, color:'rgba(255,255,255,0.28)', fontFamily:font, textTransform:'uppercase', letterSpacing:'0.06em' }}>{label}</p>
                       <p style={{ margin:'3px 0 0', fontSize:13, color:'#fff', fontFamily:font, fontWeight:600 }}>{value}</p>
@@ -308,6 +316,28 @@ export default function VideoDetailModal({ video, videos = [], onClose, onNaviga
                   ))}
                 </div>
               </div>
+
+              {/* Sources strip — Edit Video (source clip + ref images) and
+                  Motion Control (motion ref video + character image). */}
+              {(video.source_video_url || video.motion_video_url || video.character_image_url || (video.reference_image_urls?.length || 0) > 0) && (
+                <div>
+                  <span style={{ fontSize:10, fontWeight:700, color:'rgba(255,255,255,0.3)', fontFamily:font, textTransform:'uppercase', letterSpacing:'0.08em', display:'block', marginBottom:8 }}>Sources</span>
+                  <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
+                    {video.source_video_url && (
+                      <video src={video.source_video_url} muted loop playsInline style={{ width:80, height:60, borderRadius:6, objectFit:'cover', border:'1px solid rgba(224,30,30,0.4)' }} title="Source video" />
+                    )}
+                    {video.motion_video_url && (
+                      <video src={video.motion_video_url} muted loop playsInline style={{ width:80, height:60, borderRadius:6, objectFit:'cover', border:'1px solid rgba(224,30,30,0.4)' }} title="Motion reference video" />
+                    )}
+                    {video.character_image_url && (
+                      <img src={video.character_image_url} alt="character" title="Character image" style={{ width:60, height:60, borderRadius:6, objectFit:'cover', border:'1px solid rgba(224,30,30,0.4)' }} />
+                    )}
+                    {(video.reference_image_urls || []).map((url, i) => (
+                      <img key={i} src={url} alt={`reference ${i + 1}`} style={{ width:60, height:60, borderRadius:6, objectFit:'cover', border:'1px solid rgba(255,255,255,0.1)' }} />
+                    ))}
+                  </div>
+                </div>
+              )}
 
               <div style={{ height:1, background:'rgba(255,255,255,0.05)' }} />
 

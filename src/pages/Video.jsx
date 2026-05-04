@@ -7,6 +7,9 @@ import VideoModelModal from '@/components/video/VideoModelModal';
 import VideoDetailModal from '@/components/video/VideoDetailModal';
 import SeedanceLeftPanel from '@/components/video/SeedanceLeftPanel';
 import SeedanceRightPanel from '@/components/video/SeedanceRightPanel';
+import VideoEditOmniLeftPanel from '@/components/video/VideoEditOmniLeftPanel';
+import VideoMotionControlLeftPanel from '@/components/video/VideoMotionControlLeftPanel';
+import VideoTopTabs from '@/components/video/VideoTopTabs';
 import { toast } from 'sonner';
 import { prepareImageForFal } from '@/lib/uploadToFal';
 import { useAuth } from '@/lib/AuthContext';
@@ -43,6 +46,32 @@ export default function Video() {
   const [cameraMotion, setCameraMotion] = useState(null); // { id, label } | null — backend-only injection
   const pollingRef = useRef({});
 
+  // ─── Top-tab nav (Create / Edit / Motion) ───
+  // videoTab is the source of truth for which left panel renders.
+  // Each tab owns its own model state — Create uses the existing
+  // `model` picker, Edit and Motion each have their own InlineModelPicker
+  // (one per panel). No tab-change side-effects needed.
+  const [videoTab, setVideoTab] = useState('create');
+
+  // ─── Edit Video state (Kling Omni Edit + Kling O1 Video Edit) ───
+  // Default model: Kling O1 Video Edit (matches Higgsfield's default).
+  const [editVideoFile, setEditVideoFile] = useState(null);
+  const [editRefImages, setEditRefImages] = useState([]);
+  const [editKeepAudio, setEditKeepAudio] = useState(true);
+  const [editAutoSettings, setEditAutoSettings] = useState(true);
+  const [editQuality, setEditQuality] = useState('720p');
+  const [editModel, setEditModel] = useState('Kling O1 Video Edit');
+
+  // ─── Motion Control state (motion transfer) ───
+  // Default model: Kling 3.0 Motion Control (the flagship; uses Omni One
+  // physics). scene_control persists to history but isn't sent to FAL
+  // today (server-side note explains why).
+  const [motionCharImage, setMotionCharImage] = useState(null);
+  const [motionRefVideo, setMotionRefVideo] = useState(null);
+  const [motionQuality, setMotionQuality] = useState('720p');
+  const [motionSceneControl, setMotionSceneControl] = useState(true);
+  const [motionModel, setMotionModel] = useState('Kling 3.0 Motion Control');
+
   // ─── Seedance 2.0 specific state ───
   const isSeedance2 = model.id === 'seedance-2';
   const [seedanceMedia, setSeedanceMedia] = useState({ images: [], videos: [], audios: [] });
@@ -64,6 +93,16 @@ export default function Video() {
         duration: r.duration, aspectRatio: r.ratio,
         result_url: r.result_url, status: r.status || 'completed',
         job_id: r.job_id, model_id: r.model_id,
+        // Edit-Video / Motion-Control extras — survive server restart so
+        // the detail modal can still show source video, refs, audio,
+        // character image, motion ref video, quality, and scene_control.
+        source_video_url: r.source_video_url,
+        reference_image_urls: r.reference_image_urls,
+        keep_audio: r.keep_audio,
+        character_image_url: r.character_image_url,
+        motion_video_url: r.motion_video_url,
+        quality: r.quality,
+        scene_control: r.scene_control,
         created_date: r.created_date,
       }));
       setVideos(loaded);
@@ -219,6 +258,165 @@ export default function Video() {
       refreshAuth();
     }
     finally { setIsGenerating(false); }
+  };
+
+  // ─── Motion Control (motion transfer) generate ───
+  // Uploads the character image + the motion reference video once via
+  // /api/upload, then POSTs to /api/motion-control. The backend
+  // dispatches to the right Kling endpoint based on `model`. scene_control
+  // is sent for forward-compatibility — the server omits it from the FAL
+  // payload until Kling exposes the flag publicly.
+  const handleMotionControl = async () => {
+    if (!motionRefVideo) { toast.error('Add a motion reference video'); return; }
+    if (!motionCharImage) { toast.error('Add a character image'); return; }
+    if (!isAuthenticated) {
+      toast.info('Please sign in to generate.');
+      openAuthModal('login');
+      return;
+    }
+    setIsGenerating(true);
+    try {
+      const charUrl = await prepareImageForFal(motionCharImage, 0);
+      const motionUrl = await prepareImageForFal(motionRefVideo, 1);
+
+      const response = await fetch('/api/motion-control', {
+        method: 'POST',
+        headers: authJsonHeaders(),
+        body: JSON.stringify({
+          model: motionModel,
+          image_url: charUrl,
+          video_url: motionUrl,
+          ...(prompt?.trim() ? { prompt: prompt.trim() } : {}),
+          quality: motionQuality,
+          scene_control: motionSceneControl,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok || !data.job_id) {
+        if (response.status === 401) {
+          toast.error('Your session expired — please sign in again.');
+          openAuthModal('login');
+        } else if (response.status === 402) {
+          toast.error(data.error || 'Not enough credits — ask the admin to add more.');
+        } else {
+          toast.error(data.error || 'Motion control failed');
+        }
+        refreshAuth();
+        return;
+      }
+
+      const saved = await History_.create({
+        type: 'video', model: motionModel, prompt: prompt || '',
+        job_id: data.job_id, model_id: data.model_id,
+        status: 'pending',
+        character_image_url: charUrl,
+        motion_video_url: motionUrl,
+        quality: motionQuality,
+        scene_control: motionSceneControl,
+      });
+      setVideos(prev => [{
+        id: saved.id, prompt: prompt || '', model: motionModel,
+        status: 'pending', job_id: data.job_id, model_id: data.model_id,
+        character_image_url: charUrl,
+        motion_video_url: motionUrl,
+        quality: motionQuality,
+        scene_control: motionSceneControl,
+        created_date: saved.created_date,
+      }, ...prev]);
+      pollVideo(saved.id, data.job_id, data.model_id);
+      toast.success('Motion transfer rendering — you can keep working!');
+      refreshAuth();
+    } catch (err) {
+      toast.error(err.message || 'Motion control failed');
+      refreshAuth();
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  // ─── Edit Video (Kling Omni Edit + Kling O1 Video Edit) generate ───
+  // Uploads source video + each ref image via /api/upload (100 MB multer
+  // cap covers a typical 3–10 s 1080p MP4), then POSTs the URLs to
+  // /api/edit-video-omni with the chosen `editModel`. Backend dispatches
+  // to the right FAL endpoint. pollVideo() handles the status loop.
+  const handleEditVideo = async () => {
+    if (!editVideoFile) { toast.error('Upload a video to edit'); return; }
+    if (!prompt.trim()) { toast.error('Type a prompt to describe the change'); return; }
+    if (!isAuthenticated) {
+      toast.info('Please sign in to generate.');
+      openAuthModal('login');
+      return;
+    }
+    setIsGenerating(true);
+    try {
+      const videoUrl = await prepareImageForFal(editVideoFile, 0);
+      const refUrls = await Promise.all(
+        (editRefImages || []).slice(0, 4).map((f, i) => prepareImageForFal(f, i + 1))
+      );
+      const cleanRefs = refUrls.filter(Boolean);
+
+      const dur = parseInt(duration) || 5;
+      const ratio = aspectRatio === 'Auto' ? '16:9' : aspectRatio;
+
+      // Quality is sent only when Auto settings is OFF; backend ignores
+      // unknown fields so the resolution stays at the FAL default when
+      // Auto is on.
+      const response = await fetch('/api/edit-video-omni', {
+        method: 'POST',
+        headers: authJsonHeaders(),
+        body: JSON.stringify({
+          model: editModel,
+          video_url: videoUrl,
+          image_urls: cleanRefs,
+          prompt: prompt.trim(),
+          duration: dur,
+          aspect_ratio: ratio,
+          keep_audio: editKeepAudio,
+          ...(editAutoSettings ? {} : { quality: editQuality }),
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok || !data.job_id) {
+        if (response.status === 401) {
+          toast.error('Your session expired — please sign in again.');
+          openAuthModal('login');
+        } else if (response.status === 402) {
+          toast.error(data.error || 'Not enough credits — ask the admin to add more.');
+        } else {
+          toast.error(data.error || 'Video edit failed');
+        }
+        refreshAuth();
+        return;
+      }
+
+      const saved = await History_.create({
+        type: 'video', model: editModel, prompt,
+        job_id: data.job_id, model_id: data.model_id,
+        status: 'pending', duration: dur, ratio,
+        source_video_url: videoUrl,
+        reference_image_urls: cleanRefs,
+        keep_audio: editKeepAudio,
+        ...(editAutoSettings ? {} : { quality: editQuality }),
+      });
+      setVideos(prev => [{
+        id: saved.id, prompt, model: editModel,
+        duration: dur, aspectRatio: ratio,
+        status: 'pending', job_id: data.job_id, model_id: data.model_id,
+        source_video_url: videoUrl,
+        reference_image_urls: cleanRefs,
+        keep_audio: editKeepAudio,
+        ...(editAutoSettings ? {} : { quality: editQuality }),
+        created_date: saved.created_date,
+      }, ...prev]);
+      pollVideo(saved.id, data.job_id, data.model_id);
+      toast.success('Video editing — you can keep working!');
+      refreshAuth();
+    } catch (err) {
+      toast.error(err.message || 'Video edit failed');
+      refreshAuth();
+    } finally {
+      setIsGenerating(false);
+    }
   };
 
   // ─── Seedance 2.0 media upload ───
@@ -425,7 +623,7 @@ export default function Video() {
   };
 
   return (
-    <div style={{ display: 'flex', background: '#0A0A0A', height: 'calc(100vh - 64px)', overflow: 'hidden', position: 'relative' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', background: '#0A0A0A', height: 'calc(100vh - 64px)', overflow: 'hidden', position: 'relative' }}>
 
       {/* Red ambient glow background — clean, no noise. zIndex 0 so the
           panels render above. Matches the brand contract from
@@ -443,6 +641,12 @@ export default function Video() {
         }} />
       </div>
 
+      {/* Top tab nav — Higgsfield-parity, brand red underline. The tab
+          state is the source of truth for which left panel renders. */}
+      <VideoTopTabs active={videoTab} onChange={setVideoTab} />
+
+      <div style={{ display: 'flex', flex: 1, minHeight: 0, overflow: 'hidden', position: 'relative' }}>
+
       {/* LEFT — glass control panel (was on the right pre-#9). 380px wide,
           hugs the left edge. Margin flipped from `20 20 20 0` →
           `20 0 20 20`. Inner panel uses flex: 1 + min-height: 0 so the
@@ -450,7 +654,7 @@ export default function Video() {
           regardless of viewport height (no scrolling needed). */}
       <div style={{
         position: 'relative', zIndex: 2,
-        width: 380, margin: '20px 0 20px 20px',
+        width: 380, margin: '14px 0 20px 20px',
         borderRadius: 22,
         background: 'rgba(20,18,20,0.38)',
         backdropFilter: 'blur(36px) saturate(1.4)',
@@ -461,7 +665,27 @@ export default function Video() {
         flexShrink: 0,
         display: 'flex', flexDirection: 'column',
       }}>
-        {isSeedance2 ? (
+        {videoTab === 'motion' ? (
+          <VideoMotionControlLeftPanel
+            charImage={motionCharImage} onCharImageChange={setMotionCharImage}
+            motionVideo={motionRefVideo} onMotionVideoChange={setMotionRefVideo}
+            quality={motionQuality} onQualityChange={setMotionQuality}
+            sceneControl={motionSceneControl} onSceneControlChange={setMotionSceneControl}
+            model={motionModel} onModelChange={setMotionModel}
+            onGenerate={handleMotionControl} isGenerating={isGenerating}
+          />
+        ) : videoTab === 'edit' ? (
+          <VideoEditOmniLeftPanel
+            prompt={prompt} onPromptChange={setPrompt}
+            videoFile={editVideoFile} onVideoFileChange={setEditVideoFile}
+            refImages={editRefImages} onRefImagesChange={setEditRefImages}
+            keepAudio={editKeepAudio} onKeepAudioChange={setEditKeepAudio}
+            autoSettings={editAutoSettings} onAutoSettingsChange={setEditAutoSettings}
+            quality={editQuality} onQualityChange={setEditQuality}
+            model={editModel} onModelChange={setEditModel}
+            onGenerate={handleEditVideo} isGenerating={isGenerating}
+          />
+        ) : isSeedance2 ? (
           <SeedanceLeftPanel
             prompt={prompt}
             onPromptChange={setPrompt}
@@ -511,9 +735,11 @@ export default function Video() {
           durationMs={3000} aspectRatio={isSeedance2 ? seedanceAspect : aspectRatio}
           onRecreate={(t) => setPrompt(t.prompt)}
           onVideoClick={(v) => setSelectedVideo(v)}
-          modelName={isSeedance2 ? 'Seedance 2.0' : (model?.name || 'Kling 3.0')}
+          modelName={videoTab === 'edit' ? editModel : videoTab === 'motion' ? motionModel : (model?.name || 'Kling 3.0')}
         />
       </div>
+
+      </div>{/* /row */}
 
       {/* Seedance media popup overlay */}
       {isSeedance2 && showSeedanceMediaPopup && (
