@@ -57,12 +57,19 @@ export default function ScriptTextarea({ value, onChange, highlighted, onHighlig
 
   return (
     <div style={{
+      // Fixed-ish height instead of flex:1 — when the textarea grew
+      // freely it pushed the sliders + Synthesize CTA below the fold
+      // and the user couldn't reach the button at all. 160 px = ~6
+      // lines of script copy, which is plenty for typical takes; the
+      // textarea itself still scrolls internally if you paste a wall
+      // of text.
       position: 'relative',
-      flex: 1, minHeight: 200,
+      height: 160,
       background: 'rgba(255,255,255,0.02)',
       border: '1px solid rgba(255,255,255,0.07)',
       borderRadius: 12,
       overflow: 'hidden',
+      flexShrink: 0,
     }}>
       {/* Ghost layer (visual highlight). Pointer-events off so the
           textarea below catches all input. */}
@@ -96,7 +103,6 @@ export default function ScriptTextarea({ value, onChange, highlighted, onHighlig
         style={{
           position: 'relative',
           width: '100%', height: '100%',
-          minHeight: 200,
           background: 'transparent',
           border: 'none', outline: 'none', resize: 'none',
           caretColor: RED,

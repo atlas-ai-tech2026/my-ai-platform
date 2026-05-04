@@ -32,7 +32,7 @@ export default function ScriptPanel({
   const ignoreHint = 'Eleven V3 ignores this. Switch to Multilingual V2 to use it.';
 
   return (
-    <div style={{
+    <div className="voxel-script-scroll" style={{
       background: 'rgba(20,18,20,0.38)',
       backdropFilter: 'blur(36px) saturate(1.4)',
       WebkitBackdropFilter: 'blur(36px) saturate(1.4)',
@@ -43,7 +43,28 @@ export default function ScriptPanel({
       display: 'flex', flexDirection: 'column', gap: 12,
       minHeight: 0,
       overflowY: 'auto',
+      // Same scroll-containment trick as the voice picker — wheel
+      // events scroll THIS panel and don't leak up to the page.
+      overscrollBehavior: 'contain',
     }}>
+      <style>{`
+        /* Visible custom scrollbar so the user has an obvious affordance
+           when the panel content overflows (textarea + sliders + Synthesize
+           CTA together can run past the viewport on shorter screens). */
+        .voxel-script-scroll {
+          scrollbar-width: thin;
+          scrollbar-color: rgba(224,30,30,0.6) rgba(255,255,255,0.05);
+        }
+        .voxel-script-scroll::-webkit-scrollbar { width: 8px; }
+        .voxel-script-scroll::-webkit-scrollbar-track {
+          background: rgba(255,255,255,0.04);
+          border-radius: 999px;
+        }
+        .voxel-script-scroll::-webkit-scrollbar-thumb {
+          background: linear-gradient(180deg, rgba(224,30,30,0.7), rgba(139,15,15,0.7));
+          border-radius: 999px;
+        }
+      `}</style>
       <div style={{ fontSize: 14, fontWeight: 600, color: '#FFF' }}>Script</div>
 
       <VoicePicker value={voice} onChange={onVoiceChange} />
