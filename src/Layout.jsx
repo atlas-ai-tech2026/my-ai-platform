@@ -7,13 +7,21 @@ import { Link, useLocation } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 
 const STUDIO_PAGE = '/studio';
-const MINIMAL_FOOTER_PAGES = ['/image', '/video', '/audio', '/edit', '/apps'];
+const MINIMAL_FOOTER_PAGES = ['/image', '/video', '/edit', '/apps'];
+// Pages that hide the global footer entirely (and the ChatWidget that
+// lives inside it). Studio runs without any chrome at all; Audio keeps
+// the navbar but drops the footer so the Voice Canvas takes the full
+// remaining viewport — otherwise the Synthesize button gets pushed
+// below the fold and users can't reach it.
+const NO_FOOTER_PAGES = ['/audio'];
 
 export default function Layout({ children, currentPageName }) {
   const location = useLocation();
-  const isMinimal = MINIMAL_FOOTER_PAGES.includes(location.pathname.toLowerCase());
+  const path = location.pathname.toLowerCase();
+  const isMinimal = MINIMAL_FOOTER_PAGES.includes(path);
+  const hideFooter = NO_FOOTER_PAGES.includes(path);
 
-  const isStudio = location.pathname.toLowerCase() === STUDIO_PAGE;
+  const isStudio = path === STUDIO_PAGE;
 
   if (isStudio) {
     return (
@@ -27,10 +35,10 @@ export default function Layout({ children, currentPageName }) {
   return (
     <div className="min-h-screen bg-background text-foreground">
       <Navbar />
-      <main className="pt-16" style={isMinimal ? { height: 'calc(100vh - 0px)', overflow: 'hidden' } : {}}>
+      <main className="pt-16" style={(isMinimal || hideFooter) ? { height: 'calc(100vh - 0px)', overflow: 'hidden' } : {}}>
         {children}
       </main>
-      <Footer minimal={isMinimal} />
+      {!hideFooter && <Footer minimal={isMinimal} />}
       <Toaster position="bottom-right" />
       
       {/* Mobile Floating Create Button — hidden on Studio */}
