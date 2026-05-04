@@ -19,7 +19,9 @@ export const VOICES = [
   // Featured (top of list — well-known defaults)
   { name: 'Rachel',    voice_id: '21m00Tcm4TlvDq8ikWAM', desc: 'Warm, conversational',     gender: 'F', accent: 'American',   gradient: 'linear-gradient(135deg, #d96b3a, #6e2a14)', seed: 33  },
   { name: 'Adam',      voice_id: 'pNInz6obpgDQGcFmaJgB', desc: 'Deep, calm',               gender: 'M', accent: 'American',   gradient: 'linear-gradient(135deg, #5a3a8e, #2a1a4e)', seed: 7   },
-  { name: 'Bella',     voice_id: 'EXAVITQu4vr4xnSDxMaL', desc: 'Bright, expressive',       gender: 'F', accent: 'American',   gradient: 'linear-gradient(135deg, #c54a8a, #5a1a3e)', seed: 13  },
+  // Bella was removed: her voice_id was duplicated with Sarah's, and we
+  // can't verify the current canonical ID without ElevenLabs API access.
+  // Add back once xi-api-key integration lands and we fetch /v1/voices.
   { name: 'Antoni',    voice_id: 'ErXwobaYiN019PkySvjV', desc: 'Smooth, mid-range',        gender: 'M', accent: 'American',   gradient: 'linear-gradient(135deg, #4a7ad9, #1a2e6b)', seed: 41  },
   { name: 'Domi',      voice_id: 'AZnzlk1XvdvUeBnXmlld', desc: 'Confident, narrative',     gender: 'F', accent: 'American',   gradient: 'linear-gradient(135deg, #3aa8b0, #1a4a4e)', seed: 21  },
 

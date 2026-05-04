@@ -11,6 +11,7 @@ import WaveformStage from '@/components/audio/WaveformStage';
 import ScriptPanel from '@/components/audio/ScriptPanel';
 import { useAuth } from '@/lib/AuthContext';
 import { genPreviewAmplitudes, pcmToAmplitudes, authJsonHeaders } from '@/components/audio/audioUtils';
+import { VOICES } from '@/components/audio/voices';
 
 const RED = '#E01E1E';
 
@@ -113,13 +114,20 @@ export default function Audio() {
     setIsSynthesizing(true);
     setIsPlaying(false);
     try {
+      // Send voice_id (not the human name) — FAL/ElevenLabs's name
+      // resolver throws 422 on ambiguous library names, but voice_id
+      // is unambiguous and always resolves. Falls back to the typed
+      // name if we can't find a matching entry (defensive — shouldn't
+      // happen since the picker is closed-set).
+      const voiceEntry = VOICES.find(v => v.name === voice);
+      const voicePayload = voiceEntry?.voice_id || voice;
       const response = await fetch('/api/tts', {
         method: 'POST',
         headers: authJsonHeaders(),
         body: JSON.stringify({
           model: ttsModel,
           text: script.trim(),
-          voice,
+          voice: voicePayload,
           language_code: language,
           stability,
           similarity_boost: similarity,

@@ -79,7 +79,7 @@ export default function VoicePicker({ value, onChange }) {
       return;
     }
 
-    const cached = previewCache.get(voice.name);
+    const cached = previewCache.get(voice.voice_id);
     if (cached) {
       a.src = cached;
       try {
@@ -93,16 +93,17 @@ export default function VoicePicker({ value, onChange }) {
 
     // Previews use the public /api/tts/preview route. No auth required —
     // the server returns a fixed sample text for each voice and caches
-    // the result by voice name (first listener pays the FAL call,
-    // everyone after gets it free). The main Synthesize button still
-    // requires auth — that's the right gate for "spend a credit on the
-    // user's actual script", not for browsing voices.
+    // the result by voice_id (first listener pays the FAL call, everyone
+    // after gets it free). We send `voice_id` not `voice.name` because
+    // the FAL/ElevenLabs name resolver chokes on ambiguous library names
+    // (e.g. "Bella", "Antoni") with 422 Unprocessable Entity, but the
+    // voice_id is unambiguous and always resolves.
     setLoadingName(voice.name);
     try {
       const resp = await fetch('/api/tts/preview', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ voice: voice.name }),
+        body: JSON.stringify({ voice: voice.voice_id }),
       });
       const data = await resp.json();
       if (!resp.ok || !data.audio_url) {
@@ -110,7 +111,7 @@ export default function VoicePicker({ value, onChange }) {
         else toast.error(data.error || 'Preview failed');
         return;
       }
-      previewCache.set(voice.name, data.audio_url);
+      previewCache.set(voice.voice_id, data.audio_url);
       a.src = data.audio_url;
       await a.play();
       setPlayingName(voice.name);
