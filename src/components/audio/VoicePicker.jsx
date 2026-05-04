@@ -12,17 +12,20 @@
 // 30+ languages including Arabic — pick the language in the
 // LanguagePicker below.
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { ChevronRight, Search } from 'lucide-react';
+import { ChevronRight } from 'lucide-react';
 import { toast } from 'sonner';
+import { useAuth } from '@/lib/AuthContext';
 import { VOICES, ACCENTS, PREVIEW_TEXT } from './voices';
 import { authJsonHeaders } from './audioUtils';
 import VoiceRow from './VoiceRow';
+import VoicePopoverHeader from './VoicePopoverHeader';
 
 // Module-level cache so re-mounts of the picker don't lose preview URLs.
 // Key: voice name; value: audio URL string.
 const previewCache = new Map();
 
 export default function VoicePicker({ value, onChange }) {
+  const { isAuthenticated, openAuthModal } = useAuth();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [accent, setAccent] = useState('All');
@@ -91,6 +94,14 @@ export default function VoicePicker({ value, onChange }) {
       return;
     }
 
+    // Not signed in → open the login modal directly. Without this the
+    // user just sees a transient toast and assumes the button is broken.
+    if (!isAuthenticated) {
+      toast.info('Sign in to preview voices.');
+      openAuthModal?.('login');
+      return;
+    }
+
     setLoadingName(voice.name);
     try {
       const resp = await fetch('/api/tts', {
@@ -105,9 +116,14 @@ export default function VoicePicker({ value, onChange }) {
       });
       const data = await resp.json();
       if (!resp.ok || !data.audio_url) {
-        if (resp.status === 401) toast.error('Sign in first to preview voices.');
-        else if (resp.status === 402) toast.error('Not enough credits to preview.');
-        else toast.error(data.error || 'Preview failed');
+        if (resp.status === 401) {
+          toast.error('Your session expired — sign in again.');
+          openAuthModal?.('login');
+        } else if (resp.status === 402) {
+          toast.error('Not enough credits to preview.');
+        } else {
+          toast.error(data.error || 'Preview failed');
+        }
         return;
       }
       previewCache.set(voice.name, data.audio_url);
@@ -181,78 +197,47 @@ export default function VoicePicker({ value, onChange }) {
           borderRadius: 14,
           boxShadow: '0 18px 48px rgba(0,0,0,0.55)',
           zIndex: 30,
-          maxHeight: 460, display: 'flex', flexDirection: 'column',
+          maxHeight: 560, display: 'flex', flexDirection: 'column',
           overflow: 'hidden',
         }}>
-          {/* Header — search + multilingual hint */}
-          <div style={{ padding: 10, borderBottom: '1px solid rgba(255,255,255,0.06)', display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <div style={{
-              display: 'flex', alignItems: 'center', gap: 8,
-              padding: '7px 10px', borderRadius: 9,
-              background: 'rgba(255,255,255,0.04)',
-              border: '1px solid rgba(255,255,255,0.07)',
-            }}>
-              <Search style={{ width: 13, height: 13, color: 'rgba(255,255,255,0.4)' }} />
-              <input
-                type="text"
-                value={query}
-                onChange={e => setQuery(e.target.value)}
-                placeholder={`Search ${VOICES.length} voices…`}
-                style={{
-                  background: 'transparent', border: 'none', outline: 'none',
-                  color: '#FFF', fontSize: 12, flex: 1,
-                  fontFamily: '"DM Sans", sans-serif',
-                }}
-              />
-            </div>
-            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-              {ACCENTS.map(a => {
-                const isActive = a === accent;
-                return (
-                  <button
-                    key={a}
-                    type="button"
-                    onClick={() => setAccent(a)}
-                    style={{
-                      padding: '3px 9px', borderRadius: 999,
-                      fontSize: 10, fontWeight: 600,
-                      background: isActive ? 'rgba(224,30,30,0.18)' : 'rgba(255,255,255,0.04)',
-                      border: `1px solid ${isActive ? 'rgba(224,30,30,0.5)' : 'rgba(255,255,255,0.08)'}`,
-                      color: isActive ? '#FFF' : 'rgba(255,255,255,0.7)',
-                      cursor: 'pointer',
-                      transition: 'background 0.15s',
-                    }}
-                  >{a}</button>
-                );
-              })}
-            </div>
-            <div style={{
-              fontSize: 10, color: 'rgba(255,255,255,0.55)',
-              padding: '4px 2px', lineHeight: 1.45,
-            }}>
-              💡 All voices speak <b style={{ color: '#FFF' }}>30+ languages</b> including Arabic, Spanish, French, Japanese — pick the language in the <b style={{ color: '#FFF' }}>Language</b> picker below.
-            </div>
-          </div>
+          <VoicePopoverHeader
+            total={VOICES.length}
+            shown={filtered.length}
+            query={query} onQueryChange={setQuery}
+            accent={accent} onAccentChange={setAccent}
+            accents={ACCENTS}
+          />
 
-          {/* Voice list */}
-          <div style={{ overflowY: 'auto', flex: 1, padding: 6 }}>
-            {filtered.length === 0 && (
+          {/* Voice list (scrollable) + bottom fade hinting at more rows */}
+          <div style={{ position: 'relative', flex: 1, minHeight: 0 }}>
+            <div style={{ overflowY: 'auto', height: '100%', padding: 6 }}>
+              {filtered.length === 0 && (
+                <div style={{
+                  padding: '20px 12px', textAlign: 'center',
+                  color: 'rgba(255,255,255,0.4)', fontSize: 12,
+                }}>No voices match.</div>
+              )}
+              {filtered.map(v => (
+                <VoiceRow
+                  key={v.name}
+                  voice={v}
+                  isActive={v.name === current.name}
+                  isLoading={loadingName === v.name}
+                  isPlaying={playingName === v.name}
+                  onSelect={() => { onChange?.(v.name); setOpen(false); }}
+                  onPreview={() => handlePreview(v)}
+                />
+              ))}
+            </div>
+            {filtered.length > 6 && (
               <div style={{
-                padding: '20px 12px', textAlign: 'center',
-                color: 'rgba(255,255,255,0.4)', fontSize: 12,
-              }}>No voices match.</div>
+                position: 'absolute',
+                left: 0, right: 0, bottom: 0,
+                height: 32,
+                background: 'linear-gradient(180deg, transparent, rgba(20,18,20,0.97))',
+                pointerEvents: 'none',
+              }} />
             )}
-            {filtered.map(v => (
-              <VoiceRow
-                key={v.name}
-                voice={v}
-                isActive={v.name === current.name}
-                isLoading={loadingName === v.name}
-                isPlaying={playingName === v.name}
-                onSelect={() => { onChange?.(v.name); setOpen(false); }}
-                onPreview={() => handlePreview(v)}
-              />
-            ))}
           </div>
 
           {/* Spinner CSS */}
