@@ -789,6 +789,108 @@ app.post('/api/motion-control', verifyJwt, requireNotBanned, requireFalKey, asyn
   }
 });
 
+// ─── TEXT-TO-SPEECH (ElevenLabs via FAL) ──────────────────────────
+// Audio page Voice Canvas. Two model options:
+//
+//   - eleven-v3        (latest)         — fal-ai/elevenlabs/tts/eleven-v3
+//                                         schema: text · voice · stability · language_code
+//   - multilingual-v2  (richer params)  — fal-ai/elevenlabs/tts/multilingual-v2
+//                                         schema: + similarity_boost · style · speed
+//
+// V3 silently ignores extras, but we strip them server-side anyway so
+// the FAL request is exactly what the schema expects (clean logs).
+//
+// fal.subscribe is fine here — TTS jobs return in a couple of seconds,
+// no need for queue + status polling like the video routes.
+const TTS_MODELS = {
+  'eleven-v3':       'fal-ai/elevenlabs/tts/eleven-v3',
+  'multilingual-v2': 'fal-ai/elevenlabs/tts/multilingual-v2',
+};
+
+app.post('/api/tts', verifyJwt, requireNotBanned, requireFalKey, async (req, res) => {
+  const {
+    model,
+    text,
+    voice,
+    language_code,
+    stability,
+    similarity_boost,
+    style,
+  } = req.body || {};
+
+  const falModel = TTS_MODELS[model] || TTS_MODELS['eleven-v3'];
+  const usingV3 = falModel.endsWith('eleven-v3');
+
+  if (!text || typeof text !== 'string' || !text.trim()) {
+    return res.status(400).json({ error: 'text required' });
+  }
+  if (text.length > 5000) {
+    return res.status(400).json({ error: 'text too long (max 5000 chars)' });
+  }
+
+  let chargedKind = null;
+  try {
+    const charge = await chargeCredits({ userId: req.user.id, kind: 'audio', ip: req.ip });
+    chargedKind = 'audio';
+    res.setHeader('X-Credits-Remaining', String(charge.newBalance));
+  } catch (e) {
+    if (e instanceof InsufficientCreditsError) {
+      return res.status(402).json({
+        error: 'Not enough credits, please contact admin',
+        current_balance: e.balance, required: e.required,
+      });
+    }
+    if (e.code === 'BANNED') return res.status(403).json({ error: 'Account is banned.' });
+    console.error('[charge:tts] error:', e);
+    return res.status(500).json({ error: 'Credit charge failed.' });
+  }
+
+  // Build the FAL input. V3 only honours { text, voice, stability,
+  // language_code }; V2 also accepts similarity_boost + style.
+  const input = {
+    text,
+    voice: voice || 'Rachel',
+    ...(typeof stability === 'number' ? { stability } : {}),
+    ...(language_code && language_code !== 'auto' ? { language_code } : {}),
+  };
+  if (!usingV3) {
+    if (typeof similarity_boost === 'number') input.similarity_boost = similarity_boost;
+    if (typeof style === 'number') input.style = style;
+  }
+
+  console.log(`[TTS] Model: ${model || 'eleven-v3'} → ${falModel}`);
+  console.log(`[TTS] Voice: ${input.voice} · lang: ${input.language_code || 'auto'} · stab: ${input.stability}`);
+  console.log(`[TTS] Text: ${text.slice(0, 80)}${text.length > 80 ? '…' : ''}`);
+
+  try {
+    const result = await fal.subscribe(falModel, { input, logs: false });
+    const audio = result?.data?.audio;
+    const audioUrl = audio?.url;
+    if (!audioUrl) {
+      throw new Error('No audio URL in FAL response');
+    }
+    console.log(`[TTS] ✅ ${audioUrl}`);
+
+    return res.json({
+      success: true,
+      audio_url: audioUrl,
+      content_type: audio.content_type,
+      file_size: audio.file_size,
+      model: model || 'eleven-v3',
+      model_id: falModel,
+    });
+  } catch (error) {
+    console.error('[TTS] Error:', error.message);
+    if (chargedKind) {
+      refundCredits({
+        userId: req.user.id, kind: chargedKind, ip: req.ip,
+        reason: `fal_tts_threw: ${error.message}`.slice(0, 500),
+      }).catch(() => {});
+    }
+    return res.status(500).json({ error: 'TTS failed: ' + error.message });
+  }
+});
+
 // ─── SEEDANCE 2.0 SMART ROUTING ──────────────────────────────────
 // Routes to the correct Seedance 2.0 endpoint based on image roles:
 //   - No images → text-to-video

@@ -14,6 +14,9 @@ import { pool } from './db.js';
 export const CREDIT_COSTS = {
   image: parseFloat(process.env.CREDIT_COST_IMAGE || '2'),
   video: parseFloat(process.env.CREDIT_COST_VIDEO || '10'),
+  // Audio TTS is roughly an order of magnitude cheaper than image at FAL
+  // pricing today; default 1 credit per take. Override with CREDIT_COST_AUDIO.
+  audio: parseFloat(process.env.CREDIT_COST_AUDIO || '1'),
 };
 
 export class InsufficientCreditsError extends Error {
