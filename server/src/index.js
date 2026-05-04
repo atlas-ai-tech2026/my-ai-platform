@@ -47,7 +47,11 @@ console.log(`[voxel-api] env summary: ${_envSummary}`);
 
 const app = express();
 const PORT = process.env.PORT || 3001;
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
+// 100 MB so /api/upload can accept the 3–30 s motion reference videos
+// for the Motion Control tab and the 3–10 s edit clips for the Edit
+// Video tab. One endpoint serves both image and video uploads —
+// no /api/upload-video fork needed.
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 100 * 1024 * 1024 } });
 
 // ─── SECURITY MIDDLEWARE ───────────────────────────────────────────
 // Order matters: trust proxy → helmet → CORS → body parser → rate limiters.
@@ -201,7 +205,6 @@ const VIDEO_MODELS = {
   "Kling 2.1":             "fal-ai/kling-video/v2.1/standard/text-to-video",
   "Kling 2.1 Pro":         "fal-ai/kling-video/v2.1/pro/text-to-video",
   "Kling O1":              "fal-ai/kling-video/v1.6/pro/text-to-video",
-  "Kling Motion Control":  "fal-ai/kling-video/v1.6/pro/text-to-video",
   "Wan 2.6":               "fal-ai/wan-i2v/v2.1",
   "Wan 2.2":               "fal-ai/wan-i2v/v2.1",
   "Wan 2.1":               "fal-ai/wan-i2v/v2.1",
@@ -236,7 +239,13 @@ const VIDEO_DIRECT_MAP = {
   "Kling 2.1":             { t2v: "fal-ai/kling-video/v2.1/standard/text-to-video",  i2v: "fal-ai/kling-video/v2.1/standard/image-to-video",  imageParam: "image_url",       endParam: "tail_image_url" },
   "Kling 2.1 Pro":         { t2v: "fal-ai/kling-video/v2.1/pro/text-to-video",       i2v: "fal-ai/kling-video/v2.1/pro/image-to-video",       imageParam: "image_url",       endParam: "tail_image_url" },
   "Kling O1":              { t2v: "fal-ai/kling-video/v1.6/pro/text-to-video",       i2v: "fal-ai/kling-video/v1.6/pro/image-to-video",       imageParam: "image_url",       endParam: "tail_image_url" },
-  "Kling Motion Control":  { t2v: "fal-ai/kling-video/v1.6/pro/text-to-video",       i2v: "fal-ai/kling-video/v1.6/pro/image-to-video",       imageParam: "image_url",       endParam: "tail_image_url" },
+  // Edit Video tab pseudo-models (no t2v/i2v — posted to /api/edit-video-omni).
+  // Listed here so VideoDetailModal + history filters can label entries.
+  "Kling 3.0 Omni Edit":   { v2v_edit: "fal-ai/kling-video/o3/standard/video-to-video/reference" },
+  "Kling O1 Video Edit":   { v2v_edit: "fal-ai/kling-video/o1/video-to-video/reference" },
+  // Motion Control tab pseudo-models (no t2v/i2v — posted to /api/motion-control).
+  "Kling Motion Control":     { motion: "fal-ai/kling-video/v2.6/standard/motion-control" },
+  "Kling 3.0 Motion Control": { motion: "fal-ai/kling-video/v3/pro/motion-control" },
   // Wan uses image_url
   "Wan 2.6":               { t2v: "fal-ai/wan-t2v",                                  i2v: "fal-ai/wan-i2v",                                   imageParam: "image_url",       endParam: null },
   "Wan 2.2":               { t2v: "fal-ai/wan-t2v",                                  i2v: "fal-ai/wan-i2v",                                   imageParam: "image_url",       endParam: null },
@@ -628,6 +637,158 @@ app.post('/api/generate-video', verifyJwt, requireNotBanned, requireFalKey, asyn
   }
 });
 
+// ─── EDIT VIDEO (Kling Omni Edit + Kling O1 Video Edit) ──────────
+// Two video-to-video models behind the Edit Video tab. Both take a
+// source video + optional reference images + a prompt and return an
+// edited clip. Body: { model, video_url, image_urls[], prompt, duration,
+// aspect_ratio, keep_audio }. The frontend already polls via
+// pollVideo(), so we just submit to the FAL queue and hand back the
+// request_id.
+const EDIT_VIDEO_MODELS = {
+  'Kling 3.0 Omni Edit': 'fal-ai/kling-video/o3/standard/video-to-video/reference',
+  'Kling O1 Video Edit': 'fal-ai/kling-video/o1/video-to-video/reference',
+};
+
+app.post('/api/edit-video-omni', verifyJwt, requireNotBanned, requireFalKey, async (req, res) => {
+  const { model, video_url, image_urls, prompt, duration, aspect_ratio, keep_audio } = req.body || {};
+
+  if (!model || !EDIT_VIDEO_MODELS[model]) {
+    return res.status(400).json({ error: `Edit model not supported: ${model || '(missing)'}` });
+  }
+  if (!video_url) return res.status(400).json({ error: 'video_url required' });
+  if (!prompt) return res.status(400).json({ error: 'prompt required' });
+
+  let chargedKind = null;
+  try {
+    const charge = await chargeCredits({ userId: req.user.id, kind: 'video', ip: req.ip });
+    chargedKind = 'video';
+    res.setHeader('X-Credits-Remaining', String(charge.newBalance));
+  } catch (e) {
+    if (e instanceof InsufficientCreditsError) {
+      return res.status(402).json({
+        error: 'Not enough credits, please contact admin',
+        current_balance: e.balance, required: e.required,
+      });
+    }
+    if (e.code === 'BANNED') return res.status(403).json({ error: 'Account is banned.' });
+    console.error('[charge:video-edit-omni] error:', e);
+    return res.status(500).json({ error: 'Credit charge failed.' });
+  }
+
+  const falModel = EDIT_VIDEO_MODELS[model];
+  const refs = Array.isArray(image_urls) ? image_urls.slice(0, 4) : [];
+
+  const input = {
+    prompt,
+    video_url,
+    ...(refs.length ? { elements: refs.map(url => ({ image_url: url })) } : {}),
+    keep_audio: keep_audio !== false,
+    ...(duration ? { duration: String(duration) } : {}),
+    ...(aspect_ratio ? { aspect_ratio } : {}),
+  };
+
+  console.log(`[VIDEO-EDIT-OMNI] Model: ${model} → ${falModel}`);
+  console.log('[VIDEO-EDIT-OMNI] Source video:', video_url);
+  console.log(`[VIDEO-EDIT-OMNI] Reference images: ${refs.length}`);
+  console.log('[VIDEO-EDIT-OMNI] Payload:', JSON.stringify(input, null, 2));
+
+  try {
+    const submitted = await fal.queue.submit(falModel, { input });
+    const requestId = submitted.request_id;
+    console.log(`[VIDEO-EDIT-OMNI] ✅ Submitted, request_id: ${requestId}`);
+
+    return res.json({ success: true, job_id: requestId, model_id: falModel, model });
+  } catch (error) {
+    console.error('[VIDEO-EDIT-OMNI] Error:', error.message);
+    if (chargedKind) {
+      refundCredits({
+        userId: req.user.id, kind: chargedKind, ip: req.ip,
+        reason: `fal_video_edit_omni_threw: ${error.message}`.slice(0, 500),
+      }).catch(() => {});
+    }
+    return res.status(500).json({ error: 'Video edit failed: ' + error.message });
+  }
+});
+
+// ─── MOTION CONTROL (motion transfer) ──────────────────────────────
+// Motion Control tab. Take a character image + a motion reference
+// video and return an animated clip of that character performing the
+// reference motion. Body: { model, image_url (character), video_url
+// (motion ref), prompt?, quality, scene_control }.
+//
+// scene_control isn't on FAL's public schema today; we DO NOT send it
+// to FAL but the frontend persists it to history so we can flip it on
+// later when Kling exposes the flag without breaking old rows.
+const MOTION_CONTROL_MODELS = {
+  'Kling Motion Control':     'fal-ai/kling-video/v2.6/standard/motion-control',
+  'Kling 3.0 Motion Control': 'fal-ai/kling-video/v3/pro/motion-control',
+};
+
+app.post('/api/motion-control', verifyJwt, requireNotBanned, requireFalKey, async (req, res) => {
+  const { model, image_url, video_url, prompt, character_orientation, keep_original_sound } = req.body || {};
+
+  if (!model || !MOTION_CONTROL_MODELS[model]) {
+    return res.status(400).json({ error: `Motion model not supported: ${model || '(missing)'}` });
+  }
+  if (!image_url) return res.status(400).json({ error: 'image_url (character) required' });
+  if (!video_url) return res.status(400).json({ error: 'video_url (motion reference) required' });
+
+  let chargedKind = null;
+  try {
+    const charge = await chargeCredits({ userId: req.user.id, kind: 'video', ip: req.ip });
+    chargedKind = 'video';
+    res.setHeader('X-Credits-Remaining', String(charge.newBalance));
+  } catch (e) {
+    if (e instanceof InsufficientCreditsError) {
+      return res.status(402).json({
+        error: 'Not enough credits, please contact admin',
+        current_balance: e.balance, required: e.required,
+      });
+    }
+    if (e.code === 'BANNED') return res.status(403).json({ error: 'Account is banned.' });
+    console.error('[charge:motion-control] error:', e);
+    return res.status(500).json({ error: 'Credit charge failed.' });
+  }
+
+  const falModel = MOTION_CONTROL_MODELS[model];
+  // Default character_orientation to 'video' so we accept the full 3–30 s
+  // range the UI exposes. 'image' would cap the reference at 10 s and
+  // FAL would reject anything longer. Schema docs:
+  //   - 'video': matches ref video orientation, max 30 s, better for complex motions
+  //   - 'image': matches ref image orientation, max 10 s, better for camera movements
+  const orient = character_orientation === 'image' ? 'image' : 'video';
+  const input = {
+    image_url,
+    video_url,
+    ...(prompt ? { prompt } : {}),
+    character_orientation: orient,
+    keep_original_sound: keep_original_sound !== false,
+  };
+
+  console.log(`[MOTION-CONTROL] Model: ${model} → ${falModel}`);
+  console.log(`[MOTION-CONTROL] Character: ${image_url}`);
+  console.log(`[MOTION-CONTROL] Motion ref: ${video_url}`);
+  console.log(`[MOTION-CONTROL] Orientation: ${orient}, keep_original_sound: ${input.keep_original_sound}`);
+  console.log('[MOTION-CONTROL] Payload:', JSON.stringify(input, null, 2));
+
+  try {
+    const submitted = await fal.queue.submit(falModel, { input });
+    const requestId = submitted.request_id;
+    console.log(`[MOTION-CONTROL] ✅ Submitted, request_id: ${requestId}`);
+
+    return res.json({ success: true, job_id: requestId, model_id: falModel, model });
+  } catch (error) {
+    console.error('[MOTION-CONTROL] Error:', error.message);
+    if (chargedKind) {
+      refundCredits({
+        userId: req.user.id, kind: chargedKind, ip: req.ip,
+        reason: `fal_motion_control_threw: ${error.message}`.slice(0, 500),
+      }).catch(() => {});
+    }
+    return res.status(500).json({ error: 'Motion control failed: ' + error.message });
+  }
+});
+
 // ─── SEEDANCE 2.0 SMART ROUTING ──────────────────────────────────
 // Routes to the correct Seedance 2.0 endpoint based on image roles:
 //   - No images → text-to-video
@@ -780,6 +941,9 @@ app.post('/api/upload', upload.single('file'), async (req, res) => {
     // Use Node.js compatible File/Blob for FAL upload
     const file = new File([req.file.buffer], req.file.originalname, { type: req.file.mimetype });
     console.log('[UPLOAD] Uploading to FAL:', req.file.originalname, req.file.size, 'bytes');
+    if (req.file.mimetype?.startsWith('video/')) {
+      console.log(`[UPLOAD VIDEO] uploaded ${(req.file.size / (1024 * 1024)).toFixed(1)} MB`);
+    }
     const url = await fal.storage.upload(file);
     console.log('[UPLOAD] ✅ FAL URL:', url);
     res.json({ url });

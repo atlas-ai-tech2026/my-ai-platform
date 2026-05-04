@@ -1,6 +1,10 @@
 import React, { useState } from 'react';
 import { X, Check } from 'lucide-react';
 
+// Kling Motion Control and Kling 3.0 Omni Edit are intentionally NOT
+// listed here — they each have their own top-tab on the Video page.
+// Keeping them in the Create-tab model picker would let users pick a
+// model whose UI doesn't match the active tab.
 const VIDEO_MODELS = [
   { id:'kling-3-omni',   name:'Kling 3.0 Omni',          brand:'Kling',     color:'#2563EB', badge:'NEW', desc:'Enhanced multimodal references',              tags:['Reference','Multi-shots','Audio'], res:'720-1080p', dur:'3-15s',  featured:true,  img:'https://images.unsplash.com/photo-1536440136628-849c177e76a1?w=400&q=80&fit=crop' },
   { id:'kling-3',        name:'Kling 3.0',                brand:'Kling',     color:'#2563EB', badge:'NEW', desc:'Enhanced audio, consistency & multi-shots',    tags:['Start/End','Multi-shots','Audio'], res:'720-1080p', dur:'3-15s',  featured:true,  img:'https://images.unsplash.com/photo-1485846234645-a62644f84728?w=400&q=80&fit=crop' },
