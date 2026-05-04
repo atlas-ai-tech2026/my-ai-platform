@@ -59,12 +59,11 @@ export default function ScriptTextarea({ value, onChange, highlighted, onHighlig
     <div style={{
       // Fixed-ish height instead of flex:1 — when the textarea grew
       // freely it pushed the sliders + Synthesize CTA below the fold
-      // and the user couldn't reach the button at all. 160 px = ~6
-      // lines of script copy, which is plenty for typical takes; the
-      // textarea itself still scrolls internally if you paste a wall
-      // of text.
+      // and the user couldn't reach the button at all. 110 px = ~4
+      // lines of script copy, plenty for typical takes; the textarea
+      // itself still scrolls internally if you paste a wall of text.
       position: 'relative',
-      height: 160,
+      height: 110,
       background: 'rgba(255,255,255,0.02)',
       border: '1px solid rgba(255,255,255,0.07)',
       borderRadius: 12,

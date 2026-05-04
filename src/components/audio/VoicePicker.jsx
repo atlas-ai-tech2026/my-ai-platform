@@ -130,13 +130,15 @@ export default function VoicePicker({ value, onChange }) {
         style={{ display: 'none' }}
       />
 
-      {/* Trigger pill */}
+      {/* Trigger pill — compact (avatar 24px, padding tightened) so the
+          Script panel can fit textarea + sliders + Synthesize on shorter
+          viewports without scrolling. */}
       <button
         type="button"
         onClick={() => setOpen(o => !o)}
         style={{
-          width: '100%', display: 'flex', alignItems: 'center', gap: 10,
-          padding: '8px 12px', borderRadius: 12,
+          width: '100%', display: 'flex', alignItems: 'center', gap: 9,
+          padding: '6px 10px', borderRadius: 10,
           background: 'rgba(255,255,255,0.04)',
           border: '1px solid rgba(255,255,255,0.08)',
           cursor: 'pointer', textAlign: 'left',
@@ -146,29 +148,31 @@ export default function VoicePicker({ value, onChange }) {
         onMouseLeave={e => { e.currentTarget.style.filter = 'none'; }}
       >
         <div style={{
-          width: 32, height: 32, borderRadius: '50%',
+          width: 24, height: 24, borderRadius: '50%',
           background: current.gradient, flexShrink: 0,
           boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.18)',
         }} />
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{
             fontFamily: '"JetBrains Mono", monospace',
-            fontSize: 10, color: 'rgba(255,255,255,0.55)',
+            fontSize: 9, color: 'rgba(255,255,255,0.55)',
             letterSpacing: '0.06em', textTransform: 'uppercase',
+            lineHeight: 1.1,
           }}>Voice</div>
           <div style={{
-            fontSize: 13, fontWeight: 600, color: '#FFF',
+            fontSize: 12, fontWeight: 600, color: '#FFF',
             whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+            lineHeight: 1.2, marginTop: 1,
           }}>{current.name} · {current.desc}</div>
         </div>
         <span style={{
-          padding: '1px 6px', borderRadius: 4,
+          padding: '1px 5px', borderRadius: 3,
           background: 'rgba(255,255,255,0.06)',
           color: 'rgba(255,255,255,0.6)',
-          fontSize: 9, fontWeight: 600, letterSpacing: '0.05em',
+          fontSize: 8.5, fontWeight: 600, letterSpacing: '0.05em',
           flexShrink: 0,
         }}>{current.accent}</span>
-        <ChevronRight style={{ width: 16, height: 16, color: 'rgba(255,255,255,0.5)' }} />
+        <ChevronRight style={{ width: 14, height: 14, color: 'rgba(255,255,255,0.5)' }} />
       </button>
 
       {/* Popover */}

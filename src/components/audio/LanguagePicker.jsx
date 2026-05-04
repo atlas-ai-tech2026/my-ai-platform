@@ -52,9 +52,9 @@ export default function LanguagePicker({ value, onChange }) {
         onClick={() => setOpen(o => !o)}
         style={{
           width: '100%',
-          display: 'flex', alignItems: 'center', gap: 10,
-          padding: '8px 12px',
-          borderRadius: 12,
+          display: 'flex', alignItems: 'center', gap: 9,
+          padding: '6px 10px',
+          borderRadius: 10,
           background: 'rgba(255,255,255,0.04)',
           border: '1px solid rgba(255,255,255,0.08)',
           cursor: 'pointer',
@@ -65,31 +65,33 @@ export default function LanguagePicker({ value, onChange }) {
         onMouseLeave={e => { e.currentTarget.style.filter = 'none'; }}
       >
         <div style={{
-          width: 32, height: 32, borderRadius: '50%',
+          width: 24, height: 24, borderRadius: '50%',
           background: 'rgba(255,255,255,0.06)',
           border: '1px solid rgba(255,255,255,0.12)',
           flexShrink: 0,
           display: 'flex', alignItems: 'center', justifyContent: 'center',
         }}>
-          <Globe style={{ width: 14, height: 14, color: RED }} />
+          <Globe style={{ width: 11, height: 11, color: RED }} />
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{
             fontFamily: '"JetBrains Mono", monospace',
-            fontSize: 10, color: 'rgba(255,255,255,0.55)',
+            fontSize: 9, color: 'rgba(255,255,255,0.55)',
             letterSpacing: '0.06em', textTransform: 'uppercase',
+            lineHeight: 1.1,
           }}>Language</div>
           <div style={{
-            fontSize: 13, fontWeight: 600, color: '#FFF',
+            fontSize: 12, fontWeight: 600, color: '#FFF',
             whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+            lineHeight: 1.2, marginTop: 1,
           }}>{current.native} {current.code !== 'auto' && (
             <span style={{
               fontFamily: '"JetBrains Mono", monospace',
-              fontSize: 10, color: 'rgba(255,255,255,0.5)',
+              fontSize: 9, color: 'rgba(255,255,255,0.5)',
             }}>· {current.code.toUpperCase()}</span>
           )}</div>
         </div>
-        <ChevronRight style={{ width: 16, height: 16, color: 'rgba(255,255,255,0.5)' }} />
+        <ChevronRight style={{ width: 14, height: 14, color: 'rgba(255,255,255,0.5)' }} />
       </button>
 
       {open && (
