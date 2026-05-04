@@ -891,6 +891,69 @@ app.post('/api/tts', verifyJwt, requireNotBanned, requireFalKey, async (req, res
   }
 });
 
+// ─── VOICE PREVIEW (no auth) ───────────────────────────────────────
+// Powers the ▶ button inside the Audio page Voice picker. Anyone (logged
+// in or not) can hit this — it returns a fixed short sample for any
+// voice. The first request per voice triggers a real FAL TTS call and
+// the URL is cached in a module-level Map; every subsequent request
+// for that voice returns the cached URL with no FAL call and no charge.
+//
+// Rate-limited per IP so a malicious caller can't burn through every
+// voice and force a fresh FAL call for each. Cap = 30 fresh previews
+// per IP per hour.
+const PREVIEW_TEXT = 'Hi! This is a quick voice preview. You can pick this voice to read your script.';
+const voicePreviewCache = new Map(); // voice name → audio_url
+const previewRateBucket = new Map(); // ip → { count, resetAt }
+const PREVIEW_RATE_MAX = 30;
+const PREVIEW_RATE_WINDOW_MS = 60 * 60 * 1000;
+
+function checkPreviewRate(ip) {
+  const now = Date.now();
+  const cur = previewRateBucket.get(ip);
+  if (!cur || cur.resetAt < now) {
+    previewRateBucket.set(ip, { count: 1, resetAt: now + PREVIEW_RATE_WINDOW_MS });
+    return true;
+  }
+  if (cur.count >= PREVIEW_RATE_MAX) return false;
+  cur.count++;
+  return true;
+}
+
+app.post('/api/tts/preview', requireFalKey, async (req, res) => {
+  const { voice } = req.body || {};
+  if (!voice || typeof voice !== 'string') {
+    return res.status(400).json({ error: 'voice required' });
+  }
+
+  // Cache hit → free + zero FAL load.
+  const cached = voicePreviewCache.get(voice);
+  if (cached) {
+    return res.json({ success: true, audio_url: cached, cached: true });
+  }
+
+  // Cache miss → FAL call. Gate on per-IP rate limit so it can't
+  // be abused to fill the cache from one source.
+  if (!checkPreviewRate(req.ip || 'unknown')) {
+    return res.status(429).json({ error: 'Too many previews. Try again in an hour.' });
+  }
+
+  const falModel = TTS_MODELS['eleven-v3'];
+  const input = { text: PREVIEW_TEXT, voice, stability: 0.5 };
+  console.log(`[TTS-PREVIEW] miss → ${voice} via ${falModel}`);
+
+  try {
+    const result = await fal.subscribe(falModel, { input, logs: false });
+    const audioUrl = result?.data?.audio?.url;
+    if (!audioUrl) throw new Error('No audio URL in FAL response');
+    voicePreviewCache.set(voice, audioUrl);
+    console.log(`[TTS-PREVIEW] ✅ cached ${voice} → ${audioUrl}`);
+    return res.json({ success: true, audio_url: audioUrl, cached: false });
+  } catch (error) {
+    console.error('[TTS-PREVIEW] Error:', error.message);
+    return res.status(500).json({ error: 'Preview failed: ' + error.message });
+  }
+});
+
 // ─── SEEDANCE 2.0 SMART ROUTING ──────────────────────────────────
 // Routes to the correct Seedance 2.0 endpoint based on image roles:
 //   - No images → text-to-video
