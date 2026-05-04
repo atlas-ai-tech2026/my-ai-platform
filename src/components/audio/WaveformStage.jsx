@@ -5,13 +5,12 @@
 // State (playhead position, selection range, isPlaying) lives in the
 // parent Audio.jsx — this component is dumb and renders what it's given,
 // emitting onSeek / onSelectionChange / transport events.
-import React, { useRef, useCallback, useMemo } from 'react';
+import React, { useRef, useCallback } from 'react';
 import { Play, Pause, SkipBack, SkipForward } from 'lucide-react';
 import {
   fmtTime, TrackHeader, TimeRuler, LevelMeter, TransportGhost,
 } from './waveformAtoms';
 
-const RED = '#E01E1E';
 const RED_HOT = '#FF2A2A';
 const RED_DEEP = '#8B0F0F';
 
@@ -24,13 +23,12 @@ export default function WaveformStage({
   onPlayToggle,
   onSkipStart,
   onSkipEnd,
-  selection, // { start, end } in 0..1 of duration, or null
-  onSelectionChange,
+  audioUrl, // for the Download button in TrackHeader
   trackTitle = 'Voice Take · 03',
   voiceLabel = 'Adam · 44.1kHz · 16bit · 00:18',
 }) {
   const canvasRef = useRef(null);
-  const dragModeRef = useRef(null); // 'select' | 'scrub' | null
+  const isScrubbingRef = useRef(false);
 
   const playheadPct = duration > 0 ? Math.min(1, Math.max(0, playhead / duration)) : 0;
 
@@ -42,43 +40,21 @@ export default function WaveformStage({
     return Math.min(1, Math.max(0, x / r.width));
   }, []);
 
+  // Drag-to-select region was removed per user request — only scrub.
   const handlePointerDown = (e) => {
     e.preventDefault();
-    const ratio = ratioFromEvent(e);
-    // Shift-drag → select region, plain drag → seek.
-    if (e.shiftKey) {
-      dragModeRef.current = 'select';
-      onSelectionChange?.({ start: ratio, end: ratio });
-    } else {
-      dragModeRef.current = 'scrub';
-      onSeek?.(ratio * duration);
-    }
+    isScrubbingRef.current = true;
+    onSeek?.(ratioFromEvent(e) * duration);
     e.currentTarget.setPointerCapture?.(e.pointerId);
   };
   const handlePointerMove = (e) => {
-    if (!dragModeRef.current) return;
-    const ratio = ratioFromEvent(e);
-    if (dragModeRef.current === 'scrub') {
-      onSeek?.(ratio * duration);
-    } else {
-      onSelectionChange?.(prev => {
-        const start = prev?.start ?? ratio;
-        return { start: Math.min(start, ratio), end: Math.max(start, ratio) };
-      });
-    }
+    if (!isScrubbingRef.current) return;
+    onSeek?.(ratioFromEvent(e) * duration);
   };
   const handlePointerUp = (e) => {
-    dragModeRef.current = null;
+    isScrubbingRef.current = false;
     e.currentTarget.releasePointerCapture?.(e.pointerId);
   };
-
-  const selRange = useMemo(() => {
-    if (!selection) return null;
-    const a = Math.min(selection.start, selection.end);
-    const b = Math.max(selection.start, selection.end);
-    if (b - a < 0.005) return null;
-    return { start: a, end: b };
-  }, [selection]);
 
   return (
     <div style={{
@@ -90,7 +66,7 @@ export default function WaveformStage({
       boxShadow: '0 30px 80px rgba(0,0,0,0.4)',
       flex: 1, minHeight: 0,
     }}>
-      <TrackHeader trackTitle={trackTitle} voiceLabel={voiceLabel} />
+      <TrackHeader trackTitle={trackTitle} voiceLabel={voiceLabel} audioUrl={audioUrl} />
       <TimeRuler />
 
       {/* Waveform canvas */}
@@ -108,10 +84,10 @@ export default function WaveformStage({
           overflow: 'hidden',
           border: '1px solid rgba(255,255,255,0.05)',
           background: 'linear-gradient(180deg, rgba(20,8,8,0.6), rgba(8,4,4,0.8))',
-          cursor: dragModeRef.current === 'scrub' ? 'ew-resize' : 'crosshair',
+          cursor: 'ew-resize',
           touchAction: 'none',
         }}
-        title="Click to seek · Shift-drag to select a region"
+        title="Click to seek"
       >
         {/* Centre axis line */}
         <div style={{
@@ -120,43 +96,22 @@ export default function WaveformStage({
           pointerEvents: 'none',
         }} />
 
-        {/* Selection region overlay */}
-        {selRange && (
-          <div style={{
-            position: 'absolute',
-            top: 6, bottom: 6,
-            left: `${selRange.start * 100}%`,
-            width: `${(selRange.end - selRange.start) * 100}%`,
-            background: 'rgba(224,30,30,0.12)',
-            border: `1px solid ${RED}`,
-            borderRadius: 6,
-            pointerEvents: 'none',
-            transition: 'background 0.15s',
-          }} />
-        )}
-
-        {/* Bars */}
+        {/* Bars — uniform bright gradient (no per-region styling now
+            that the selection overlay was removed). */}
         <div style={{
           position: 'relative',
           display: 'flex', alignItems: 'center',
           gap: 1.5, height: '100%',
         }}>
-          {amplitudes.map((v, i) => {
-            const ratio = i / (amplitudes.length - 1 || 1);
-            const inSel = selRange && ratio >= selRange.start && ratio <= selRange.end;
-            return (
-              <div key={i} style={{
-                flex: 1,
-                height: `${v * 90}%`,
-                borderRadius: 1,
-                background: inSel
-                  ? `linear-gradient(180deg, ${RED_HOT}, ${RED_DEEP})`
-                  : 'linear-gradient(180deg, rgba(255,80,80,0.85), rgba(139,15,15,0.6))',
-                boxShadow: inSel ? `0 0 6px ${RED}` : 'none',
-                transition: 'height 400ms cubic-bezier(0.22, 1, 0.36, 1)',
-              }} />
-            );
-          })}
+          {amplitudes.map((v, i) => (
+            <div key={i} style={{
+              flex: 1,
+              height: `${v * 90}%`,
+              borderRadius: 1,
+              background: 'linear-gradient(180deg, rgba(255,80,80,0.85), rgba(139,15,15,0.6))',
+              transition: 'height 400ms cubic-bezier(0.22, 1, 0.36, 1)',
+            }} />
+          ))}
         </div>
 
         {/* Playhead */}
