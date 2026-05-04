@@ -26,14 +26,14 @@ export default function AudioModelPicker({ value, onChange }) {
     <div>
       <div style={{
         fontFamily: '"JetBrains Mono", monospace',
-        fontSize: 10, color: 'rgba(255,255,255,0.55)',
+        fontSize: 9, color: 'rgba(255,255,255,0.55)',
         letterSpacing: '0.06em', textTransform: 'uppercase',
-        marginBottom: 6,
+        marginBottom: 4,
       }}>Model</div>
       <div style={{
         display: 'grid',
         gridTemplateColumns: '1fr 1fr',
-        gap: 6,
+        gap: 5,
       }}>
         {TTS_MODEL_OPTIONS.map(m => {
           const active = value === m.id;
@@ -45,8 +45,8 @@ export default function AudioModelPicker({ value, onChange }) {
               title={m.desc}
               style={{
                 position: 'relative',
-                padding: '9px 10px',
-                borderRadius: 10,
+                padding: '6px 8px',
+                borderRadius: 8,
                 background: active
                   ? `linear-gradient(180deg, rgba(255,42,42,0.18), rgba(139,15,15,0.12))`
                   : 'rgba(255,255,255,0.04)',
@@ -54,25 +54,28 @@ export default function AudioModelPicker({ value, onChange }) {
                 color: '#FFF',
                 cursor: 'pointer',
                 textAlign: 'left',
-                boxShadow: active ? `0 0 12px rgba(224,30,30,0.4)` : 'none',
+                boxShadow: active ? `0 0 10px rgba(224,30,30,0.35)` : 'none',
                 transition: 'background 0.15s, border-color 0.15s, box-shadow 0.18s',
               }}
             >
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span style={{ fontSize: 12, fontWeight: 700 }}>{m.name}</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                <span style={{ fontSize: 11, fontWeight: 700 }}>{m.name}</span>
                 {m.badge && (
                   <span style={{
-                    padding: '1px 5px', borderRadius: 4,
+                    padding: '1px 4px', borderRadius: 3,
                     background: 'rgba(224,30,30,0.22)',
                     border: '1px solid rgba(224,30,30,0.45)',
                     color: '#FF7878',
-                    fontSize: 8, fontWeight: 800, letterSpacing: '0.06em',
+                    fontSize: 7.5, fontWeight: 800, letterSpacing: '0.05em',
                   }}>{m.badge}</span>
                 )}
               </div>
+              {/* Compact one-liner — full description still in the title
+                  attribute as a hover tooltip. */}
               <div style={{
-                fontSize: 9.5, color: 'rgba(255,255,255,0.55)',
-                marginTop: 2, lineHeight: 1.3,
+                fontSize: 8.5, color: 'rgba(255,255,255,0.5)',
+                marginTop: 1, lineHeight: 1.2,
+                whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
               }}>{m.desc}</div>
             </button>
           );

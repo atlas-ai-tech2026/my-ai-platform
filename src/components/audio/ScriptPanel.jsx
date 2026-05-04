@@ -39,8 +39,8 @@ export default function ScriptPanel({
       border: '1px solid rgba(255,255,255,0.10)',
       boxShadow: '0 30px 80px rgba(0,0,0,0.55), 0 1px 0 rgba(255,255,255,0.10) inset, 0 0 60px rgba(224,30,30,0.08)',
       borderRadius: 18,
-      padding: 18,
-      display: 'flex', flexDirection: 'column', gap: 12,
+      padding: 14,
+      display: 'flex', flexDirection: 'column', gap: 9,
       minHeight: 0,
       overflowY: 'auto',
       // Same scroll-containment trick as the voice picker — wheel
@@ -65,7 +65,7 @@ export default function ScriptPanel({
           border-radius: 999px;
         }
       `}</style>
-      <div style={{ fontSize: 14, fontWeight: 600, color: '#FFF' }}>Script</div>
+      <div style={{ fontSize: 13, fontWeight: 600, color: '#FFF' }}>Script</div>
 
       <VoicePicker value={voice} onChange={onVoiceChange} />
       <LanguagePicker value={language} onChange={onLanguageChange} />
@@ -79,7 +79,7 @@ export default function ScriptPanel({
 
       <AudioModelPicker value={model} onChange={onModelChange} />
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         <GradientSlider label="Stability"  value={stability}  onChange={onStabilityChange} />
         <GradientSlider label="Similarity" value={similarity} onChange={onSimilarityChange} disabled={isV3} disabledHint={ignoreHint} />
         <GradientSlider label="Style"      value={style}      onChange={onStyleChange}      disabled={isV3} disabledHint={ignoreHint} />
@@ -90,8 +90,8 @@ export default function ScriptPanel({
         onClick={onSynthesize}
         disabled={isSynthesizing}
         style={{
-          padding: '14px 0',
-          borderRadius: 12,
+          padding: '11px 0',
+          borderRadius: 10,
           border: 'none',
           background: isSynthesizing
             ? 'rgba(139,15,15,0.6)'
