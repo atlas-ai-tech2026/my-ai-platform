@@ -4,7 +4,6 @@ import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import multer from 'multer';
 import { fal } from '@fal-ai/client';
-import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import dotenv from 'dotenv';
@@ -12,6 +11,10 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { pool, isReady as dbReady, migrate, ADMIN_EMAIL } from './db.js';
 import { verifyJwt, requireAdmin, requireNotBanned } from './middleware/auth.js';
+// Restored after the in-file getStore block was removed — DIST_DIR
+// at the bottom of this file still needs __dirname.
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 import {
   CREDIT_COSTS,
   chargeCredits,
@@ -1215,126 +1218,140 @@ Keep the original intent. 50–90 words. One paragraph.`;
   }
 });
 
-// ─── ENTITY CRUD (JSON-backed write-through store) ────────────────
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const DATA_DIR = path.resolve(__dirname, '../data');
-const DATA_FILE = path.join(DATA_DIR, 'entities.json');
-let entityStore = {};
-let flushTimer = null;
-
-async function loadStore() {
-  try {
-    const raw = await readFile(DATA_FILE, 'utf8');
-    entityStore = JSON.parse(raw);
-  } catch {
-    entityStore = {};
-  }
-}
-
-function scheduleFlush() {
-  if (flushTimer) clearTimeout(flushTimer);
-  flushTimer = setTimeout(async () => {
-    try {
-      await mkdir(DATA_DIR, { recursive: true });
-      await writeFile(DATA_FILE, JSON.stringify(entityStore, null, 2));
-    } catch (e) {
-      console.error('[entity-store] flush failed:', e);
-    }
-  }, 250);
-}
-
-await loadStore();
-
-function getStore(name) {
-  if (!entityStore[name]) entityStore[name] = [];
-  return entityStore[name];
-}
-
-// ─── ENTITY STORE — PER-USER ISOLATION ─────────────────────────────
-// Every entity is owned by exactly one user (req.user.id). All four
-// routes require a valid JWT and only ever touch rows where
-// `user_id === req.user.id`. Pre-existing rows without `user_id` (from
-// before this gating was added) are invisible to every user — they sit
-// orphaned on disk until manually cleaned up.
+// ─── ENTITY CRUD (Postgres-backed) ─────────────────────────────────
+// Replaces the previous JSON write-through store at server/data/
+// entities.json — that file got wiped on every container redeploy on
+// DO App Platform, so user history vanished after each push to main.
+// Now persisted in the `entities` table (see db.js migrate()).
 //
-// On PUT/DELETE we deliberately return 404 (not 403) when the row exists
-// but belongs to someone else, so the API doesn't leak that another
-// user's record with that ID exists.
+// Per-user isolation: every route requires a valid JWT and only ever
+// touches rows where user_id = req.user.id. PUT/DELETE return 404 (not
+// 403) for rows owned by another user so the API doesn't leak the
+// existence of another user's record.
+//
+// Response shape stays identical to the old JSON store: a flat object
+// `{ id, user_id, created_date, updated_date, ...data }`. Clients
+// (Image.jsx / Video.jsx / etc.) need no changes.
 
-app.post('/api/entities/:name/filter', verifyJwt, (req, res) => {
-  const { query, sort, limit } = req.body;
-  const userId = req.user.id;
-  let items = getStore(req.params.name).filter(i => i.user_id === userId);
-  if (query) {
-    items = items.filter(item => Object.entries(query).every(([k, v]) => item[k] === v));
-  }
-  if (sort) {
-    const desc = sort.startsWith('-');
-    const field = desc ? sort.slice(1) : sort;
-    items.sort((a, b) => {
-      const av = a[field] || 0, bv = b[field] || 0;
-      return desc ? (bv > av ? 1 : -1) : (av > bv ? 1 : -1);
-    });
-  }
-  res.json(limit ? items.slice(0, limit) : items);
-});
-
-app.get('/api/entities/:name', verifyJwt, (req, res) => {
-  const { sort, limit } = req.query;
-  const userId = req.user.id;
-  let items = getStore(req.params.name).filter(i => i.user_id === userId);
-  if (sort) {
-    const desc = sort.startsWith('-');
-    const field = desc ? sort.slice(1) : sort;
-    items = [...items].sort((a, b) => {
-      const av = a[field] || '', bv = b[field] || '';
-      return desc ? (bv > av ? 1 : -1) : (av > bv ? 1 : -1);
-    });
-  }
-  res.json(limit ? items.slice(0, Number(limit)) : items);
-});
-
-app.post('/api/entities/:name', verifyJwt, (req, res) => {
-  const store = getStore(req.params.name);
-  // Strip any client-supplied user_id from the body before stamping the
-  // server-side one, so a malicious client can't masquerade as another
-  // user by sending `{user_id: 99, ...}`.
-  const { user_id: _ignored, ...body } = req.body || {};
-  const item = {
-    ...body,
-    id: crypto.randomUUID(),
-    user_id: req.user.id,
-    created_date: new Date().toISOString(),
-    updated_date: new Date().toISOString(),
+// Spread the JSONB `data` over the row metadata so callers get the
+// same flat shape they got from the file store.
+function rowToItem(row) {
+  return {
+    id: row.id,
+    user_id: row.user_id,
+    created_date: row.created_date instanceof Date ? row.created_date.toISOString() : row.created_date,
+    updated_date: row.updated_date instanceof Date ? row.updated_date.toISOString() : row.updated_date,
+    ...(row.data || {}),
   };
-  store.unshift(item);
-  scheduleFlush();
-  res.json(item);
+}
+
+// Sort spec like "-created_date" or "created_date" → "ORDER BY ... DESC".
+// Whitelist the columns we sort on — JSONB inner-key sort would need
+// `data->>'foo'` and isn't worth the surface area today; the only sort
+// any caller uses is `-created_date`.
+const SORTABLE = new Set(['created_date', 'updated_date']);
+function sortClause(sort) {
+  if (!sort) return 'ORDER BY created_date DESC';
+  const desc = sort.startsWith('-');
+  const field = desc ? sort.slice(1) : sort;
+  if (!SORTABLE.has(field)) return 'ORDER BY created_date DESC';
+  return `ORDER BY ${field} ${desc ? 'DESC' : 'ASC'}`;
+}
+
+function clampLimit(limit) {
+  const n = Number(limit);
+  if (!Number.isFinite(n) || n <= 0) return 200;
+  return Math.min(500, Math.floor(n));
+}
+
+app.post('/api/entities/:name/filter', verifyJwt, async (req, res) => {
+  if (!dbReady()) return res.status(503).json({ error: 'Database not configured.' });
+  try {
+    const { query, sort, limit } = req.body || {};
+    const params = [req.user.id, req.params.name];
+    let where = `user_id = $1 AND name = $2`;
+    if (query && typeof query === 'object' && Object.keys(query).length) {
+      params.push(JSON.stringify(query));
+      where += ` AND data @> $${params.length}::jsonb`;
+    }
+    params.push(clampLimit(limit));
+    const sql = `SELECT * FROM entities WHERE ${where} ${sortClause(sort)} LIMIT $${params.length}`;
+    const { rows } = await pool.query(sql, params);
+    res.json(rows.map(rowToItem));
+  } catch (e) {
+    console.error('[entities:filter] error:', e.message);
+    res.status(500).json({ error: 'Filter failed.' });
+  }
 });
 
-app.put('/api/entities/:name/:id', verifyJwt, (req, res) => {
-  const store = getStore(req.params.name);
-  const idx = store.findIndex(i => i.id === req.params.id);
-  if (idx === -1 || store[idx].user_id !== req.user.id) {
-    return res.status(404).json({ error: 'Not found' });
+app.get('/api/entities/:name', verifyJwt, async (req, res) => {
+  if (!dbReady()) return res.status(503).json({ error: 'Database not configured.' });
+  try {
+    const params = [req.user.id, req.params.name, clampLimit(req.query.limit)];
+    const sql = `SELECT * FROM entities WHERE user_id = $1 AND name = $2 ${sortClause(req.query.sort)} LIMIT $3`;
+    const { rows } = await pool.query(sql, params);
+    res.json(rows.map(rowToItem));
+  } catch (e) {
+    console.error('[entities:list] error:', e.message);
+    res.status(500).json({ error: 'List failed.' });
   }
-  // user_id is immutable from the client side.
-  const { user_id: _ignored, ...body } = req.body || {};
-  store[idx] = { ...store[idx], ...body, updated_date: new Date().toISOString() };
-  scheduleFlush();
-  res.json(store[idx]);
 });
 
-app.delete('/api/entities/:name/:id', verifyJwt, (req, res) => {
-  const store = getStore(req.params.name);
-  const idx = store.findIndex(i => i.id === req.params.id);
-  if (idx === -1 || store[idx].user_id !== req.user.id) {
-    return res.status(404).json({ error: 'Not found' });
+app.post('/api/entities/:name', verifyJwt, async (req, res) => {
+  if (!dbReady()) return res.status(503).json({ error: 'Database not configured.' });
+  try {
+    // Strip any client-supplied user_id / id / timestamps before persisting.
+    // user_id is the auth-stamped one; the rest are db-managed.
+    const { user_id: _u, id: _id, created_date: _c, updated_date: _ud, ...data } = req.body || {};
+    const id = crypto.randomUUID();
+    const sql = `
+      INSERT INTO entities (id, name, user_id, data)
+      VALUES ($1, $2, $3, $4::jsonb)
+      RETURNING *
+    `;
+    const { rows } = await pool.query(sql, [id, req.params.name, req.user.id, JSON.stringify(data)]);
+    res.json(rowToItem(rows[0]));
+  } catch (e) {
+    console.error('[entities:create] error:', e.message);
+    res.status(500).json({ error: 'Create failed.' });
   }
-  store.splice(idx, 1);
-  scheduleFlush();
-  res.json({ success: true });
+});
+
+app.put('/api/entities/:name/:id', verifyJwt, async (req, res) => {
+  if (!dbReady()) return res.status(503).json({ error: 'Database not configured.' });
+  try {
+    const { user_id: _u, id: _id, created_date: _c, updated_date: _ud, ...patch } = req.body || {};
+    // Merge into existing JSONB. `||` is the JSONB concat that does shallow
+    // override — same semantics as the old `{...store[idx], ...body}` spread.
+    const sql = `
+      UPDATE entities
+         SET data = data || $1::jsonb,
+             updated_date = NOW()
+       WHERE id = $2 AND user_id = $3 AND name = $4
+       RETURNING *
+    `;
+    const { rows } = await pool.query(sql, [JSON.stringify(patch), req.params.id, req.user.id, req.params.name]);
+    if (rows.length === 0) return res.status(404).json({ error: 'Not found' });
+    res.json(rowToItem(rows[0]));
+  } catch (e) {
+    console.error('[entities:update] error:', e.message);
+    res.status(500).json({ error: 'Update failed.' });
+  }
+});
+
+app.delete('/api/entities/:name/:id', verifyJwt, async (req, res) => {
+  if (!dbReady()) return res.status(503).json({ error: 'Database not configured.' });
+  try {
+    const { rowCount } = await pool.query(
+      `DELETE FROM entities WHERE id = $1 AND user_id = $2 AND name = $3`,
+      [req.params.id, req.user.id, req.params.name]
+    );
+    if (rowCount === 0) return res.status(404).json({ error: 'Not found' });
+    res.json({ success: true });
+  } catch (e) {
+    console.error('[entities:delete] error:', e.message);
+    res.status(500).json({ error: 'Delete failed.' });
+  }
 });
 
 // ─── AUTH: REGISTER ─────────────────────────────────────────────────
@@ -1793,9 +1810,8 @@ if (existsSync(DIST_DIR)) {
 // the whole API.
 function startListening() {
   app.listen(PORT, () => {
-    const entityCount = Object.values(entityStore).reduce((n, arr) => n + (Array.isArray(arr) ? arr.length : 0), 0);
     console.log(
-      `[voxel-api] listening on :${PORT} — FAL_KEY=${!!FAL_KEY}, db=${dbReady()}, jwt=${!!JWT_SECRET}, entities=${entityCount}`
+      `[voxel-api] listening on :${PORT} — FAL_KEY=${!!FAL_KEY}, db=${dbReady()}, jwt=${!!JWT_SECRET} — entities now in Postgres`
     );
   });
 }
