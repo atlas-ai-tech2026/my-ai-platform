@@ -835,11 +835,14 @@ export default function ImagePromptBar({
           )}
         </div>
 
-        {/* ── Chips Row — no divider, soft pills, circular send on the right ── */}
+        {/* ── Chips Row — single line so the Generate capsule stays
+            inline with the chips. Horizontal scroll if the row gets wider
+            than the bar, never wraps to a second line. ── */}
         <div style={{
           padding: '6px 14px 14px 14px',
           display: 'flex', alignItems: 'center', gap: 7,
-          flexWrap: 'wrap',
+          flexWrap: 'nowrap',
+          overflowX: 'auto',
         }}
           className="hide-scrollbar"
         >
@@ -959,59 +962,59 @@ export default function ImagePromptBar({
             )}
           </button>
 
-          {/* Right cluster: credit indicator + Generate capsule per spec §A2.5-A2.6.
-              `model.credits ✦` in JetBrains Mono sits to the LEFT of the
-              capsule. The Generate button is now an Anton uppercase capsule
-              with the brand red gradient and the documented multi-layer
-              red glow shadow. */}
-          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 12 }}>
-            <div
-              style={{
-                fontSize: 10, color: 'rgba(255,255,255,0.55)',
-                fontFamily: '"JetBrains Mono", monospace',
-                letterSpacing: '0.06em',
-              }}
-              title={`${model.credits} credits per image`}
-            >{model.credits} ✦</div>
-            <button
-              onClick={handleGenerate}
-              disabled={isGenerating}
-              title="Generate"
-              className="img-send-btn"
-              style={{
-                height: 40, padding: '0 22px', borderRadius: 999, border: 'none',
-                background: isGenerating
-                  ? 'rgba(139,15,15,0.6)'
-                  : 'linear-gradient(180deg, #FF2A2A, #8B0F0F)',
-                color: '#FFF', fontSize: 13, fontWeight: 700,
-                fontFamily: 'Anton, sans-serif',
-                letterSpacing: '0.06em', textTransform: 'uppercase',
-                display: 'flex', alignItems: 'center', gap: 8,
-                cursor: isGenerating ? 'not-allowed' : 'pointer',
-                flexShrink: 0,
-                boxShadow: isGenerating
-                  ? 'none'
-                  : '0 0 30px rgba(224,30,30,0.55),' +
-                    '0 6px 20px rgba(139,15,15,0.5),' +
-                    '0 1px 0 rgba(255,255,255,0.25) inset',
-                transition: 'transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease',
-              }}
-              onMouseEnter={e => { if (!isGenerating) { e.currentTarget.style.transform = 'translateY(-1px)'; e.currentTarget.style.boxShadow = '0 0 40px rgba(224,30,30,0.7), 0 8px 26px rgba(139,15,15,0.6), 0 1px 0 rgba(255,255,255,0.3) inset'; }}}
-              onMouseLeave={e => { if (!isGenerating) { e.currentTarget.style.transform = 'none'; e.currentTarget.style.boxShadow = '0 0 30px rgba(224,30,30,0.55), 0 6px 20px rgba(139,15,15,0.5), 0 1px 0 rgba(255,255,255,0.25) inset'; }}}
-            >
-              {isGenerating ? (
-                <>
-                  <div style={{ width: 13, height: 13, border: '2px solid rgba(255,255,255,0.4)', borderTopColor: '#FFF', borderRadius: '50%', animation: 'imgSpin 0.8s linear infinite' }} />
-                  <span>GENERATING</span>
-                </>
-              ) : (
-                <>
-                  <span>GENERATE</span>
-                  <span style={{ fontSize: 14 }}>→</span>
-                </>
-              )}
-            </button>
-          </div>
+          {/* Generate capsule — credit cost moved INSIDE the button as a
+              small mono pill ("✦ 2") right of the GENERATE label, so the
+              whole right cluster collapses to a single chip on one line.
+              The cost (2) matches the server-side CREDIT_COST_IMAGE
+              default. Arrow glyph removed per request. */}
+          <button
+            onClick={handleGenerate}
+            disabled={isGenerating}
+            title={`Generate · costs 2 credits`}
+            className="img-send-btn"
+            style={{
+              marginLeft: 'auto',
+              height: 40, padding: '0 18px 0 22px', borderRadius: 999, border: 'none',
+              background: isGenerating
+                ? 'rgba(139,15,15,0.6)'
+                : 'linear-gradient(180deg, #FF2A2A, #8B0F0F)',
+              color: '#FFF', fontSize: 13, fontWeight: 700,
+              fontFamily: 'Anton, sans-serif',
+              letterSpacing: '0.06em', textTransform: 'uppercase',
+              display: 'flex', alignItems: 'center', gap: 10,
+              cursor: isGenerating ? 'not-allowed' : 'pointer',
+              flexShrink: 0,
+              boxShadow: isGenerating
+                ? 'none'
+                : '0 0 30px rgba(224,30,30,0.55),' +
+                  '0 6px 20px rgba(139,15,15,0.5),' +
+                  '0 1px 0 rgba(255,255,255,0.25) inset',
+              transition: 'transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease',
+            }}
+            onMouseEnter={e => { if (!isGenerating) { e.currentTarget.style.transform = 'translateY(-1px)'; e.currentTarget.style.boxShadow = '0 0 40px rgba(224,30,30,0.7), 0 8px 26px rgba(139,15,15,0.6), 0 1px 0 rgba(255,255,255,0.3) inset'; }}}
+            onMouseLeave={e => { if (!isGenerating) { e.currentTarget.style.transform = 'none'; e.currentTarget.style.boxShadow = '0 0 30px rgba(224,30,30,0.55), 0 6px 20px rgba(139,15,15,0.5), 0 1px 0 rgba(255,255,255,0.25) inset'; }}}
+          >
+            {isGenerating ? (
+              <>
+                <div style={{ width: 13, height: 13, border: '2px solid rgba(255,255,255,0.4)', borderTopColor: '#FFF', borderRadius: '50%', animation: 'imgSpin 0.8s linear infinite' }} />
+                <span>GENERATING</span>
+              </>
+            ) : (
+              <>
+                <span>GENERATE</span>
+                <span style={{
+                  fontFamily: '"JetBrains Mono", monospace',
+                  fontSize: 11, fontWeight: 700,
+                  letterSpacing: '0.04em',
+                  padding: '3px 8px', borderRadius: 999,
+                  background: 'rgba(0,0,0,0.28)',
+                  border: '1px solid rgba(255,255,255,0.18)',
+                  color: '#FFF',
+                  display: 'inline-flex', alignItems: 'center', gap: 4,
+                }}>✦ 2</span>
+              </>
+            )}
+          </button>
         </div>
 
       </div>
