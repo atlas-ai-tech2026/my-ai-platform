@@ -589,6 +589,83 @@ export default function ImagePromptBar({
         }
         @keyframes imgSpin { to { transform: rotate(360deg); } }
         @keyframes imgFadeIn { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: translateY(0); } }
+
+        /* ─── Generate button — smooth red glow, integrated cost pill ───
+           Replaces the previous box-shadow-only halo (which had visible
+           banding because one big high-α shadow has a sharp edge). The
+           trick is: stacked low-opacity shadows at different radii for
+           gradual falloff, plus a ::before pseudo-element with
+           filter: blur(20px) on a radial gradient — that's what gives
+           the buttery, no-edge halo. isolation: isolate keeps the glow
+           from interacting weirdly with the parent bar's backdrop-filter. */
+        .voxel-generate {
+          position: relative;
+          display: inline-flex; align-items: center; gap: 10px;
+          padding: 4px 4px 4px 28px;
+          height: 52px;
+          border-radius: 999px;
+          border: 1px solid #FF2A2A;
+          background: linear-gradient(180deg, #FF2A2A 0%, #C71414 55%, #8B0F0F 100%);
+          color: #FFF;
+          font-family: 'Anton', sans-serif;
+          font-weight: 700;
+          font-size: 18px;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+          cursor: pointer;
+          isolation: isolate;
+          flex-shrink: 0;
+          box-shadow:
+            0 0 0 1px rgba(255,255,255,0.10) inset,
+            0 1px 0 rgba(255,255,255,0.35) inset,
+            0 -2px 6px rgba(139,15,15,0.6) inset,
+            0 4px 14px rgba(139,15,15,0.5),
+            0 0 32px rgba(224,30,30,0.45),
+            0 0 80px rgba(224,30,30,0.22);
+          transition: box-shadow 200ms ease, transform 200ms ease;
+        }
+        .voxel-generate::before {
+          content: '';
+          position: absolute; inset: -24px;
+          border-radius: 999px;
+          background: radial-gradient(closest-side, rgba(224,30,30,0.55), rgba(224,30,30,0) 70%);
+          filter: blur(20px);
+          z-index: -1;
+          pointer-events: none;
+        }
+        .voxel-generate:hover {
+          box-shadow:
+            0 0 0 1px rgba(255,255,255,0.12) inset,
+            0 1px 0 rgba(255,255,255,0.40) inset,
+            0 -2px 6px rgba(139,15,15,0.6) inset,
+            0 6px 18px rgba(139,15,15,0.55),
+            0 0 40px rgba(224,30,30,0.55),
+            0 0 100px rgba(224,30,30,0.30);
+          transform: translateY(-1px);
+        }
+        .voxel-generate:active { transform: translateY(0); }
+        .voxel-generate:disabled { cursor: not-allowed; opacity: 0.6; }
+        .voxel-generate__label { padding-right: 4px; }
+        .voxel-generate__cost {
+          display: inline-flex; align-items: center; gap: 6px;
+          height: 44px;
+          padding: 0 18px 0 16px;
+          border-radius: 999px;
+          background: rgba(20, 4, 4, 0.55);
+          border: 1px solid rgba(255, 255, 255, 0.12);
+          box-shadow:
+            inset 0 1px 0 rgba(0,0,0,0.4),
+            inset 0 -1px 0 rgba(255,255,255,0.06);
+          font-family: 'DM Sans', 'Inter', sans-serif;
+          font-weight: 700;
+          font-size: 15px;
+          letter-spacing: 0;
+          color: #FFF;
+        }
+        .voxel-generate__cost svg {
+          color: #FFF;
+          filter: drop-shadow(0 0 4px rgba(255,255,255,0.6));
+        }
       `}</style>
 
       <PageSwitcher />
@@ -964,71 +1041,34 @@ export default function ImagePromptBar({
             )}
           </button>
 
-          {/* Generate capsule — credit cost moved INSIDE the button as a
-              small mono pill ("✦ 2") right of the GENERATE label, so the
-              whole right cluster collapses to a single chip on one line.
-              The cost (2) matches the server-side CREDIT_COST_IMAGE
-              default. Arrow glyph removed per request. */}
+          {/* Generate capsule — class-driven so the smooth halo can use
+              ::before with filter: blur(20px) (impossible via inline
+              style). Cost ✦ 2 sits as a recessed inner pill on the
+              right; "GENERATE" sits flush left. See `.voxel-generate`
+              in the <style> block above for the full token recipe. */}
           <button
             onClick={handleGenerate}
             disabled={isGenerating}
-            title={`Generate · costs 2 credits`}
-            className="img-send-btn"
-            style={{
-              marginLeft: 'auto',
-              // Compact to match the slimmer chips (h:28 / fs:11.5). The
-              // capsule still reads as the focal action thanks to the red
-              // gradient and glow, just at half the chrome.
-              height: 28, padding: '0 10px 0 14px', borderRadius: 999, border: 'none',
-              background: isGenerating
-                ? 'rgba(139,15,15,0.6)'
-                : 'linear-gradient(180deg, #FF2A2A, #8B0F0F)',
-              color: '#FFF', fontSize: 11, fontWeight: 700,
-              fontFamily: 'Anton, sans-serif',
-              letterSpacing: '0.06em', textTransform: 'uppercase',
-              display: 'flex', alignItems: 'center', gap: 6,
-              cursor: isGenerating ? 'not-allowed' : 'pointer',
-              flexShrink: 0,
-              // Defined red NEON-edge glow per the target reference: a
-              // bright 2 px red ring sitting right on the button's
-              // perimeter, then a TIGHT outer aura that follows the pill
-              // shape (not the wide diffuse 30 px bloom from the older
-              // version). Stack:
-              //   1. 0 0 0 1.5 px bright red — the visible ring on edge
-              //   2. 0 0 10 px red @ 70% — close hot glow
-              //   3. 0 0 22 px red @ 35% — soft red aura under the button
-              //   4. drop shadow + inner top highlight as before
-              boxShadow: isGenerating
-                ? 'none'
-                : '0 0 0 1.5px rgba(255,80,80,0.85),' +
-                  '0 0 10px rgba(255,42,42,0.7),' +
-                  '0 0 22px rgba(224,30,30,0.45),' +
-                  '0 4px 12px rgba(0,0,0,0.45),' +
-                  '0 1px 0 rgba(255,255,255,0.30) inset',
-              transition: 'transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease',
-            }}
-            onMouseEnter={e => { if (!isGenerating) { e.currentTarget.style.transform = 'translateY(-1px)'; e.currentTarget.style.boxShadow = '0 0 0 1.5px rgba(255,90,90,1), 0 0 14px rgba(255,42,42,0.85), 0 0 28px rgba(224,30,30,0.55), 0 6px 16px rgba(0,0,0,0.55), 0 1px 0 rgba(255,255,255,0.35) inset'; }}}
-            onMouseLeave={e => { if (!isGenerating) { e.currentTarget.style.transform = 'none'; e.currentTarget.style.boxShadow = '0 0 0 1.5px rgba(255,80,80,0.85), 0 0 10px rgba(255,42,42,0.7), 0 0 22px rgba(224,30,30,0.45), 0 4px 12px rgba(0,0,0,0.45), 0 1px 0 rgba(255,255,255,0.30) inset'; }}}
+            title="Generate · costs 2 credits"
+            className="voxel-generate"
+            style={{ marginLeft: 'auto' }}
           >
             {isGenerating ? (
               <>
-                <div style={{ width: 13, height: 13, border: '2px solid rgba(255,255,255,0.4)', borderTopColor: '#FFF', borderRadius: '50%', animation: 'imgSpin 0.8s linear infinite' }} />
-                <span>GENERATING</span>
+                <span className="voxel-generate__label" style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ width: 13, height: 13, border: '2px solid rgba(255,255,255,0.4)', borderTopColor: '#FFF', borderRadius: '50%', animation: 'imgSpin 0.8s linear infinite' }} />
+                  GENERATING
+                </span>
               </>
             ) : (
               <>
-                <span>GENERATE</span>
-                <span style={{
-                  fontFamily: '"JetBrains Mono", monospace',
-                  fontSize: 9.5, fontWeight: 700,
-                  letterSpacing: '0.03em',
-                  padding: '1.5px 6px', borderRadius: 999,
-                  background: 'rgba(0,0,0,0.28)',
-                  border: '1px solid rgba(255,255,255,0.18)',
-                  color: '#FFF',
-                  display: 'inline-flex', alignItems: 'center', gap: 3,
-                  lineHeight: 1.2,
-                }}>✦ 2</span>
+                <span className="voxel-generate__label">GENERATE</span>
+                <span className="voxel-generate__cost">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+                    <path d="M12 2 L14 10 L22 12 L14 14 L12 22 L10 14 L2 12 L10 10 Z" />
+                  </svg>
+                  2
+                </span>
               </>
             )}
           </button>
