@@ -590,76 +590,66 @@ export default function ImagePromptBar({
         @keyframes imgSpin { to { transform: rotate(360deg); } }
         @keyframes imgFadeIn { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: translateY(0); } }
 
-        /* ─── Generate button — smooth glow v2 ───
-           v1 had a visible double-ring halo because (a) the button had a
-           hard 1 px red border, (b) heavy inset hairlines stacked another
-           bright edge inside, and (c) the ::before's border-radius didn't
-           extend with its inset, so the blurred gradient formed a second
-           offset band. v2 fixes all three:
-             - NO border. Edge is defined by the gradient + a single soft
-               inset highlight on top, not a 1 px stroke.
-             - ::after with border-radius = button-radius + inset, so the
-               blurred gradient's bright center sits centered on the
-               button and falls off cleanly outward.
-             - Two-layer halo (60 px @ 32 % + 120 px @ 18 %) for a long
-               gradual outer falloff, plus the blurred ::after for the
-               buttery middle. */
+        /* ─── Generate button — smooth glow v3 ───
+           v2's ::after halo extended -28 px past the button. Inside the
+           bar that was fine, but ABOVE the bar the halo crossed the bar's
+           top edge and got clipped against it — that's the hard
+           horizontal seam the user pointed at. v3 drops the ::after
+           entirely and uses ONLY box-shadow. The glow stays close to the
+           button (~36 px max) with very low-alpha falloff layers, so it
+           reads as a soft red aura that dies before it touches any edge.
+           Button + label are also back to chip-scale so it doesn't tower
+           over the rest of the row. */
         .voxel-generate {
           --r: 999px;
           position: relative;
-          display: inline-flex; align-items: center; gap: 10px;
-          height: 48px;
-          padding: 0 6px 0 24px;
+          display: inline-flex; align-items: center; gap: 6px;
+          height: 32px;
+          padding: 0 4px 0 14px;
           border-radius: var(--r);
           border: 0;
-          background: linear-gradient(180deg, #FF3030 0%, #D31A1A 50%, #8B0F0F 100%);
+          background: linear-gradient(180deg, #FF3030 0%, #D31A1A 55%, #8B0F0F 100%);
           color: #FFF;
           font-family: 'Anton', sans-serif;
           font-weight: 700;
-          font-size: 17px;
+          font-size: 12px;
           letter-spacing: 0.08em;
           text-transform: uppercase;
           cursor: pointer;
           flex-shrink: 0;
+          /* Pure box-shadow halo — six VERY low-alpha layers at small
+             radii so the falloff is gradual and the outermost layer is
+             barely visible (12 %). No layer is wide enough to reach the
+             bar's edge, so nothing gets clipped. */
           box-shadow:
             inset 0 1px 0 rgba(255,255,255,0.30),
-            inset 0 -1px 0 rgba(0,0,0,0.25),
-            0 2px 8px rgba(0,0,0,0.35),
-            0 0 60px rgba(224,30,30,0.32),
-            0 0 120px rgba(224,30,30,0.18);
+            inset 0 -1px 0 rgba(0,0,0,0.22),
+            0 2px 6px rgba(0,0,0,0.35),
+            0 0 8px  rgba(255,42,42,0.30),
+            0 0 18px rgba(224,30,30,0.22),
+            0 0 36px rgba(224,30,30,0.12);
           transition: filter 200ms ease, transform 200ms ease;
         }
-        .voxel-generate::after {
-          content: '';
-          position: absolute; inset: -28px;
-          border-radius: calc(var(--r) + 28px);
-          background: radial-gradient(ellipse at center,
-            rgba(224,30,30,0.55) 0%,
-            rgba(224,30,30,0.25) 30%,
-            rgba(224,30,30,0) 70%);
-          filter: blur(24px);
-          z-index: -1;
-          pointer-events: none;
-        }
-        .voxel-generate:hover { filter: brightness(1.06); transform: translateY(-1px); }
-        .voxel-generate:active { transform: translateY(0); filter: brightness(0.98); }
+        .voxel-generate:hover { filter: brightness(1.08); transform: translateY(-1px); }
+        .voxel-generate:active { transform: translateY(0); filter: brightness(0.97); }
         .voxel-generate:disabled { cursor: not-allowed; opacity: 0.6; }
         .voxel-generate__label { padding: 0 2px; }
         .voxel-generate__cost {
-          display: inline-flex; align-items: center; gap: 5px;
-          height: 36px;
-          padding: 0 14px 0 12px;
+          display: inline-flex; align-items: center; gap: 4px;
+          height: 24px;
+          padding: 0 9px 0 8px;
           border-radius: var(--r);
           background: rgba(0, 0, 0, 0.22);
           box-shadow: inset 0 0 0 1px rgba(255,255,255,0.18);
           font-family: 'DM Sans', 'Inter', sans-serif;
           font-weight: 700;
-          font-size: 13px;
+          font-size: 10.5px;
           letter-spacing: 0;
           color: #FFF;
+          line-height: 1;
         }
         .voxel-generate__cost svg {
-          width: 11px; height: 11px;
+          width: 9px; height: 9px;
           color: #FFF;
         }
       `}</style>
@@ -1064,7 +1054,7 @@ export default function ImagePromptBar({
               <>
                 <span className="voxel-generate__label">GENERATE</span>
                 <span className="voxel-generate__cost" aria-label="2 credits">
-                  <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+                  <svg width="9" height="9" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
                     <path d="M12 2 L13.5 10.5 L22 12 L13.5 13.5 L12 22 L10.5 13.5 L2 12 L10.5 10.5 Z" />
                   </svg>
                   2
