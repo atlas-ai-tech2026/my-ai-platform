@@ -591,32 +591,51 @@ export default function ImagePromptBar({
 
       <PageSwitcher />
 
-      {/* ── Fixed Bar — red-tinted dark glass per VOXEL_IMAGE_PAGE_SPEC §A2.1.
-          Dark `rgba(15,8,8,0.65)` fill so cinema imagery still bleeds through
-          the heavy blur, faint red border, and a multi-layer shadow with a
-          warm red halo to match the brand cinema aesthetic. ── */}
+      {/* ── Fixed Bar — ULTRA GLASS per V_PromptBar_UltraGlass spec.
+          Very low-alpha dark wash so the red ambient glow + gallery
+          thumbs visibly bleed through the heavy blur. The white→red
+          vertical gradient hairline is rendered via the two-layer
+          background-image trick (fill in padding-box, gradient in
+          border-box). Multi-layer shadow finishes the depth: drop
+          shadow + double-line inset highlight + warm red halo. ── */}
       <div style={{
         position: 'fixed',
         bottom: 28,
         left: '50%',
         transform: 'translateX(-50%)',
         width: 'min(900px, 94%)',
-        background: 'rgba(15,8,8,0.65)',
-        backdropFilter: 'blur(50px) saturate(1.6)',
-        WebkitBackdropFilter: 'blur(50px) saturate(1.6)',
-        border: '1px solid rgba(224,30,30,0.2)',
-        borderRadius: 20,
+        // Drop the explicit background — the fill now comes from the
+        // first layer of backgroundImage so the gradient-border trick
+        // resolves correctly. Same effective fill colour (rgba(20,6,8,0.18))
+        // but ~3× more transparent than the old rgba(15,8,8,0.65).
+        backgroundImage:
+          'linear-gradient(rgba(20,6,8,0.18), rgba(20,6,8,0.18)),' +
+          'linear-gradient(180deg,' +
+            ' rgba(255,255,255,0.18) 0%,' +
+            ' rgba(255,255,255,0.04) 35%,' +
+            ' rgba(224,30,30,0.18) 100%)',
+        backgroundOrigin: 'border-box',
+        backgroundClip: 'padding-box, border-box',
+        backdropFilter: 'blur(48px) saturate(1.6)',
+        WebkitBackdropFilter: 'blur(48px) saturate(1.6)',
+        border: '1px solid transparent',
+        borderRadius: 28,
         overflow: 'visible',
         boxShadow:
-          '0 24px 70px rgba(0,0,0,0.6),' +
-          '0 0 40px rgba(224,30,30,0.15),' +
-          '0 1px 0 rgba(255,255,255,0.08) inset',
+          '0 30px 80px rgba(0,0,0,0.55),' +
+          'inset 0 1px 0 rgba(255,255,255,0.12),' +
+          'inset 0 0 0 1px rgba(255,255,255,0.04),' +
+          '0 0 80px rgba(224,30,30,0.10)',
         padding: '14px 16px 12px',
         transition: 'all 0.32s cubic-bezier(0.4,0,0.2,1)',
         zIndex: 100,
       }}>
 
-        {/* Drag handle — grab and pull up to resize */}
+        {/* Drag handle — grab to resize. The visible bar inside follows
+            the V_PromptBar_UltraGlass red top accent strip (88×4, full
+            white→red→white gradient, big glow). Sitting at top: -1 so
+            it kisses the container's top edge and reads as light bending
+            around the glass rim. */}
         <div
           onMouseDown={onDragStart}
           onTouchStart={onDragStart}
@@ -627,15 +646,15 @@ export default function ImagePromptBar({
             cursor: 'ns-resize', zIndex: 20,
           }}
         >
-          {/* Drag handle — brand red at rest per spec §A2.2 */}
           <div style={{
-            width: 48, height: 4, borderRadius: 3,
-            background: 'rgba(224,30,30,0.55)',
-            boxShadow: '0 0 8px rgba(224,30,30,0.5)',
-            transition: 'background 0.15s, width 0.15s',
+            position: 'absolute', top: -1, left: '50%', transform: 'translateX(-50%)',
+            width: 88, height: 4, borderRadius: '0 0 4px 4px',
+            background: 'linear-gradient(90deg, transparent, #E01E1E 30%, #FF2A2A 50%, #E01E1E 70%, transparent)',
+            boxShadow: '0 0 18px #E01E1E, 0 0 4px #FF2A2A',
+            transition: 'width 0.15s',
           }}
-            onMouseEnter={e => { e.currentTarget.style.background = '#E01E1E'; e.currentTarget.style.width = '60px'; }}
-            onMouseLeave={e => { e.currentTarget.style.background = 'rgba(224,30,30,0.55)'; e.currentTarget.style.width = '48px'; }}
+            onMouseEnter={e => { e.currentTarget.style.width = '108px'; }}
+            onMouseLeave={e => { e.currentTarget.style.width = '88px'; }}
           />
         </div>
 
