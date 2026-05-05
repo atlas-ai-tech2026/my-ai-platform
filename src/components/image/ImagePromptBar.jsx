@@ -390,11 +390,13 @@ const injectPill = {
 // ─── Chip ────────────────────────────────────────────────────────────────────
 // Reference-style chips: near-invisible on the glass, soft inner blur.
 const chipBase = {
-  display: 'inline-flex', alignItems: 'center', gap: 7,
-  height: 34, padding: '0 14px',
+  // Compact pill — shrunk from h:34 / pad 14 / fs 13 to fit the chip row +
+  // Generate button on a single 900 px bar without overflow.
+  display: 'inline-flex', alignItems: 'center', gap: 5,
+  height: 28, padding: '0 10px',
   background: 'rgba(255,255,255,0.035)',
   border: '1px solid rgba(255,255,255,0.05)',
-  borderRadius: 999, fontSize: 13,
+  borderRadius: 999, fontSize: 11.5,
   fontFamily: '"DM Sans", sans-serif',
   color: 'rgba(255,255,255,0.82)',
   cursor: 'pointer', whiteSpace: 'nowrap',
@@ -835,12 +837,12 @@ export default function ImagePromptBar({
           )}
         </div>
 
-        {/* ── Chips Row — single line so the Generate capsule stays
-            inline with the chips. Horizontal scroll if the row gets wider
-            than the bar, never wraps to a second line. ── */}
+        {/* ── Chips Row — single line, compact gap so chip cluster +
+            Generate fit inside the 900 px bar without overflow or
+            horizontal scroll. ── */}
         <div style={{
           padding: '6px 14px 14px 14px',
-          display: 'flex', alignItems: 'center', gap: 7,
+          display: 'flex', alignItems: 'center', gap: 5,
           flexWrap: 'nowrap',
           overflowX: 'auto',
         }}
@@ -974,14 +976,17 @@ export default function ImagePromptBar({
             className="img-send-btn"
             style={{
               marginLeft: 'auto',
-              height: 40, padding: '0 18px 0 22px', borderRadius: 999, border: 'none',
+              // Compact to match the slimmer chips (h:28 / fs:11.5). The
+              // capsule still reads as the focal action thanks to the red
+              // gradient and glow, just at half the chrome.
+              height: 28, padding: '0 10px 0 14px', borderRadius: 999, border: 'none',
               background: isGenerating
                 ? 'rgba(139,15,15,0.6)'
                 : 'linear-gradient(180deg, #FF2A2A, #8B0F0F)',
-              color: '#FFF', fontSize: 13, fontWeight: 700,
+              color: '#FFF', fontSize: 11, fontWeight: 700,
               fontFamily: 'Anton, sans-serif',
               letterSpacing: '0.06em', textTransform: 'uppercase',
-              display: 'flex', alignItems: 'center', gap: 10,
+              display: 'flex', alignItems: 'center', gap: 6,
               cursor: isGenerating ? 'not-allowed' : 'pointer',
               flexShrink: 0,
               boxShadow: isGenerating
@@ -1004,13 +1009,14 @@ export default function ImagePromptBar({
                 <span>GENERATE</span>
                 <span style={{
                   fontFamily: '"JetBrains Mono", monospace',
-                  fontSize: 11, fontWeight: 700,
-                  letterSpacing: '0.04em',
-                  padding: '3px 8px', borderRadius: 999,
+                  fontSize: 9.5, fontWeight: 700,
+                  letterSpacing: '0.03em',
+                  padding: '1.5px 6px', borderRadius: 999,
                   background: 'rgba(0,0,0,0.28)',
                   border: '1px solid rgba(255,255,255,0.18)',
                   color: '#FFF',
-                  display: 'inline-flex', alignItems: 'center', gap: 4,
+                  display: 'inline-flex', alignItems: 'center', gap: 3,
+                  lineHeight: 1.2,
                 }}>✦ 2</span>
               </>
             )}
