@@ -590,81 +590,77 @@ export default function ImagePromptBar({
         @keyframes imgSpin { to { transform: rotate(360deg); } }
         @keyframes imgFadeIn { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: translateY(0); } }
 
-        /* ─── Generate button — smooth red glow, integrated cost pill ───
-           Replaces the previous box-shadow-only halo (which had visible
-           banding because one big high-α shadow has a sharp edge). The
-           trick is: stacked low-opacity shadows at different radii for
-           gradual falloff, plus a ::before pseudo-element with
-           filter: blur(20px) on a radial gradient — that's what gives
-           the buttery, no-edge halo. isolation: isolate keeps the glow
-           from interacting weirdly with the parent bar's backdrop-filter. */
+        /* ─── Generate button — smooth glow v2 ───
+           v1 had a visible double-ring halo because (a) the button had a
+           hard 1 px red border, (b) heavy inset hairlines stacked another
+           bright edge inside, and (c) the ::before's border-radius didn't
+           extend with its inset, so the blurred gradient formed a second
+           offset band. v2 fixes all three:
+             - NO border. Edge is defined by the gradient + a single soft
+               inset highlight on top, not a 1 px stroke.
+             - ::after with border-radius = button-radius + inset, so the
+               blurred gradient's bright center sits centered on the
+               button and falls off cleanly outward.
+             - Two-layer halo (60 px @ 32 % + 120 px @ 18 %) for a long
+               gradual outer falloff, plus the blurred ::after for the
+               buttery middle. */
         .voxel-generate {
+          --r: 999px;
           position: relative;
           display: inline-flex; align-items: center; gap: 10px;
-          padding: 4px 4px 4px 28px;
-          height: 52px;
-          border-radius: 999px;
-          border: 1px solid #FF2A2A;
-          background: linear-gradient(180deg, #FF2A2A 0%, #C71414 55%, #8B0F0F 100%);
+          height: 48px;
+          padding: 0 6px 0 24px;
+          border-radius: var(--r);
+          border: 0;
+          background: linear-gradient(180deg, #FF3030 0%, #D31A1A 50%, #8B0F0F 100%);
           color: #FFF;
           font-family: 'Anton', sans-serif;
           font-weight: 700;
-          font-size: 18px;
+          font-size: 17px;
           letter-spacing: 0.08em;
           text-transform: uppercase;
           cursor: pointer;
-          isolation: isolate;
           flex-shrink: 0;
           box-shadow:
-            0 0 0 1px rgba(255,255,255,0.10) inset,
-            0 1px 0 rgba(255,255,255,0.35) inset,
-            0 -2px 6px rgba(139,15,15,0.6) inset,
-            0 4px 14px rgba(139,15,15,0.5),
-            0 0 32px rgba(224,30,30,0.45),
-            0 0 80px rgba(224,30,30,0.22);
-          transition: box-shadow 200ms ease, transform 200ms ease;
+            inset 0 1px 0 rgba(255,255,255,0.30),
+            inset 0 -1px 0 rgba(0,0,0,0.25),
+            0 2px 8px rgba(0,0,0,0.35),
+            0 0 60px rgba(224,30,30,0.32),
+            0 0 120px rgba(224,30,30,0.18);
+          transition: filter 200ms ease, transform 200ms ease;
         }
-        .voxel-generate::before {
+        .voxel-generate::after {
           content: '';
-          position: absolute; inset: -24px;
-          border-radius: 999px;
-          background: radial-gradient(closest-side, rgba(224,30,30,0.55), rgba(224,30,30,0) 70%);
-          filter: blur(20px);
+          position: absolute; inset: -28px;
+          border-radius: calc(var(--r) + 28px);
+          background: radial-gradient(ellipse at center,
+            rgba(224,30,30,0.55) 0%,
+            rgba(224,30,30,0.25) 30%,
+            rgba(224,30,30,0) 70%);
+          filter: blur(24px);
           z-index: -1;
           pointer-events: none;
         }
-        .voxel-generate:hover {
-          box-shadow:
-            0 0 0 1px rgba(255,255,255,0.12) inset,
-            0 1px 0 rgba(255,255,255,0.40) inset,
-            0 -2px 6px rgba(139,15,15,0.6) inset,
-            0 6px 18px rgba(139,15,15,0.55),
-            0 0 40px rgba(224,30,30,0.55),
-            0 0 100px rgba(224,30,30,0.30);
-          transform: translateY(-1px);
-        }
-        .voxel-generate:active { transform: translateY(0); }
+        .voxel-generate:hover { filter: brightness(1.06); transform: translateY(-1px); }
+        .voxel-generate:active { transform: translateY(0); filter: brightness(0.98); }
         .voxel-generate:disabled { cursor: not-allowed; opacity: 0.6; }
-        .voxel-generate__label { padding-right: 4px; }
+        .voxel-generate__label { padding: 0 2px; }
         .voxel-generate__cost {
-          display: inline-flex; align-items: center; gap: 6px;
-          height: 44px;
-          padding: 0 18px 0 16px;
-          border-radius: 999px;
-          background: rgba(20, 4, 4, 0.55);
-          border: 1px solid rgba(255, 255, 255, 0.12);
-          box-shadow:
-            inset 0 1px 0 rgba(0,0,0,0.4),
-            inset 0 -1px 0 rgba(255,255,255,0.06);
+          display: inline-flex; align-items: center; gap: 5px;
+          height: 36px;
+          padding: 0 14px 0 12px;
+          border-radius: var(--r);
+          background: rgba(0, 0, 0, 0.22);
+          box-shadow: inset 0 0 0 1px rgba(255,255,255,0.18);
           font-family: 'DM Sans', 'Inter', sans-serif;
           font-weight: 700;
-          font-size: 15px;
+          font-size: 13px;
           letter-spacing: 0;
           color: #FFF;
         }
         .voxel-generate__cost svg {
+          width: 11px; height: 11px;
           color: #FFF;
-          filter: drop-shadow(0 0 4px rgba(255,255,255,0.6));
         }
       `}</style>
 
@@ -700,6 +696,10 @@ export default function ImagePromptBar({
         border: '1px solid transparent',
         borderRadius: 28,
         overflow: 'visible',
+        // isolate creates a new stacking context so the Generate
+        // button's ::after halo doesn't get clipped by the bar's
+        // backdrop-filter or interact weirdly with sibling z-indexes.
+        isolation: 'isolate',
         boxShadow:
           '0 30px 80px rgba(0,0,0,0.55),' +
           'inset 0 1px 0 rgba(255,255,255,0.12),' +
@@ -1063,9 +1063,9 @@ export default function ImagePromptBar({
             ) : (
               <>
                 <span className="voxel-generate__label">GENERATE</span>
-                <span className="voxel-generate__cost">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-                    <path d="M12 2 L14 10 L22 12 L14 14 L12 22 L10 14 L2 12 L10 10 Z" />
+                <span className="voxel-generate__cost" aria-label="2 credits">
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+                    <path d="M12 2 L13.5 10.5 L22 12 L13.5 13.5 L12 22 L10.5 13.5 L2 12 L10.5 10.5 Z" />
                   </svg>
                   2
                 </span>
