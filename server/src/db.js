@@ -169,6 +169,30 @@ export async function migrate() {
     `);
     await client.query(`CREATE INDEX IF NOT EXISTS failed_logins_ip_recent_idx ON failed_logins (ip_address, created_at DESC);`);
 
+    // ─── entities (generation history + any other per-user docs) ─────
+    // Replaces the previous server/data/entities.json write-through file
+    // store, which got wiped on every container redeploy on DO App
+    // Platform. Same shape as that file's items: a uuid `id`, the entity
+    // `name` ("GenerationHistory" today, room for more later), an owning
+    // `user_id`, a JSONB `data` blob, and timestamps. The /api/entities
+    // routes spread `data` over the row so the API response shape stays
+    // identical to what the JSON store returned (clients don't change).
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS entities (
+        id            UUID         PRIMARY KEY,
+        name          VARCHAR(64)  NOT NULL,
+        user_id       INTEGER      NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        data          JSONB        NOT NULL DEFAULT '{}'::jsonb,
+        created_date  TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+        updated_date  TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+      );
+    `);
+    // Most common query: "all of user X's GenerationHistory rows, newest
+    // first, optionally limited". This index covers it directly.
+    await client.query(`CREATE INDEX IF NOT EXISTS entities_user_name_created_idx ON entities (user_id, name, created_date DESC);`);
+    // Filter route does `data @> $::jsonb` — gin index makes that fast.
+    await client.query(`CREATE INDEX IF NOT EXISTS entities_data_gin_idx ON entities USING gin (data);`);
+
     // ─── one-shot admin promotion ───────────────────────────────────
     const promoted = await client.query(
       `UPDATE users SET role = 'admin' WHERE email = $1 AND role <> 'admin' RETURNING id`,
@@ -179,7 +203,7 @@ export async function migrate() {
     }
 
     await client.query('COMMIT');
-    console.log('[db] migrations ok — users + credits_history + admin_audit_log + failed_logins ready');
+    console.log('[db] migrations ok — users + credits_history + admin_audit_log + failed_logins + entities ready');
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
     console.error('[db] migration FAILED:', err.message);
