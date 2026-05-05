@@ -989,19 +989,26 @@ export default function ImagePromptBar({
               display: 'flex', alignItems: 'center', gap: 6,
               cursor: isGenerating ? 'not-allowed' : 'pointer',
               flexShrink: 0,
-              // Clean red capsule per the target reference (claude design):
-              // soft drop shadow below + 1 px inner top highlight, but NO
-              // outer red halo. The previous `0 0 30 px red` glow was
-              // bleeding a big bloom around the button — that's the bit
-              // the user pointed at.
+              // Defined red NEON-edge glow per the target reference: a
+              // bright 2 px red ring sitting right on the button's
+              // perimeter, then a TIGHT outer aura that follows the pill
+              // shape (not the wide diffuse 30 px bloom from the older
+              // version). Stack:
+              //   1. 0 0 0 1.5 px bright red — the visible ring on edge
+              //   2. 0 0 10 px red @ 70% — close hot glow
+              //   3. 0 0 22 px red @ 35% — soft red aura under the button
+              //   4. drop shadow + inner top highlight as before
               boxShadow: isGenerating
                 ? 'none'
-                : '0 4px 12px rgba(0,0,0,0.45),' +
-                  '0 1px 0 rgba(255,255,255,0.25) inset',
+                : '0 0 0 1.5px rgba(255,80,80,0.85),' +
+                  '0 0 10px rgba(255,42,42,0.7),' +
+                  '0 0 22px rgba(224,30,30,0.45),' +
+                  '0 4px 12px rgba(0,0,0,0.45),' +
+                  '0 1px 0 rgba(255,255,255,0.30) inset',
               transition: 'transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease',
             }}
-            onMouseEnter={e => { if (!isGenerating) { e.currentTarget.style.transform = 'translateY(-1px)'; e.currentTarget.style.boxShadow = '0 6px 16px rgba(0,0,0,0.55), 0 1px 0 rgba(255,255,255,0.3) inset'; }}}
-            onMouseLeave={e => { if (!isGenerating) { e.currentTarget.style.transform = 'none'; e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.45), 0 1px 0 rgba(255,255,255,0.25) inset'; }}}
+            onMouseEnter={e => { if (!isGenerating) { e.currentTarget.style.transform = 'translateY(-1px)'; e.currentTarget.style.boxShadow = '0 0 0 1.5px rgba(255,90,90,1), 0 0 14px rgba(255,42,42,0.85), 0 0 28px rgba(224,30,30,0.55), 0 6px 16px rgba(0,0,0,0.55), 0 1px 0 rgba(255,255,255,0.35) inset'; }}}
+            onMouseLeave={e => { if (!isGenerating) { e.currentTarget.style.transform = 'none'; e.currentTarget.style.boxShadow = '0 0 0 1.5px rgba(255,80,80,0.85), 0 0 10px rgba(255,42,42,0.7), 0 0 22px rgba(224,30,30,0.45), 0 4px 12px rgba(0,0,0,0.45), 0 1px 0 rgba(255,255,255,0.30) inset'; }}}
           >
             {isGenerating ? (
               <>
