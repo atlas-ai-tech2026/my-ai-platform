@@ -391,15 +391,14 @@ const injectPill = {
 // Reference-style chips: near-invisible on the glass, soft inner blur.
 // V_PromptBar_UltraGlass — inactive chip recipe.
 // Font 14 / weight 500 / pill radius 999 / soft white-translucent fill +
-// hairline border. Padding tightened from spec's 0/16 to 0/12 so the
-// chip row + the spec-sized Generate button (12/28 padding) fit inside
-// the 900 px bar without overflow.
+// hairline border. Padding tuned to give the spec's `10px 18px` look on
+// the active chip while keeping inactive chips slightly tighter.
 const chipBase = {
-  display: 'inline-flex', alignItems: 'center', gap: 6,
-  height: 32, padding: '0 12px',
+  display: 'inline-flex', alignItems: 'center', gap: 7,
+  height: 36, padding: '0 16px',
   background: 'rgba(255,255,255,0.03)',
   border: '1px solid rgba(255,255,255,0.10)',
-  borderRadius: 999, fontSize: 13,
+  borderRadius: 999, fontSize: 14,
   fontFamily: '"DM Sans", sans-serif',
   fontWeight: 500,
   color: 'rgba(255,255,255,0.85)',
@@ -594,53 +593,31 @@ export default function ImagePromptBar({
         @keyframes imgSpin { to { transform: rotate(360deg); } }
         @keyframes imgFadeIn { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: translateY(0); } }
 
-        /* ─── Generate button — spec chrome + truly-smooth halo ───
-           The user kept seeing a hard edge on the glow because pure
-           box-shadow at 0 0 36px red doesn't gaussian-blur as cleanly
-           as filter blur on a real element — at 67 percent alpha you can
-           see the alpha falloff curve. Fix:
-             - Drop the harsh 36 px shadow.
-             - Add a ::before pseudo-element with a radial gradient and
-               filter blur 16px. Real gaussian blur, no banding.
-             - Keep ::before inset SMALL (-6 px) so the blurred halo
-               stays within the bar's chip-row padding (~26 px below the
-               button, ~30 px right) and never crosses the bar's edge —
-               that was what produced the seam in the previous attempt.
-             - Keep the inset top sheen + dark drop shadow per spec for
-               grounding. */
+        /* ─── Generate button — V_PromptBar_UltraGlass spec ───
+           Padding 12/28, simple two-stop red gradient, 1 px solid
+           #FF2A2A border, the spec's box-shadow recipe (a 36 px red
+           halo at 67 % α + a 6/18 dark drop shadow + a 1 px white
+           inner-top sheen). Anton uppercase, letter-spacing 0.08em. */
         .voxel-generate {
           position: relative;
-          display: inline-flex; align-items: center; gap: 8px;
-          padding: 8px 10px 8px 20px;
+          display: inline-flex; align-items: center; gap: 10px;
+          padding: 12px 14px 12px 28px;
           border-radius: 999px;
           border: 1px solid #FF2A2A;
           background: linear-gradient(180deg, #FF2A2A, #8B0F0F);
           color: #FFF;
           font-family: 'Anton', sans-serif;
           font-weight: 700;
-          font-size: 13px;
+          font-size: 14px;
           letter-spacing: 0.08em;
           text-transform: uppercase;
           cursor: pointer;
           flex-shrink: 0;
-          isolation: isolate;
           box-shadow:
-            0 4px 12px rgba(139,15,15,0.55),
+            0 0 36px rgba(224,30,30,0.67),
+            0 6px 18px rgba(139,15,15,0.6),
             inset 0 1px 0 rgba(255,255,255,0.3);
           transition: filter 200ms ease, transform 200ms ease;
-        }
-        .voxel-generate::before {
-          content: '';
-          position: absolute;
-          inset: -6px;
-          border-radius: inherit;
-          background: radial-gradient(ellipse at center,
-            rgba(255,42,42,0.55) 0%,
-            rgba(224,30,30,0.30) 40%,
-            rgba(224,30,30,0) 80%);
-          filter: blur(16px);
-          z-index: -1;
-          pointer-events: none;
         }
         .voxel-generate:hover { filter: brightness(1.08); transform: translateY(-1px); }
         .voxel-generate:active { transform: translateY(0); filter: brightness(0.97); }
@@ -651,21 +628,21 @@ export default function ImagePromptBar({
            proportions but kept restrained so it doesn't compete with
            the GENERATE label. */
         .voxel-generate__cost {
-          display: inline-flex; align-items: center; gap: 4px;
-          height: 22px;
-          padding: 0 9px 0 8px;
+          display: inline-flex; align-items: center; gap: 5px;
+          height: 28px;
+          padding: 0 11px 0 10px;
           border-radius: 999px;
           background: rgba(0, 0, 0, 0.25);
           box-shadow: inset 0 0 0 1px rgba(255,255,255,0.20);
           font-family: 'DM Sans', 'Inter', sans-serif;
           font-weight: 700;
-          font-size: 11px;
+          font-size: 12px;
           letter-spacing: 0;
           color: #FFF;
           line-height: 1;
         }
         .voxel-generate__cost svg {
-          width: 9px; height: 9px;
+          width: 10px; height: 10px;
           color: #FFF;
         }
       `}</style>
@@ -939,7 +916,7 @@ export default function ImagePromptBar({
             onClick={() => { closeAll(); setShowModelModal(v => !v); }}
             style={{
               ...chipBase,
-              padding: '0 14px',
+              padding: '0 18px',
               background: 'rgba(224,30,30,0.10)',
               borderColor: '#E01E1E',
               boxShadow: '0 0 22px rgba(224,30,30,0.35), inset 0 0 18px rgba(224,30,30,0.12)',
@@ -948,9 +925,9 @@ export default function ImagePromptBar({
             onMouseEnter={e => { e.currentTarget.style.background = 'rgba(224,30,30,0.16)'; }}
             onMouseLeave={e => { e.currentTarget.style.background = 'rgba(224,30,30,0.10)'; }}
           >
-            <span style={{ width: 7, height: 7, background: '#FF2A2A', borderRadius: 999, boxShadow: '0 0 8px #FF2A2A' }} />
+            <span style={{ width: 8, height: 8, background: '#FF2A2A', borderRadius: 999, boxShadow: '0 0 10px #FF2A2A' }} />
             <span>{model.name}</span>
-            <ChevronDown className="w-3 h-3" style={{ color: 'rgba(255,209,209,0.7)' }} />
+            <ChevronDown className="w-3.5 h-3.5" style={{ color: 'rgba(255,209,209,0.7)' }} />
           </button>
 
           {/* Aspect Ratio */}
@@ -1073,7 +1050,7 @@ export default function ImagePromptBar({
               <>
                 <span className="voxel-generate__label">GENERATE</span>
                 <span className="voxel-generate__cost" aria-label="2 credits">
-                  <svg width="9" height="9" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
                     <path d="M12 2 L13.5 10.5 L22 12 L13.5 13.5 L12 22 L10.5 13.5 L2 12 L10.5 10.5 Z" />
                   </svg>
                   2
