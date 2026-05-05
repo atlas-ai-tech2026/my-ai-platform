@@ -989,15 +989,19 @@ export default function ImagePromptBar({
               display: 'flex', alignItems: 'center', gap: 6,
               cursor: isGenerating ? 'not-allowed' : 'pointer',
               flexShrink: 0,
+              // Clean red capsule per the target reference (claude design):
+              // soft drop shadow below + 1 px inner top highlight, but NO
+              // outer red halo. The previous `0 0 30 px red` glow was
+              // bleeding a big bloom around the button — that's the bit
+              // the user pointed at.
               boxShadow: isGenerating
                 ? 'none'
-                : '0 0 30px rgba(224,30,30,0.55),' +
-                  '0 6px 20px rgba(139,15,15,0.5),' +
+                : '0 4px 12px rgba(0,0,0,0.45),' +
                   '0 1px 0 rgba(255,255,255,0.25) inset',
               transition: 'transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease',
             }}
-            onMouseEnter={e => { if (!isGenerating) { e.currentTarget.style.transform = 'translateY(-1px)'; e.currentTarget.style.boxShadow = '0 0 40px rgba(224,30,30,0.7), 0 8px 26px rgba(139,15,15,0.6), 0 1px 0 rgba(255,255,255,0.3) inset'; }}}
-            onMouseLeave={e => { if (!isGenerating) { e.currentTarget.style.transform = 'none'; e.currentTarget.style.boxShadow = '0 0 30px rgba(224,30,30,0.55), 0 6px 20px rgba(139,15,15,0.5), 0 1px 0 rgba(255,255,255,0.25) inset'; }}}
+            onMouseEnter={e => { if (!isGenerating) { e.currentTarget.style.transform = 'translateY(-1px)'; e.currentTarget.style.boxShadow = '0 6px 16px rgba(0,0,0,0.55), 0 1px 0 rgba(255,255,255,0.3) inset'; }}}
+            onMouseLeave={e => { if (!isGenerating) { e.currentTarget.style.transform = 'none'; e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.45), 0 1px 0 rgba(255,255,255,0.25) inset'; }}}
           >
             {isGenerating ? (
               <>
