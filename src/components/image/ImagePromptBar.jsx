@@ -395,8 +395,8 @@ const injectPill = {
 // chip row + the spec-sized Generate button (12/28 padding) fit inside
 // the 900 px bar without overflow.
 const chipBase = {
-  display: 'inline-flex', alignItems: 'center', gap: 6,
-  height: 32, padding: '0 12px',
+  display: 'inline-flex', alignItems: 'center', gap: 5,
+  height: 32, padding: '0 11px',
   background: 'rgba(255,255,255,0.03)',
   border: '1px solid rgba(255,255,255,0.10)',
   borderRadius: 999, fontSize: 13,
@@ -610,15 +610,15 @@ export default function ImagePromptBar({
                grounding. */
         .voxel-generate {
           position: relative;
-          display: inline-flex; align-items: center; gap: 8px;
-          padding: 8px 10px 8px 20px;
+          display: inline-flex; align-items: center; gap: 10px;
+          padding: 8px 18px;
           border-radius: 999px;
           border: 1px solid #FF2A2A;
           background: linear-gradient(180deg, #FF2A2A, #8B0F0F);
           color: #FFF;
           font-family: 'Anton', sans-serif;
           font-weight: 700;
-          font-size: 13px;
+          font-size: 14px;
           letter-spacing: 0.08em;
           text-transform: uppercase;
           cursor: pointer;
@@ -645,28 +645,11 @@ export default function ImagePromptBar({
         .voxel-generate:hover { filter: brightness(1.08); transform: translateY(-1px); }
         .voxel-generate:active { transform: translateY(0); filter: brightness(0.97); }
         .voxel-generate:disabled { cursor: not-allowed; opacity: 0.6; }
-        .voxel-generate__label { padding: 0 2px; }
-        /* Cost pill the user added — compact dark-tint inner capsule
-           on the right of the button, matching the spec's larger button
-           proportions but kept restrained so it doesn't compete with
-           the GENERATE label. */
-        .voxel-generate__cost {
-          display: inline-flex; align-items: center; gap: 4px;
-          height: 22px;
-          padding: 0 9px 0 8px;
-          border-radius: 999px;
-          background: rgba(0, 0, 0, 0.25);
-          box-shadow: inset 0 0 0 1px rgba(255,255,255,0.20);
-          font-family: 'DM Sans', 'Inter', sans-serif;
-          font-weight: 700;
-          font-size: 11px;
-          letter-spacing: 0;
+        .voxel-generate__label { padding: 0; }
+        .voxel-generate__arrow {
+          font-size: 14px; font-weight: 400;
           color: #FFF;
           line-height: 1;
-        }
-        .voxel-generate__cost svg {
-          width: 9px; height: 9px;
-          color: #FFF;
         }
       `}</style>
 
@@ -1050,34 +1033,39 @@ export default function ImagePromptBar({
             )}
           </button>
 
-          {/* Generate capsule — class-driven so the smooth halo can use
-              ::before with filter: blur(20px) (impossible via inline
-              style). Cost ✦ 2 sits as a recessed inner pill on the
-              right; "GENERATE" sits flush left. See `.voxel-generate`
-              in the <style> block above for the full token recipe. */}
+          {/* Standalone token-count indicator before the Generate
+              capsule (per the user's reference image). Uses model.credits
+              so it reflects the picked model. Same JetBrains-mono style
+              as the original. */}
+          <div
+            style={{
+              marginLeft: 'auto',
+              fontSize: 11, color: 'rgba(255,255,255,0.55)',
+              fontFamily: '"JetBrains Mono", monospace',
+              letterSpacing: '0.06em',
+              flexShrink: 0,
+            }}
+            title={`${model.credits} credits per image`}
+          >{model.credits} ✦</div>
+
+          {/* Generate capsule — class-driven so the smooth ::before halo
+              works (impossible via inline style). Just GENERATE + arrow,
+              the standalone token count above sits to its left. */}
           <button
             onClick={handleGenerate}
             disabled={isGenerating}
-            title="Generate · costs 2 credits"
+            title="Generate"
             className="voxel-generate"
-            style={{ marginLeft: 'auto' }}
           >
             {isGenerating ? (
-              <>
-                <span className="voxel-generate__label" style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-                  <span style={{ width: 13, height: 13, border: '2px solid rgba(255,255,255,0.4)', borderTopColor: '#FFF', borderRadius: '50%', animation: 'imgSpin 0.8s linear infinite' }} />
-                  GENERATING
-                </span>
-              </>
+              <span className="voxel-generate__label" style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ width: 13, height: 13, border: '2px solid rgba(255,255,255,0.4)', borderTopColor: '#FFF', borderRadius: '50%', animation: 'imgSpin 0.8s linear infinite' }} />
+                GENERATING
+              </span>
             ) : (
               <>
                 <span className="voxel-generate__label">GENERATE</span>
-                <span className="voxel-generate__cost" aria-label="2 credits">
-                  <svg width="9" height="9" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-                    <path d="M12 2 L13.5 10.5 L22 12 L13.5 13.5 L12 22 L10.5 13.5 L2 12 L10.5 10.5 Z" />
-                  </svg>
-                  2
-                </span>
+                <span className="voxel-generate__arrow" aria-hidden>→</span>
               </>
             )}
           </button>
