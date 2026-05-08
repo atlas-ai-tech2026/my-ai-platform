@@ -1033,29 +1033,15 @@ export default function ImagePromptBar({
             )}
           </button>
 
-          {/* Standalone token-count indicator before the Generate
-              capsule (per the user's reference image). Uses model.credits
-              so it reflects the picked model. Same JetBrains-mono style
-              as the original. */}
-          <div
-            style={{
-              marginLeft: 'auto',
-              fontSize: 11, color: 'rgba(255,255,255,0.55)',
-              fontFamily: '"JetBrains Mono", monospace',
-              letterSpacing: '0.06em',
-              flexShrink: 0,
-            }}
-            title={`${model.credits} credits per image`}
-          >{model.credits} ✦</div>
-
           {/* Generate capsule — class-driven so the smooth ::before halo
-              works (impossible via inline style). Just GENERATE + arrow,
-              the standalone token count above sits to its left. */}
+              works (impossible via inline style). The trailing "2" is the
+              credit cost deducted per image. */}
           <button
             onClick={handleGenerate}
             disabled={isGenerating}
-            title="Generate"
+            title="Generate · 2 credits per image"
             className="voxel-generate"
+            style={{ marginLeft: 'auto' }}
           >
             {isGenerating ? (
               <span className="voxel-generate__label" style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
@@ -1065,7 +1051,7 @@ export default function ImagePromptBar({
             ) : (
               <>
                 <span className="voxel-generate__label">GENERATE</span>
-                <span className="voxel-generate__arrow" aria-hidden>→</span>
+                <span className="voxel-generate__arrow" aria-hidden>2</span>
               </>
             )}
           </button>
