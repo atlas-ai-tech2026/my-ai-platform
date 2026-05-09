@@ -68,7 +68,7 @@ export default function HeroSection() {
         className="absolute inset-0"
         style={{
           background:
-            'linear-gradient(180deg, rgba(0,0,0,0.45) 0%, rgba(0,0,0,0.5) 45%, rgba(0,0,0,0.85) 100%)',
+            'linear-gradient(180deg, rgba(0,0,0,0.4) 0%, rgba(0,0,0,0.55) 35%, rgba(0,0,0,0.35) 70%, rgba(0,0,0,0.05) 100%)',
         }}
       />
 
@@ -123,14 +123,14 @@ export default function HeroSection() {
         <div
           className="flex items-center overflow-x-auto max-w-full hide-scrollbar"
           style={{
-            background: 'rgba(255,255,255,0.02)',
-            backdropFilter: 'blur(18px) saturate(1.4)',
-            WebkitBackdropFilter: 'blur(18px) saturate(1.4)',
-            border: '1px solid rgba(255,255,255,0.08)',
+            background: 'transparent',
+            backdropFilter: 'blur(14px) saturate(1.3)',
+            WebkitBackdropFilter: 'blur(14px) saturate(1.3)',
+            border: '1px solid rgba(255,255,255,0.06)',
             borderRadius: 9999,
             padding: '14px 28px',
             boxShadow:
-              'inset 0 1px 0 rgba(255,255,255,0.18), inset 0 -1px 0 rgba(255,255,255,0.03), 0 10px 40px rgba(0,0,0,0.35), 0 24px 80px rgba(0,0,0,0.25)',
+              'inset 0 1px 0 rgba(255,255,255,0.12), inset 0 -1px 0 rgba(255,255,255,0.02), 0 10px 40px rgba(0,0,0,0.3), 0 24px 80px rgba(0,0,0,0.2)',
           }}
         >
           {modelPills.map(({ name, Icon, color }) => (
