@@ -66,6 +66,11 @@ export default {
   			mono: [
   				'JetBrains Mono',
   				'monospace'
+  			],
+  			'serif-display': [
+  				'Fraunces',
+  				'Georgia',
+  				'serif'
   			]
   		},
   		borderRadius: {
