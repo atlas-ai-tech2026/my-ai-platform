@@ -27,6 +27,7 @@ const MODEL_SUBTITLES = {
   'Soul 2.0': 'Fashion-forward portraits with cultural fluency',
   'Seedream 5.0 Lite': 'Intelligent visual reasoning — unlimited access',
   'Seedream 4.5': 'Next-gen 4K photorealistic detail',
+  'GPT Image 2': "OpenAI's next-gen alpha — 4K with reference editing",
   'GPT Image 1.5': 'True-color precision rendering by OpenAI',
   'Flux Kontext': 'Stylistic diversity for any aesthetic',
   'Flux 2': 'Strong prompt adherence at high speed',
