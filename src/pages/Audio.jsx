@@ -9,6 +9,7 @@ import { toast } from 'sonner';
 import AudioModeTabs from '@/components/audio/AudioModeTabs';
 import WaveformStage from '@/components/audio/WaveformStage';
 import ScriptPanel from '@/components/audio/ScriptPanel';
+import MusicPromptPanel from '@/components/audio/MusicPromptPanel';
 import { useAuth } from '@/lib/AuthContext';
 import { genPreviewAmplitudes, pcmToAmplitudes, authJsonHeaders } from '@/components/audio/audioUtils';
 import { VOICES } from '@/components/audio/voices';
@@ -47,6 +48,12 @@ export default function Audio() {
   const [stability, setStability]   = useState(0.5);
   const [similarity, setSimilarity] = useState(0.75);
   const [style, setStyle]           = useState(0.30);
+
+  // ─── Music panel state (sent to /api/generate-music) ───
+  const [musicPrompt, setMusicPrompt] = useState(
+    'A lush, ambient soundscape featuring the serene sounds of a flowing river, complemented by the distant chirping of birds, and a gentle, melancholic piano melody that slowly unfolds.'
+  );
+  const [musicNegativePrompt, setMusicNegativePrompt] = useState('low quality');
 
   const audioElRef = useRef(null);
 
@@ -175,6 +182,67 @@ export default function Audio() {
     }
   };
 
+  // POST to /api/generate-music → fetch the returned WAV → decode for the
+  // waveform → feed the same URL into the hidden <audio>. Mirrors the
+  // synthesize flow but talks to fal-ai/lyria2 (text-to-music).
+  const handleGenerateMusic = async () => {
+    if (isSynthesizing) return;
+    if (!musicPrompt.trim()) { toast.error('Type a prompt to generate music'); return; }
+    if (!isAuthenticated) {
+      toast.info('Please sign in to generate.');
+      openAuthModal?.('login');
+      return;
+    }
+    setIsSynthesizing(true);
+    setIsPlaying(false);
+    try {
+      const response = await fetch('/api/generate-music', {
+        method: 'POST',
+        headers: authJsonHeaders(),
+        body: JSON.stringify({
+          prompt: musicPrompt.trim(),
+          negative_prompt: musicNegativePrompt.trim() || undefined,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok || !data.audio_url) {
+        if (response.status === 401) {
+          toast.error('Your session expired — please sign in again.');
+          openAuthModal?.('login');
+        } else if (response.status === 402) {
+          toast.error(data.error || 'Not enough credits — ask the admin to add more.');
+        } else {
+          toast.error(data.error || 'Music generation failed');
+        }
+        refreshAuth?.();
+        return;
+      }
+
+      try {
+        const buf = await fetch(data.audio_url).then(r => r.arrayBuffer());
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const decoded = await ctx.decodeAudioData(buf);
+        const ch = decoded.getChannelData(0);
+        setDecodedAmplitudes(pcmToAmplitudes(ch));
+        setAudioDuration(decoded.duration);
+        ctx.close?.();
+      } catch (e) {
+        console.warn('[music] decode failed, falling back to preview:', e.message);
+        setPreviewSeed(s => s + 1);
+      }
+
+      setAudioUrl(data.audio_url);
+      setPlayhead(0);
+      toast.success('Music ready — press play.');
+      refreshAuth?.();
+    } catch (err) {
+      toast.error(err.message || 'Music generation failed');
+      refreshAuth?.();
+    } finally {
+      setIsSynthesizing(false);
+    }
+  };
+
   // Keep the hidden <audio> in sync with audioUrl + capture metadata.
   useEffect(() => {
     const a = audioElRef.current;
@@ -190,7 +258,7 @@ export default function Audio() {
   // wires to the TTS backend right now.
   const modeLabel = {
     voice:   { caption: 'VOICE · ELEVENLABS', title: 'VOICE CANVAS',   trackTitle: 'Voice Take · 03', voiceLabel: `${voice} · 44.1kHz · 16bit · ${audioDuration.toFixed(1)}s` },
-    music:   { caption: 'MUSIC · UDIO',       title: 'MUSIC CANVAS',   trackTitle: 'Music Bed · 01',  voiceLabel: 'Stems · 44.1kHz · 16bit · 00:18' },
+    music:   { caption: 'MUSIC · GOOGLE LYRIA 2', title: 'MUSIC CANVAS', trackTitle: 'Music Bed · 01', voiceLabel: `Lyria 2 · 48kHz · WAV · ${audioDuration.toFixed(1)}s` },
     sfx:     { caption: 'SFX · ELEVENLABS',   title: 'SFX CANVAS',     trackTitle: 'SFX Take · 01',   voiceLabel: 'One-shot · 44.1kHz · 16bit · 00:18' },
     lipsync: { caption: 'LIPSYNC · KLING',    title: 'LIPSYNC CANVAS', trackTitle: 'Dub · 01',        voiceLabel: 'A2V · 44.1kHz · 16bit · 00:18' },
   }[mode];
@@ -269,18 +337,27 @@ export default function Audio() {
             trackTitle={modeLabel.trackTitle}
             voiceLabel={modeLabel.voiceLabel}
           />
-          <ScriptPanel
-            voice={voice} onVoiceChange={setVoice}
-            language={language} onLanguageChange={setLanguage}
-            model={ttsModel} onModelChange={setTtsModel}
-            script={script} onScriptChange={setScript}
-            highlighted={highlighted} onHighlightChange={setHighlighted}
-            stability={stability} onStabilityChange={setStability}
-            similarity={similarity} onSimilarityChange={setSimilarity}
-            style={style} onStyleChange={setStyle}
-            onSynthesize={handleSynthesize}
-            isSynthesizing={isSynthesizing}
-          />
+          {mode === 'music' ? (
+            <MusicPromptPanel
+              prompt={musicPrompt} onPromptChange={setMusicPrompt}
+              negativePrompt={musicNegativePrompt} onNegativePromptChange={setMusicNegativePrompt}
+              onGenerate={handleGenerateMusic}
+              isGenerating={isSynthesizing}
+            />
+          ) : (
+            <ScriptPanel
+              voice={voice} onVoiceChange={setVoice}
+              language={language} onLanguageChange={setLanguage}
+              model={ttsModel} onModelChange={setTtsModel}
+              script={script} onScriptChange={setScript}
+              highlighted={highlighted} onHighlightChange={setHighlighted}
+              stability={stability} onStabilityChange={setStability}
+              similarity={similarity} onSimilarityChange={setSimilarity}
+              style={style} onStyleChange={setStyle}
+              onSynthesize={handleSynthesize}
+              isSynthesizing={isSynthesizing}
+            />
+          )}
         </div>
       </div>
 

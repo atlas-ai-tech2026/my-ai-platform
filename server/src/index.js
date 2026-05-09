@@ -894,6 +894,83 @@ app.post('/api/tts', verifyJwt, requireNotBanned, requireFalKey, async (req, res
   }
 });
 
+// ─── MUSIC GENERATION (Google Lyria 2 via FAL) ─────────────────────
+// Audio page Music Canvas. Single FAL endpoint:
+//
+//   - lyria-2  →  fal-ai/lyria2
+//                 schema: prompt · negative_prompt? · seed?
+//                 output: { audio: { url, content_type, file_size } }
+//
+// Outputs 48kHz WAV, 30s. Same charge/refund pattern as /api/tts.
+
+app.post('/api/generate-music', verifyJwt, requireNotBanned, requireFalKey, async (req, res) => {
+  const { prompt, negative_prompt, seed } = req.body || {};
+
+  if (!prompt || typeof prompt !== 'string' || !prompt.trim()) {
+    return res.status(400).json({ error: 'prompt required' });
+  }
+  if (prompt.length > 4000) {
+    return res.status(400).json({ error: 'prompt too long (max 4000 chars)' });
+  }
+
+  let chargedKind = null;
+  try {
+    const charge = await chargeCredits({ userId: req.user.id, kind: 'audio', ip: req.ip });
+    chargedKind = 'audio';
+    res.setHeader('X-Credits-Remaining', String(charge.newBalance));
+  } catch (e) {
+    if (e instanceof InsufficientCreditsError) {
+      return res.status(402).json({
+        error: 'Not enough credits, please contact admin',
+        current_balance: e.balance, required: e.required,
+      });
+    }
+    if (e.code === 'BANNED') return res.status(403).json({ error: 'Account is banned.' });
+    console.error('[charge:music] error:', e);
+    return res.status(500).json({ error: 'Credit charge failed.' });
+  }
+
+  const input = {
+    prompt: prompt.trim(),
+    ...(negative_prompt && typeof negative_prompt === 'string' && negative_prompt.trim()
+      ? { negative_prompt: negative_prompt.trim() }
+      : {}),
+    ...(Number.isInteger(seed) ? { seed } : {}),
+  };
+
+  console.log(`[MUSIC] Lyria 2 → fal-ai/lyria2`);
+  console.log(`[MUSIC] Prompt: ${input.prompt.slice(0, 100)}${input.prompt.length > 100 ? '…' : ''}`);
+  if (input.negative_prompt) console.log(`[MUSIC] Negative: ${input.negative_prompt}`);
+
+  try {
+    const result = await fal.subscribe('fal-ai/lyria2', { input, logs: false });
+    const audio = result?.data?.audio;
+    const audioUrl = audio?.url;
+    if (!audioUrl) {
+      throw new Error('No audio URL in FAL response');
+    }
+    console.log(`[MUSIC] ✅ ${audioUrl}`);
+
+    return res.json({
+      success: true,
+      audio_url: audioUrl,
+      content_type: audio.content_type,
+      file_size: audio.file_size,
+      model: 'lyria-2',
+      model_id: 'fal-ai/lyria2',
+    });
+  } catch (error) {
+    console.error('[MUSIC] Error:', error.message);
+    if (chargedKind) {
+      refundCredits({
+        userId: req.user.id, kind: chargedKind, ip: req.ip,
+        reason: `fal_music_threw: ${error.message}`.slice(0, 500),
+      }).catch(() => {});
+    }
+    return res.status(500).json({ error: 'Music generation failed: ' + error.message });
+  }
+});
+
 // ─── VOICE PREVIEW (no auth) ───────────────────────────────────────
 // Powers the ▶ button inside the Audio page Voice picker. Anyone (logged
 // in or not) can hit this — it returns a fixed short sample for any
