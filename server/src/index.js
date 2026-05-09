@@ -196,6 +196,7 @@ const MODEL_CONFIG = {
   "Face Swap":         { t2i: "fal-ai/face-swap",            i2i: "fal-ai/face-swap",              edit: "fal-ai/nano-banana-pro/edit",  imgParam: "image_url",           nativeSizing: false },
   "Relight":           { t2i: "fal-ai/ic-light",             i2i: "fal-ai/ic-light",               edit: "fal-ai/nano-banana-pro/edit",  imgParam: "image_url",           nativeSizing: false },
   "GPT Image 1.5":     { t2i: "fal-ai/gpt-image-1",         i2i: "fal-ai/gpt-image-1",            edit: "fal-ai/nano-banana-pro/edit",  imgParam: "image_url",           nativeSizing: false },
+  "GPT Image 2":       { t2i: "openai/gpt-image-2",         i2i: "openai/gpt-image-2/edit",       edit: "openai/gpt-image-2/edit",      imgParam: "image_url",           nativeSizing: false },
 };
 
 // ─── VIDEO MODEL CONFIG ────────────────────────────────────────────
