@@ -19,9 +19,19 @@ const GoogleG = ({ className = 'w-[18px] h-[18px]' }) => (
 );
 
 const KlingMark = ({ className = 'w-[18px] h-[18px]' }) => (
-  <svg viewBox="0 0 24 24" className={className} fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden>
-    <ellipse cx="9" cy="12" rx="3.6" ry="6" transform="rotate(-30 9 12)" />
-    <ellipse cx="15" cy="12" rx="3.6" ry="6" transform="rotate(30 15 12)" />
+  <svg viewBox="0 0 24 24" className={className} fill="currentColor" aria-hidden xmlns="http://www.w3.org/2000/svg">
+    <path
+      fillRule="evenodd"
+      clipRule="evenodd"
+      d="M 3 12 A 9 4.2 0 1 0 21 12 A 9 4.2 0 1 0 3 12 Z M 7 12 A 5 1.6 0 1 1 17 12 A 5 1.6 0 1 1 7 12 Z"
+      transform="rotate(-30 12 12)"
+    />
+    <path
+      fillRule="evenodd"
+      clipRule="evenodd"
+      d="M 3 12 A 9 4.2 0 1 0 21 12 A 9 4.2 0 1 0 3 12 Z M 7 12 A 5 1.6 0 1 1 17 12 A 5 1.6 0 1 1 7 12 Z"
+      transform="rotate(30 12 12)"
+    />
   </svg>
 );
 
