@@ -68,8 +68,8 @@ const cardMedia = {
     src: '/media/seedance-2-hero.mp4',
   },
   'Kling 3.0': {
-    type: 'image',
-    src: 'https://qtrypzzcjebvfcihiynt.supabase.co/storage/v1/object/public/base44-prod/public/69a83da7490a426a3f30f581/8e02001c4_ChatGPTImageMar8202603_02_54AM.png',
+    type: 'video',
+    src: '/media/kling-3-card.mp4',
   },
   'Seedream 4.5': {
     type: 'gradient',
