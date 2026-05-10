@@ -143,8 +143,8 @@ export default function VideoEditOmniLeftPanel({
 
   return (
     <div style={{
-      display: 'flex', flexDirection: 'column', gap: 10,
-      padding: '14px 14px 16px',
+      display: 'flex', flexDirection: 'column', gap: 8,
+      padding: '12px 14px 14px',
       height: '100%', minHeight: 0, overflowY: 'auto',
       fontFamily: '"DM Sans", sans-serif',
       position: 'relative',
@@ -164,8 +164,8 @@ export default function VideoEditOmniLeftPanel({
       {/* Hero card */}
       <div style={{
         position: 'relative',
-        height: 120,
-        padding: '14px 16px',
+        height: 84,
+        padding: '10px 14px',
         borderRadius: 12,
         background: 'linear-gradient(135deg, rgba(40,18,18,0.6), rgba(20,12,12,0.6))',
         border: '1px solid rgba(255,255,255,0.08)',
@@ -181,7 +181,7 @@ export default function VideoEditOmniLeftPanel({
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ fontFamily: 'Anton, sans-serif', fontSize: 22, color: '#FFF', letterSpacing: '0.04em', lineHeight: 1 }}>
+                <span style={{ fontFamily: 'Anton, sans-serif', fontSize: 17, color: '#FFF', letterSpacing: '0.04em', lineHeight: 1 }}>
                   {copy.title}
                 </span>
                 {copy.exclusive && (
@@ -193,7 +193,7 @@ export default function VideoEditOmniLeftPanel({
                   }}>EXCLUSIVE</span>
                 )}
               </div>
-              <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.65)', marginTop: 6 }}>
+              <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.65)', marginTop: 4, lineHeight: 1.3 }}>
                 {copy.subtitle}
               </div>
             </div>
@@ -232,9 +232,11 @@ export default function VideoEditOmniLeftPanel({
 
       {/* Upload Video block */}
       <div>
-        <div style={{ fontSize: 12, fontWeight: 700, color: '#FFF', marginBottom: 6 }}>Source video</div>
+        <div style={{ fontSize: 12, fontWeight: 700, color: '#FFF', marginBottom: 6 }}>
+          {autoSettings ? 'Reference video' : 'Source video'}
+        </div>
         <div className={videoFile ? '' : 'veo-dashed'} style={{
-          height: 110, borderRadius: 10,
+          height: 84, borderRadius: 10,
           background: 'rgba(255,255,255,0.02)',
           ...(videoFile ? { border: '1px solid rgba(255,255,255,0.08)' } : {}),
           position: 'relative', overflow: 'hidden',
@@ -291,9 +293,11 @@ export default function VideoEditOmniLeftPanel({
               alignItems: 'center', justifyContent: 'center', gap: 6,
               cursor: 'pointer', color: 'rgba(255,255,255,0.7)',
             }}>
-              <VideoIcon style={{ width: 28, height: 28, color: RED }} />
-              <div style={{ fontSize: 13, fontWeight: 700, color: '#FFF' }}>Upload a video to edit</div>
-              <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.5)' }}>Duration required: 3–10 secs</div>
+              <VideoIcon style={{ width: 22, height: 22, color: RED }} />
+              <div style={{ fontSize: 12, fontWeight: 700, color: '#FFF' }}>
+                {autoSettings ? 'Upload a reference video' : 'Upload a video to edit'}
+              </div>
+              <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.5)' }}>3–10 secs</div>
               <input
                 type="file"
                 accept={ACCEPT_VIDEO}
@@ -323,20 +327,20 @@ export default function VideoEditOmniLeftPanel({
           }}>Optional</span>
         </div>
         <div className="veo-dashed" style={{
-          minHeight: 90, borderRadius: 10,
+          minHeight: 70, borderRadius: 10,
           background: 'rgba(255,255,255,0.02)',
-          padding: 8,
+          padding: 6,
           transition: 'border-color 0.15s',
         }}>
           {(refImages || []).length === 0 ? (
             <label style={{
               display: 'flex', flexDirection: 'column',
-              alignItems: 'center', justifyContent: 'center', gap: 4,
-              height: 74, cursor: 'pointer', color: 'rgba(255,255,255,0.7)',
+              alignItems: 'center', justifyContent: 'center', gap: 2,
+              height: 58, cursor: 'pointer', color: 'rgba(255,255,255,0.7)',
             }}>
-              <Plus style={{ width: 22, height: 22, color: RED }} />
-              <div style={{ fontSize: 12, fontWeight: 700, color: '#FFF' }}>Upload images & elements</div>
-              <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.5)' }}>Up to 4 images or elements</div>
+              <Plus style={{ width: 18, height: 18, color: RED }} />
+              <div style={{ fontSize: 11, fontWeight: 700, color: '#FFF' }}>Upload images & elements</div>
+              <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.5)' }}>Up to 4</div>
               <input
                 type="file"
                 accept={ACCEPT_IMAGE}
@@ -403,7 +407,7 @@ export default function VideoEditOmniLeftPanel({
           padding: 10, borderRadius: 12,
           background: 'rgba(255,255,255,0.02)',
           border: '1px solid rgba(255,255,255,0.07)',
-          height: 90,
+          height: 68,
         }}>
           <textarea
             className="veo-textarea"
