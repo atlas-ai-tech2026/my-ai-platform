@@ -28,10 +28,11 @@ const KlingMark = ({ className = 'w-[18px] h-[18px]' }) => (
 );
 
 const SeedanceMark = ({ className = 'w-[18px] h-[18px]' }) => (
-  <svg viewBox="0 0 24 24" className={className} fill="currentColor" aria-hidden>
-    <rect x="3.5" y="14" width="3.2" height="6" rx="0.6" />
-    <rect x="10.4" y="9" width="3.2" height="11" rx="0.6" />
-    <rect x="17.3" y="4" width="3.2" height="16" rx="0.6" />
+  <svg viewBox="1.37 0 1198.25 1051.64" className={className} fill="currentColor" aria-hidden xmlns="http://www.w3.org/2000/svg">
+    <path d="m206.82 943.8-205.45 52.74v-941.44l205.45 53.14z" />
+    <path d="m532.79 972.14-205.44 53.13v-554.55l205.44 53.13z" />
+    <path d="m667.02 388.86 205.84-53.14v554.55l-205.84-53.13z" />
+    <path d="m1199.62 998.9-205.84 52.74v-1051.64l205.84 53.13z" />
   </svg>
 );
 

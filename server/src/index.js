@@ -682,10 +682,16 @@ app.post('/api/edit-video-omni', verifyJwt, requireNotBanned, requireFalKey, asy
   const falModel = EDIT_VIDEO_MODELS[model];
   const refs = Array.isArray(image_urls) ? image_urls.slice(0, 4) : [];
 
+  // Per FAL schema (Kling O1 + O3 video-to-video/reference):
+  //   - video_url   = the REFERENCE video that drives motion/camera
+  //   - image_urls  = flat list of style/reference images (referenced as
+  //                   @Image1, @Image2 in the prompt). Up to 4.
+  //   - elements    = named characters/objects with custom shape — not
+  //                   what we want for plain style references.
   const input = {
     prompt,
     video_url,
-    ...(refs.length ? { elements: refs.map(url => ({ image_url: url })) } : {}),
+    ...(refs.length ? { image_urls: refs } : {}),
     keep_audio: keep_audio !== false,
     ...(duration ? { duration: String(duration) } : {}),
     ...(aspect_ratio ? { aspect_ratio } : {}),
