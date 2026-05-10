@@ -25,7 +25,13 @@ export default function Audio() {
   const { isAuthenticated, openAuthModal, refresh: refreshAuth } = useAuth();
 
   // ─── Mode tabs (Voice / Music / SFX / Lipsync) ───
-  const [mode, setMode] = useState('voice');
+  // Initial mode honors ?mode=music|sfx|lipsync in the URL so deep links
+  // (e.g. the "AI Music" card on Explore) land on the right tab.
+  const [mode, setMode] = useState(() => {
+    if (typeof window === 'undefined') return 'voice';
+    const m = new URLSearchParams(window.location.search).get('mode');
+    return ['voice', 'music', 'sfx', 'lipsync'].includes(m) ? m : 'voice';
+  });
 
   // ─── Waveform + transport state ───
   const [previewSeed, setPreviewSeed] = useState(1);
