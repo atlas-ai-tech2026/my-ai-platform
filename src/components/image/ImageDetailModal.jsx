@@ -59,7 +59,7 @@ export default function ImageDetailModal({ image, images = [], onClose, onNaviga
 
   return (
     <div
-      style={{ position: 'fixed', inset: 0, zIndex: 500, background: 'rgba(0,0,0,0.92)', display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)' }}
+      style={{ position: 'fixed', inset: 0, zIndex: 500, background: 'rgba(0,0,0,0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(18px)', WebkitBackdropFilter: 'blur(18px)' }}
       onClick={onClose}
     >
       <style>{`
@@ -74,9 +74,9 @@ export default function ImageDetailModal({ image, images = [], onClose, onNaviga
         onClick={e => e.stopPropagation()}
         style={{
           display: 'flex', width: 'min(1400px, 98vw)', height: 'min(860px, 95vh)',
-          background: 'rgba(10,10,10,0.55)',
-          backdropFilter: 'blur(48px) saturate(1.8)',
-          WebkitBackdropFilter: 'blur(48px) saturate(1.8)',
+          background: 'rgba(255,255,255,0.03)',
+          backdropFilter: 'blur(36px) saturate(1.6)',
+          WebkitBackdropFilter: 'blur(36px) saturate(1.6)',
           borderRadius: 28, overflow: 'hidden',
           border: '1px solid rgba(255,255,255,0.1)',
           boxShadow: '0 0 100px rgba(224,30,30,0.1), 0 40px 100px rgba(0,0,0,0.7), inset 0 1px 0 rgba(255,255,255,0.07)',
