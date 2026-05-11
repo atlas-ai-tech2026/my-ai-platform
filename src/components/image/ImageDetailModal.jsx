@@ -111,7 +111,7 @@ export default function ImageDetailModal({ image, images = [], onClose, onNaviga
         </div>
 
         {/* ── RIGHT: Info Panel ── */}
-        <div style={{ width: 290, flexShrink: 0, background: 'rgba(8,8,8,0.6)', backdropFilter: 'blur(32px)', WebkitBackdropFilter: 'blur(32px)', borderLeft: '1px solid rgba(255,255,255,0.08)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        <div style={{ width: 290, flexShrink: 0, background: 'rgba(255,255,255,0.04)', backdropFilter: 'blur(32px) saturate(1.4)', WebkitBackdropFilter: 'blur(32px) saturate(1.4)', borderLeft: '1px solid rgba(255,255,255,0.08)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
           {/* Header */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 12px 0 12px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
