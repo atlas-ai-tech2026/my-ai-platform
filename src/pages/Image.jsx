@@ -17,7 +17,7 @@ const STYLE_SUFFIXES = {
 };
 import TemplateModal from '@/components/common/TemplateModal';
 import ImageDetailModal from '@/components/image/ImageDetailModal';
-import { History, Globe, Heart, Download, RefreshCw, Maximize2, Sparkles, Star, X } from 'lucide-react';
+import { History, Globe, Heart, Download, RefreshCw, Maximize2, Sparkles, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '@/lib/AuthContext';
 
@@ -118,25 +118,16 @@ function LoadingCard({ index = 0 }) {
         background: 'linear-gradient(135deg,rgba(224,30,30,0.2),rgba(139,15,15,0.4))',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
       }}>
-        {/* Halo: rotates clockwise */}
         <div style={{
-          width: 56, height: 56, borderRadius: '50%',
-          background: 'conic-gradient(from 0deg, rgba(255,42,42,0.9), rgba(255,42,42,0.1), rgba(255,42,42,0.9))',
-          filter: 'blur(10px)',
-          animation: 'imgSpin 1.2s linear infinite',
-          willChange: 'transform',
+          width: 40, height: 40, borderRadius: '50%',
+          background: 'radial-gradient(circle, #FF2A2A, transparent)',
+          filter: 'blur(8px)', opacity: 0.8,
         }} />
-        {/* 5-point Star: rotates counter-clockwise — no 90° symmetry, rotation is unmistakable */}
         <div style={{
-          position: 'absolute',
-          width: 28, height: 28,
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          animation: 'imgSpinReverse 1.6s linear infinite',
-          filter: 'drop-shadow(0 0 8px rgba(255,68,68,0.9))',
+          position: 'absolute', fontSize: 20, color: '#FFF',
+          animation: 'imgSpin 1.5s linear infinite',
           willChange: 'transform',
-        }}>
-          <Star style={{ width: 24, height: 24, color: '#FFF', fill: '#FFF' }} strokeWidth={1.5} />
-        </div>
+        }}>✦</div>
       </div>
       {/* Footer: RENDERING N% in JetBrains Mono red, 2px progress bar */}
       <div style={{ padding: '10px 12px' }}>
@@ -472,7 +463,6 @@ export default function Image() {
       <style>{`
         @keyframes imgShimmer { 0%{background-position:200% 0} 100%{background-position:-200% 0} }
         @keyframes imgSpin { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }
-        @keyframes imgSpinReverse { from{transform:rotate(0deg)} to{transform:rotate(-360deg)} }
         @keyframes imgFadeIn { from{opacity:0;transform:scale(0.96)} to{opacity:1;transform:scale(1)} }
         @keyframes glowPulse2 { 0%,100%{opacity:0.5} 50%{opacity:1} }
       `}</style>
