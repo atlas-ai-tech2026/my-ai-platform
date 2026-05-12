@@ -123,7 +123,11 @@ function LoadingCard({ index = 0 }) {
           background: 'radial-gradient(circle, #FF2A2A, transparent)',
           filter: 'blur(8px)', opacity: 0.8,
         }} />
-        <div style={{ position: 'absolute', fontSize: 20, color: '#FFF' }}>✦</div>
+        <div style={{
+          position: 'absolute', fontSize: 20, color: '#FFF',
+          animation: 'imgSpin 2.4s linear infinite',
+          filter: 'drop-shadow(0 0 6px rgba(255,68,68,0.6))',
+        }}>✦</div>
       </div>
       {/* Footer: RENDERING N% in JetBrains Mono red, 2px progress bar */}
       <div style={{ padding: '10px 12px' }}>
