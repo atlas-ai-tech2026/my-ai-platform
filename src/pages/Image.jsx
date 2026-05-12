@@ -124,10 +124,15 @@ function LoadingCard({ index = 0 }) {
           filter: 'blur(8px)', opacity: 0.8,
         }} />
         <div style={{
-          position: 'absolute', fontSize: 20, color: '#FFF',
-          animation: 'imgSpin 2.4s linear infinite',
-          filter: 'drop-shadow(0 0 6px rgba(255,68,68,0.6))',
-        }}>✦</div>
+          position: 'absolute',
+          width: 28, height: 28,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          animation: 'imgSpin 1.5s linear infinite',
+          filter: 'drop-shadow(0 0 6px rgba(255,68,68,0.7))',
+          willChange: 'transform',
+        }}>
+          <Sparkles style={{ width: 24, height: 24, color: '#FFF' }} strokeWidth={2.2} />
+        </div>
       </div>
       {/* Footer: RENDERING N% in JetBrains Mono red, 2px progress bar */}
       <div style={{ padding: '10px 12px' }}>
