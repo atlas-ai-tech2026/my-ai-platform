@@ -168,7 +168,7 @@ export default function SeedanceLeftPanel({
         <div style={{ flex: 1, textAlign: 'left' }}>
           <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.4)', fontFamily: S.font }}>Model</div>
           <div style={{ fontSize: 13, color: '#fff', fontWeight: 600, fontFamily: S.font, display: 'flex', alignItems: 'center', gap: 5 }}>
-            Seedance 2.0 <BarChart3 style={{ width: 12, height: 12, color: '#0D9488' }} />
+            {model?.name || 'Seedance 2.0'} <BarChart3 style={{ width: 12, height: 12, color: '#0D9488' }} />
           </div>
         </div>
         <ChevronDown style={{ width: 14, height: 14, color: 'rgba(255,255,255,0.3)' }} />
