@@ -73,7 +73,7 @@ export default function Video() {
   const [motionModel, setMotionModel] = useState('Kling 3.0 Motion Control');
 
   // ─── Seedance 2.0 specific state ───
-  const isSeedance2 = model.id === 'seedance-2';
+  const isSeedance2 = model.id === 'seedance-2' || model.id === 'seedance-2-fast';
   const [seedanceMedia, setSeedanceMedia] = useState({ images: [], videos: [], audios: [] });
   const [seedanceElements, setSeedanceElements] = useState([]);
   const [seedanceAudioOn, setSeedanceAudioOn] = useState(true);
@@ -567,6 +567,7 @@ export default function Video() {
       console.log('[SEEDANCE] Mode:', mode, '| Refs:', referenceUrls.length, '| Start:', !!startFrameUrl, '| End:', !!endFrameUrl);
 
       const body = {
+        model: model.name, // 'Seedance 2.0' or 'Seedance 2.0 Fast' — backend routes accordingly
         prompt,
         mode,
         duration: seedanceDuration === 'auto' ? 'auto' : String(parseInt(seedanceDuration) || 5),
@@ -606,12 +607,12 @@ export default function Video() {
       }
 
       const saved = await History_.create({
-        type: 'video', model: 'Seedance 2.0', prompt,
+        type: 'video', model: model.name, prompt,
         job_id: data.job_id, model_id: data.model_id,
         status: 'pending', duration: seedanceDuration, ratio: seedanceAspect,
       });
 
-      setVideos(prev => [{ id: saved.id, prompt, model: 'Seedance 2.0', duration: seedanceDuration, aspectRatio: seedanceAspect, status: 'pending', job_id: data.job_id, model_id: data.model_id, created_date: saved.created_date }, ...prev]);
+      setVideos(prev => [{ id: saved.id, prompt, model: model.name, duration: seedanceDuration, aspectRatio: seedanceAspect, status: 'pending', job_id: data.job_id, model_id: data.model_id, created_date: saved.created_date }, ...prev]);
       pollVideo(saved.id, data.job_id, data.model_id);
       toast.success('Seedance generating — you can keep working!');
       refreshAuth();

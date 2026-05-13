@@ -257,6 +257,7 @@ const VIDEO_DIRECT_MAP = {
   // Seedance
   "Seedance 1.5 Pro":      { t2v: "fal-ai/bytedance/seedance-1-5-pro-t2v",           i2v: "fal-ai/kling-video/v3/pro/image-to-video",         imageParam: "start_image_url", endParam: "end_image_url" },
   "Seedance 2.0":          { t2v: "bytedance/seedance-2.0/text-to-video",            i2v: "bytedance/seedance-2.0/image-to-video",            ref: "bytedance/seedance-2.0/reference-to-video", imageParam: "start_frame", endParam: "end_frame" },
+  "Seedance 2.0 Fast":     { t2v: "bytedance/seedance-2.0/fast/text-to-video",       i2v: "bytedance/seedance-2.0/fast/image-to-video",       ref: "bytedance/seedance-2.0/fast/reference-to-video", imageParam: "image_url", endParam: "end_image_url" },
   "Seedance 1":            { t2v: "fal-ai/bytedance/seedance-1-lite-t2v",            i2v: "fal-ai/kling-video/v3/pro/image-to-video",         imageParam: "start_image_url", endParam: "end_image_url" },
   // Others
   "LTX 2":                 { t2v: "fal-ai/ltx-video-13b-distilled",                  i2v: "fal-ai/kling-video/v3/pro/image-to-video",         imageParam: "start_image_url", endParam: "end_image_url" },
@@ -1045,11 +1046,20 @@ app.post('/api/tts/preview', requireFalKey, async (req, res) => {
 // Routes to the correct Seedance 2.0 endpoint based on image roles:
 //   - No images → text-to-video
 //   - Images as reference → reference-to-video (image_urls[])
-//   - Image as start/end frame → image-to-video (start_frame, end_frame)
+//   - Image as start/end frame → image-to-video
+// Supports both:
+//   - "Seedance 2.0"      → bytedance/seedance-2.0/*       (start_frame/end_frame)
+//   - "Seedance 2.0 Fast" → bytedance/seedance-2.0/fast/*  (image_url/end_image_url)
 app.post('/api/generate-video-ref', verifyJwt, requireNotBanned, requireFalKey, async (req, res) => {
-  const { prompt, mode, image_urls, video_urls, audio_urls, start_frame, end_frame, duration, aspect_ratio, resolution, generate_audio } = req.body;
+  const { model, prompt, mode, image_urls, video_urls, audio_urls, start_frame, end_frame, duration, aspect_ratio, resolution, generate_audio } = req.body;
 
   if (!prompt) return res.status(400).json({ error: 'prompt required' });
+
+  const isFast = model === 'Seedance 2.0 Fast';
+  const endpointBase = isFast ? 'bytedance/seedance-2.0/fast' : 'bytedance/seedance-2.0';
+  const frameField    = isFast ? 'image_url'     : 'start_frame';
+  const endFrameField = isFast ? 'end_image_url' : 'end_frame';
+  const modelLabel = isFast ? 'Seedance 2.0 Fast' : 'Seedance 2.0';
 
   let chargedKind = null;
   try {
@@ -1086,23 +1096,24 @@ app.post('/api/generate-video-ref', verifyJwt, requireNotBanned, requireFalKey, 
 
   if (mode === 'frame' || hasStartFrame || hasEndFrame) {
     // Image-to-video mode (start frame / end frame)
-    falModel = 'bytedance/seedance-2.0/image-to-video';
-    if (hasStartFrame) input.start_frame = start_frame;
-    if (hasEndFrame) input.end_frame = end_frame;
+    falModel = `${endpointBase}/image-to-video`;
+    if (hasStartFrame) input[frameField]    = start_frame;
+    if (hasEndFrame)   input[endFrameField] = end_frame;
     console.log(`[SEEDANCE] Mode: image-to-video (start: ${hasStartFrame}, end: ${hasEndFrame})`);
   } else if (mode === 'reference' || hasRefImages || hasRefVideos || hasRefAudios) {
-    // Reference-to-video mode
-    falModel = 'bytedance/seedance-2.0/reference-to-video';
+    // Reference-to-video mode (both variants accept image_urls/video_urls/audio_urls)
+    falModel = `${endpointBase}/reference-to-video`;
     if (hasRefImages) input.image_urls = image_urls;
     if (hasRefVideos) input.video_urls = video_urls;
     if (hasRefAudios) input.audio_urls = audio_urls;
     console.log(`[SEEDANCE] Mode: reference-to-video (images: ${(image_urls||[]).length}, videos: ${(video_urls||[]).length}, audio: ${(audio_urls||[]).length})`);
   } else {
     // Text-to-video mode (no images)
-    falModel = 'bytedance/seedance-2.0/text-to-video';
+    falModel = `${endpointBase}/text-to-video`;
     console.log(`[SEEDANCE] Mode: text-to-video (no images)`);
   }
 
+  console.log(`[SEEDANCE] Variant: ${modelLabel}`);
   console.log('[SEEDANCE] FAL Model:', falModel);
   console.log('[SEEDANCE] Payload:', JSON.stringify(input, null, 2));
 
@@ -1114,7 +1125,7 @@ app.post('/api/generate-video-ref', verifyJwt, requireNotBanned, requireFalKey, 
       success: true,
       job_id: submitted.request_id,
       model_id: falModel,
-      model: 'Seedance 2.0',
+      model: modelLabel,
     });
   } catch (error) {
     console.error('[SEEDANCE] Error:', error.message);
