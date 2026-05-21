@@ -1248,10 +1248,30 @@ app.post('/api/upload', (req, res, next) => {
     return res.json({ url });
   } catch (e2) {
     attempts.push(`Blob: ${e2.message}`);
-    console.error('[UPLOAD] ❌ Both attempts failed:', attempts.join(' | '));
-    return res.status(500).json({
-      error: `Upload failed (${info}): ${attempts.join(' | ')}`,
-    });
+    console.error('[UPLOAD] ⚠️ FAL storage rejected, falling back to data URI:', attempts.join(' | '));
+
+    // ── Data-URI fallback ──────────────────────────────────────────
+    // FAL storage upload can return 403/Forbidden even when the same
+    // FAL_KEY works for fal.subscribe / fal.queue.submit (it's a
+    // separate scope on their side). Per FAL docs, all inference
+    // endpoints accept data: URIs in place of file URLs:
+    //   "You can pass a Base64 data URI as a file input. The API will
+    //    handle the file decoding for you."
+    // For images this works perfectly. Video data URIs work too but
+    // can be slow over 30 MB — we still try them since the alternative
+    // is the upload just failing.
+    try {
+      const base64 = req.file.buffer.toString('base64');
+      const dataUri = `data:${req.file.mimetype};base64,${base64}`;
+      console.log(`[UPLOAD] ✅ Data URI fallback (${(base64.length / 1024 / 1024).toFixed(2)} MB base64)`);
+      return res.json({ url: dataUri, fallback: 'data-uri' });
+    } catch (e3) {
+      attempts.push(`DataURI: ${e3.message}`);
+      console.error('[UPLOAD] ❌ All attempts failed:', attempts.join(' | '));
+      return res.status(500).json({
+        error: `Upload failed (${info}): ${attempts.join(' | ')}`,
+      });
+    }
   }
 });
 
