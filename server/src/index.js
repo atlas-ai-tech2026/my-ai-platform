@@ -1198,30 +1198,60 @@ app.post('/api/video-status', async (req, res) => {
 });
 
 // ─── FILE UPLOAD (to FAL storage) ──────────────────────────────────
-app.post('/api/upload', upload.single('file'), async (req, res) => {
+// Wrap multer manually so file-too-large + other multer errors return
+// proper JSON (default behaviour is HTML, which makes the frontend show
+// "Upload returned no URL" with no useful diagnostic).
+app.post('/api/upload', (req, res, next) => {
+  upload.single('file')(req, res, (err) => {
+    if (!err) return next();
+    if (err.code === 'LIMIT_FILE_SIZE') {
+      return res.status(413).json({ error: 'File too large. Max 100 MB.' });
+    }
+    console.error('[UPLOAD] ❌ Multer error:', err.code || err.message);
+    return res.status(400).json({ error: `Upload rejected: ${err.message || err.code}` });
+  });
+}, async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No file provided' });
+
+  // Validate FAL has a key configured — without this, fal.storage.upload
+  // will fail with a cryptic auth error that's hard to interpret.
+  if (!FAL_KEY) {
+    console.error('[UPLOAD] ❌ FAL_KEY missing on server');
+    return res.status(500).json({ error: 'Upload service not configured (FAL_KEY missing on server)' });
+  }
+
+  const info = `${req.file.originalname} · ${(req.file.size / (1024 * 1024)).toFixed(2)} MB · ${req.file.mimetype}`;
+  console.log('[UPLOAD] ⏳', info);
+
+  // Try File API first (Node 18+), fall back to Blob if it explodes.
+  let attempts = [];
   try {
-    // Use Node.js compatible File/Blob for FAL upload
     const file = new File([req.file.buffer], req.file.originalname, { type: req.file.mimetype });
-    console.log('[UPLOAD] Uploading to FAL:', req.file.originalname, req.file.size, 'bytes');
-    if (req.file.mimetype?.startsWith('video/')) {
-      console.log(`[UPLOAD VIDEO] uploaded ${(req.file.size / (1024 * 1024)).toFixed(1)} MB`);
-    }
     const url = await fal.storage.upload(file);
-    console.log('[UPLOAD] ✅ FAL URL:', url);
-    res.json({ url });
-  } catch (error) {
-    console.error('[UPLOAD] ❌ Error:', error.message, error.stack?.split('\n')[1]);
-    // Fallback: try with Blob if File fails
-    try {
-      const blob = new Blob([req.file.buffer], { type: req.file.mimetype });
-      const url = await fal.storage.upload(blob);
-      console.log('[UPLOAD] ✅ FAL URL (blob fallback):', url);
-      res.json({ url });
-    } catch (e2) {
-      console.error('[UPLOAD] ❌ Blob fallback also failed:', e2.message);
-      res.status(500).json({ error: 'Upload failed: ' + error.message });
+    if (!url || typeof url !== 'string') {
+      throw new Error(`FAL returned non-string URL: ${JSON.stringify(url)}`);
     }
+    console.log('[UPLOAD] ✅ FAL URL (File):', url);
+    return res.json({ url });
+  } catch (error) {
+    attempts.push(`File: ${error.message}`);
+    console.error('[UPLOAD] ⚠️ File path failed:', error.message);
+  }
+
+  try {
+    const blob = new Blob([req.file.buffer], { type: req.file.mimetype });
+    const url = await fal.storage.upload(blob);
+    if (!url || typeof url !== 'string') {
+      throw new Error(`FAL returned non-string URL: ${JSON.stringify(url)}`);
+    }
+    console.log('[UPLOAD] ✅ FAL URL (Blob):', url);
+    return res.json({ url });
+  } catch (e2) {
+    attempts.push(`Blob: ${e2.message}`);
+    console.error('[UPLOAD] ❌ Both attempts failed:', attempts.join(' | '));
+    return res.status(500).json({
+      error: `Upload failed (${info}): ${attempts.join(' | ')}`,
+    });
   }
 });
 
