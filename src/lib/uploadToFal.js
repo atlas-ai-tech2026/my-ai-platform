@@ -1,9 +1,38 @@
 async function uploadViaServer(file) {
+  // Pre-check: warn locally before the request even goes out
+  const MAX_BYTES = 100 * 1024 * 1024; // backend multer limit
+  if (file?.size > MAX_BYTES) {
+    throw new Error(`File too large (${(file.size / 1024 / 1024).toFixed(1)} MB). Max 100 MB.`);
+  }
+
   const formData = new FormData();
   formData.append('file', file);
-  const res = await fetch('/api/upload', { method: 'POST', body: formData });
-  const data = await res.json();
-  if (!data.url) throw new Error('Upload returned no URL');
+
+  let res, data;
+  try {
+    res = await fetch('/api/upload', { method: 'POST', body: formData });
+  } catch (netErr) {
+    throw new Error(`Network error: ${netErr.message}`);
+  }
+
+  // Handle non-JSON responses (e.g. multer file-too-large = HTML 413)
+  const contentType = res.headers.get('content-type') || '';
+  if (!contentType.includes('application/json')) {
+    const text = await res.text().catch(() => '');
+    throw new Error(
+      res.status === 413
+        ? 'File too large (server rejected). Max 100 MB.'
+        : `Upload failed (HTTP ${res.status}): ${text.slice(0, 160) || 'server error'}`
+    );
+  }
+
+  data = await res.json().catch(() => ({}));
+
+  if (!res.ok || !data.url) {
+    // Surface the actual server error message instead of a generic line
+    const reason = data.error || data.message || `HTTP ${res.status}`;
+    throw new Error(reason);
+  }
   return data.url;
 }
 
