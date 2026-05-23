@@ -564,7 +564,11 @@ export default function Video() {
       const hasRefs = referenceUrls.length > 0 || videoUrls.length > 0 || audioUrls.length > 0;
       const mode = hasFrames ? 'frame' : hasRefs ? 'reference' : 'text';
 
-      console.log('[SEEDANCE] Mode:', mode, '| Refs:', referenceUrls.length, '| Start:', !!startFrameUrl, '| End:', !!endFrameUrl);
+      console.log('[SEEDANCE] Model:', model.name, '| Mode:', mode, '| Resolution:', seedanceRes, '| Refs:', referenceUrls.length, '| Start:', !!startFrameUrl, '| End:', !!endFrameUrl);
+      // Per-image role breakdown for debugging
+      readyImages.forEach((img, i) => {
+        console.log(`[SEEDANCE]   Image ${i+1}: role=${seedanceImageRoles[img.id] || '(none → reference)'}`);
+      });
 
       const body = {
         model: model.name, // 'Seedance 2.0' or 'Seedance 2.0 Fast' — backend routes accordingly

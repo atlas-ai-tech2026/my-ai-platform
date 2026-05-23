@@ -1,11 +1,13 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Image as ImageIcon, Film, Music, AtSign, Volume2, VolumeX, ChevronDown, Sparkles, BarChart3 } from 'lucide-react';
 import SeedanceMediaGrid from './SeedanceMediaGrid';
 
 const S = { font: '"DM Sans", sans-serif' };
 const DURATIONS = ['auto', '4', '5', '6', '7', '8', '9', '10', '11', '12', '13', '14', '15'];
 const ASPECTS = ['auto', '21:9', '16:9', '4:3', '1:1', '3:4', '9:16'];
-const RESOLUTIONS = ['480p', '720p'];
+// Regular Seedance 2.0 supports 480/720/1080p; Fast only 480/720p per FAL docs.
+const RESOLUTIONS_REGULAR = ['480p', '720p', '1080p'];
+const RESOLUTIONS_FAST = ['480p', '720p'];
 
 export default function SeedanceLeftPanel({
   prompt, onPromptChange, onGenerate, isGenerating,
@@ -23,6 +25,18 @@ export default function SeedanceLeftPanel({
   const [showAspectDrop, setShowAspectDrop] = useState(false);
   const [showResDrop, setShowResDrop] = useState(false);
   const [showAtMenu, setShowAtMenu] = useState(false);
+
+  // Resolution options depend on the model variant
+  const isFastVariant = model?.id === 'seedance-2-fast';
+  const RESOLUTIONS = isFastVariant ? RESOLUTIONS_FAST : RESOLUTIONS_REGULAR;
+
+  // If user switches to Fast while on 1080p, bump down to 720p
+  // (Fast doesn't support 1080p per FAL schema)
+  useEffect(() => {
+    if (isFastVariant && resolution === '1080p') {
+      onResolutionChange?.('720p');
+    }
+  }, [isFastVariant, resolution, onResolutionChange]);
 
   const allMedia = [...(media?.images || []), ...(media?.videos || []), ...(media?.audios || [])];
 
