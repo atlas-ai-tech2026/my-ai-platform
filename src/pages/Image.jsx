@@ -408,7 +408,29 @@ export default function Image() {
         setImages((prev) => [...newImages, ...prev]);
         toast.success(`${newImages.length} image${newImages.length > 1 ? 's' : ''} generated!`);
       } else {
-        toast.error('Generation failed — please try again');
+        // All N generations failed. Promise.allSettled doesn't bubble the
+        // throw, so the parent catch block below never sees these errors.
+        // Pull the actual reason out of the rejected promises and the
+        // 401/402 status codes so the user sees what FAL actually said
+        // (content moderation, quota, etc.) instead of a generic message.
+        const rejected = results.find(r => r.status === 'rejected');
+        const reason = rejected?.reason;
+        const status = reason?.response?.status;
+        const backendMsg = reason?.response?.data?.error;
+        if (status === 401) {
+          toast.error('Your session expired — please sign in again.');
+          openAuthModal('login');
+        } else if (status === 402) {
+          toast.error(backendMsg || 'Not enough credits — ask the admin to add more.');
+        } else if (backendMsg) {
+          // FAL's real reason: content moderation, model timeout, etc.
+          toast.error(backendMsg);
+        } else if (reason?.message) {
+          toast.error(reason.message);
+        } else {
+          toast.error('Generation failed — please try again');
+        }
+        console.error('[Generate] All attempts failed. First rejection:', reason);
       }
       // Pull the post-charge balance into the navbar pill. Fire-and-forget;
       // the next /api/auth/me round-trip will reflect the deduction. Also
