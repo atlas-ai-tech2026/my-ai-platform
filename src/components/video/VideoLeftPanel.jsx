@@ -27,7 +27,40 @@ const CAMERA_MOTIONS = [
   { id: 'static',    icon: '⊙',   label: 'Static'    },
 ];
 
-const DURATION_OPTIONS = ['5s', '10s', '15s'];
+// Per-model duration options derived from FAL's verified schemas
+// (2026-05). Sent to FAL as a string enum (without the 's' suffix —
+// the frontend strips it via parseInt before posting).
+const DEFAULT_DURATIONS = ['5s', '10s'];
+const DURATION_OPTIONS_BY_MODEL = {
+  // Kling 3.0 family: 3-15 seconds (every integer)
+  'kling-3-omni':    ['3s', '4s', '5s', '6s', '7s', '8s', '9s', '10s', '11s', '12s', '13s', '14s', '15s'],
+  'kling-3':         ['3s', '4s', '5s', '6s', '7s', '8s', '9s', '10s', '11s', '12s', '13s', '14s', '15s'],
+  // Kling 2.x: 5 or 10 seconds only
+  'kling-2-6':       ['5s', '10s'],
+  'kling-2-5':       ['5s', '10s'],
+  'kling-2-1':       ['5s', '10s'],
+  'kling-o1':        ['5s', '10s'],
+  // Wan family: 5-15s
+  'wan-2-6':         ['5s', '6s', '7s', '8s', '9s', '10s', '11s', '12s', '13s', '14s', '15s'],
+  'wan-2-2':         ['5s', '10s'],
+  // Veo: short clips
+  'veo-3-1':         ['4s', '5s', '6s', '7s', '8s'],
+  // Sora 2: 4-12s
+  'sora-2':          ['4s', '5s', '6s', '7s', '8s', '9s', '10s', '11s', '12s'],
+  // LTX 2: 6-10s
+  'ltx-2':           ['6s', '7s', '8s', '9s', '10s'],
+  // Hailuo: 6-10s
+  'hailuo-2-3':      ['6s', '7s', '8s', '9s', '10s'],
+  // Vidu: 4-8s
+  'vidu-q3':         ['4s', '5s', '6s', '7s', '8s'],
+  'vidu-q2':         ['5s', '6s', '7s', '8s'],
+  // PixVerse: 5-10s
+  'pixverse-5':      ['5s', '6s', '7s', '8s', '9s', '10s'],
+  // Grok
+  'grok-imagine':    ['5s', '10s', '15s'],
+};
+const getDurationOptions = (modelId) =>
+  DURATION_OPTIONS_BY_MODEL[modelId] || DEFAULT_DURATIONS;
 const RESOLUTION_OPTIONS = ['480p', '720p', '1080p', '4K'];
 const ASPECT_RATIO_OPTIONS = ['Auto', '16:9', '9:16', '1:1', '4:3', '21:9'];
 
@@ -426,7 +459,7 @@ export default function VideoLeftPanel({
           icon="⏱"
           label="Duration"
           value={duration || '5s'}
-          options={DURATION_OPTIONS}
+          options={getDurationOptions(model?.id)}
           open={showDurationDrop}
           onToggle={() => { setShowDurationDrop(v => !v); setShowResDrop(false); setShowRatioDrop(false); }}
           onSelect={v => { onDurationChange?.(v); setShowDurationDrop(false); }}
