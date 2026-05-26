@@ -562,6 +562,21 @@ export default function Video() {
       // Determine mode
       const hasFrames = !!startFrameUrl || !!endFrameUrl;
       const hasRefs = referenceUrls.length > 0 || videoUrls.length > 0 || audioUrls.length > 0;
+
+      // Seedance's image-to-video and reference-to-video are SEPARATE FAL
+      // endpoints — you can't combine a start frame with reference images
+      // in a single call. If the user assigned both, refuse upfront with a
+      // clear toast so they know what to fix (instead of FAL silently
+      // failing and us refunding the credits).
+      if (hasFrames && hasRefs) {
+        setIsGenerating(false);
+        toast.error(
+          'Seedance can use either a Start/End Frame OR Reference images — not both. ' +
+          'Please remove one role from your images and try again.'
+        );
+        return;
+      }
+
       const mode = hasFrames ? 'frame' : hasRefs ? 'reference' : 'text';
 
       console.log('[SEEDANCE] Model:', model.name, '| Mode:', mode, '| Resolution:', seedanceRes, '| Refs:', referenceUrls.length, '| Start:', !!startFrameUrl, '| End:', !!endFrameUrl);
