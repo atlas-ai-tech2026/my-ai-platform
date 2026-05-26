@@ -256,7 +256,7 @@ const VIDEO_DIRECT_MAP = {
   "Wan 2.1":               { t2v: "fal-ai/wan-t2v",                                  i2v: "fal-ai/wan-i2v",                                   imageParam: "image_url",       endParam: null },
   // Seedance
   "Seedance 1.5 Pro":      { t2v: "fal-ai/bytedance/seedance-1-5-pro-t2v",           i2v: "fal-ai/kling-video/v3/pro/image-to-video",         imageParam: "start_image_url", endParam: "end_image_url" },
-  "Seedance 2.0":          { t2v: "bytedance/seedance-2.0/text-to-video",            i2v: "bytedance/seedance-2.0/image-to-video",            ref: "bytedance/seedance-2.0/reference-to-video", imageParam: "start_frame", endParam: "end_frame" },
+  "Seedance 2.0":          { t2v: "bytedance/seedance-2.0/text-to-video",            i2v: "bytedance/seedance-2.0/image-to-video",            ref: "bytedance/seedance-2.0/reference-to-video", imageParam: "image_url", endParam: "end_image_url" },
   "Seedance 2.0 Fast":     { t2v: "bytedance/seedance-2.0/fast/text-to-video",       i2v: "bytedance/seedance-2.0/fast/image-to-video",       ref: "bytedance/seedance-2.0/fast/reference-to-video", imageParam: "image_url", endParam: "end_image_url" },
   "Seedance 1":            { t2v: "fal-ai/bytedance/seedance-1-lite-t2v",            i2v: "fal-ai/kling-video/v3/pro/image-to-video",         imageParam: "start_image_url", endParam: "end_image_url" },
   // Others
@@ -1057,8 +1057,13 @@ app.post('/api/generate-video-ref', verifyJwt, requireNotBanned, requireFalKey, 
 
   const isFast = model === 'Seedance 2.0 Fast';
   const endpointBase = isFast ? 'bytedance/seedance-2.0/fast' : 'bytedance/seedance-2.0';
-  const frameField    = isFast ? 'image_url'     : 'start_frame';
-  const endFrameField = isFast ? 'end_image_url' : 'end_frame';
+  // BOTH regular Seedance 2.0 and Fast use image_url / end_image_url
+  // for their image-to-video endpoints (verified against FAL schema docs
+  // 2026-05). Older code mistakenly sent start_frame/end_frame for the
+  // regular variant — FAL silently ignored them and the call failed
+  // because the required image_url was missing.
+  const frameField    = 'image_url';
+  const endFrameField = 'end_image_url';
   const modelLabel = isFast ? 'Seedance 2.0 Fast' : 'Seedance 2.0';
 
   let chargedKind = null;
