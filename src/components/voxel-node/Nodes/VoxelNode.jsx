@@ -56,7 +56,19 @@ export default function VoxelNode({ id, data, selected }) {
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
         <Icon style={{ width: 15, height: 15, color: '#fff' }} />
         <span style={{ fontSize: 13, fontWeight: 600, color: '#fff', flex: 1 }}>{def.label}</span>
-        {def.model && <span style={{ fontSize: 10, color: '#878787' }}>{def.model}</span>}
+        {Array.isArray(def.models) && (
+          <select
+            value={data.settings?.model || def.models[0]}
+            onChange={(e) => updateNodeData(id, { settings: { ...data.settings, model: e.target.value } })}
+            className="nodrag"
+            style={{
+              background: '#1A1A1A', color: '#CCCCCC', border: '1px solid rgba(255,255,255,0.10)',
+              borderRadius: 6, fontSize: 10, padding: '2px 4px', outline: 'none', maxWidth: 110,
+            }}
+          >
+            {def.models.map((m) => <option key={m} value={m}>{m}</option>)}
+          </select>
+        )}
         <span style={{ fontSize: 10, fontWeight: 600, color: status.fg, background: status.bg, padding: '2px 7px', borderRadius: 5 }}>
           {status.label}
         </span>

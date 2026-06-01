@@ -1510,12 +1510,23 @@ app.delete('/api/entities/:name/:id', verifyJwt, async (req, res) => {
 // spaces. Node outputs are persisted inline in the graph JSON for the
 // P0-P2 slice; the async run engine + run history table arrive in P3.
 
-// Registry of node types that can actually call a provider, mirrored on
-// the client (src/components/voxel-node/nodeRegistry.js). Keeping the
-// FAL model id server-side means the browser can't point a node at an
-// arbitrary/expensive model.
-const NODE_RUN_MODELS = {
-  'image-generator': 'fal-ai/flux/dev',
+// Allow-listed image models for the Image Generator node. The browser
+// sends a friendly label (settings.model); the server resolves it to the
+// FAL endpoint so a client can't point a node at an arbitrary/expensive
+// model. Mirrored on the client (nodeRegistry.js IMAGE_MODELS).
+const NODE_IMAGE_MODELS = {
+  'Flux Dev':       'fal-ai/flux/dev',
+  'Flux Schnell':   'fal-ai/flux/schnell',
+  'Flux Pro Ultra': 'fal-ai/flux-pro/v1.1-ultra',
+  'Seedream 4':     'fal-ai/bytedance/seedream/v4/text-to-image',
+  'Ideogram v3':    'fal-ai/ideogram/v3',
+  'Recraft v3':     'fal-ai/recraft/v3/text-to-image',
+  'Nano Banana':    'fal-ai/nano-banana',
+};
+// Node type → resolver. Each returns the FAL model id for a given settings.
+const NODE_RUN_RESOLVERS = {
+  'image-generator': (settings) =>
+    NODE_IMAGE_MODELS[settings?.model] || NODE_IMAGE_MODELS['Flux Dev'],
 };
 
 // Ownership guard: returns the row if the caller owns the space, else
@@ -1609,8 +1620,9 @@ app.post('/api/node/run-node', verifyJwt, requireNotBanned, requireFalKey, async
   if (!dbReady()) return res.status(503).json({ error: 'Database not configured.' });
 
   const { type, settings } = req.body || {};
-  const falModel = NODE_RUN_MODELS[type];
-  if (!falModel) return res.status(400).json({ error: `Unsupported node type: ${type || '(missing)'}` });
+  const resolver = NODE_RUN_RESOLVERS[type];
+  if (!resolver) return res.status(400).json({ error: `Unsupported node type: ${type || '(missing)'}` });
+  const falModel = resolver(settings);
 
   const prompt = settings?.prompt;
   if (!prompt || typeof prompt !== 'string' || !prompt.trim()) {
