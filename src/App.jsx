@@ -8,6 +8,8 @@ import { AuthProvider, useAuth } from '@/lib/AuthContext';
 import LoginModal from '@/components/auth/LoginModal';
 import AdminPanel from '@/pages/AdminPanel';
 import AdminGuard from '@/components/admin/AdminGuard';
+import NodeLanding from '@/pages/NodeLanding';
+import NodeCanvas from '@/pages/NodeCanvas';
 
 // Obscure URL for the admin panel — security through obscurity is NOT a real
 // defense, but it does keep automated scanners from probing /admin. Real
@@ -58,6 +60,11 @@ const AuthenticatedApp = () => {
           <AdminPanel />
         </AdminGuard>
       } />
+      {/* Voxel Node — full-screen canvas, no shared Layout chrome.
+          Manual routes here because the auto pages.config mapping
+          doesn't support the /:spaceId dynamic segment. */}
+      <Route path="/node" element={<NodeLanding />} />
+      <Route path="/node/:spaceId" element={<NodeCanvas />} />
       {Object.entries(Pages).map(([path, Page]) => (
         <Route
           key={path}

@@ -1504,6 +1504,159 @@ app.delete('/api/entities/:name/:id', verifyJwt, async (req, res) => {
   }
 });
 
+// ─── VOXEL NODE — canvas spaces + single-node run ──────────────────
+// A "Node Space" is one infinite canvas graph (React Flow nodes+edges).
+// All routes are owner-scoped: a user only ever sees/edits their own
+// spaces. Node outputs are persisted inline in the graph JSON for the
+// P0-P2 slice; the async run engine + run history table arrive in P3.
+
+// Registry of node types that can actually call a provider, mirrored on
+// the client (src/components/voxel-node/nodeRegistry.js). Keeping the
+// FAL model id server-side means the browser can't point a node at an
+// arbitrary/expensive model.
+const NODE_RUN_MODELS = {
+  'image-generator': 'fal-ai/flux/dev',
+};
+
+// Ownership guard: returns the row if the caller owns the space, else
+// writes the right status and returns null.
+async function loadOwnedSpace(req, res) {
+  const { rows } = await pool.query(
+    `SELECT id, owner_id, name, graph FROM node_spaces WHERE id = $1`,
+    [req.params.id]
+  );
+  if (rows.length === 0) { res.status(404).json({ error: 'Space not found' }); return null; }
+  if (rows[0].owner_id !== req.user.id) { res.status(403).json({ error: 'Forbidden' }); return null; }
+  return rows[0];
+}
+
+// List the caller's spaces (newest first).
+app.get('/api/node/spaces', verifyJwt, requireNotBanned, async (req, res) => {
+  if (!dbReady()) return res.status(503).json({ error: 'Database not configured.' });
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, name, created_at, updated_at FROM node_spaces WHERE owner_id = $1 ORDER BY updated_at DESC LIMIT 100`,
+      [req.user.id]
+    );
+    res.json(rows);
+  } catch (e) {
+    console.error('[node:spaces:list] error:', e.message);
+    res.status(500).json({ error: 'List failed.' });
+  }
+});
+
+// Create a new blank space.
+app.post('/api/node/spaces', verifyJwt, requireNotBanned, async (req, res) => {
+  if (!dbReady()) return res.status(503).json({ error: 'Database not configured.' });
+  try {
+    const name = (typeof req.body?.name === 'string' && req.body.name.trim())
+      ? req.body.name.trim().slice(0, 255)
+      : 'Untitled Space';
+    const { rows } = await pool.query(
+      `INSERT INTO node_spaces (owner_id, name) VALUES ($1, $2) RETURNING id, name, graph, created_at, updated_at`,
+      [req.user.id, name]
+    );
+    console.log(`[node:spaces:create] user=${req.user.id} space=${rows[0].id}`);
+    res.json(rows[0]);
+  } catch (e) {
+    console.error('[node:spaces:create] error:', e.message);
+    res.status(500).json({ error: 'Create failed.' });
+  }
+});
+
+// Load one space's full graph (owner only).
+app.get('/api/node/spaces/:id', verifyJwt, requireNotBanned, async (req, res) => {
+  if (!dbReady()) return res.status(503).json({ error: 'Database not configured.' });
+  try {
+    const space = await loadOwnedSpace(req, res);
+    if (!space) return;
+    res.json(space);
+  } catch (e) {
+    console.error('[node:spaces:get] error:', e.message);
+    res.status(500).json({ error: 'Load failed.' });
+  }
+});
+
+// Save a space's graph + name (owner only). Client debounces this.
+app.put('/api/node/spaces/:id', verifyJwt, requireNotBanned, async (req, res) => {
+  if (!dbReady()) return res.status(503).json({ error: 'Database not configured.' });
+  try {
+    const space = await loadOwnedSpace(req, res);
+    if (!space) return;
+    const graph = req.body?.graph;
+    if (graph && typeof graph === 'object') {
+      // Reject oversized graphs (64KB+ per spec D4/§6 validation rule).
+      if (JSON.stringify(graph).length > 2 * 1024 * 1024) {
+        return res.status(413).json({ error: 'Graph too large (max 2MB).' });
+      }
+    }
+    const name = typeof req.body?.name === 'string' ? req.body.name.trim().slice(0, 255) : space.name;
+    const { rows } = await pool.query(
+      `UPDATE node_spaces SET graph = COALESCE($1::jsonb, graph), name = $2, updated_at = NOW()
+        WHERE id = $3 RETURNING id, name, updated_at`,
+      [graph ? JSON.stringify(graph) : null, name, req.params.id]
+    );
+    res.json(rows[0]);
+  } catch (e) {
+    console.error('[node:spaces:save] error:', e.message);
+    res.status(500).json({ error: 'Save failed.' });
+  }
+});
+
+// Run a single node. Charges credits, calls FAL, refunds on failure.
+// Synchronous (fal.subscribe) for the slice — async queue is P3.
+app.post('/api/node/run-node', verifyJwt, requireNotBanned, requireFalKey, async (req, res) => {
+  if (!dbReady()) return res.status(503).json({ error: 'Database not configured.' });
+
+  const { type, settings } = req.body || {};
+  const falModel = NODE_RUN_MODELS[type];
+  if (!falModel) return res.status(400).json({ error: `Unsupported node type: ${type || '(missing)'}` });
+
+  const prompt = settings?.prompt;
+  if (!prompt || typeof prompt !== 'string' || !prompt.trim()) {
+    return res.status(422).json({ error: 'prompt required' });
+  }
+  if (prompt.length > 64 * 1024) {
+    return res.status(422).json({ error: 'prompt too long (max 64KB)' });
+  }
+
+  let chargedKind = null;
+  try {
+    const charge = await chargeCredits({ userId: req.user.id, kind: 'image', ip: req.ip });
+    chargedKind = 'image';
+    res.setHeader('X-Credits-Remaining', String(charge.newBalance));
+  } catch (e) {
+    if (e instanceof InsufficientCreditsError) {
+      return res.status(402).json({ error: 'Not enough credits, please contact admin', current_balance: e.balance, required: e.required });
+    }
+    if (e.code === 'BANNED') return res.status(403).json({ error: 'Account is banned.' });
+    console.error('[node:run] charge error:', e.message);
+    return res.status(500).json({ error: 'Credit charge failed.' });
+  }
+
+  const input = {
+    prompt: prompt.trim(),
+    image_size: settings?.image_size || 'landscape_16_9',
+    num_images: 1,
+    enable_safety_checker: true,
+  };
+  console.log(`[node:run] user=${req.user.id} type=${type} → ${falModel}`);
+
+  try {
+    const result = await fal.subscribe(falModel, { input, logs: false });
+    const imageUrl = result?.data?.images?.[0]?.url || result?.data?.image?.url || null;
+    if (!imageUrl) throw new Error('No image returned by model');
+    console.log(`[node:run] ✅ ${imageUrl}`);
+    return res.json({ success: true, outputs: { image: imageUrl } });
+  } catch (error) {
+    console.error('[node:run] FAL error:', error.message);
+    if (chargedKind) {
+      refundCredits({ userId: req.user.id, kind: chargedKind, ip: req.ip, reason: `node_run_threw: ${error.message}`.slice(0, 500) }).catch(() => {});
+    }
+    return res.status(500).json({ error: 'Node run failed: ' + (error?.body?.detail || error.message) });
+  }
+});
+
 // ─── AUTH: REGISTER ─────────────────────────────────────────────────
 app.post('/api/auth/register', authLimiter, requireAuthInfra, async (req, res) => {
   try {
