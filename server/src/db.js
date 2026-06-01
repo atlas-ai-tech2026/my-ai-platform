@@ -193,6 +193,23 @@ export async function migrate() {
     // Filter route does `data @> $::jsonb` — gin index makes that fast.
     await client.query(`CREATE INDEX IF NOT EXISTS entities_data_gin_idx ON entities USING gin (data);`);
 
+    // ─── node_spaces (Voxel Node canvas graphs) ─────────────────────
+    // Each row is one Node Space: the infinite canvas graph for the
+    // Voxel Node feature. `graph` holds the React Flow {nodes, edges}
+    // blob (node outputs are persisted inline for the P0-P2 slice; a
+    // dedicated runs table comes with the async engine in P3).
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS node_spaces (
+        id          UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
+        owner_id    INTEGER      NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        name        VARCHAR(255) NOT NULL DEFAULT 'Untitled Space',
+        graph       JSONB        NOT NULL DEFAULT '{"nodes":[],"edges":[]}'::jsonb,
+        created_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+        updated_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+      );
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS node_spaces_owner_idx ON node_spaces (owner_id, updated_at DESC);`);
+
     // ─── one-shot admin promotion ───────────────────────────────────
     const promoted = await client.query(
       `UPDATE users SET role = 'admin' WHERE email = $1 AND role <> 'admin' RETURNING id`,
@@ -203,7 +220,7 @@ export async function migrate() {
     }
 
     await client.query('COMMIT');
-    console.log('[db] migrations ok — users + credits_history + admin_audit_log + failed_logins + entities ready');
+    console.log('[db] migrations ok — users + credits_history + admin_audit_log + failed_logins + entities + node_spaces ready');
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
     console.error('[db] migration FAILED:', err.message);
