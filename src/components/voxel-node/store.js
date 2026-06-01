@@ -130,4 +130,61 @@ export const useNodeStore = create((set, get) => ({
     set({ spaceName: name });
     get().scheduleSave();
   },
+
+  // ── run the whole workflow ───────────────────────────────────
+  // Topologically order the runnable nodes (so upstream nodes finish
+  // before downstream ones) and run them sequentially. Client-orchestrated
+  // — reuses runNode + the existing /api/node/run-node route, no queue
+  // infra. Returns counts for the caller's toast.
+  workflowRunning: false,
+  runWorkflow: async () => {
+    if (get().workflowRunning) return;
+    const { nodes, edges } = get();
+    const order = topoSort(nodes, edges);
+    const runnable = order.filter((n) => {
+      const def = getNodeDef(n.data?.nodeType);
+      return def?.runnable;
+    });
+    if (runnable.length === 0) return { ran: 0, failed: 0 };
+    set({ workflowRunning: true });
+    let ran = 0, failed = 0;
+    try {
+      for (const node of runnable) {
+        const res = await get().runNode(node.id);
+        if (res?.error) failed++; else ran++;
+      }
+    } finally {
+      set({ workflowRunning: false });
+    }
+    return { ran, failed };
+  },
 }));
+
+// Kahn's algorithm — returns nodes in dependency order (sources first).
+// Falls back to original order for any nodes left by a cycle (which the
+// onConnect guard already prevents).
+function topoSort(nodes, edges) {
+  const indeg = new Map(nodes.map((n) => [n.id, 0]));
+  const adj = new Map(nodes.map((n) => [n.id, []]));
+  edges.forEach((e) => {
+    if (!adj.has(e.source) || !indeg.has(e.target)) return;
+    adj.get(e.source).push(e.target);
+    indeg.set(e.target, indeg.get(e.target) + 1);
+  });
+  const queue = nodes.filter((n) => indeg.get(n.id) === 0).map((n) => n.id);
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  const out = [];
+  while (queue.length) {
+    const id = queue.shift();
+    out.push(byId.get(id));
+    (adj.get(id) || []).forEach((t) => {
+      indeg.set(t, indeg.get(t) - 1);
+      if (indeg.get(t) === 0) queue.push(t);
+    });
+  }
+  // Append any stragglers (shouldn't happen — cycles are blocked).
+  if (out.length < nodes.length) {
+    nodes.forEach((n) => { if (!out.includes(n)) out.push(n); });
+  }
+  return out;
+}

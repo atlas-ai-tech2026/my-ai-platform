@@ -3,7 +3,7 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
-import { ChevronLeft } from 'lucide-react';
+import { ChevronLeft, Play, Loader2 } from 'lucide-react';
 import Canvas from '@/components/voxel-node/Canvas';
 import { useNodeStore } from '@/components/voxel-node/store';
 import { nodeApi } from '@/components/voxel-node/api';
@@ -18,6 +18,19 @@ export default function NodeCanvas() {
   const spaceName = useNodeStore((s) => s.spaceName);
   const setSpaceName = useNodeStore((s) => s.setSpaceName);
   const saving = useNodeStore((s) => s.saving);
+  const runWorkflow = useNodeStore((s) => s.runWorkflow);
+  const workflowRunning = useNodeStore((s) => s.workflowRunning);
+
+  const handleRunWorkflow = async () => {
+    const res = await runWorkflow();
+    if (!res || (res.ran === 0 && res.failed === 0)) {
+      toast.info('Add a runnable node (e.g. Image Generator) first.');
+    } else if (res.failed === 0) {
+      toast.success(`Workflow complete — ${res.ran} node${res.ran > 1 ? 's' : ''} ran.`);
+    } else {
+      toast.error(`Workflow finished with ${res.failed} failed, ${res.ran} ok.`);
+    }
+  };
 
   useEffect(() => {
     let active = true;
@@ -60,6 +73,25 @@ export default function NodeCanvas() {
         <span style={{ fontSize: 11, color: '#878787', marginLeft: 'auto' }}>
           {saving ? 'Saving…' : 'Saved'}
         </span>
+        <button
+          onClick={handleRunWorkflow}
+          disabled={workflowRunning}
+          style={{
+            display: 'inline-flex', alignItems: 'center', gap: 7,
+            background: workflowRunning
+              ? 'rgba(227,28,28,0.5)'
+              : 'linear-gradient(135deg, #FF2A2A, #B30F0F)',
+            color: '#fff', border: 'none', borderRadius: 9,
+            padding: '8px 16px', fontSize: 13, fontWeight: 700,
+            cursor: workflowRunning ? 'not-allowed' : 'pointer', fontFamily: 'inherit',
+            boxShadow: workflowRunning ? 'none' : '0 4px 14px rgba(227,28,28,0.4)',
+          }}
+        >
+          {workflowRunning
+            ? <Loader2 style={{ width: 14, height: 14, animation: 'spin 1s linear infinite' }} />
+            : <Play style={{ width: 14, height: 14 }} />}
+          {workflowRunning ? 'Running…' : 'Run Workflow'}
+        </button>
       </div>
 
       {/* Canvas area (below the 56px bar) */}

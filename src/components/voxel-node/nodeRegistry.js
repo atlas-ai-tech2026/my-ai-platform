@@ -21,10 +21,12 @@ export const NODE_DEFS = {
     label: 'Image Generator',
     category: 'Image',
     icon: 'Image',
-    model: 'Flux Dev',
+    // Allow-list mirrored server-side (NODE_IMAGE_MODELS). The server
+    // resolves the chosen label → FAL endpoint, so this is just the UI list.
+    models: ['Flux Dev', 'Flux Schnell', 'Flux Pro Ultra', 'Seedream 4', 'Ideogram v3', 'Recraft v3', 'Nano Banana'],
     inputs: [{ id: 'prompt', type: 'text' }],
     outputs: [{ id: 'image', type: 'image' }],
-    defaultSettings: { image_size: 'landscape_16_9' },
+    defaultSettings: { model: 'Flux Dev', image_size: 'landscape_16_9' },
     runnable: true,
     cost: 2, // display-only; the server computes the real charge
   },
