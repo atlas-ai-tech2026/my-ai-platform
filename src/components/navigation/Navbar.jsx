@@ -244,6 +244,7 @@ const primaryNavItems = [
   { name: 'Video', path: 'Video' },
   { name: 'Audio', path: 'Audio' },
   { name: 'Studio', path: 'Studio', badge: 'New' },
+  { name: 'Voxel Node', path: 'node', badge: 'Beta' },
   { name: 'Edit', path: 'Edit', badge: 'Coming Soon' },
 ];
 
