@@ -1,6 +1,22 @@
 name: voxel-ai
 region: nyc
 
+# ─── Custom domain ──────────────────────────────────────────────────
+# Connects voxel-ai.ai (and www) to this app. DO provisions a free
+# Let's Encrypt HTTPS cert automatically ONCE DNS points here.
+#
+# IMPORTANT — this block alone does NOT make the site load. You must also
+# point the domain at DigitalOcean at your registrar (where voxel-ai.ai was
+# bought). Easiest: set the domain's nameservers to
+#   ns1.digitalocean.com  ns2.digitalocean.com  ns3.digitalocean.com
+# DNS can take 30 min–24 h to propagate. Until then Chrome shows
+# "server not found" because the name doesn't resolve yet.
+domains:
+  - domain: voxel-ai.ai
+    type: PRIMARY
+  - domain: www.voxel-ai.ai
+    type: ALIAS
+
 # Single-service Node buildpack deploy.
 # Express serves the built Vite frontend (dist/) AND the /api/* routes from
 # one process on $PORT (8080). Procfile defines the start command.
