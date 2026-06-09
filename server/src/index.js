@@ -1529,6 +1529,23 @@ const NODE_RUN_RESOLVERS = {
     NODE_IMAGE_MODELS[settings?.model] || NODE_IMAGE_MODELS['Flux Dev'],
 };
 
+// Allow-listed text/image-to-video models for the Video Generator node.
+// These are async (queue + poll) — the node submits and the client polls
+// the existing /api/video-status route. Reuses proven FAL endpoints.
+const NODE_VIDEO_MODELS = {
+  'Kling 2.6': 'fal-ai/kling-video/v1.6/pro/text-to-video',
+  'Kling 3.0': 'fal-ai/kling-video/v3/text-to-video',
+  'Veo 3.1':   'fal-ai/veo3',
+  'Wan 2.6':   'fal-ai/wan-t2v',
+};
+// Image-to-video variants (when an upstream image is connected as a start frame).
+const NODE_VIDEO_I2V_MODELS = {
+  'Kling 2.6': 'fal-ai/kling-video/v1.6/pro/image-to-video',
+  'Kling 3.0': 'fal-ai/kling-video/v3/pro/image-to-video',
+  'Veo 3.1':   'fal-ai/kling-video/v3/pro/image-to-video',
+  'Wan 2.6':   'fal-ai/wan-i2v',
+};
+
 // Ownership guard: returns the row if the caller owns the space, else
 // writes the right status and returns null.
 async function loadOwnedSpace(req, res) {
@@ -1666,6 +1683,68 @@ app.post('/api/node/run-node', verifyJwt, requireNotBanned, requireFalKey, async
       refundCredits({ userId: req.user.id, kind: chargedKind, ip: req.ip, reason: `node_run_threw: ${error.message}`.slice(0, 500) }).catch(() => {});
     }
     return res.status(500).json({ error: 'Node run failed: ' + (error?.body?.detail || error.message) });
+  }
+});
+
+// Run an ASYNC node (video). Charges credits, submits to the FAL queue,
+// returns { job_id, model_id }. The client polls the existing
+// /api/video-status route until COMPLETED/FAILED. Used by the Video
+// Generator node, which can run text-to-video or — when an upstream
+// image is connected — image-to-video (start frame).
+app.post('/api/node/run-node-async', verifyJwt, requireNotBanned, requireFalKey, async (req, res) => {
+  if (!dbReady()) return res.status(503).json({ error: 'Database not configured.' });
+
+  const { type, settings } = req.body || {};
+  if (type !== 'video-generator') {
+    return res.status(400).json({ error: `Unsupported async node type: ${type || '(missing)'}` });
+  }
+
+  const prompt = settings?.prompt;
+  if (!prompt || typeof prompt !== 'string' || !prompt.trim()) {
+    return res.status(422).json({ error: 'prompt required' });
+  }
+  if (prompt.length > 64 * 1024) {
+    return res.status(422).json({ error: 'prompt too long (max 64KB)' });
+  }
+
+  const modelLabel = settings?.model;
+  const imageUrl = settings?.image_url; // upstream image → start frame
+  const useI2V = !!imageUrl;
+  const falModel = useI2V
+    ? (NODE_VIDEO_I2V_MODELS[modelLabel] || NODE_VIDEO_I2V_MODELS['Kling 2.6'])
+    : (NODE_VIDEO_MODELS[modelLabel] || NODE_VIDEO_MODELS['Kling 2.6']);
+
+  let chargedKind = null;
+  try {
+    const charge = await chargeCredits({ userId: req.user.id, kind: 'video', ip: req.ip });
+    chargedKind = 'video';
+    res.setHeader('X-Credits-Remaining', String(charge.newBalance));
+  } catch (e) {
+    if (e instanceof InsufficientCreditsError) {
+      return res.status(402).json({ error: 'Not enough credits, please contact admin', current_balance: e.balance, required: e.required });
+    }
+    if (e.code === 'BANNED') return res.status(403).json({ error: 'Account is banned.' });
+    console.error('[node:run-async] charge error:', e.message);
+    return res.status(500).json({ error: 'Credit charge failed.' });
+  }
+
+  const input = {
+    prompt: prompt.trim(),
+    duration: String(settings?.duration || 5),
+    aspect_ratio: settings?.aspect_ratio || '16:9',
+    ...(useI2V ? { image_url: imageUrl } : {}),
+  };
+  console.log(`[node:run-async] user=${req.user.id} ${useI2V ? 'i2v' : 't2v'} → ${falModel}`);
+
+  try {
+    const submitted = await fal.queue.submit(falModel, { input });
+    return res.json({ success: true, job_id: submitted.request_id, model_id: falModel });
+  } catch (error) {
+    console.error('[node:run-async] submit error:', error.message);
+    if (chargedKind) {
+      refundCredits({ userId: req.user.id, kind: chargedKind, ip: req.ip, reason: `node_async_threw: ${error.message}`.slice(0, 500) }).catch(() => {});
+    }
+    return res.status(500).json({ error: 'Video submit failed: ' + (error?.body?.detail || error.message) });
   }
 });
 
