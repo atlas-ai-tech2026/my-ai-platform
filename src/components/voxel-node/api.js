@@ -44,4 +44,20 @@ export const nodeApi = {
       headers: headers(),
       body: JSON.stringify({ type, settings }),
     }).then(jsonOrThrow),
+
+  // Submit an async (video) node → returns { job_id, model_id }.
+  runNodeAsync: (type, settings) =>
+    fetch('/api/node/run-node-async', {
+      method: 'POST',
+      headers: headers(),
+      body: JSON.stringify({ type, settings }),
+    }).then(jsonOrThrow),
+
+  // Poll FAL job status via the existing video-status route.
+  videoStatus: (job_id, model_id) =>
+    fetch('/api/video-status', {
+      method: 'POST',
+      headers: headers(),
+      body: JSON.stringify({ job_id, model_id }),
+    }).then(jsonOrThrow),
 };

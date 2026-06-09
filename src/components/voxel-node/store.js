@@ -71,30 +71,64 @@ export const useNodeStore = create((set, get) => ({
     get().scheduleSave();
   },
 
-  // Resolve a node's prompt from a directly-connected text node, falling
+  // Resolve a node's prompt from any directly-connected text node, falling
   // back to the node's own settings.prompt.
   resolvePrompt: (nodeId) => {
     const { nodes, edges } = get();
-    const incoming = edges.find((e) => e.target === nodeId);
-    if (incoming) {
-      const src = nodes.find((n) => n.id === incoming.source);
+    const incoming = edges.filter((e) => e.target === nodeId);
+    for (const e of incoming) {
+      const src = nodes.find((n) => n.id === e.source);
       if (src?.data?.nodeType === 'text') return src.data.settings?.value || '';
     }
     const self = nodes.find((n) => n.id === nodeId);
     return self?.data?.settings?.prompt || '';
   },
 
-  // ── run a node ───────────────────────────────────────────────
+  // Resolve an upstream image output connected to this node (used by the
+  // Video Generator as a start frame → triggers image-to-video).
+  resolveImageInput: (nodeId) => {
+    const { nodes, edges } = get();
+    const incoming = edges.filter((e) => e.target === nodeId);
+    for (const e of incoming) {
+      const src = nodes.find((n) => n.id === e.source);
+      const url = src?.data?.outputs?.image;
+      if (url) return url;
+    }
+    return null;
+  },
+
+  // ── run a node (sync image, or async video via submit+poll) ──
   runNode: async (id) => {
     const node = get().nodes.find((n) => n.id === id);
     if (!node) return;
+    const def = getNodeDef(node.data.nodeType);
     const prompt = get().resolvePrompt(id);
-    if (!prompt.trim()) {
-      get().updateNodeData(id, { status: 'failed', error: 'Connect a Text node or type a prompt first.' });
-      return { error: 'no-prompt' };
+    const imageUrl = get().resolveImageInput(id);
+
+    // Video can run from an image alone (i2v); image needs a prompt.
+    if (!prompt.trim() && !imageUrl) {
+      get().updateNodeData(id, { status: 'failed', error: 'Connect a Text node (or an Image) first.' });
+      return { error: 'no-input' };
     }
     get().updateNodeData(id, { status: 'running', error: null });
+
     try {
+      if (def?.async) {
+        // Async: submit to the queue, then poll until terminal.
+        const { job_id, model_id } = await nodeApi.runNodeAsync(node.data.nodeType, {
+          ...node.data.settings,
+          prompt,
+          ...(imageUrl ? { image_url: imageUrl } : {}),
+        });
+        const url = await get().pollVideo(id, job_id, model_id);
+        if (!url) {
+          get().updateNodeData(id, { status: 'failed', error: 'Video generation failed.' });
+          return { error: 'video-failed' };
+        }
+        get().updateNodeData(id, { status: 'completed', outputs: { video: url }, error: null });
+        return { outputs: { video: url } };
+      }
+      // Sync (image).
       const { outputs } = await nodeApi.runNode(node.data.nodeType, {
         ...node.data.settings,
         prompt,
@@ -105,6 +139,23 @@ export const useNodeStore = create((set, get) => ({
       get().updateNodeData(id, { status: 'failed', error: err.message });
       return { error: err.message };
     }
+  },
+
+  // Poll the FAL job until COMPLETED/FAILED. Returns the video URL or null.
+  // Caps at ~5 min (60 × 5s) so a stuck job doesn't poll forever.
+  pollVideo: async (nodeId, jobId, modelId) => {
+    for (let i = 0; i < 60; i++) {
+      await new Promise((r) => setTimeout(r, 5000));
+      let s;
+      try {
+        s = await nodeApi.videoStatus(jobId, modelId);
+      } catch {
+        continue; // transient; keep polling
+      }
+      if (s.status === 'COMPLETED') return s.video_url || null;
+      if (s.status === 'FAILED' || s.status === 'ERROR') return null;
+    }
+    return null;
   },
 
   // ── debounced autosave ───────────────────────────────────────

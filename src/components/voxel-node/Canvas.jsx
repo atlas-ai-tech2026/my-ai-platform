@@ -6,7 +6,7 @@ import {
   ReactFlow, Background, BackgroundVariant, Controls, MiniMap, ReactFlowProvider,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { Plus, Type, Image as ImageIcon } from 'lucide-react';
+import { Plus, Type, Image as ImageIcon, Video as VideoIcon } from 'lucide-react';
 import { useNodeStore } from './store';
 import VoxelNode from './Nodes/VoxelNode';
 import { typeColor } from './dataTypes';
@@ -68,6 +68,7 @@ function CanvasInner() {
       }}>
         <AddButton icon={Type} label="Text" onClick={() => handleAdd('text')} />
         <AddButton icon={ImageIcon} label="Image Generator" onClick={() => handleAdd('image-generator')} />
+        <AddButton icon={VideoIcon} label="Video Generator" onClick={() => handleAdd('video-generator')} />
       </div>
     </div>
   );

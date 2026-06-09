@@ -91,7 +91,13 @@ export default function VoxelNode({ id, data, selected }) {
           />
         ) : (
           <>
-            {data.outputs?.image ? (
+            {data.outputs?.video ? (
+              <video
+                src={data.outputs.video}
+                controls autoPlay muted loop playsInline
+                style={{ width: '100%', borderRadius: 8, display: 'block', background: '#1A1A1A' }}
+              />
+            ) : data.outputs?.image ? (
               <img
                 src={data.outputs.image}
                 alt="output"
