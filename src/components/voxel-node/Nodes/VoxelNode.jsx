@@ -4,10 +4,12 @@
 // ring, DM Sans. Status pills per spec §11.
 import React from 'react';
 import { Handle, Position } from '@xyflow/react';
-import { Type, Image as ImageIcon, Play, Loader2 } from 'lucide-react';
+import { Type, Image as ImageIcon, Video as VideoIcon, StickyNote, Play, Loader2 } from 'lucide-react';
 import { getNodeDef } from '../nodeRegistry';
 import { typeColor } from '../dataTypes';
 import { useNodeStore } from '../store';
+
+const STICKY_COLORS = ['#F5C84B', '#F39C2A', '#38C77A', '#4F8DFF', '#B57BFF', '#FF5454'];
 
 const STATUS = {
   idle:      { label: 'Idle',      bg: 'rgba(135,135,135,0.18)', fg: '#9a9a9a' },
@@ -16,13 +18,50 @@ const STATUS = {
   failed:    { label: 'Failed',    bg: 'rgba(255,84,84,0.18)',   fg: '#FF5454' },
 };
 
-const ICONS = { Type, Image: ImageIcon };
+const ICONS = { Type, Image: ImageIcon, Video: VideoIcon, StickyNote };
 
 export default function VoxelNode({ id, data, selected }) {
   const def = getNodeDef(data.nodeType);
   const updateNodeData = useNodeStore((s) => s.updateNodeData);
   const runNode = useNodeStore((s) => s.runNode);
   if (!def) return null;
+
+  // ── Sticky Note: pure annotation node (no ports, no run) ──────
+  if (def.type === 'sticky-note') {
+    const color = data.settings?.color || '#F5C84B';
+    return (
+      <div style={{
+        width: 220, minHeight: 160, background: color, borderRadius: 6,
+        border: selected ? '2px solid #fff' : '2px solid rgba(0,0,0,0.1)',
+        boxShadow: '0 10px 30px rgba(0,0,0,0.4)', padding: 12,
+        fontFamily: '"DM Sans", sans-serif', display: 'flex', flexDirection: 'column', gap: 8,
+      }}>
+        <div className="nodrag" style={{ display: 'flex', gap: 5 }}>
+          {STICKY_COLORS.map((c) => (
+            <button
+              key={c}
+              onClick={() => updateNodeData(id, { settings: { ...data.settings, color: c } })}
+              style={{
+                width: 14, height: 14, borderRadius: '50%', background: c, cursor: 'pointer',
+                border: c === color ? '2px solid rgba(0,0,0,0.5)' : '1px solid rgba(0,0,0,0.2)',
+              }}
+            />
+          ))}
+        </div>
+        <textarea
+          className="nodrag"
+          value={data.settings?.value || ''}
+          onChange={(e) => updateNodeData(id, { settings: { ...data.settings, value: e.target.value } })}
+          placeholder="Note…"
+          style={{
+            flex: 1, minHeight: 110, resize: 'none', border: 'none', outline: 'none',
+            background: 'transparent', color: '#1a1a1a', fontSize: 14, lineHeight: 1.4,
+            fontFamily: 'inherit', fontWeight: 500,
+          }}
+        />
+      </div>
+    );
+  }
 
   const Icon = ICONS[def.icon] || Type;
   const status = STATUS[data.status] || STATUS.idle;

@@ -9,12 +9,23 @@ export const NODE_DEFS = {
   text: {
     type: 'text',
     label: 'Text',
-    category: 'Text',
+    category: 'Input',
     icon: 'Type',
     inputs: [],
     outputs: [{ id: 'text', type: 'text' }],
     defaultSettings: { value: '' },
     runnable: false,
+  },
+  'sticky-note': {
+    type: 'sticky-note',
+    label: 'Sticky Note',
+    category: 'Utilities',
+    icon: 'StickyNote',
+    inputs: [],
+    outputs: [],
+    defaultSettings: { value: '', color: '#F5C84B' },
+    runnable: false,
+    ui: true, // pure annotation node, no ports / no run
   },
   'image-generator': {
     type: 'image-generator',

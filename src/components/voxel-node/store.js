@@ -14,6 +14,41 @@ export const useNodeStore = create((set, get) => ({
   edges: [],
   saving: false,
 
+  // ── undo / redo history ──────────────────────────────────────
+  past: [],
+  future: [],
+  _dragging: false,
+  // Snapshot the current graph onto the undo stack (call BEFORE a change).
+  pushHistory: () => {
+    const { nodes, edges, past } = get();
+    set({
+      past: [...past.slice(-49), { nodes, edges }],
+      future: [],
+    });
+  },
+  undo: () => {
+    const { past, future, nodes, edges } = get();
+    if (past.length === 0) return;
+    const prev = past[past.length - 1];
+    set({
+      past: past.slice(0, -1),
+      future: [{ nodes, edges }, ...future].slice(0, 50),
+      nodes: prev.nodes, edges: prev.edges,
+    });
+    get().scheduleSave();
+  },
+  redo: () => {
+    const { past, future, nodes, edges } = get();
+    if (future.length === 0) return;
+    const next = future[0];
+    set({
+      future: future.slice(1),
+      past: [...past, { nodes, edges }].slice(-50),
+      nodes: next.nodes, edges: next.edges,
+    });
+    get().scheduleSave();
+  },
+
   // ── load / init ──────────────────────────────────────────────
   setSpace: (space) => {
     const graph = space?.graph || { nodes: [], edges: [] };
@@ -22,21 +57,32 @@ export const useNodeStore = create((set, get) => ({
       spaceName: space.name || 'Untitled Space',
       nodes: Array.isArray(graph.nodes) ? graph.nodes : [],
       edges: Array.isArray(graph.edges) ? graph.edges : [],
+      past: [], future: [],
     });
   },
 
   // ── React Flow change handlers ───────────────────────────────
   onNodesChange: (changes) => {
+    // Snapshot before a removal, or at the start of a drag, so undo can
+    // restore the pre-change graph (but not on every pixel of a drag).
+    const hasRemove = changes.some((c) => c.type === 'remove');
+    const dragStart = changes.some((c) => c.type === 'position' && c.dragging) && !get()._dragging;
+    const dragEnd = changes.some((c) => c.type === 'position' && c.dragging === false);
+    if (hasRemove || dragStart) get().pushHistory();
+    if (dragStart) set({ _dragging: true });
+    if (dragEnd) set({ _dragging: false });
     set({ nodes: applyNodeChanges(changes, get().nodes) });
     get().scheduleSave();
   },
   onEdgesChange: (changes) => {
+    if (changes.some((c) => c.type === 'remove')) get().pushHistory();
     set({ edges: applyEdgeChanges(changes, get().edges) });
     get().scheduleSave();
   },
   onConnect: (conn) => {
     // Enforce type-safe + acyclic connections before adding the edge.
     if (!canConnectPorts(get().nodes, get().edges, conn)) return;
+    get().pushHistory();
     set({ edges: addEdge({ ...conn, type: 'default' }, get().edges) });
     get().scheduleSave();
   },
@@ -45,6 +91,7 @@ export const useNodeStore = create((set, get) => ({
   addNode: (type, position) => {
     const def = getNodeDef(type);
     if (!def) return;
+    get().pushHistory();
     const id = `${type}-${Date.now()}-${Math.floor(Math.random() * 1e4)}`;
     const node = {
       id,
