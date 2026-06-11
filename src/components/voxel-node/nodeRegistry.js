@@ -21,12 +21,13 @@ export const NODE_DEFS = {
     label: 'Image Generator',
     category: 'Image',
     icon: 'Image',
-    // Allow-list mirrored server-side (NODE_IMAGE_MODELS). The server
-    // resolves the chosen label → FAL endpoint, so this is just the UI list.
-    models: ['Flux Dev', 'Flux Schnell', 'Flux Pro Ultra', 'Seedream 4', 'Ideogram v3', 'Recraft v3', 'Nano Banana'],
+    // Same model names as the main Image page (server resolves each to its
+    // proven FAL endpoint via MODEL_CONFIG). The server is the source of
+    // truth for the FAL model id.
+    models: ['Nano Banana Pro', 'Nano Banana 2', 'GPT Image 2', 'GPT Image 1.5', 'Seedream 4.5', 'Seedream 5.0 Lite', 'Soul 2.0', 'Flux Kontext', 'Flux 2', 'Wan 2.2 Image'],
     inputs: [{ id: 'prompt', type: 'text' }],
     outputs: [{ id: 'image', type: 'image' }],
-    defaultSettings: { model: 'Flux Dev', image_size: 'landscape_16_9' },
+    defaultSettings: { model: 'Nano Banana Pro', aspect_ratio: '1:1', quality: '1K' },
     runnable: true,
     cost: 2, // display-only; the server computes the real charge
   },
@@ -36,14 +37,15 @@ export const NODE_DEFS = {
     category: 'Video',
     icon: 'Video',
     // Accepts either a text prompt OR an upstream image (start frame).
-    // When an image is connected the server runs image-to-video.
-    models: ['Kling 2.6', 'Kling 3.0', 'Veo 3.1', 'Wan 2.6'],
+    // When an image is connected the server runs image-to-video. Model
+    // names match the main Video page (server resolves via VIDEO_DIRECT_MAP).
+    models: ['Kling 3.0', 'Kling 2.6', 'Veo 3.1', 'Wan 2.6', 'Seedance 2.0', 'Hailuo 2.3', 'PixVerse 5', 'Sora 2', 'Luma Dream Machine'],
     inputs: [
       { id: 'prompt', type: 'text' },
       { id: 'image', type: 'image' },
     ],
     outputs: [{ id: 'video', type: 'video' }],
-    defaultSettings: { model: 'Kling 2.6', duration: 5, aspect_ratio: '16:9' },
+    defaultSettings: { model: 'Kling 3.0', duration: 5, aspect_ratio: '16:9' },
     runnable: true,
     async: true, // queue + poll, not synchronous
     cost: 20, // display-only; server computes the real charge
