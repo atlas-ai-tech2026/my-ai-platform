@@ -1514,37 +1514,32 @@ app.delete('/api/entities/:name/:id', verifyJwt, async (req, res) => {
 // sends a friendly label (settings.model); the server resolves it to the
 // FAL endpoint so a client can't point a node at an arbitrary/expensive
 // model. Mirrored on the client (nodeRegistry.js IMAGE_MODELS).
-const NODE_IMAGE_MODELS = {
-  'Flux Dev':       'fal-ai/flux/dev',
-  'Flux Schnell':   'fal-ai/flux/schnell',
-  'Flux Pro Ultra': 'fal-ai/flux-pro/v1.1-ultra',
-  'Seedream 4':     'fal-ai/bytedance/seedream/v4/text-to-image',
-  'Ideogram v3':    'fal-ai/ideogram/v3',
-  'Recraft v3':     'fal-ai/recraft/v3/text-to-image',
-  'Nano Banana':    'fal-ai/nano-banana',
-};
-// Node type → resolver. Each returns the FAL model id for a given settings.
+// The Image Generator node reuses the SAME proven model map as the main
+// Image page (MODEL_CONFIG above) — so "Nano Banana Pro" hits
+// fal-ai/nano-banana-pro, "GPT Image 2" hits openai/gpt-image-2, etc.
+// Only text-to-image-capable models are offered as node options (the
+// edit-only tools like Face Swap / Relight need an input image and so
+// aren't generators). Mirrored on the client (nodeRegistry.js).
+const NODE_IMAGE_MODEL_NAMES = [
+  'Nano Banana Pro', 'Nano Banana 2', 'GPT Image 2', 'GPT Image 1.5',
+  'Seedream 4.5', 'Seedream 5.0 Lite', 'Soul 2.0', 'Flux Kontext',
+  'Flux 2', 'Wan 2.2 Image',
+];
+// Node type → resolver. Returns the FAL t2i endpoint from MODEL_CONFIG.
 const NODE_RUN_RESOLVERS = {
-  'image-generator': (settings) =>
-    NODE_IMAGE_MODELS[settings?.model] || NODE_IMAGE_MODELS['Flux Dev'],
+  'image-generator': (settings) => {
+    const cfg = MODEL_CONFIG[settings?.model] || MODEL_CONFIG['Nano Banana Pro'];
+    return cfg.t2i;
+  },
 };
 
-// Allow-listed text/image-to-video models for the Video Generator node.
-// These are async (queue + poll) — the node submits and the client polls
-// the existing /api/video-status route. Reuses proven FAL endpoints.
-const NODE_VIDEO_MODELS = {
-  'Kling 2.6': 'fal-ai/kling-video/v1.6/pro/text-to-video',
-  'Kling 3.0': 'fal-ai/kling-video/v3/text-to-video',
-  'Veo 3.1':   'fal-ai/veo3',
-  'Wan 2.6':   'fal-ai/wan-t2v',
-};
-// Image-to-video variants (when an upstream image is connected as a start frame).
-const NODE_VIDEO_I2V_MODELS = {
-  'Kling 2.6': 'fal-ai/kling-video/v1.6/pro/image-to-video',
-  'Kling 3.0': 'fal-ai/kling-video/v3/pro/image-to-video',
-  'Veo 3.1':   'fal-ai/kling-video/v3/pro/image-to-video',
-  'Wan 2.6':   'fal-ai/wan-i2v',
-};
+// The Video Generator node reuses VIDEO_DIRECT_MAP (the same map the main
+// Video page uses) for both text-to-video and image-to-video. Only models
+// that actually expose a t2v endpoint are offered. Mirrored client-side.
+const NODE_VIDEO_MODEL_NAMES = [
+  'Kling 3.0', 'Kling 2.6', 'Veo 3.1', 'Wan 2.6', 'Seedance 2.0',
+  'Hailuo 2.3', 'PixVerse 5', 'Sora 2', 'Luma Dream Machine',
+];
 
 // Ownership guard: returns the row if the caller owns the space, else
 // writes the right status and returns null.
@@ -1663,13 +1658,23 @@ app.post('/api/node/run-node', verifyJwt, requireNotBanned, requireFalKey, async
     return res.status(500).json({ error: 'Credit charge failed.' });
   }
 
+  // Build the input shape per the model's sizing convention — mirrors
+  // /api/generate so each FAL model gets exactly what it expects
+  // (nativeSizing models want aspect_ratio+resolution; others want
+  // an explicit image_size {width,height}).
+  const cfg = MODEL_CONFIG[settings?.model] || MODEL_CONFIG['Nano Banana Pro'];
+  const ratio = settings?.aspect_ratio || '1:1';
+  const quality = settings?.quality || '1K';
+  const { width, height } = getDimensions(ratio, quality);
   const input = {
     prompt: prompt.trim(),
-    image_size: settings?.image_size || 'landscape_16_9',
     num_images: 1,
-    enable_safety_checker: true,
+    safety_tolerance: '4',
+    ...(cfg.nativeSizing
+      ? { aspect_ratio: ratio, resolution: RESOLUTION_MAP[quality] || '1K' }
+      : { image_size: { width, height } }),
   };
-  console.log(`[node:run] user=${req.user.id} type=${type} → ${falModel}`);
+  console.log(`[node:run] user=${req.user.id} model="${settings?.model}" → ${falModel}`);
 
   try {
     const result = await fal.subscribe(falModel, { input, logs: false });
@@ -1710,9 +1715,10 @@ app.post('/api/node/run-node-async', verifyJwt, requireNotBanned, requireFalKey,
   const modelLabel = settings?.model;
   const imageUrl = settings?.image_url; // upstream image → start frame
   const useI2V = !!imageUrl;
-  const falModel = useI2V
-    ? (NODE_VIDEO_I2V_MODELS[modelLabel] || NODE_VIDEO_I2V_MODELS['Kling 2.6'])
-    : (NODE_VIDEO_MODELS[modelLabel] || NODE_VIDEO_MODELS['Kling 2.6']);
+  // Reuse the same VIDEO_DIRECT_MAP the main Video page uses, so the node
+  // hits the exact proven FAL endpoints + correct image field names.
+  const dm = VIDEO_DIRECT_MAP[modelLabel] || VIDEO_DIRECT_MAP['Kling 3.0'];
+  const falModel = useI2V ? (dm.i2v || dm.t2v) : dm.t2v;
 
   let chargedKind = null;
   try {
@@ -1728,13 +1734,16 @@ app.post('/api/node/run-node-async', verifyJwt, requireNotBanned, requireFalKey,
     return res.status(500).json({ error: 'Credit charge failed.' });
   }
 
+  // Use the model's own start-frame field name (start_image_url / image_url /
+  // start_frame) from the map so i2v lands correctly.
+  const imageParam = dm.imageParam || 'image_url';
   const input = {
     prompt: prompt.trim(),
     duration: String(settings?.duration || 5),
     aspect_ratio: settings?.aspect_ratio || '16:9',
-    ...(useI2V ? { image_url: imageUrl } : {}),
+    ...(useI2V ? { [imageParam]: imageUrl } : {}),
   };
-  console.log(`[node:run-async] user=${req.user.id} ${useI2V ? 'i2v' : 't2v'} → ${falModel}`);
+  console.log(`[node:run-async] user=${req.user.id} model="${modelLabel}" ${useI2V ? 'i2v' : 't2v'} → ${falModel}`);
 
   try {
     const submitted = await fal.queue.submit(falModel, { input });
