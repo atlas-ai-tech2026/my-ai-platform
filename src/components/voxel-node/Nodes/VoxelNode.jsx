@@ -27,6 +27,7 @@ export default function VoxelNode({ id, data, selected }) {
   const runNode = useNodeStore((s) => s.runNode);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [anchorRect, setAnchorRect] = useState(null);
+  const [hovered, setHovered] = useState(false);
   if (!def) return null;
 
   // ── Sticky Note: pure annotation node (no ports, no run) ──────
@@ -71,41 +72,21 @@ export default function VoxelNode({ id, data, selected }) {
   const isText = def.type === 'text';
   const isRunning = data.status === 'running';
 
-  return (
-    <div
-      style={{
-        width: 268,
-        background: '#141414',
+  // ── Text node: simple card with a textarea ────────────────────
+  if (isText) {
+    return (
+      <div style={{
+        width: 268, background: '#141414',
         border: `1px solid ${selected ? '#E31C1C' : 'rgba(255,255,255,0.14)'}`,
-        borderRadius: 12,
-        fontFamily: '"DM Sans", sans-serif',
+        borderRadius: 12, fontFamily: '"DM Sans", sans-serif',
         boxShadow: selected ? '0 0 0 1px #E31C1C, 0 12px 40px rgba(0,0,0,0.5)' : '0 12px 40px rgba(0,0,0,0.45)',
         overflow: 'hidden',
-      }}
-    >
-      {/* Input handles */}
-      {def.inputs.map((port) => (
-        <Handle
-          key={`in-${port.id}`}
-          type="target"
-          position={Position.Left}
-          id={port.id}
-          style={{ background: typeColor(port.type), width: 10, height: 10, border: '2px solid #141414' }}
-        />
-      ))}
-
-      {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
-        <Icon style={{ width: 15, height: 15, color: '#fff' }} />
-        <span style={{ fontSize: 13, fontWeight: 600, color: '#fff', flex: 1 }}>{def.label}</span>
-        <span style={{ fontSize: 10, fontWeight: 600, color: status.fg, background: status.bg, padding: '2px 7px', borderRadius: 5 }}>
-          {status.label}
-        </span>
-      </div>
-
-      {/* Body */}
-      <div style={{ padding: 12 }}>
-        {isText ? (
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+          <Icon style={{ width: 15, height: 15, color: '#fff' }} />
+          <span style={{ fontSize: 13, fontWeight: 600, color: '#fff', flex: 1 }}>{def.label}</span>
+        </div>
+        <div style={{ padding: 12 }}>
           <textarea
             value={data.settings?.value || ''}
             onChange={(e) => updateNodeData(id, { settings: { ...data.settings, value: e.target.value } })}
@@ -118,80 +99,120 @@ export default function VoxelNode({ id, data, selected }) {
               fontSize: 13, fontFamily: 'inherit', outline: 'none',
             }}
           />
+        </div>
+        {def.outputs.map((port) => (
+          <Handle key={`out-${port.id}`} type="source" position={Position.Right} id={port.id}
+            style={{ background: typeColor(port.type), width: 10, height: 10, border: '2px solid #141414' }} />
+        ))}
+      </div>
+    );
+  }
+
+  // ── Generator node: image-first card; controls reveal on hover ─
+  const hasOutput = !!(data.outputs?.image || data.outputs?.video);
+  // Show the prompt + bottom bar when hovering, while running, or when
+  // there's no output yet (so an empty node is always set-up-able).
+  const showControls = hovered || isRunning || !hasOutput;
+  const gradient = 'linear-gradient(180deg, rgba(0,0,0,0.55), rgba(0,0,0,0) 22%, rgba(0,0,0,0) 60%, rgba(0,0,0,0.7))';
+
+  return (
+    <div
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => { setHovered(false); setPickerOpen(false); }}
+      style={{
+        width: 280, position: 'relative',
+        background: '#141414',
+        border: `1px solid ${selected ? '#E31C1C' : 'rgba(255,255,255,0.14)'}`,
+        borderRadius: 14,
+        fontFamily: '"DM Sans", sans-serif',
+        boxShadow: selected ? '0 0 0 1px #E31C1C, 0 12px 40px rgba(0,0,0,0.5)' : '0 12px 40px rgba(0,0,0,0.45)',
+        overflow: 'hidden',
+      }}
+    >
+      {/* Floating label above the card */}
+      <div style={{
+        position: 'absolute', top: -24, left: 2, display: 'flex', alignItems: 'center', gap: 6,
+        fontSize: 12, color: '#878787', fontWeight: 500,
+      }}>
+        <Icon style={{ width: 13, height: 13 }} /> {def.label}
+      </div>
+
+      {/* Input handles */}
+      {def.inputs.map((port, i) => (
+        <Handle
+          key={`in-${port.id}`}
+          type="target"
+          position={Position.Left}
+          id={port.id}
+          style={{ top: 40 + i * 26, background: typeColor(port.type), width: 11, height: 11, border: '2px solid #141414' }}
+        />
+      ))}
+
+      {/* Media fills the card */}
+      <div style={{ position: 'relative', minHeight: 150 }}>
+        {data.outputs?.video ? (
+          <video src={data.outputs.video} controls autoPlay muted loop playsInline
+            style={{ width: '100%', display: 'block', background: '#1A1A1A' }} />
+        ) : data.outputs?.image ? (
+          <img src={data.outputs.image} alt="output"
+            style={{ width: '100%', display: 'block', background: '#1A1A1A' }} />
         ) : (
+          <div style={{
+            width: '100%', aspectRatio: '1/1', background: '#1A1A1A',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#878787', fontSize: 12,
+          }}>
+            {isRunning ? 'Generating…' : 'No output yet'}
+          </div>
+        )}
+
+        {/* Hover/empty overlay: gradient + prompt + bottom bar */}
+        {showControls && (
           <>
-            {/* Inline editable prompt — type directly on the node. A
-                connected Text node still overrides this at run time. */}
+            {hasOutput && (
+              <div style={{ position: 'absolute', inset: 0, background: gradient, pointerEvents: 'none' }} />
+            )}
+
+            {/* Prompt (top) */}
             <textarea
               value={data.settings?.prompt || ''}
               onChange={(e) => updateNodeData(id, { settings: { ...data.settings, prompt: e.target.value } })}
               placeholder="Describe what you want to create…"
               className="nodrag"
               style={{
-                width: '100%', minHeight: 56, resize: 'vertical', marginBottom: 10,
-                background: '#1A1A1A', border: '1px solid rgba(255,255,255,0.08)',
-                borderRadius: 8, padding: '8px 10px', color: '#fff',
-                fontSize: 13, fontFamily: 'inherit', outline: 'none', lineHeight: 1.45,
+                position: 'absolute', top: 10, left: 10, right: 10, zIndex: 2,
+                minHeight: 34, maxHeight: 90, resize: 'none',
+                background: hasOutput ? 'transparent' : 'rgba(0,0,0,0.35)',
+                border: hasOutput ? 'none' : '1px solid rgba(255,255,255,0.08)',
+                borderRadius: 8, padding: hasOutput ? '2px 2px' : '8px 10px',
+                color: '#fff', fontSize: 13, fontFamily: 'inherit', outline: 'none',
+                lineHeight: 1.4, textShadow: hasOutput ? '0 1px 3px rgba(0,0,0,0.7)' : 'none',
               }}
             />
-            {data.outputs?.video ? (
-              <video
-                src={data.outputs.video}
-                controls autoPlay muted loop playsInline
-                style={{ width: '100%', borderRadius: 8, display: 'block', background: '#1A1A1A' }}
-              />
-            ) : data.outputs?.image ? (
-              <img
-                src={data.outputs.image}
-                alt="output"
-                style={{ width: '100%', borderRadius: 8, display: 'block', background: '#1A1A1A' }}
-              />
-            ) : (
-              <div style={{
-                width: '100%', aspectRatio: '16/9', borderRadius: 8,
-                background: '#1A1A1A', border: '1px dashed rgba(255,255,255,0.12)',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                color: '#878787', fontSize: 12,
-              }}>
-                {isRunning ? 'Generating…' : 'No output yet'}
-              </div>
-            )}
-            {data.error && (
-              <div style={{ marginTop: 8, fontSize: 11, color: '#FF5454', lineHeight: 1.4 }}>{data.error}</div>
-            )}
-          </>
-        )}
-      </div>
 
-      {/* Bottom bar (generator nodes): model chip · batch · settings · run */}
-      {def.runnable && (
-        <div style={{
-          position: 'relative',
-          display: 'flex', alignItems: 'center', gap: 8,
-          padding: '10px 12px', borderTop: '1px solid rgba(255,255,255,0.06)',
-        }}>
-          {/* Model chip → opens the searchable ModelPicker */}
-          {Array.isArray(def.models) && (
-            <>
-              <button
-                onClick={(e) => {
-                  setAnchorRect(e.currentTarget.getBoundingClientRect());
-                  setPickerOpen((v) => !v);
-                }}
-                className="nodrag"
-                style={{
-                  display: 'inline-flex', alignItems: 'center', gap: 6,
-                  background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.10)',
-                  borderRadius: 8, padding: '6px 9px', color: '#fff', fontSize: 11, fontWeight: 600,
-                  cursor: 'pointer', fontFamily: 'inherit', maxWidth: 130,
-                }}
-              >
-                <Icon style={{ width: 13, height: 13, flexShrink: 0 }} />
-                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {data.settings?.model || def.models[0]}
-                </span>
-                <ChevronDown style={{ width: 11, height: 11, flexShrink: 0, color: '#878787' }} />
-              </button>
+            {/* Bottom bar */}
+            <div style={{
+              position: 'absolute', left: 10, right: 10, bottom: 10, zIndex: 2,
+              display: 'flex', alignItems: 'center', gap: 8,
+            }}>
+              {Array.isArray(def.models) && (
+                <button
+                  onClick={(e) => { setAnchorRect(e.currentTarget.getBoundingClientRect()); setPickerOpen((v) => !v); }}
+                  className="nodrag"
+                  style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 6,
+                    background: 'rgba(20,20,20,0.7)', backdropFilter: 'blur(8px)',
+                    border: '1px solid rgba(255,255,255,0.12)', borderRadius: 8,
+                    padding: '6px 9px', color: '#fff', fontSize: 11, fontWeight: 600,
+                    cursor: 'pointer', fontFamily: 'inherit', maxWidth: 150,
+                  }}
+                >
+                  <Icon style={{ width: 13, height: 13, flexShrink: 0 }} />
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {data.settings?.model || def.models[0]}
+                  </span>
+                  <ChevronDown style={{ width: 11, height: 11, flexShrink: 0, color: '#aaa' }} />
+                </button>
+              )}
               {pickerOpen && (
                 <ModelPicker
                   models={def.models}
@@ -201,32 +222,37 @@ export default function VoxelNode({ id, data, selected }) {
                   onClose={() => setPickerOpen(false)}
                 />
               )}
-            </>
-          )}
 
-          <div style={{ flex: 1 }} />
+              <div style={{ flex: 1 }} />
 
-          {/* Red credit/run pill */}
-          <button
-            onClick={() => runNode(id)}
-            disabled={isRunning}
-            className="nodrag"
-            style={{
-              display: 'inline-flex', alignItems: 'center', gap: 6,
-              background: isRunning ? 'rgba(227,28,28,0.5)' : '#E31C1C',
-              color: '#fff', border: 'none', borderRadius: 999,
-              padding: '7px 14px', fontSize: 12, fontWeight: 700,
-              cursor: isRunning ? 'not-allowed' : 'pointer', fontFamily: 'inherit',
-              boxShadow: isRunning ? 'none' : '0 4px 14px rgba(227,28,28,0.4)',
-            }}
-          >
-            {isRunning
-              ? <Loader2 style={{ width: 13, height: 13, animation: 'spin 1s linear infinite' }} />
-              : <Sparkles style={{ width: 13, height: 13 }} />}
-            {isRunning ? '' : `✦ ${def.cost ?? 1}`}
-          </button>
-        </div>
-      )}
+              <button
+                onClick={() => runNode(id)}
+                disabled={isRunning}
+                className="nodrag"
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 6,
+                  background: isRunning ? 'rgba(227,28,28,0.5)' : '#E31C1C',
+                  color: '#fff', border: 'none', borderRadius: 999,
+                  padding: '7px 14px', fontSize: 12, fontWeight: 700,
+                  cursor: isRunning ? 'not-allowed' : 'pointer', fontFamily: 'inherit',
+                  boxShadow: isRunning ? 'none' : '0 4px 14px rgba(227,28,28,0.5)',
+                }}
+              >
+                {isRunning
+                  ? <Loader2 style={{ width: 13, height: 13, animation: 'spin 1s linear infinite' }} />
+                  : <Sparkles style={{ width: 13, height: 13 }} />}
+                {isRunning ? '' : `✦ ${def.cost ?? 1}`}
+              </button>
+            </div>
+          </>
+        )}
+
+        {data.error && showControls && (
+          <div style={{ position: 'absolute', left: 10, right: 10, bottom: 52, zIndex: 2, fontSize: 11, color: '#FF8A8A', textShadow: '0 1px 3px rgba(0,0,0,0.8)' }}>
+            {data.error}
+          </div>
+        )}
+      </div>
 
       {/* Output handles */}
       {def.outputs.map((port) => (
@@ -235,7 +261,7 @@ export default function VoxelNode({ id, data, selected }) {
           type="source"
           position={Position.Right}
           id={port.id}
-          style={{ background: typeColor(port.type), width: 10, height: 10, border: '2px solid #141414' }}
+          style={{ background: typeColor(port.type), width: 11, height: 11, border: '2px solid #141414' }}
         />
       ))}
     </div>
