@@ -26,6 +26,7 @@ export default function VoxelNode({ id, data, selected }) {
   const updateNodeData = useNodeStore((s) => s.updateNodeData);
   const runNode = useNodeStore((s) => s.runNode);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [anchorRect, setAnchorRect] = useState(null);
   if (!def) return null;
 
   // ── Sticky Note: pure annotation node (no ports, no run) ──────
@@ -173,7 +174,10 @@ export default function VoxelNode({ id, data, selected }) {
           {Array.isArray(def.models) && (
             <>
               <button
-                onClick={() => setPickerOpen((v) => !v)}
+                onClick={(e) => {
+                  setAnchorRect(e.currentTarget.getBoundingClientRect());
+                  setPickerOpen((v) => !v);
+                }}
                 className="nodrag"
                 style={{
                   display: 'inline-flex', alignItems: 'center', gap: 6,
@@ -192,6 +196,7 @@ export default function VoxelNode({ id, data, selected }) {
                 <ModelPicker
                   models={def.models}
                   value={data.settings?.model || def.models[0]}
+                  anchorRect={anchorRect}
                   onChange={(m) => updateNodeData(id, { settings: { ...data.settings, model: m } })}
                   onClose={() => setPickerOpen(false)}
                 />

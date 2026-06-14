@@ -3,6 +3,7 @@
 // (#E31C1C) instead of their yellow-green. Metadata (badge/res/duration)
 // is display-only; the server resolves the model name → FAL endpoint.
 import React, { useState, useMemo, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { Search, Check } from 'lucide-react';
 
 const RED = '#E31C1C';
@@ -32,7 +33,7 @@ const META = {
   'Luma Dream Machine': { badge: null,        chips: ['1080p', '5s'] },
 };
 
-export default function ModelPicker({ models, value, onChange, onClose }) {
+export default function ModelPicker({ models, value, onChange, onClose, anchorRect }) {
   const [q, setQ] = useState('');
   const ref = useRef(null);
 
@@ -47,17 +48,28 @@ export default function ModelPicker({ models, value, onChange, onClose }) {
     [models, q]
   );
 
-  return (
+  // Position the dropdown in viewport coordinates (fixed) so it pops OUT
+  // over the canvas instead of being clipped by the node's overflow:hidden.
+  // Opens upward from the model chip; clamps to the viewport.
+  const W = 340;
+  const left = anchorRect
+    ? Math.min(Math.max(8, anchorRect.left), window.innerWidth - W - 8)
+    : 100;
+  const bottom = anchorRect
+    ? Math.max(8, window.innerHeight - anchorRect.top + 8)
+    : 100;
+
+  const menu = (
     <div
       ref={ref}
       className="nodrag nowheel"
       style={{
-        position: 'absolute', bottom: 'calc(100% + 8px)', left: 0, zIndex: 40,
-        width: 340, maxHeight: 420, overflowY: 'auto',
-        background: 'rgba(18,18,18,0.92)',
+        position: 'fixed', left, bottom, zIndex: 9999,
+        width: W, maxHeight: 420, overflowY: 'auto',
+        background: 'rgba(18,18,18,0.95)',
         backdropFilter: 'blur(36px) saturate(1.4)', WebkitBackdropFilter: 'blur(36px) saturate(1.4)',
         border: '1px solid rgba(255,255,255,0.10)', borderRadius: 16,
-        boxShadow: '0 24px 70px rgba(0,0,0,0.6)', padding: 10,
+        boxShadow: '0 24px 70px rgba(0,0,0,0.7)', padding: 10,
         fontFamily: '"DM Sans", sans-serif',
       }}
     >
@@ -119,4 +131,7 @@ export default function ModelPicker({ models, value, onChange, onClose }) {
       )}
     </div>
   );
+
+  // Portal to body so the node's overflow:hidden can't clip it.
+  return createPortal(menu, document.body);
 }
