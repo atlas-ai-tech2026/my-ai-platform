@@ -5,6 +5,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { ChevronLeft, Play, Loader2 } from 'lucide-react';
 import Canvas from '@/components/voxel-node/Canvas';
+import RightInspector from '@/components/voxel-node/RightInspector';
 import { useNodeStore } from '@/components/voxel-node/store';
 import { nodeApi } from '@/components/voxel-node/api';
 
@@ -101,7 +102,10 @@ export default function NodeCanvas() {
         ) : error ? (
           <Centered text={error} />
         ) : (
-          <Canvas />
+          <>
+            <Canvas />
+            <RightInspector />
+          </>
         )}
       </div>
     </div>
