@@ -118,6 +118,23 @@ export const useNodeStore = create((set, get) => ({
     get().scheduleSave();
   },
 
+  // Merge a patch into a node's settings (convenience for the inspector).
+  updateNodeSettings: (id, settingsPatch) => {
+    set({
+      nodes: get().nodes.map((n) =>
+        n.id === id
+          ? { ...n, data: { ...n.data, settings: { ...n.data.settings, ...settingsPatch } } }
+          : n
+      ),
+    });
+    get().scheduleSave();
+  },
+
+  // Clear React Flow selection (used by the inspector's close button).
+  clearSelection: () => {
+    set({ nodes: get().nodes.map((n) => (n.selected ? { ...n, selected: false } : n)) });
+  },
+
   // Resolve a node's prompt from any directly-connected text node, falling
   // back to the node's own settings.prompt.
   resolvePrompt: (nodeId) => {
