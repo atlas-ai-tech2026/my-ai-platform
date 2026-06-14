@@ -2,12 +2,13 @@
 // every node type, branching on data.nodeType. Matches the Voxel dark
 // theme: surface #141414, border rgba(255,255,255,0.14), red selected
 // ring, DM Sans. Status pills per spec §11.
-import React from 'react';
+import React, { useState } from 'react';
 import { Handle, Position } from '@xyflow/react';
-import { Type, Image as ImageIcon, Video as VideoIcon, StickyNote, Play, Loader2 } from 'lucide-react';
+import { Type, Image as ImageIcon, Video as VideoIcon, StickyNote, Loader2, Sparkles, ChevronDown } from 'lucide-react';
 import { getNodeDef } from '../nodeRegistry';
 import { typeColor } from '../dataTypes';
 import { useNodeStore } from '../store';
+import ModelPicker from '../ModelPicker';
 
 const STICKY_COLORS = ['#F5C84B', '#F39C2A', '#38C77A', '#4F8DFF', '#B57BFF', '#FF5454'];
 
@@ -24,6 +25,7 @@ export default function VoxelNode({ id, data, selected }) {
   const def = getNodeDef(data.nodeType);
   const updateNodeData = useNodeStore((s) => s.updateNodeData);
   const runNode = useNodeStore((s) => s.runNode);
+  const [pickerOpen, setPickerOpen] = useState(false);
   if (!def) return null;
 
   // ── Sticky Note: pure annotation node (no ports, no run) ──────
@@ -95,19 +97,6 @@ export default function VoxelNode({ id, data, selected }) {
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
         <Icon style={{ width: 15, height: 15, color: '#fff' }} />
         <span style={{ fontSize: 13, fontWeight: 600, color: '#fff', flex: 1 }}>{def.label}</span>
-        {Array.isArray(def.models) && (
-          <select
-            value={data.settings?.model || def.models[0]}
-            onChange={(e) => updateNodeData(id, { settings: { ...data.settings, model: e.target.value } })}
-            className="nodrag"
-            style={{
-              background: '#1A1A1A', color: '#CCCCCC', border: '1px solid rgba(255,255,255,0.10)',
-              borderRadius: 6, fontSize: 10, padding: '2px 4px', outline: 'none', maxWidth: 110,
-            }}
-          >
-            {def.models.map((m) => <option key={m} value={m}>{m}</option>)}
-          </select>
-        )}
         <span style={{ fontSize: 10, fontWeight: 600, color: status.fg, background: status.bg, padding: '2px 7px', borderRadius: 5 }}>
           {status.label}
         </span>
@@ -130,6 +119,20 @@ export default function VoxelNode({ id, data, selected }) {
           />
         ) : (
           <>
+            {/* Inline editable prompt — type directly on the node. A
+                connected Text node still overrides this at run time. */}
+            <textarea
+              value={data.settings?.prompt || ''}
+              onChange={(e) => updateNodeData(id, { settings: { ...data.settings, prompt: e.target.value } })}
+              placeholder="Describe what you want to create…"
+              className="nodrag"
+              style={{
+                width: '100%', minHeight: 56, resize: 'vertical', marginBottom: 10,
+                background: '#1A1A1A', border: '1px solid rgba(255,255,255,0.08)',
+                borderRadius: 8, padding: '8px 10px', color: '#fff',
+                fontSize: 13, fontFamily: 'inherit', outline: 'none', lineHeight: 1.45,
+              }}
+            />
             {data.outputs?.video ? (
               <video
                 src={data.outputs.video}
@@ -159,9 +162,46 @@ export default function VoxelNode({ id, data, selected }) {
         )}
       </div>
 
-      {/* Footer (run) — only for runnable nodes */}
+      {/* Bottom bar (generator nodes): model chip · batch · settings · run */}
       {def.runnable && (
-        <div style={{ padding: '0 12px 12px', display: 'flex', justifyContent: 'flex-end' }}>
+        <div style={{
+          position: 'relative',
+          display: 'flex', alignItems: 'center', gap: 8,
+          padding: '10px 12px', borderTop: '1px solid rgba(255,255,255,0.06)',
+        }}>
+          {/* Model chip → opens the searchable ModelPicker */}
+          {Array.isArray(def.models) && (
+            <>
+              <button
+                onClick={() => setPickerOpen((v) => !v)}
+                className="nodrag"
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 6,
+                  background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.10)',
+                  borderRadius: 8, padding: '6px 9px', color: '#fff', fontSize: 11, fontWeight: 600,
+                  cursor: 'pointer', fontFamily: 'inherit', maxWidth: 130,
+                }}
+              >
+                <Icon style={{ width: 13, height: 13, flexShrink: 0 }} />
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {data.settings?.model || def.models[0]}
+                </span>
+                <ChevronDown style={{ width: 11, height: 11, flexShrink: 0, color: '#878787' }} />
+              </button>
+              {pickerOpen && (
+                <ModelPicker
+                  models={def.models}
+                  value={data.settings?.model || def.models[0]}
+                  onChange={(m) => updateNodeData(id, { settings: { ...data.settings, model: m } })}
+                  onClose={() => setPickerOpen(false)}
+                />
+              )}
+            </>
+          )}
+
+          <div style={{ flex: 1 }} />
+
+          {/* Red credit/run pill */}
           <button
             onClick={() => runNode(id)}
             disabled={isRunning}
@@ -169,15 +209,16 @@ export default function VoxelNode({ id, data, selected }) {
             style={{
               display: 'inline-flex', alignItems: 'center', gap: 6,
               background: isRunning ? 'rgba(227,28,28,0.5)' : '#E31C1C',
-              color: '#fff', border: 'none', borderRadius: 8,
-              padding: '7px 14px', fontSize: 12, fontWeight: 600,
+              color: '#fff', border: 'none', borderRadius: 999,
+              padding: '7px 14px', fontSize: 12, fontWeight: 700,
               cursor: isRunning ? 'not-allowed' : 'pointer', fontFamily: 'inherit',
+              boxShadow: isRunning ? 'none' : '0 4px 14px rgba(227,28,28,0.4)',
             }}
           >
             {isRunning
               ? <Loader2 style={{ width: 13, height: 13, animation: 'spin 1s linear infinite' }} />
-              : <Play style={{ width: 13, height: 13 }} />}
-            {isRunning ? 'Running' : `Run · ✦${def.cost ?? 1}`}
+              : <Sparkles style={{ width: 13, height: 13 }} />}
+            {isRunning ? '' : `✦ ${def.cost ?? 1}`}
           </button>
         </div>
       )}
