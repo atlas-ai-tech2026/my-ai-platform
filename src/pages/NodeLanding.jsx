@@ -3,7 +3,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
-import { Plus, Boxes, Loader2 } from 'lucide-react';
+import { Plus, Boxes, Loader2, ArrowLeft } from 'lucide-react';
 import { nodeApi } from '@/components/voxel-node/api';
 import { useAuth } from '@/lib/AuthContext';
 
@@ -49,6 +49,17 @@ export default function NodeLanding() {
     <div style={{ minHeight: 'calc(100vh - 64px)', background: '#0F0F0F', color: '#fff', fontFamily: '"DM Sans", sans-serif', padding: '48px 24px' }}>
       <div style={{ maxWidth: 1100, margin: '0 auto' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
+          <button
+            onClick={() => navigate('/')}
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: 6,
+              background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.12)',
+              color: '#fff', borderRadius: 999, padding: '6px 12px', fontSize: 13,
+              cursor: 'pointer', fontFamily: 'inherit',
+            }}
+          >
+            <ArrowLeft style={{ width: 15, height: 15 }} /> Back to Voxel
+          </button>
           <span style={{ fontSize: 12, fontWeight: 700, background: '#E31C1C', padding: '4px 10px', borderRadius: 999, letterSpacing: '0.04em' }}>VOXEL NODE</span>
         </div>
         <h1 style={{ fontSize: 32, fontWeight: 700, margin: '8px 0 6px' }}>Node Spaces</h1>
