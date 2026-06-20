@@ -78,7 +78,7 @@ export const CAMERA_DATA = [
     tier: 'Tier A',
     sub: 'Vista Vision 8K',
     tag: 'shot on RED V-Raptor VV, 8K Vista Vision, hyper-detailed digital cinema, VFX-ready',
-    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/e/e4/RED_V-RAPTOR_8K_VV.jpg/640px-RED_V-RAPTOR_8K_VV.jpg',
+    image: '/media/cameras/raptor.png',
     imageFallback: 'https://images.unsplash.com/photo-1524656855800-59465ebcec69?w=400&q=80',
     lenses: [
       { name: 'Canon Sumire Prime',                type: 'spherical',  note: 'T1.3 · vintage warmth on VV sensor · stunning separation' },
@@ -96,7 +96,7 @@ export const CAMERA_DATA = [
     tier: 'Tier A',
     sub: 'Large Format 8K',
     tag: 'shot on Panavision DXL2, large format 8K, classic Panavision aesthetic, Hollywood character',
-    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/8/8e/Panavision_DXL2.jpg/640px-Panavision_DXL2.jpg',
+    image: '/media/cameras/dxl2.png',
     imageFallback: 'https://images.unsplash.com/photo-1603190287605-e6ade32fa852?w=400&q=80',
     lenses: [
       { name: 'Panavision Primo Artiste',        type: 'spherical',  note: 'T1.4 · fastest Panavision prime · iconic Hollywood look' },
@@ -114,7 +114,7 @@ export const CAMERA_DATA = [
     tier: 'Classic Film',
     sub: '35mm Kodak Vision3',
     tag: 'shot on ARRIFLEX 35 BL, 35mm Kodak Vision3 film, classic Hollywood grain, natural halation, warm filmic',
-    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/3/31/Arriflex_35_BL.jpg/640px-Arriflex_35_BL.jpg',
+    image: '/media/cameras/arriflex.png',
     imageFallback: 'https://images.unsplash.com/photo-1542204165-65bf26472b9b?w=400&q=80',
     lenses: [
       { name: 'Zeiss Super Speed',              type: 'spherical',  note: 'T1.3 · legendary Super Speed primes · warm halation · classic Hollywood' },
@@ -132,7 +132,7 @@ export const CAMERA_DATA = [
     tier: 'Classic Film',
     sub: '35mm Anamorphic',
     tag: 'shot on Panavision Panaflex, 35mm anamorphic film, oval bokeh, anamorphic streak flares, widescreen 2.39:1',
-    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/c/cb/Panavision_Panaflex_Gold.jpg/640px-Panavision_Panaflex_Gold.jpg',
+    image: '/media/cameras/panaflex.png',
     imageFallback: 'https://images.unsplash.com/photo-1478720568477-152d9b164e26?w=400&q=80',
     lenses: [
       { name: 'Panavision C-Series Anamorphic', type: 'anamorphic', note: 'T2 · used on Chinatown, Blade Runner, The Godfather' },
