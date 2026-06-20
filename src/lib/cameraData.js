@@ -6,7 +6,7 @@ export const CAMERA_DATA = [
     tier: 'Tier A',
     sub: '6.5K Large Format',
     tag: 'shot on ARRI Alexa 65, 6.5K large format digital cinema, ARRI color science, ultra-cinematic',
-    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/a/a7/ARRI_ALEXA_65.jpg/640px-ARRI_ALEXA_65.jpg',
+    image: '/media/cameras/alexa65.png',
     imageFallback: 'https://images.unsplash.com/photo-1616469829941-c7200edec809?w=400&q=80',
     lenses: [
       { name: 'ARRI Signature Prime',   type: 'spherical',  note: 'T1.8 · sharpest LF prime · zero breathing' },
@@ -24,7 +24,7 @@ export const CAMERA_DATA = [
     tier: 'Tier A',
     sub: '4.5K Large Format',
     tag: 'shot on ARRI Alexa LF, large format cinema, ARRI color science, filmic shallow depth of field',
-    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/5/5e/ARRI_ALEXA_LF.jpg/640px-ARRI_ALEXA_LF.jpg',
+    image: '/media/cameras/alexalf.png',
     imageFallback: 'https://images.unsplash.com/photo-1585771724684-38269d6639fd?w=400&q=80',
     lenses: [
       { name: 'ARRI Signature Prime',    type: 'spherical',  note: 'T1.8 · definitive LF prime · used on Euphoria, 1917' },
@@ -42,7 +42,7 @@ export const CAMERA_DATA = [
     tier: 'Tier A',
     sub: 'Super 35 · 17 Stops DR',
     tag: 'shot on ARRI Alexa 35, Super 35 cinema, ARRI color science v4, 17 stops dynamic range',
-    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/4/4e/ARRI_ALEXA_35.jpg/640px-ARRI_ALEXA_35.jpg',
+    image: '/media/cameras/alexa35.png',
     imageFallback: 'https://images.unsplash.com/photo-1598387993441-a364f854cfbd?w=400&q=80',
     lenses: [
       { name: 'ARRI Master Prime',             type: 'spherical',  note: 'T1.3 · fastest ARRI prime · ultra-resolving · zero distortion' },
@@ -60,7 +60,7 @@ export const CAMERA_DATA = [
     tier: 'Tier A',
     sub: 'Full Frame 8.6K',
     tag: 'shot on Sony Venice 2, full frame 8.6K cinema, natural skin tone rendering, organic filmic look',
-    image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/b/bc/Sony_Venice_2_Cinema_Camera.jpg/640px-Sony_Venice_2_Cinema_Camera.jpg',
+    image: '/media/cameras/venice2.png',
     imageFallback: 'https://images.unsplash.com/photo-1547036967-23d11aacaee0?w=400&q=80',
     lenses: [
       { name: 'Zeiss Supreme Prime',     type: 'spherical',  note: 'T1.5 · clinically sharp · natural modern rendering' },
