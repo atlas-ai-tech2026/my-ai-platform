@@ -42,6 +42,28 @@ export const NODE_DEFS = {
     runnable: true,
     cost: 2, // display-only; the server computes the real charge
   },
+  voiceover: {
+    type: 'voiceover',
+    label: 'Voiceover',
+    category: 'Audio',
+    icon: 'Mic',
+    inputs: [{ id: 'prompt', type: 'text' }],
+    outputs: [{ id: 'audio', type: 'audio' }],
+    defaultSettings: { voice: 'Rachel' },
+    runnable: true,
+    cost: 1,
+  },
+  music: {
+    type: 'music',
+    label: 'Music',
+    category: 'Audio',
+    icon: 'Music',
+    inputs: [{ id: 'prompt', type: 'text' }],
+    outputs: [{ id: 'audio', type: 'audio' }],
+    defaultSettings: {},
+    runnable: true,
+    cost: 1,
+  },
   'video-generator': {
     type: 'video-generator',
     label: 'Video Generator',

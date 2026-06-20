@@ -60,4 +60,12 @@ export const nodeApi = {
       headers: headers(),
       body: JSON.stringify({ job_id, model_id }),
     }).then(jsonOrThrow),
+
+  // Ask the server to refund a video job that failed during polling.
+  runFailed: (job_id) =>
+    fetch('/api/node/run-failed', {
+      method: 'POST',
+      headers: headers(),
+      body: JSON.stringify({ job_id }),
+    }).then(jsonOrThrow).catch(() => ({ refunded: false })),
 };

@@ -1525,11 +1525,42 @@ const NODE_IMAGE_MODEL_NAMES = [
   'Seedream 4.5', 'Seedream 5.0 Lite', 'Soul 2.0', 'Flux Kontext',
   'Flux 2', 'Wan 2.2 Image',
 ];
-// Node type → resolver. Returns the FAL t2i endpoint from MODEL_CONFIG.
-const NODE_RUN_RESOLVERS = {
-  'image-generator': (settings) => {
-    const cfg = MODEL_CONFIG[settings?.model] || MODEL_CONFIG['Nano Banana Pro'];
-    return cfg.t2i;
+// Synchronous node run specs (image + audio). Each declares: the credit
+// kind to charge, how to resolve the FAL model, how to build the input,
+// and how to pull the output URL + which output port to fill. Async
+// (video) lives in its own /run-node-async route.
+const NODE_SYNC_SPECS = {
+  'image-generator': {
+    creditKind: 'image',
+    resolve: (s) => (MODEL_CONFIG[s?.model] || MODEL_CONFIG['Nano Banana Pro']).t2i,
+    buildInput: (s, prompt) => {
+      const cfg = MODEL_CONFIG[s?.model] || MODEL_CONFIG['Nano Banana Pro'];
+      const ratio = s?.aspect_ratio || '1:1';
+      const quality = s?.quality || '1K';
+      const { width, height } = getDimensions(ratio, quality);
+      return {
+        prompt, num_images: 1, safety_tolerance: '4',
+        ...(cfg.nativeSizing
+          ? { aspect_ratio: ratio, resolution: RESOLUTION_MAP[quality] || '1K' }
+          : { image_size: { width, height } }),
+      };
+    },
+    extract: (d) => d?.images?.[0]?.url || d?.image?.url || null,
+    outKey: 'image',
+  },
+  'voiceover': {
+    creditKind: 'audio',
+    resolve: () => 'fal-ai/elevenlabs/tts/multilingual-v2',
+    buildInput: (s, prompt) => ({ text: prompt, voice: s?.voice || 'Rachel' }),
+    extract: (d) => d?.audio?.url || null,
+    outKey: 'audio',
+  },
+  'music': {
+    creditKind: 'audio',
+    resolve: () => 'fal-ai/lyria2',
+    buildInput: (s, prompt) => ({ prompt }),
+    extract: (d) => d?.audio?.url || null,
+    outKey: 'audio',
   },
 };
 
@@ -1540,6 +1571,13 @@ const NODE_VIDEO_MODEL_NAMES = [
   'Kling 3.0', 'Kling 2.6', 'Veo 3.1', 'Wan 2.6', 'Seedance 2.0',
   'Hailuo 2.3', 'PixVerse 5', 'Sora 2', 'Luma Dream Machine',
 ];
+
+// Tracks submitted async (video) node jobs so we can refund the charge if
+// the FAL job later FAILS during client-side polling. In-memory (single
+// instance) — on restart we simply lose the ability to auto-refund a
+// then-in-flight job, which is acceptable and never double-charges.
+// Keyed by job_id → { userId, kind, modelId, refunded }.
+const videoNodeJobs = new Map();
 
 // Ownership guard: returns the row if the caller owns the space, else
 // writes the right status and returns null.
@@ -1632,9 +1670,9 @@ app.post('/api/node/run-node', verifyJwt, requireNotBanned, requireFalKey, async
   if (!dbReady()) return res.status(503).json({ error: 'Database not configured.' });
 
   const { type, settings } = req.body || {};
-  const resolver = NODE_RUN_RESOLVERS[type];
-  if (!resolver) return res.status(400).json({ error: `Unsupported node type: ${type || '(missing)'}` });
-  const falModel = resolver(settings);
+  const spec = NODE_SYNC_SPECS[type];
+  if (!spec) return res.status(400).json({ error: `Unsupported node type: ${type || '(missing)'}` });
+  const falModel = spec.resolve(settings);
 
   const prompt = settings?.prompt;
   if (!prompt || typeof prompt !== 'string' || !prompt.trim()) {
@@ -1646,8 +1684,8 @@ app.post('/api/node/run-node', verifyJwt, requireNotBanned, requireFalKey, async
 
   let chargedKind = null;
   try {
-    const charge = await chargeCredits({ userId: req.user.id, kind: 'image', ip: req.ip });
-    chargedKind = 'image';
+    const charge = await chargeCredits({ userId: req.user.id, kind: spec.creditKind, ip: req.ip });
+    chargedKind = spec.creditKind;
     res.setHeader('X-Credits-Remaining', String(charge.newBalance));
   } catch (e) {
     if (e instanceof InsufficientCreditsError) {
@@ -1658,30 +1696,15 @@ app.post('/api/node/run-node', verifyJwt, requireNotBanned, requireFalKey, async
     return res.status(500).json({ error: 'Credit charge failed.' });
   }
 
-  // Build the input shape per the model's sizing convention — mirrors
-  // /api/generate so each FAL model gets exactly what it expects
-  // (nativeSizing models want aspect_ratio+resolution; others want
-  // an explicit image_size {width,height}).
-  const cfg = MODEL_CONFIG[settings?.model] || MODEL_CONFIG['Nano Banana Pro'];
-  const ratio = settings?.aspect_ratio || '1:1';
-  const quality = settings?.quality || '1K';
-  const { width, height } = getDimensions(ratio, quality);
-  const input = {
-    prompt: prompt.trim(),
-    num_images: 1,
-    safety_tolerance: '4',
-    ...(cfg.nativeSizing
-      ? { aspect_ratio: ratio, resolution: RESOLUTION_MAP[quality] || '1K' }
-      : { image_size: { width, height } }),
-  };
-  console.log(`[node:run] user=${req.user.id} model="${settings?.model}" → ${falModel}`);
+  const input = spec.buildInput(settings, prompt.trim());
+  console.log(`[node:run] user=${req.user.id} type=${type} model="${settings?.model || '-'}" → ${falModel}`);
 
   try {
     const result = await fal.subscribe(falModel, { input, logs: false });
-    const imageUrl = result?.data?.images?.[0]?.url || result?.data?.image?.url || null;
-    if (!imageUrl) throw new Error('No image returned by model');
-    console.log(`[node:run] ✅ ${imageUrl}`);
-    return res.json({ success: true, outputs: { image: imageUrl } });
+    const url = spec.extract(result?.data);
+    if (!url) throw new Error('No output returned by model');
+    console.log(`[node:run] ✅ ${url}`);
+    return res.json({ success: true, outputs: { [spec.outKey]: url } });
   } catch (error) {
     console.error('[node:run] FAL error:', error.message);
     if (chargedKind) {
@@ -1747,6 +1770,8 @@ app.post('/api/node/run-node-async', verifyJwt, requireNotBanned, requireFalKey,
 
   try {
     const submitted = await fal.queue.submit(falModel, { input });
+    // Remember the job so /run-failed can refund if it later fails.
+    videoNodeJobs.set(submitted.request_id, { userId: req.user.id, kind: chargedKind, modelId: falModel, refunded: false });
     return res.json({ success: true, job_id: submitted.request_id, model_id: falModel });
   } catch (error) {
     console.error('[node:run-async] submit error:', error.message);
@@ -1754,6 +1779,30 @@ app.post('/api/node/run-node-async', verifyJwt, requireNotBanned, requireFalKey,
       refundCredits({ userId: req.user.id, kind: chargedKind, ip: req.ip, reason: `node_async_threw: ${error.message}`.slice(0, 500) }).catch(() => {});
     }
     return res.status(500).json({ error: 'Video submit failed: ' + (error?.body?.detail || error.message) });
+  }
+});
+
+// Refund a video node whose FAL job failed during polling. Verifies with
+// FAL that the job actually FAILED (so a succeeded job can't be refunded)
+// and that the caller owns it, and refunds at most once.
+app.post('/api/node/run-failed', verifyJwt, requireNotBanned, async (req, res) => {
+  const { job_id } = req.body || {};
+  const rec = job_id && videoNodeJobs.get(job_id);
+  if (!rec) return res.json({ refunded: false, reason: 'unknown_job' });
+  if (rec.userId !== req.user.id) return res.status(403).json({ error: 'Forbidden' });
+  if (rec.refunded) return res.json({ refunded: false, reason: 'already' });
+
+  try {
+    const status = await fal.queue.status(rec.modelId, { requestId: job_id, logs: false });
+    const failed = status.status === 'FAILED' || status.status === 'ERROR';
+    if (!failed) return res.json({ refunded: false, reason: 'not_failed', status: status.status });
+    rec.refunded = true;
+    await refundCredits({ userId: rec.userId, kind: rec.kind, ip: req.ip, reason: `node_video_job_failed: ${job_id}` });
+    console.log(`[node:run-failed] refunded video job ${job_id} for user=${rec.userId}`);
+    return res.json({ refunded: true });
+  } catch (e) {
+    console.error('[node:run-failed] error:', e.message);
+    return res.status(500).json({ error: 'Refund check failed.' });
   }
 });
 

@@ -217,7 +217,11 @@ export const useNodeStore = create((set, get) => ({
         continue; // transient; keep polling
       }
       if (s.status === 'COMPLETED') return s.video_url || null;
-      if (s.status === 'FAILED' || s.status === 'ERROR') return null;
+      if (s.status === 'FAILED' || s.status === 'ERROR') {
+        // Ask the server to refund the charge for this failed job.
+        nodeApi.runFailed(jobId);
+        return null;
+      }
     }
     return null;
   },

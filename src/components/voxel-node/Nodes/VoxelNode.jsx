@@ -4,7 +4,7 @@
 // ring, DM Sans. Status pills per spec §11.
 import React, { useState } from 'react';
 import { Handle, Position } from '@xyflow/react';
-import { Type, Image as ImageIcon, Video as VideoIcon, StickyNote, Loader2, Sparkles, ChevronDown } from 'lucide-react';
+import { Type, Image as ImageIcon, Video as VideoIcon, StickyNote, Loader2, Sparkles, ChevronDown, Mic, Music } from 'lucide-react';
 import { getNodeDef } from '../nodeRegistry';
 import { typeColor } from '../dataTypes';
 import { useNodeStore } from '../store';
@@ -19,7 +19,7 @@ const STATUS = {
   failed:    { label: 'Failed',    bg: 'rgba(255,84,84,0.18)',   fg: '#FF5454' },
 };
 
-const ICONS = { Type, Image: ImageIcon, Video: VideoIcon, StickyNote };
+const ICONS = { Type, Image: ImageIcon, Video: VideoIcon, StickyNote, Mic, Music };
 
 export default function VoxelNode({ id, data, selected }) {
   const def = getNodeDef(data.nodeType);
@@ -109,10 +109,12 @@ export default function VoxelNode({ id, data, selected }) {
   }
 
   // ── Generator node: image-first card; controls reveal on hover ─
-  const hasOutput = !!(data.outputs?.image || data.outputs?.video);
-  // Show the prompt + bottom bar when hovering, while running, or when
-  // there's no output yet (so an empty node is always set-up-able).
-  const showControls = hovered || isRunning || !hasOutput;
+  const isAudio = (def.outputs || []).some((o) => o.type === 'audio');
+  const hasVisual = !!(data.outputs?.image || data.outputs?.video);
+  const hasOutput = hasVisual || !!data.outputs?.audio;
+  // Audio nodes have no image to show clean, so keep controls always
+  // visible. Visual nodes hide controls until hover once they have output.
+  const showControls = isAudio || hovered || isRunning || !hasVisual;
   const gradient = 'linear-gradient(180deg, rgba(0,0,0,0.55), rgba(0,0,0,0) 22%, rgba(0,0,0,0) 60%, rgba(0,0,0,0.7))';
 
   return (
@@ -149,13 +151,24 @@ export default function VoxelNode({ id, data, selected }) {
       ))}
 
       {/* Media fills the card */}
-      <div style={{ position: 'relative', minHeight: 150 }}>
+      <div style={{ position: 'relative', minHeight: isAudio ? 170 : 150 }}>
         {data.outputs?.video ? (
           <video src={data.outputs.video} controls autoPlay muted loop playsInline
             style={{ width: '100%', display: 'block', background: '#1A1A1A' }} />
         ) : data.outputs?.image ? (
           <img src={data.outputs.image} alt="output"
             style={{ width: '100%', display: 'block', background: '#1A1A1A' }} />
+        ) : isAudio ? (
+          <div style={{
+            width: '100%', minHeight: 170, background: '#1A1A1A',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 14px',
+          }}>
+            {data.outputs?.audio ? (
+              <audio src={data.outputs.audio} controls className="nodrag" style={{ width: '100%' }} />
+            ) : (
+              <span style={{ color: '#878787', fontSize: 12 }}>{isRunning ? 'Generating…' : 'No audio yet'}</span>
+            )}
+          </div>
         ) : (
           <div style={{
             width: '100%', aspectRatio: '1/1', background: '#1A1A1A',
@@ -168,7 +181,7 @@ export default function VoxelNode({ id, data, selected }) {
         {/* Hover/empty overlay: gradient + prompt + bottom bar */}
         {showControls && (
           <>
-            {hasOutput && (
+            {hasVisual && (
               <div style={{ position: 'absolute', inset: 0, background: gradient, pointerEvents: 'none' }} />
             )}
 
@@ -181,11 +194,11 @@ export default function VoxelNode({ id, data, selected }) {
               style={{
                 position: 'absolute', top: 10, left: 10, right: 10, zIndex: 2,
                 minHeight: 34, maxHeight: 90, resize: 'none',
-                background: hasOutput ? 'transparent' : 'rgba(0,0,0,0.35)',
-                border: hasOutput ? 'none' : '1px solid rgba(255,255,255,0.08)',
-                borderRadius: 8, padding: hasOutput ? '2px 2px' : '8px 10px',
+                background: hasVisual ? 'transparent' : 'rgba(0,0,0,0.35)',
+                border: hasVisual ? 'none' : '1px solid rgba(255,255,255,0.08)',
+                borderRadius: 8, padding: hasVisual ? '2px 2px' : '8px 10px',
                 color: '#fff', fontSize: 13, fontFamily: 'inherit', outline: 'none',
-                lineHeight: 1.4, textShadow: hasOutput ? '0 1px 3px rgba(0,0,0,0.7)' : 'none',
+                lineHeight: 1.4, textShadow: hasVisual ? '0 1px 3px rgba(0,0,0,0.7)' : 'none',
               }}
             />
 
