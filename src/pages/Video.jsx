@@ -30,7 +30,7 @@ function authJsonHeaders() {
 const DEFAULT_MODEL = { id: 'kling-3', name: 'Kling 3.0', brand: 'Kling', color: '#2563EB' };
 
 export default function Video() {
-  const { isAuthenticated, openAuthModal, refresh: refreshAuth } = useAuth();
+  const { user, isAuthenticated, isLoadingAuth, openAuthModal, refresh: refreshAuth } = useAuth();
   const [prompt, setPrompt] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
   const [count, setCount] = useState(1);
@@ -85,9 +85,15 @@ export default function Video() {
   // Image role tracking: { itemId: 'reference' | 'start_frame' | 'end_frame' }
   const [seedanceImageRoles, setSeedanceImageRoles] = useState({});
 
-  // Load history
+  // Load history whenever auth resolves to a logged-in user. Keyed on
+  // user.id so logging out then back in always re-fetches that user's
+  // server-side history instead of showing stale/empty results.
   useEffect(() => {
+    if (isLoadingAuth) return;
+    if (!isAuthenticated) { setVideos([]); return; }
+    let cancelled = false;
     History_.filter({ type: 'video' }, '-created_date', 50).then(records => {
+      if (cancelled) return;
       const loaded = records.map(r => ({
         id: r.id, prompt: r.prompt, model: r.model,
         duration: r.duration, aspectRatio: r.ratio,
@@ -109,7 +115,8 @@ export default function Video() {
       loaded.filter(v => v.status === 'pending' && v.job_id && v.model_id)
         .forEach(v => pollVideo(v.id, v.job_id, v.model_id));
     }).catch(() => {});
-  }, []);
+    return () => { cancelled = true; };
+  }, [isLoadingAuth, isAuthenticated, user?.id]);
 
   useEffect(() => {
     return () => Object.values(pollingRef.current).forEach(clearInterval);

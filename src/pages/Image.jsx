@@ -260,7 +260,7 @@ function ImageCard({ img, index, onExpand, onLoaded, isFirst = false, modelBadge
 }
 
 export default function Image() {
-  const { isAuthenticated, openAuthModal, refresh: refreshAuth } = useAuth();
+  const { user, isAuthenticated, isLoadingAuth, openAuthModal, refresh: refreshAuth } = useAuth();
   const [selectedModel, setSelectedModel] = useState({ id: 'nano-pro', name: 'Nano Banana Pro' });
   const [prompt, setPrompt] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
@@ -284,9 +284,17 @@ export default function Image() {
     if (p) setPrompt(p);
   }, []);
 
-  // Load history on mount
+  // Load history whenever auth resolves to a logged-in user. Keyed on
+  // user.id so logging out then back in (same or different account) always
+  // re-fetches that user's server-side history instead of showing stale or
+  // empty results. While auth is still resolving we wait; when logged out we
+  // clear the grid so one user's history never lingers for the next.
   useEffect(() => {
+    if (isLoadingAuth) return;
+    if (!isAuthenticated) { setImages([]); return; }
+    let cancelled = false;
     History_.filter({ type: 'image' }, '-created_date', 50).then(records => {
+      if (cancelled) return;
       const loaded = records.map(r => ({
         id: r.id,
         url: r.result_url,
@@ -305,7 +313,8 @@ export default function Image() {
       }));
       setImages(loaded);
     }).catch(() => {});
-  }, []);
+    return () => { cancelled = true; };
+  }, [isLoadingAuth, isAuthenticated, user?.id]);
 
   const handleGenerate = async () => {
     if (!prompt.trim()) { toast.error('Please enter a prompt'); return; }

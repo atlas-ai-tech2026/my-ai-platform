@@ -99,6 +99,11 @@ export const AuthProvider = ({ children }) => {
   const logout = useCallback(() => {
     localStorage.removeItem(VOXEL_TOKEN_KEY);
     localStorage.removeItem('voxel_user');
+    // The base44 client keeps an offline fallback cache keyed `voxel_<entity>`
+    // that is NOT namespaced by user. Clearing it on logout stops the previous
+    // account's history from being served to the next person who signs in on
+    // this browser.
+    localStorage.removeItem('voxel_GenerationHistory');
     setUser(null);
   }, []);
 

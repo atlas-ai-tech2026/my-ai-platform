@@ -10,3 +10,12 @@ server/data/
 
 # Claude Code's local agent scratch (worktrees, settings, plans). Never commit.
 .claude/
+
+# Sensitive business documents — must NEVER be committed to this PUBLIC repo.
+*.pdf
+digitalocean-support-ticket.md
+
+# Local-only assets / generated media and admin recovery scripts.
+cameras voxel/
+images/
+server/scripts/
