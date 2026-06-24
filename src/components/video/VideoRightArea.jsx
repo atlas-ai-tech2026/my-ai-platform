@@ -217,7 +217,7 @@ export default function VideoRightArea({ videos = [], isGenerating = false, dura
                       onLoadedData={e => { e.target.currentTime = 0.1; }}
                       onMouseEnter={e => { try { e.target.src = v.result_url; e.target.play(); } catch {} }}
                       onMouseLeave={e => { try { e.target.pause(); e.target.src = v.result_url + '#t=0.1'; } catch {} }}
-                      style={{ width:'100%', height:'100%', objectFit:'cover', position:'absolute', inset:0 }}
+                      style={{ width:'100%', height:'100%', objectFit:'contain', position:'absolute', inset:0 }}
                     />
                   )}
 

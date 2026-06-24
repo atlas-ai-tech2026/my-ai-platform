@@ -136,7 +136,7 @@ export default function SeedanceRightPanel({
                     <div style={{ aspectRatio: '16/9', position: 'relative' }}>
                       <video src={v.result_url + '#t=0.1'} muted playsInline preload="auto"
                         onLoadedData={e => { e.target.currentTime = 0.1; }}
-                        style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                        style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
                     </div>
                     <div style={{ padding: '8px 10px' }}>
                       <p style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', margin: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{v.prompt}</p>
