@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Image as ImageIcon, Film, Music, AtSign, Volume2, VolumeX, ChevronDown, Sparkles, BarChart3 } from 'lucide-react';
 import SeedanceMediaGrid from './SeedanceMediaGrid';
+import { getVideoCredits } from '@/lib/creditPricing';
 
 const S = { font: '"DM Sans", sans-serif' };
 const DURATIONS = ['auto', '4', '5', '6', '7', '8', '9', '10', '11', '12', '13', '14', '15'];
@@ -39,6 +40,14 @@ export default function SeedanceLeftPanel({
   }, [isFastVariant, resolution, onResolutionChange]);
 
   const allMedia = [...(media?.images || []), ...(media?.videos || []), ...(media?.audios || [])];
+
+  // Credit cost (Seedance is per-second by resolution). When duration is
+  // "auto" we estimate against 5s and flag it with a "~".
+  const isAutoDuration = duration === 'auto' || !duration;
+  const creditCost = getVideoCredits(
+    model?.id,
+    { resolution, duration: isAutoDuration ? '5s' : duration, audio: audioOn },
+  );
 
   const insertAtReference = (label) => {
     onPromptChange?.((prompt || '') + label + ' ');
@@ -263,7 +272,14 @@ export default function SeedanceLeftPanel({
         {isGenerating ? (
           <>Generating...</>
         ) : (
-          <>Generate <Sparkles style={{ width: 15, height: 15 }} /></>
+          <>
+            Generate <Sparkles style={{ width: 15, height: 15 }} />
+            {creditCost != null && (
+              <span title={isAutoDuration ? 'Estimated cost (auto duration ≈ 5s)' : 'Credit cost'}>
+                ✦ {isAutoDuration ? '~' : ''}{creditCost}
+              </span>
+            )}
+          </>
         )}
       </button>
     </div>
