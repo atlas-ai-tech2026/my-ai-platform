@@ -14,6 +14,7 @@ import React, { useState } from 'react';
 import { ArrowLeft, ChevronDown, Minus, Plus, ArrowLeftRight, Zap, Music, Monitor, Clock, RatioIcon, Video } from 'lucide-react';
 import { toast } from 'sonner';
 import { OptionChip, PopoverChip } from './videoChipAtoms';
+import { getVideoCredits } from '@/lib/creditPricing';
 
 const CAMERA_MOTIONS = [
   { id: 'zoom-in',   icon: '🔍+', label: 'Zoom In'   },
@@ -119,6 +120,10 @@ export default function VideoLeftPanel({
 
   const selectedMotion = CAMERA_MOTIONS.find(m => m.id === cameraMotion);
   const canSwap = !!(startFrame || endFrame);
+
+  // Credit cost — driven by the master-plan pricing (model + resolution +
+  // duration + audio). null = model not in the plan yet (shows "—").
+  const creditCost = getVideoCredits(model?.id, { resolution, duration, audio: audioOn });
   // Visual "incomplete" cue (50% opacity) when prereqs aren't met, but the
   // button is still clickable — onClick now runs the validation and shows
   // a clear toast for whichever piece is missing instead of silently
@@ -547,7 +552,11 @@ export default function VideoLeftPanel({
           onMouseLeave={e => { if (!isGenerating) { e.currentTarget.style.boxShadow = '0 0 22px rgba(224,30,30,0.53), 0 4px 10px rgba(139,15,15,0.5), 0 1px 0 rgba(255,255,255,0.25) inset'; e.currentTarget.style.transform = 'none'; }}}
         >
           <span>{isGenerating ? 'Generating' : 'Generate'}</span>
-          <span style={{ fontSize: 12 }}>→</span>
+          {!isGenerating && (
+            <span style={{ fontSize: 12 }} title="Estimated credit cost">
+              ✦ {creditCost ?? '—'}
+            </span>
+          )}
         </button>
       </div>
     </div>

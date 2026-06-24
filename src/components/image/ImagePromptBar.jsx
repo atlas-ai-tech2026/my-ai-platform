@@ -4,6 +4,7 @@ import PageSwitcher from '@/components/common/PageSwitcher';
 import { base44 } from '@/api/base44Client';
 import { detectCompositionIntent } from '@/lib/enhancePrompt';
 import CameraSelector from './CameraSelector';
+import { getImageCredits } from '@/lib/creditPricing';
 
 // ─── Image Models ────────────────────────────────────────────────────────────
 const IMAGE_MODELS = [
@@ -156,7 +157,7 @@ function ModelModal({ selectedId, onSelect, onClose }) {
                   {m.badge && <Badge type={m.badge} />}
                 </div>
                 <span style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 999, padding: '2px 8px', fontSize: 12, color: 'rgba(255,255,255,0.6)', whiteSpace: 'nowrap', flexShrink: 0 }}>
-                  ✦ {m.credits}
+                  ✦ {getImageCredits(m.id, '1K', m.credits)}
                 </span>
               </div>
               <p style={{ color: 'rgba(255,255,255,0.45)', fontSize: 12, marginBottom: 8, lineHeight: 1.5 }}>{m.desc}</p>
@@ -510,6 +511,10 @@ export default function ImagePromptBar({
 
   const handleGenerate = () => { if (onGenerate) onGenerate(); };
   const handleKey = (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleGenerate(); } };
+
+  // Credit cost per image — driven by the master-plan pricing (model + quality).
+  // Falls back to the model-list `credits` for models not yet in the plan.
+  const creditCost = getImageCredits(model.id, quality, model.credits);
 
   // sync selectedModel from parent if provided
   useEffect(() => {
@@ -1035,12 +1040,12 @@ export default function ImagePromptBar({
           </button>
 
           {/* Generate capsule — class-driven so the smooth ::before halo
-              works (impossible via inline style). The trailing "2" is the
-              credit cost deducted per image. */}
+              works (impossible via inline style). The trailing number is the
+              credit cost deducted per image, read from the selected model. */}
           <button
             onClick={handleGenerate}
             disabled={isGenerating}
-            title="Generate · 2 credits per image"
+            title={`Generate · ${creditCost} credits per image`}
             className="voxel-generate"
             style={{ marginLeft: 'auto' }}
           >
@@ -1052,7 +1057,7 @@ export default function ImagePromptBar({
             ) : (
               <>
                 <span className="voxel-generate__label">GENERATE</span>
-                <span className="voxel-generate__arrow" aria-hidden>2</span>
+                <span className="voxel-generate__arrow" aria-hidden>{creditCost}</span>
               </>
             )}
           </button>
