@@ -688,7 +688,9 @@ export default function Video() {
         WebkitBackdropFilter: 'blur(36px) saturate(1.4)',
         border: '1px solid rgba(255,255,255,0.1)',
         boxShadow: '0 30px 80px rgba(0,0,0,0.55), 0 1px 0 rgba(255,255,255,0.12) inset, 0 0 60px rgba(224,30,30,0.08)',
-        overflow: 'hidden',
+        // Scroll vertically when the panel is taller than a short viewport so
+        // the GENERATE footer stays reachable (was overflow:hidden → clipped).
+        overflowY: 'auto', overflowX: 'hidden',
         flexShrink: 0,
         display: 'flex', flexDirection: 'column',
       }}>

@@ -147,7 +147,10 @@ export default function VideoLeftPanel({
     <div style={{
       display: 'flex', flexDirection: 'column', gap: 8,
       padding: '14px 14px 16px',
-      height: '100%', minHeight: 0,
+      // minHeight:100% (not height:100%) so the panel fills a tall viewport
+      // but can grow taller than a short one — the parent then scrolls and
+      // the GENERATE footer stays reachable.
+      minHeight: '100%',
       fontFamily: '"DM Sans", sans-serif',
     }}>
       <style>{`
