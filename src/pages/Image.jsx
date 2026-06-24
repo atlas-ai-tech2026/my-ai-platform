@@ -489,7 +489,7 @@ export default function Image() {
   const hasContent = displayImages.length > 0 || isGenerating;
 
   return (
-    <div style={{ minHeight: 'calc(100vh - 64px)', background: '#0A0A0A', display: 'flex', flexDirection: 'column', position: 'relative' }}>
+    <div style={{ height: 'calc(100vh - 64px)', overflow: 'hidden', background: '#0A0A0A', display: 'flex', flexDirection: 'column', position: 'relative' }}>
 
       <style>{`
         @keyframes imgShimmer { 0%{background-position:200% 0} 100%{background-position:-200% 0} }
@@ -574,9 +574,10 @@ export default function Image() {
         </div>
       </div>
 
-      {/* Main content — paddingBottom clears the fixed prompt bar
-          (bottom:28 + ~204px tall) so the last grid row is fully scrollable. */}
-      <div style={{ position: 'relative', zIndex: 2, flex: 1, overflowY: 'auto', paddingBottom: 248 }}>
+      {/* Main content — minHeight:0 lets this flex child shrink below its
+          content so overflowY actually scrolls; paddingBottom clears the
+          fixed prompt bar (bottom:28 + ~204px tall) so the last row shows. */}
+      <div style={{ position: 'relative', zIndex: 2, flex: 1, minHeight: 0, overflowY: 'auto', paddingBottom: 248 }}>
 
         {/* Masonry grid (always rendered — when empty, only loading cards / nothing) */}
         <div style={{
