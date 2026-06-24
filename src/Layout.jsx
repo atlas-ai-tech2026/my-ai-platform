@@ -1,6 +1,7 @@
 import React from 'react';
 import Navbar from './components/navigation/Navbar';
 import Footer from './components/navigation/Footer';
+import ChatWidget from './components/common/ChatWidget';
 import { Toaster } from '@/components/ui/sonner';
 import { Plus } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
@@ -38,7 +39,9 @@ export default function Layout({ children, currentPageName }) {
       <main className="pt-16" style={(isMinimal || hideFooter) ? { height: 'calc(100vh - 0px)', overflow: 'hidden' } : {}}>
         {children}
       </main>
-      {!hideFooter && <Footer minimal={isMinimal} />}
+      {/* Tool pages (image/video/edit/apps) drop the footer black bar entirely
+          but keep the floating chat bubble; everything else gets the full footer. */}
+      {!hideFooter && (isMinimal ? <ChatWidget /> : <Footer />)}
       <Toaster position="bottom-right" />
       
       {/* Mobile Floating Create Button — hidden on Studio */}

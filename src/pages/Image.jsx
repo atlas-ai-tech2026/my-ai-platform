@@ -574,8 +574,9 @@ export default function Image() {
         </div>
       </div>
 
-      {/* Main content */}
-      <div style={{ position: 'relative', zIndex: 2, flex: 1, overflowY: 'auto', paddingBottom: 180 }}>
+      {/* Main content — paddingBottom clears the fixed prompt bar
+          (bottom:28 + ~204px tall) so the last grid row is fully scrollable. */}
+      <div style={{ position: 'relative', zIndex: 2, flex: 1, overflowY: 'auto', paddingBottom: 248 }}>
 
         {/* Masonry grid (always rendered — when empty, only loading cards / nothing) */}
         <div style={{
