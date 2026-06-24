@@ -121,13 +121,45 @@ export const VIDEO_CREDITS = {
     type: 'per-gen', defaultRes: 'Default',
     byResDuration: { 'Default': { 4: 10, 8: 20, 12: 29 } },
   },
+  // Kling 3.0 Omni — not in the sheet; mapped to Kling 3.0 per-sec pricing.
+  'kling-3-omni': {
+    type: 'per-sec', defaultRes: '1080p',
+    byRes: {
+      '720p':  { off: 1.75, on: 1.75 },
+      '1080p': { off: 1.5,  on: 2.0  },
+      '4K':    { off: 6,    on: 6    },
+    },
+  },
+
+  // ---- Motion Control + Edit panels (keyed by model NAME, not id) ----------
+  // These are flat per-generation by resolution.
+  // Kling 3.0 Motion Control (sheet: 720p=7, 1080p=10)
+  'Kling 3.0 Motion Control': {
+    type: 'flat', defaultRes: '1080p',
+    byRes: { '720p': 7, '1080p': 10 },
+  },
+  // Kling Motion Control (older) (sheet: 720p=5, 1080p=7)
+  'Kling Motion Control': {
+    type: 'flat', defaultRes: '720p',
+    byRes: { '720p': 5, '1080p': 7 },
+  },
+  // Kling O1 Video Edit (sheet: 9 at both resolutions)
+  'Kling O1 Video Edit': {
+    type: 'flat', defaultRes: '720p',
+    byRes: { '720p': 9, '1080p': 9 },
+  },
+  // Kling 3.0 Omni Edit — not in the sheet; mapped to Kling O1 Video Edit (9).
+  'Kling 3.0 Omni Edit': {
+    type: 'flat', defaultRes: '720p',
+    byRes: { '720p': 9, '1080p': 9 },
+  },
 };
 
 // Video models NOT in the master plan yet — show "—" until you send costs.
 // (kling-3-omni, seedance-1-5, wan-2-6, kling-2-5, kling-2-1, hailuo-2-3,
 //  seedance-1, ltx-2, ltx-2-audio, vidu-q3, pixverse-5, wan-2-2, vidu-q2)
 export const VIDEO_PENDING = new Set([
-  'kling-3-omni', 'seedance-1-5', 'wan-2-6', 'kling-2-5', 'kling-2-1',
+  'seedance-1-5', 'wan-2-6', 'kling-2-5', 'kling-2-1',
   'hailuo-2-3', 'seedance-1', 'ltx-2', 'ltx-2-audio', 'vidu-q3',
   'pixverse-5', 'wan-2-2', 'vidu-q2',
 ]);

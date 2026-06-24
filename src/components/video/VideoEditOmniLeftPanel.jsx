@@ -17,6 +17,7 @@ import { Video as VideoIcon, Plus, X, Info, BookOpen, ChevronDown } from 'lucide
 import { toast } from 'sonner';
 import { OptionChip, PopoverChip } from './videoChipAtoms';
 import InlineModelPicker from './InlineModelPicker';
+import { getVideoCredits } from '@/lib/creditPricing';
 
 const RED = '#E01E1E';
 const RED_HOT = '#FF2A2A';
@@ -140,6 +141,9 @@ export default function VideoEditOmniLeftPanel({
     if (!prompt?.trim()) { toast.error('Type a prompt to describe the change'); return; }
     onGenerate?.();
   };
+
+  // Credit cost — Edit models are flat per generation by resolution (quality).
+  const creditCost = getVideoCredits(model, { resolution: quality });
 
   return (
     <div style={{
@@ -517,7 +521,11 @@ export default function VideoEditOmniLeftPanel({
           }}
         >
           <span>{isGenerating ? 'Generating' : 'Generate'}</span>
-          <span style={{ fontSize: 12 }}>→</span>
+          {!isGenerating && (
+            <span style={{ fontSize: 12 }} title="Estimated credit cost">
+              ✦ {creditCost ?? '—'}
+            </span>
+          )}
         </button>
       </div>
 
