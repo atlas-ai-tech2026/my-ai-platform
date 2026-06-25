@@ -64,6 +64,56 @@ const plans = [
   },
 ];
 
+// STARTER-style card config (keyed by plan name). Credit math:
+//   Nano Banana Pro 1K = 2 cr  → gens   = credits / 2
+//   Kling 3.0 1080p 5s = 7.5 cr → videos = credits / 7.5
+const STARTER_CARD_CONFIG = {
+  Pro: {
+    subtitle: 'For serious creators & professionals',
+    creditsLabel: '600 credits/mo.',
+    nanoGens: 300,
+    klingVideos: 80,
+    fixedLabel: 'Fixed amount of 600 credits/mo',
+    features: [
+      { ok: true,  label: 'Parallel generations: up to 2 Videos, 4 Images' },
+      { ok: true,  label: 'No watermark on exports' },
+      { ok: true,  label: 'Access to Kling 2.6, Seedream 4.5, Soul 2.0' },
+      { ok: true,  label: 'Face Swap, Upscaler, Lipsync' },
+      { ok: true,  label: 'Priority generation queue' },
+      { ok: true,  label: 'Commercial usage rights' },
+      { ok: false, label: 'Early access to advanced AI features' },
+      { ok: false, label: 'Lowest cost per credit' },
+    ],
+    seedance: [
+      { name: 'Seedance 2.0',      access: false },
+      { name: 'Seedance 2.0 Mini', access: true },
+      { name: 'Seedance 2.0 Fast', access: true },
+    ],
+  },
+  Advanced: {
+    subtitle: 'For studios, teams & power users',
+    creditsLabel: '2,000 credits/mo.',
+    nanoGens: 1000,
+    klingVideos: 266,
+    fixedLabel: 'Fixed amount of 2,000 credits/mo',
+    features: [
+      { ok: true, label: 'Parallel generations: up to 4 Videos, 8 Images' },
+      { ok: true, label: 'All models (Sora 2, Veo 3.1, all)' },
+      { ok: true, label: 'Team collaboration tools' },
+      { ok: true, label: 'API access' },
+      { ok: true, label: '4K export priority' },
+      { ok: true, label: 'Premium support' },
+      { ok: true, label: 'Early access to advanced AI features' },
+      { ok: true, label: 'Lowest cost per credit' },
+    ],
+    seedance: [
+      { name: 'Seedance 2.0',      access: true },
+      { name: 'Seedance 2.0 Mini', access: true },
+      { name: 'Seedance 2.0 Fast', access: true },
+    ],
+  },
+};
+
 const faqs = [
   {
     question: 'How do credits work?',
@@ -136,26 +186,10 @@ export default function Pricing() {
             const Icon = plan.icon;
             const price = isAnnual ? plan.annualPrice : plan.monthlyPrice;
 
-            // ── Pro card: STARTER-style design ──────────────────────────────
-            // Credit math: Nano Banana Pro 1K = 2 cr → 600/2 = 300 gens.
-            //              Kling 3.0 1080p 5s = 7.5 cr → 600/7.5 = 80 videos.
-            if (plan.name === 'Pro') {
+            // ── STARTER-style design (Pro + Advanced) ───────────────────────
+            const starter = STARTER_CARD_CONFIG[plan.name];
+            if (starter) {
               const GREEN = '#BEF264';
-              const proFeatures = [
-                { ok: true,  label: 'Parallel generations: up to 2 Videos, 4 Images' },
-                { ok: true,  label: 'No watermark on exports' },
-                { ok: true,  label: 'Access to Kling 2.6, Seedream 4.5, Soul 2.0' },
-                { ok: true,  label: 'Face Swap, Upscaler, Lipsync' },
-                { ok: true,  label: 'Priority generation queue' },
-                { ok: true,  label: 'Commercial usage rights' },
-                { ok: false, label: 'Early access to advanced AI features' },
-                { ok: false, label: 'Lowest cost per credit' },
-              ];
-              const seedance = [
-                { name: 'Seedance 2.0',      access: false },
-                { name: 'Seedance 2.0 Mini', access: true },
-                { name: 'Seedance 2.0 Fast', access: true },
-              ];
               return (
                 <div
                   key={plan.name}
@@ -169,26 +203,24 @@ export default function Pricing() {
                   {/* Title + subtitle */}
                   <div>
                     <h3 style={{ fontFamily: 'Anton, sans-serif', fontSize: 30, letterSpacing: '0.02em', color: '#fff', textTransform: 'uppercase', margin: 0 }}>
-                      Pro
+                      {plan.name}
                     </h3>
-                    <p style={{ color: '#9CA3AF', fontSize: 14, marginTop: 6 }}>
-                      For serious creators &amp; professionals
-                    </p>
+                    <p style={{ color: '#9CA3AF', fontSize: 14, marginTop: 6 }}>{starter.subtitle}</p>
                   </div>
 
                   {/* Credits box */}
                   <div style={{ background: '#1F2227', border: '1px solid #2A2F35', borderRadius: 14, padding: 16 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#fff', fontWeight: 700, fontSize: 19 }}>
                       <Sparkles style={{ width: 17, height: 17, color: GREEN }} />
-                      600 credits/mo.
+                      {starter.creditsLabel}
                     </div>
                     <div style={{ color: '#9CA3AF', fontSize: 13.5, marginTop: 12, lineHeight: 1.8 }}>
-                      <div><span style={{ color: '#E5E7EB', fontWeight: 600 }}>= 300</span> Nano Banana Pro Generations</div>
-                      <div><span style={{ color: '#E5E7EB', fontWeight: 600 }}>~ 80</span> Kling 3.0 videos</div>
+                      <div><span style={{ color: '#E5E7EB', fontWeight: 600 }}>= {starter.nanoGens}</span> Nano Banana Pro Generations</div>
+                      <div><span style={{ color: '#E5E7EB', fontWeight: 600 }}>~ {starter.klingVideos}</span> Kling 3.0 videos</div>
                     </div>
                     <div style={{ marginTop: 14, background: 'rgba(255,255,255,0.04)', border: '1px solid #2A2F35', borderRadius: 9, padding: '9px 12px', display: 'flex', alignItems: 'center', gap: 8, color: '#9CA3AF', fontSize: 13 }}>
                       <Check style={{ width: 15, height: 15, color: GREEN }} />
-                      Fixed amount of 600 credits/mo
+                      {starter.fixedLabel}
                     </div>
                   </div>
 
@@ -214,7 +246,7 @@ export default function Pricing() {
 
                   {/* Features */}
                   <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 13 }}>
-                    {proFeatures.map((f, i) => (
+                    {starter.features.map((f, i) => (
                       <li key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 14, fontWeight: 600, color: f.ok ? '#E5E7EB' : '#6B7280' }}>
                         {f.ok
                           ? <Check style={{ width: 16, height: 16, color: '#fff', flexShrink: 0 }} />
@@ -230,7 +262,7 @@ export default function Pricing() {
                       <BarChart3 style={{ width: 16, height: 16, color: '#3B82F6' }} />
                       <span style={{ color: '#fff', fontWeight: 700, fontSize: 13, letterSpacing: '0.06em' }}>SEEDANCE 2.0</span>
                     </div>
-                    {seedance.map((s, i) => (
+                    {starter.seedance.map((s, i) => (
                       <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 0', borderTop: i ? '1px solid rgba(255,255,255,0.05)' : 'none' }}>
                         <span style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13.5, color: s.access ? '#E5E7EB' : '#6B7280', textDecoration: s.access ? 'underline' : 'none', textDecorationColor: 'rgba(255,255,255,0.2)' }}>
                           {s.access
