@@ -210,7 +210,7 @@ export default function Pricing() {
             // ── STARTER-style design (Pro + Advanced) ───────────────────────
             const starter = STARTER_CARD_CONFIG[plan.name];
             if (starter) {
-              const GREEN = '#BEF264';
+              const GREEN = '#E01E1E'; // brand red accent (was green)
               return (
                 <div
                   key={plan.name}
@@ -292,7 +292,7 @@ export default function Pricing() {
                           {s.name}
                         </span>
                         {s.access ? (
-                          <span style={{ background: GREEN, color: '#0F1113', fontSize: 10, fontWeight: 800, letterSpacing: '0.04em', padding: '3px 8px', borderRadius: 6 }}>FULL ACCESS</span>
+                          <span style={{ background: GREEN, color: '#fff', fontSize: 10, fontWeight: 800, letterSpacing: '0.04em', padding: '3px 8px', borderRadius: 6 }}>FULL ACCESS</span>
                         ) : (
                           <span style={{ background: 'rgba(255,255,255,0.08)', color: '#9CA3AF', fontSize: 10, fontWeight: 800, letterSpacing: '0.04em', padding: '3px 8px', borderRadius: 6 }}>NO ACCESS</span>
                         )}
