@@ -4,6 +4,7 @@ const History_ = base44.entities.GenerationHistory;
 import ImagePromptBar from '@/components/image/ImagePromptBar';
 import { buildCompositionPrompt, detectCompositionIntent } from '@/lib/enhancePrompt';
 import { uploadAllToFal } from '@/lib/uploadToFal';
+import { getImageCredits } from '@/lib/creditPricing';
 
 const STYLE_SUFFIXES = {
   Cinematic:    ', cinematic color grading, anamorphic lens flare, film grain, dramatic lighting, movie still',
@@ -364,6 +365,8 @@ export default function Image() {
           imageUrls: uploadedUrls,
           numImages: isComposition ? 1 : 1,
           safetyTolerance: '4',
+          // Per-image credit cost (model + quality), charged server-side.
+          credit_cost: getImageCredits(selectedModel.id, quality),
           ...(negativePrompt?.trim() ? { negativePrompt } : {}),
         };
 

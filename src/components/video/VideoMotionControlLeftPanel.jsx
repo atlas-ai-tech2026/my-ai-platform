@@ -123,7 +123,7 @@ export default function VideoMotionControlLeftPanel({
     if (isGenerating) return;
     if (!motionVideo) { toast.error('Add a motion reference video'); return; }
     if (!charImage) { toast.error('Add a character image'); return; }
-    onGenerate?.();
+    onGenerate?.(creditCost);
   };
 
   // Credit cost — Motion Control is flat per generation by resolution (quality).

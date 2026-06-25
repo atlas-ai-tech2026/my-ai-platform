@@ -140,7 +140,7 @@ export default function VideoLeftPanel({
       toast.error('Type a prompt to generate');
       return;
     }
-    onGenerate?.();
+    onGenerate?.(creditCost);
   };
 
   return (

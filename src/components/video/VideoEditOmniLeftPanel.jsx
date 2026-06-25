@@ -139,7 +139,7 @@ export default function VideoEditOmniLeftPanel({
     if (isGenerating) return;
     if (!videoFile) { toast.error('Upload a video to edit'); return; }
     if (!prompt?.trim()) { toast.error('Type a prompt to describe the change'); return; }
-    onGenerate?.();
+    onGenerate?.(creditCost);
   };
 
   // Credit cost — Edit models are flat per generation by resolution (quality).

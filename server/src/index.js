@@ -308,9 +308,11 @@ app.post('/api/generate', verifyJwt, requireNotBanned, requireFalKey, async (req
   // Charge BEFORE the FAL call so a user can't burn through quota by spamming
   // requests that race past the balance check.
   let chargedKind = null;
+  let chargedCost = null;
   try {
-    const charge = await chargeCredits({ userId: req.user.id, kind: type, ip: req.ip });
+    const charge = await chargeCredits({ userId: req.user.id, kind: type, ip: req.ip, cost: req.body.credit_cost });
     chargedKind = type;
+    chargedCost = charge.cost;
     res.setHeader('X-Credits-Remaining', String(charge.newBalance));
   } catch (e) {
     if (e instanceof InsufficientCreditsError) {
@@ -498,6 +500,7 @@ app.post('/api/generate', verifyJwt, requireNotBanned, requireFalKey, async (req
         userId: req.user.id,
         kind: chargedKind,
         ip: req.ip,
+        cost: chargedCost,
         reason: `fal_threw: ${humanReason}`.slice(0, 500),
       }).catch(() => {});
     }
@@ -566,9 +569,11 @@ app.post('/api/generate-video', verifyJwt, requireNotBanned, requireFalKey, asyn
 
   // Charge BEFORE submission so we don't enqueue a FAL job we can't bill for.
   let chargedKind = null;
+  let chargedCost = null;
   try {
-    const charge = await chargeCredits({ userId: req.user.id, kind: 'video', ip: req.ip });
+    const charge = await chargeCredits({ userId: req.user.id, kind: 'video', ip: req.ip, cost: req.body.credit_cost });
     chargedKind = 'video';
+    chargedCost = charge.cost;
     res.setHeader('X-Credits-Remaining', String(charge.newBalance));
   } catch (e) {
     if (e instanceof InsufficientCreditsError) {
@@ -634,7 +639,7 @@ app.post('/api/generate-video', verifyJwt, requireNotBanned, requireFalKey, asyn
     console.error('[VIDEO] Error:', error.message);
     if (chargedKind) {
       refundCredits({
-        userId: req.user.id, kind: chargedKind, ip: req.ip,
+        userId: req.user.id, kind: chargedKind, ip: req.ip, cost: chargedCost,
         reason: `fal_video_threw: ${error.message}`.slice(0, 500),
       }).catch(() => {});
     }
@@ -664,9 +669,11 @@ app.post('/api/edit-video-omni', verifyJwt, requireNotBanned, requireFalKey, asy
   if (!prompt) return res.status(400).json({ error: 'prompt required' });
 
   let chargedKind = null;
+  let chargedCost = null;
   try {
-    const charge = await chargeCredits({ userId: req.user.id, kind: 'video', ip: req.ip });
+    const charge = await chargeCredits({ userId: req.user.id, kind: 'video', ip: req.ip, cost: req.body.credit_cost });
     chargedKind = 'video';
+    chargedCost = charge.cost;
     res.setHeader('X-Credits-Remaining', String(charge.newBalance));
   } catch (e) {
     if (e instanceof InsufficientCreditsError) {
@@ -713,7 +720,7 @@ app.post('/api/edit-video-omni', verifyJwt, requireNotBanned, requireFalKey, asy
     console.error('[VIDEO-EDIT-OMNI] Error:', error.message);
     if (chargedKind) {
       refundCredits({
-        userId: req.user.id, kind: chargedKind, ip: req.ip,
+        userId: req.user.id, kind: chargedKind, ip: req.ip, cost: chargedCost,
         reason: `fal_video_edit_omni_threw: ${error.message}`.slice(0, 500),
       }).catch(() => {});
     }
@@ -745,9 +752,11 @@ app.post('/api/motion-control', verifyJwt, requireNotBanned, requireFalKey, asyn
   if (!video_url) return res.status(400).json({ error: 'video_url (motion reference) required' });
 
   let chargedKind = null;
+  let chargedCost = null;
   try {
-    const charge = await chargeCredits({ userId: req.user.id, kind: 'video', ip: req.ip });
+    const charge = await chargeCredits({ userId: req.user.id, kind: 'video', ip: req.ip, cost: req.body.credit_cost });
     chargedKind = 'video';
+    chargedCost = charge.cost;
     res.setHeader('X-Credits-Remaining', String(charge.newBalance));
   } catch (e) {
     if (e instanceof InsufficientCreditsError) {
@@ -792,7 +801,7 @@ app.post('/api/motion-control', verifyJwt, requireNotBanned, requireFalKey, asyn
     console.error('[MOTION-CONTROL] Error:', error.message);
     if (chargedKind) {
       refundCredits({
-        userId: req.user.id, kind: chargedKind, ip: req.ip,
+        userId: req.user.id, kind: chargedKind, ip: req.ip, cost: chargedCost,
         reason: `fal_motion_control_threw: ${error.message}`.slice(0, 500),
       }).catch(() => {});
     }
@@ -840,6 +849,7 @@ app.post('/api/tts', verifyJwt, requireNotBanned, requireFalKey, async (req, res
   }
 
   let chargedKind = null;
+  let chargedCost = null;
   try {
     const charge = await chargeCredits({ userId: req.user.id, kind: 'audio', ip: req.ip });
     chargedKind = 'audio';
@@ -894,7 +904,7 @@ app.post('/api/tts', verifyJwt, requireNotBanned, requireFalKey, async (req, res
     console.error('[TTS] Error:', error.message);
     if (chargedKind) {
       refundCredits({
-        userId: req.user.id, kind: chargedKind, ip: req.ip,
+        userId: req.user.id, kind: chargedKind, ip: req.ip, cost: chargedCost,
         reason: `fal_tts_threw: ${error.message}`.slice(0, 500),
       }).catch(() => {});
     }
@@ -922,6 +932,7 @@ app.post('/api/generate-music', verifyJwt, requireNotBanned, requireFalKey, asyn
   }
 
   let chargedKind = null;
+  let chargedCost = null;
   try {
     const charge = await chargeCredits({ userId: req.user.id, kind: 'audio', ip: req.ip });
     chargedKind = 'audio';
@@ -971,7 +982,7 @@ app.post('/api/generate-music', verifyJwt, requireNotBanned, requireFalKey, asyn
     console.error('[MUSIC] Error:', error.message);
     if (chargedKind) {
       refundCredits({
-        userId: req.user.id, kind: chargedKind, ip: req.ip,
+        userId: req.user.id, kind: chargedKind, ip: req.ip, cost: chargedCost,
         reason: `fal_music_threw: ${error.message}`.slice(0, 500),
       }).catch(() => {});
     }
@@ -1067,9 +1078,11 @@ app.post('/api/generate-video-ref', verifyJwt, requireNotBanned, requireFalKey, 
   const modelLabel = isFast ? 'Seedance 2.0 Fast' : 'Seedance 2.0';
 
   let chargedKind = null;
+  let chargedCost = null;
   try {
-    const charge = await chargeCredits({ userId: req.user.id, kind: 'video', ip: req.ip });
+    const charge = await chargeCredits({ userId: req.user.id, kind: 'video', ip: req.ip, cost: req.body.credit_cost });
     chargedKind = 'video';
+    chargedCost = charge.cost;
     res.setHeader('X-Credits-Remaining', String(charge.newBalance));
   } catch (e) {
     if (e instanceof InsufficientCreditsError) {
@@ -1136,7 +1149,7 @@ app.post('/api/generate-video-ref', verifyJwt, requireNotBanned, requireFalKey, 
     console.error('[SEEDANCE] Error:', error.message);
     if (chargedKind) {
       refundCredits({
-        userId: req.user.id, kind: chargedKind, ip: req.ip,
+        userId: req.user.id, kind: chargedKind, ip: req.ip, cost: chargedCost,
         reason: `seedance_threw: ${error.message}`.slice(0, 500),
       }).catch(() => {});
     }
@@ -1683,6 +1696,7 @@ app.post('/api/node/run-node', verifyJwt, requireNotBanned, requireFalKey, async
   }
 
   let chargedKind = null;
+  let chargedCost = null;
   try {
     const charge = await chargeCredits({ userId: req.user.id, kind: spec.creditKind, ip: req.ip });
     chargedKind = spec.creditKind;
@@ -1744,9 +1758,11 @@ app.post('/api/node/run-node-async', verifyJwt, requireNotBanned, requireFalKey,
   const falModel = useI2V ? (dm.i2v || dm.t2v) : dm.t2v;
 
   let chargedKind = null;
+  let chargedCost = null;
   try {
-    const charge = await chargeCredits({ userId: req.user.id, kind: 'video', ip: req.ip });
+    const charge = await chargeCredits({ userId: req.user.id, kind: 'video', ip: req.ip, cost: req.body.credit_cost });
     chargedKind = 'video';
+    chargedCost = charge.cost;
     res.setHeader('X-Credits-Remaining', String(charge.newBalance));
   } catch (e) {
     if (e instanceof InsufficientCreditsError) {

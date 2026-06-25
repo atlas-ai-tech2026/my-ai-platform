@@ -178,7 +178,7 @@ export default function Video() {
   };
 
   // ─── Standard video generate ───
-  const handleGenerate = async () => {
+  const handleGenerate = async (creditCost) => {
     if (!prompt.trim()) { toast.error('Please enter a prompt'); return; }
     if (!isAuthenticated) {
       toast.info('Please sign in to generate.');
@@ -203,6 +203,7 @@ export default function Video() {
       const payload = {
         model: model.name, prompt: finalPrompt,
         duration: dur, aspect_ratio: ratio,
+        credit_cost: creditCost,
         ...(imageUrl ? { image_url: imageUrl } : {}),
         ...(tailImageUrl ? { tail_image_url: tailImageUrl } : {}),
       };
@@ -273,7 +274,7 @@ export default function Video() {
   // dispatches to the right Kling endpoint based on `model`. scene_control
   // is sent for forward-compatibility — the server omits it from the FAL
   // payload until Kling exposes the flag publicly.
-  const handleMotionControl = async () => {
+  const handleMotionControl = async (creditCost) => {
     if (!motionRefVideo) { toast.error('Add a motion reference video'); return; }
     if (!motionCharImage) { toast.error('Add a character image'); return; }
     if (!isAuthenticated) {
@@ -296,6 +297,7 @@ export default function Video() {
           ...(prompt?.trim() ? { prompt: prompt.trim() } : {}),
           quality: motionQuality,
           scene_control: motionSceneControl,
+          credit_cost: creditCost,
         }),
       });
       const data = await response.json();
@@ -346,7 +348,7 @@ export default function Video() {
   // cap covers a typical 3–10 s 1080p MP4), then POSTs the URLs to
   // /api/edit-video-omni with the chosen `editModel`. Backend dispatches
   // to the right FAL endpoint. pollVideo() handles the status loop.
-  const handleEditVideo = async () => {
+  const handleEditVideo = async (creditCost) => {
     if (!editVideoFile) { toast.error('Upload a video to edit'); return; }
     if (!prompt.trim()) { toast.error('Type a prompt to describe the change'); return; }
     if (!isAuthenticated) {
@@ -379,6 +381,7 @@ export default function Video() {
           duration: dur,
           aspect_ratio: ratio,
           keep_audio: editKeepAudio,
+          credit_cost: creditCost,
           ...(editAutoSettings ? {} : { quality: editQuality }),
         }),
       });
@@ -540,7 +543,7 @@ export default function Video() {
   //   No images → text-to-video
   //   Images as reference → reference-to-video (image_urls[])
   //   Images as start/end frame → image-to-video (start_frame, end_frame)
-  const handleSeedanceGenerate = async () => {
+  const handleSeedanceGenerate = async (creditCost) => {
     if (!prompt.trim()) { toast.error('Please enter a prompt'); return; }
     if (!isAuthenticated) {
       toast.info('Please sign in to generate.');
@@ -600,6 +603,7 @@ export default function Video() {
         aspect_ratio: seedanceAspect,
         resolution: seedanceRes,
         generate_audio: seedanceAudioOn,
+        credit_cost: creditCost,
       };
 
       // Add mode-specific params

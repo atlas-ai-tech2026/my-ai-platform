@@ -259,7 +259,7 @@ export default function SeedanceLeftPanel({
       </div>
 
       {/* Generate button — RED Voxel brand color */}
-      <button onClick={onGenerate} disabled={isGenerating}
+      <button onClick={() => onGenerate?.(creditCost)} disabled={isGenerating}
         style={{
           width: '100%', padding: '12px 0', borderRadius: 10, border: 'none',
           background: isGenerating ? 'rgba(224,30,30,0.4)' : 'linear-gradient(90deg, #C41818, #E01E1E)',

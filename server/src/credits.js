@@ -37,11 +37,20 @@ export class InsufficientCreditsError extends Error {
  * Wrapped in a transaction so the balance UPDATE and credits_history INSERT
  * either both happen or both don't.
  */
-export async function chargeCredits({ userId, kind, ip }) {
-  const cost = CREDIT_COSTS[kind];
+export async function chargeCredits({ userId, kind, ip, cost: costOverride }) {
+  // Prefer the computed per-generation cost sent by the client (model +
+  // resolution + duration aware). Fall back to the flat per-kind cost when
+  // it's missing/invalid (e.g. a model not yet in the pricing table).
+  let cost = Number(costOverride);
+  if (!Number.isFinite(cost) || cost <= 0) {
+    cost = CREDIT_COSTS[kind];
+  }
   if (cost == null || !Number.isFinite(cost)) {
     throw new Error(`Unknown or invalid credit kind: ${kind}`);
   }
+  // Round to 2dp and clamp to a safety ceiling so a malformed request can't
+  // charge an absurd amount.
+  cost = Math.min(Math.round(cost * 100) / 100, 100000);
 
   const client = await pool.connect();
   try {
@@ -95,9 +104,15 @@ export async function chargeCredits({ userId, kind, ip }) {
  * own failure (the caller is already in an error path; we don't want to
  * mask the original error with a refund failure).
  */
-export async function refundCredits({ userId, kind, ip, reason }) {
-  const cost = CREDIT_COSTS[kind];
-  if (cost == null) return;
+export async function refundCredits({ userId, kind, ip, reason, cost: costOverride }) {
+  // Refund the exact amount charged (passed back from the route), falling
+  // back to the flat per-kind cost.
+  let cost = Number(costOverride);
+  if (!Number.isFinite(cost) || cost <= 0) {
+    cost = CREDIT_COSTS[kind];
+  }
+  if (cost == null || !Number.isFinite(cost)) return;
+  cost = Math.min(Math.round(cost * 100) / 100, 100000);
 
   const client = await pool.connect();
   try {

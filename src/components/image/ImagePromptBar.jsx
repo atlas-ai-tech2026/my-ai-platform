@@ -509,7 +509,7 @@ export default function ImagePromptBar({
     if (negativeActive && negRef.current) negRef.current.focus();
   }, [negativeActive]);
 
-  const handleGenerate = () => { if (onGenerate) onGenerate(); };
+  const handleGenerate = () => { if (onGenerate) onGenerate(creditCost); };
   const handleKey = (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleGenerate(); } };
 
   // Credit cost per image — driven by the master-plan pricing (model + quality).
