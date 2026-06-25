@@ -26,6 +26,56 @@ const MODULE_LABELS = {
 };
 
 export default function Studio() {
+  // ─── COMING SOON ──────────────────────────────────────────────────────────
+  // Studio is temporarily gated behind a "Coming Soon" screen. The full
+  // implementation below is preserved — delete this block to re-enable it.
+  if (true) {
+    return (
+      <div style={{
+        minHeight: '100vh', width: '100%', background: '#0A0A0A', color: '#fff',
+        display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+        textAlign: 'center', padding: 24, position: 'relative', overflow: 'hidden',
+      }}>
+        {/* red ambient glow */}
+        <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none',
+          background: 'radial-gradient(circle at 50% 38%, rgba(224,30,30,0.18), transparent 60%)' }} />
+
+        {/* V logo */}
+        <svg width={66} height={66} viewBox="0 0 64 64" fill="none" style={{ marginBottom: 26, position: 'relative' }}>
+          <path d="M20 18L32 46L44 18" stroke="#E01E1E" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
+          <circle cx="32" cy="14" r="3" fill="#E01E1E" />
+        </svg>
+
+        <div style={{ fontFamily: '"JetBrains Mono", monospace', letterSpacing: '0.32em',
+          fontSize: 12, color: '#E01E1E', textTransform: 'uppercase', marginBottom: 16, position: 'relative' }}>
+          Voxel Studio
+        </div>
+
+        <h1 style={{ fontFamily: 'Anton, sans-serif', fontSize: 'clamp(44px, 9vw, 104px)',
+          lineHeight: 0.92, textTransform: 'uppercase', margin: 0, position: 'relative' }}>
+          Coming Soon
+        </h1>
+
+        <p style={{ maxWidth: 480, color: 'rgba(255,255,255,0.55)', fontSize: 16,
+          lineHeight: 1.6, marginTop: 18, position: 'relative' }}>
+          The full multi-shot film studio is in the works. In the meantime,
+          create images and videos from the main app.
+        </p>
+
+        <a href="/Image" style={{
+          marginTop: 34, position: 'relative', textDecoration: 'none',
+          display: 'inline-flex', alignItems: 'center', gap: 8,
+          padding: '13px 26px', borderRadius: 12, color: '#fff', fontWeight: 700,
+          fontFamily: '"DM Sans", sans-serif', fontSize: 15,
+          background: 'linear-gradient(180deg, #FF2A2A, #8B0F0F)',
+          boxShadow: '0 0 22px rgba(224,30,30,0.5), 0 4px 10px rgba(139,15,15,0.5)',
+        }}>
+          ← Back to Voxel
+        </a>
+      </div>
+    );
+  }
+
   const [activeModule, setActiveModule] = useState('director');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [timelineCollapsed, setTimelineCollapsed] = useState(false);
