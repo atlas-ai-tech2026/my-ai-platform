@@ -317,7 +317,7 @@ export default function Image() {
     return () => { cancelled = true; };
   }, [isLoadingAuth, isAuthenticated, user?.id]);
 
-  const handleGenerate = async () => {
+  const handleGenerate = async (creditCost) => {
     if (!prompt.trim()) { toast.error('Please enter a prompt'); return; }
     // Sign-up wall: an unauthenticated user clicking Generate gets the
     // sign-up modal instead of a silent backend 401. The modal closes on
@@ -365,8 +365,10 @@ export default function Image() {
           imageUrls: uploadedUrls,
           numImages: isComposition ? 1 : 1,
           safetyTolerance: '4',
-          // Per-image credit cost (model + quality), charged server-side.
-          credit_cost: getImageCredits(selectedModel.id, quality),
+          // Per-image credit cost charged server-side. Prefer the exact value
+          // the Generate button showed (passed up from the prompt bar) so the
+          // charge always matches the display; fall back to a recompute.
+          credit_cost: creditCost ?? getImageCredits(selectedModel.id, quality),
           ...(negativePrompt?.trim() ? { negativePrompt } : {}),
         };
 
