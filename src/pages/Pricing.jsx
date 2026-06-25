@@ -12,22 +12,6 @@ import {
 
 const plans = [
   {
-    name: 'Free',
-    icon: Gift,
-    monthlyPrice: 0,
-    annualPrice: 0,
-    credits: '50 credits/month',
-    features: [
-      '3–4 images per day',
-      'Watermark on exports',
-      'Access to basic models',
-      'Community access',
-    ],
-    cta: 'Start Free',
-    popular: false,
-    highlighted: false,
-  },
-  {
     name: 'Pro',
     icon: Star,
     monthlyPrice: 29,
@@ -59,6 +43,21 @@ const plans = [
       'Custom enterprise pricing',
     ],
     cta: 'Get Advanced',
+    popular: false,
+    highlighted: false,
+  },
+  {
+    name: 'Voxel Studio',
+    icon: Crown,
+    monthlyPrice: 129,
+    annualPrice: 129,
+    credits: '4,500 credits/month',
+    features: [
+      'Everything in Advanced',
+      'Highest priority generation queue',
+      'Dedicated support',
+    ],
+    cta: 'Get Studio',
     popular: false,
     highlighted: false,
   },
@@ -104,6 +103,28 @@ const STARTER_CARD_CONFIG = {
       { ok: true, label: '4K export priority' },
       { ok: true, label: 'Premium support' },
       { ok: true, label: 'Early access to advanced AI features' },
+      { ok: true, label: 'Lowest cost per credit' },
+    ],
+    seedance: [
+      { name: 'Seedance 2.0',      access: true },
+      { name: 'Seedance 2.0 Mini', access: true },
+      { name: 'Seedance 2.0 Fast', access: true },
+    ],
+  },
+  'Voxel Studio': {
+    subtitle: 'For agencies & high-volume production',
+    creditsLabel: '4,500 credits/mo.',
+    nanoGens: 2250,
+    klingVideos: 600,
+    fixedLabel: 'Fixed amount of 4,500 credits/mo',
+    features: [
+      { ok: true, label: 'Parallel generations: up to 8 Videos, 16 Images' },
+      { ok: true, label: 'Everything in Advanced' },
+      { ok: true, label: 'All models, earliest access' },
+      { ok: true, label: 'Highest priority generation queue' },
+      { ok: true, label: 'Dedicated support' },
+      { ok: true, label: 'Team collaboration tools' },
+      { ok: true, label: 'API access' },
       { ok: true, label: 'Lowest cost per credit' },
     ],
     seedance: [
