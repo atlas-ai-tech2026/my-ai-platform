@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
-import { CheckCircle2, Gift, Star, Crown, ChevronDown } from 'lucide-react';
+import { CheckCircle2, Gift, Star, Crown, ChevronDown, Check, X, Sparkles, BarChart3 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
   Accordion,
@@ -135,7 +135,121 @@ export default function Pricing() {
           {plans.map((plan) => {
             const Icon = plan.icon;
             const price = isAnnual ? plan.annualPrice : plan.monthlyPrice;
-            
+
+            // ── Pro card: STARTER-style design ──────────────────────────────
+            // Credit math: Nano Banana Pro 1K = 2 cr → 600/2 = 300 gens.
+            //              Kling 3.0 1080p 5s = 7.5 cr → 600/7.5 = 80 videos.
+            if (plan.name === 'Pro') {
+              const GREEN = '#BEF264';
+              const proFeatures = [
+                { ok: true,  label: 'Parallel generations: up to 2 Videos, 4 Images' },
+                { ok: true,  label: 'No watermark on exports' },
+                { ok: true,  label: 'Access to Kling 2.6, Seedream 4.5, Soul 2.0' },
+                { ok: true,  label: 'Face Swap, Upscaler, Lipsync' },
+                { ok: true,  label: 'Priority generation queue' },
+                { ok: true,  label: 'Commercial usage rights' },
+                { ok: false, label: 'Early access to advanced AI features' },
+                { ok: false, label: 'Lowest cost per credit' },
+              ];
+              const seedance = [
+                { name: 'Seedance 2.0',      access: false },
+                { name: 'Seedance 2.0 Mini', access: true },
+                { name: 'Seedance 2.0 Fast', access: true },
+              ];
+              return (
+                <div
+                  key={plan.name}
+                  style={{
+                    position: 'relative', borderRadius: 18, padding: 24,
+                    background: '#16181C', border: '1px solid #2A2F35',
+                    display: 'flex', flexDirection: 'column', gap: 18,
+                    fontFamily: '"DM Sans", sans-serif',
+                  }}
+                >
+                  {/* Title + subtitle */}
+                  <div>
+                    <h3 style={{ fontFamily: 'Anton, sans-serif', fontSize: 30, letterSpacing: '0.02em', color: '#fff', textTransform: 'uppercase', margin: 0 }}>
+                      Pro
+                    </h3>
+                    <p style={{ color: '#9CA3AF', fontSize: 14, marginTop: 6 }}>
+                      For serious creators &amp; professionals
+                    </p>
+                  </div>
+
+                  {/* Credits box */}
+                  <div style={{ background: '#1F2227', border: '1px solid #2A2F35', borderRadius: 14, padding: 16 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#fff', fontWeight: 700, fontSize: 19 }}>
+                      <Sparkles style={{ width: 17, height: 17, color: GREEN }} />
+                      600 credits/mo.
+                    </div>
+                    <div style={{ color: '#9CA3AF', fontSize: 13.5, marginTop: 12, lineHeight: 1.8 }}>
+                      <div><span style={{ color: '#E5E7EB', fontWeight: 600 }}>= 300</span> Nano Banana Pro Generations</div>
+                      <div><span style={{ color: '#E5E7EB', fontWeight: 600 }}>~ 80</span> Kling 3.0 videos</div>
+                    </div>
+                    <div style={{ marginTop: 14, background: 'rgba(255,255,255,0.04)', border: '1px solid #2A2F35', borderRadius: 9, padding: '9px 12px', display: 'flex', alignItems: 'center', gap: 8, color: '#9CA3AF', fontSize: 13 }}>
+                      <Check style={{ width: 15, height: 15, color: GREEN }} />
+                      Fixed amount of 600 credits/mo
+                    </div>
+                  </div>
+
+                  {/* Price */}
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
+                      <span style={{ fontFamily: 'Anton, sans-serif', fontSize: 46, color: '#fff', lineHeight: 1 }}>${price}</span>
+                      <span style={{ color: '#9CA3AF', fontSize: 14 }}>{isAnnual ? 'Billed annually' : 'Billed monthly'}</span>
+                    </div>
+                    <p style={{ color: '#6B7280', fontSize: 13, marginTop: 8 }}>Renews at ${price}</p>
+                  </div>
+
+                  {/* CTA */}
+                  <button
+                    style={{
+                      width: '100%', padding: '15px 0', borderRadius: 12, border: 'none',
+                      background: '#fff', color: '#0F1113', fontSize: 16, fontWeight: 700,
+                      cursor: 'pointer', fontFamily: '"DM Sans", sans-serif',
+                    }}
+                  >
+                    Get Plan
+                  </button>
+
+                  {/* Features */}
+                  <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 13 }}>
+                    {proFeatures.map((f, i) => (
+                      <li key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 14, fontWeight: 600, color: f.ok ? '#E5E7EB' : '#6B7280' }}>
+                        {f.ok
+                          ? <Check style={{ width: 16, height: 16, color: '#fff', flexShrink: 0 }} />
+                          : <X style={{ width: 16, height: 16, color: '#6B7280', flexShrink: 0 }} />}
+                        {f.label}
+                      </li>
+                    ))}
+                  </ul>
+
+                  {/* Seedance access box */}
+                  <div style={{ background: 'linear-gradient(135deg, rgba(37,99,235,0.12), rgba(13,148,136,0.06))', border: '1px solid #2A2F35', borderRadius: 12, padding: 14 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                      <BarChart3 style={{ width: 16, height: 16, color: '#3B82F6' }} />
+                      <span style={{ color: '#fff', fontWeight: 700, fontSize: 13, letterSpacing: '0.06em' }}>SEEDANCE 2.0</span>
+                    </div>
+                    {seedance.map((s, i) => (
+                      <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 0', borderTop: i ? '1px solid rgba(255,255,255,0.05)' : 'none' }}>
+                        <span style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13.5, color: s.access ? '#E5E7EB' : '#6B7280', textDecoration: s.access ? 'underline' : 'none', textDecorationColor: 'rgba(255,255,255,0.2)' }}>
+                          {s.access
+                            ? <Check style={{ width: 14, height: 14, color: '#fff' }} />
+                            : <X style={{ width: 14, height: 14, color: '#6B7280' }} />}
+                          {s.name}
+                        </span>
+                        {s.access ? (
+                          <span style={{ background: GREEN, color: '#0F1113', fontSize: 10, fontWeight: 800, letterSpacing: '0.04em', padding: '3px 8px', borderRadius: 6 }}>FULL ACCESS</span>
+                        ) : (
+                          <span style={{ background: 'rgba(255,255,255,0.08)', color: '#9CA3AF', fontSize: 10, fontWeight: 800, letterSpacing: '0.04em', padding: '3px 8px', borderRadius: 6 }}>NO ACCESS</span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            }
+
             return (
               <div
                 key={plan.name}
