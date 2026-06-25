@@ -47,7 +47,7 @@ const plans = [
     highlighted: false,
   },
   {
-    name: 'Voxel Studio',
+    name: 'Studio',
     icon: Crown,
     monthlyPrice: 129,
     annualPrice: 129,
@@ -111,7 +111,7 @@ const STARTER_CARD_CONFIG = {
       { name: 'Seedance 2.0 Fast', access: true },
     ],
   },
-  'Voxel Studio': {
+  'Studio': {
     subtitle: 'For agencies & high-volume production',
     creditsLabel: '4,500 credits/mo.',
     nanoGens: 2250,
