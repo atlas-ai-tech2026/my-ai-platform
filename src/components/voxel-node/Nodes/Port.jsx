@@ -1,20 +1,26 @@
-// Voxel Node — a single typed port. Wraps React Flow's <Handle> so the
-// connection mechanics stay native, but adds the polish that fixes the
-// "line silently vanishes" bug:
-//   • color-coded by data type, grows on hover
+// Voxel Node — a single typed port, rendered as an icon BADGE (image / text /
+// video / audio) like Higgsfield/Freepik, not a bare dot. Wraps React Flow's
+// <Handle> so connection mechanics stay native, and adds the polish:
+//   • icon + color encode the data type; grows on hover
 //   • during a drag, valid targets glow and invalid ones dim
 //   • an invalid drop flashes the port red and shows a reason tooltip
-//   • click-to-connect fallback (click output, then click input)
-//   • empty inputs show a "Connect …" hint; ARIA labels for keyboard users
+//   • click-to-connect fallback; empty-input "Connect …" hint; ARIA
 import React from 'react';
 import { Handle, Position } from '@xyflow/react';
+import { Image as ImageIcon, Type, Video as VideoIcon, Music, Square, Hash } from 'lucide-react';
 import { typeColor } from '../dataTypes';
 import { portConnectable } from '../graphHelpers';
 import { useNodeStore } from '../store';
 
+const TYPE_ICON = {
+  text: Type, image: ImageIcon, reference: ImageIcon, video: VideoIcon,
+  audio: Music, mask: Square, number: Hash,
+};
+
 export default function Port({ node, port, direction, offsetTop, filled }) {
   const isInput = direction === 'input';
   const color = typeColor(port.type);
+  const Icon = TYPE_ICON[port.type] || Square;
 
   const connectingFrom = useNodeStore((s) => s.connectingFrom);
   const connectionError = useNodeStore((s) => s.connectionError);
@@ -40,15 +46,9 @@ export default function Port({ node, port, direction, offsetTop, filled }) {
     isOrigin && 'vx-port--origin',
   ].filter(Boolean).join(' ');
 
-  // Hint/label shown just outside the card. For inputs we surface the port
-  // label as a "Connect …" hint while empty + connecting; the error tooltip
-  // always wins.
   const showHint = errored || (isInput && connecting && !filled);
 
-  const onActivate = (e) => {
-    e.stopPropagation();
-    clickPort(node, port.id, direction);
-  };
+  const onActivate = (e) => { e.stopPropagation(); clickPort(node, port.id, direction); };
 
   return (
     <>
@@ -62,24 +62,26 @@ export default function Port({ node, port, direction, offsetTop, filled }) {
         tabIndex={0}
         role="button"
         aria-label={`${port.label || port.id} ${port.type} ${isInput ? 'input' : 'output'} port${
-          isValidTarget ? ', compatible' : isInvalidTarget ? ', incompatible' : ''
-        }`}
+          port.multiple ? ' (accepts multiple)' : ''
+        }${isValidTarget ? ', compatible' : isInvalidTarget ? ', incompatible' : ''}`}
         style={{
           top: offsetTop,
-          width: 13, height: 13,
-          background: color,
-          border: '2px solid #141414',
-          // expose the type color to CSS for the glow ring
+          width: 26, height: 26, borderRadius: 8,
+          background: errored ? '#ff4444' : '#1b1b1d',
+          border: `1.5px solid ${errored ? '#ff6b6b' : color}`,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
           ['--vx-port-color']: color,
         }}
-      />
+      >
+        <Icon style={{ width: 13, height: 13, color: errored ? '#fff' : color, pointerEvents: 'none' }} />
+      </Handle>
       {showHint && (
         <div
           className={`vx-port-hint ${errored ? 'vx-port-hint--error' : ''}`}
           style={{
             position: 'absolute',
-            top: offsetTop - 9,
-            [isInput ? 'right' : 'left']: 'calc(100% + 14px)',
+            top: (offsetTop ?? 0) - 6,
+            [isInput ? 'right' : 'left']: 'calc(100% + 18px)',
             ['--vx-port-color']: color,
           }}
         >

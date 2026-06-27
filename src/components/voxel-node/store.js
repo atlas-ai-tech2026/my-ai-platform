@@ -238,15 +238,19 @@ export const useNodeStore = create((set, get) => ({
   // Generator as a start frame → i2v, and the Image Generator as a
   // reference → i2i/edit). Handles both produced images (outputs.image)
   // and uploaded Image nodes (settings.url).
-  resolveImageInput: (nodeId) => {
+  resolveImageInput: (nodeId) => get().resolveImageInputs(nodeId)[0] || null,
+
+  // ALL upstream images connected to this node's image/reference input, in
+  // edge order (multi-reference). Handles produced images + uploaded nodes.
+  resolveImageInputs: (nodeId) => {
     const { nodes, edges } = get();
-    const incoming = edges.filter((e) => e.target === nodeId);
-    for (const e of incoming) {
-      const src = nodes.find((n) => n.id === e.source);
-      const url = src?.data?.outputs?.image || src?.data?.settings?.url;
-      if (url) return url;
-    }
-    return null;
+    return edges
+      .filter((e) => e.target === nodeId && e.targetHandle === 'image')
+      .map((e) => {
+        const src = nodes.find((n) => n.id === e.source);
+        return src?.data?.outputs?.image || src?.data?.settings?.url;
+      })
+      .filter(Boolean);
   },
 
   // ── staleness (live pipeline) ────────────────────────────────
@@ -285,7 +289,8 @@ export const useNodeStore = create((set, get) => ({
     if (!node) return;
     const def = getNodeDef(node.data.nodeType);
     const prompt = get().resolvePrompt(id);
-    const imageUrl = get().resolveImageInput(id);
+    const imageUrls = get().resolveImageInputs(id);
+    const imageUrl = imageUrls[0] || null;
 
     // Video can run from an image alone (i2v); image needs a prompt.
     if (!prompt.trim() && !imageUrl) {
@@ -301,6 +306,7 @@ export const useNodeStore = create((set, get) => ({
           ...node.data.settings,
           prompt,
           ...(imageUrl ? { image_url: imageUrl } : {}),
+          ...(imageUrls.length ? { image_urls: imageUrls } : {}),
         });
         const url = await get().pollVideo(id, job_id, model_id);
         if (!url) {
@@ -316,6 +322,7 @@ export const useNodeStore = create((set, get) => ({
         ...node.data.settings,
         prompt,
         ...(imageUrl ? { image_url: imageUrl } : {}),
+        ...(imageUrls.length ? { image_urls: imageUrls } : {}),
       });
       get().updateNodeData(id, { status: 'completed', outputs, error: null, stale: false });
       get().markStale(id); // output changed → invalidate consumers

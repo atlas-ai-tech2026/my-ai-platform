@@ -48,13 +48,29 @@ describe('onConnect feedback', () => {
     expect(connectionError.reason).toMatch(/image output → text input/i);
   });
 
-  it('auto-replaces an existing edge on a single-connection input', () => {
+  it('keeps multiple references on a multi-connection image input', () => {
     const s = useNodeStore.getState();
     s.onConnect({ source: 'img1', sourceHandle: 'image', target: 'vid1', targetHandle: 'image' });
     s.onConnect({ source: 'img2', sourceHandle: 'image', target: 'vid1', targetHandle: 'image' });
     const { edges } = useNodeStore.getState();
-    expect(edges).toHaveLength(1);
-    expect(edges[0].source).toBe('img2'); // replaced, not duplicated
+    expect(edges).toHaveLength(2); // both references kept
+    expect(edges.map((e) => e.source).sort()).toEqual(['img1', 'img2']);
+  });
+
+  it('auto-replaces an existing edge on a single-connection input (prompt)', () => {
+    useNodeStore.setState((st) => ({
+      nodes: [
+        ...st.nodes,
+        { id: 'txtA', type: 'voxelNode', data: { nodeType: 'text', settings: { value: 'a' } } },
+        { id: 'txtB', type: 'voxelNode', data: { nodeType: 'text', settings: { value: 'b' } } },
+      ],
+    }));
+    const s = useNodeStore.getState();
+    s.onConnect({ source: 'txtA', sourceHandle: 'text', target: 'vid1', targetHandle: 'prompt' });
+    s.onConnect({ source: 'txtB', sourceHandle: 'text', target: 'vid1', targetHandle: 'prompt' });
+    const promptEdges = useNodeStore.getState().edges.filter((e) => e.targetHandle === 'prompt');
+    expect(promptEdges).toHaveLength(1);
+    expect(promptEdges[0].source).toBe('txtB'); // replaced, not duplicated
   });
 });
 

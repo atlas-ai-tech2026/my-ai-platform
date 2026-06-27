@@ -2,14 +2,14 @@
    and edge delete affordances. Scoped via .vx-* class names; colors come
    from the per-port --vx-port-color custom property set in Port.jsx. */
 
-/* Ports: native React Flow handles, restyled. Grow on hover. */
+/* Ports: native React Flow handles, restyled as typed icon badges. */
 .vx-port {
-  border-radius: 50%;
-  transition: transform 0.12s ease, box-shadow 0.12s ease, opacity 0.12s ease, background 0.12s ease;
+  transition: transform 0.12s ease, box-shadow 0.12s ease, opacity 0.12s ease, background 0.12s ease, border-color 0.12s ease;
   cursor: crosshair;
 }
 .vx-port:hover {
-  transform: scale(1.45);
+  transform: scale(1.18);
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.12);
 }
 .vx-port:focus-visible {
   outline: none;

@@ -55,8 +55,8 @@ export const NODE_DEFS = {
     // `image` is a REFERENCE input: a connected image triggers image-to-image
     // / edit on the server (TYPE_COMPAT lets an image output feed it).
     inputs: [
+      { id: 'image', type: 'reference', label: 'References', multiple: true },
       { id: 'prompt', type: 'text', label: 'Prompt' },
-      { id: 'image', type: 'reference', label: 'Reference' },
     ],
     outputs: [{ id: 'image', type: 'image', label: 'Image' }],
     defaultSettings: { model: 'Nano Banana Pro', aspect_ratio: '1:1', quality: '1K' },
@@ -95,8 +95,8 @@ export const NODE_DEFS = {
     // names match the main Video page (server resolves via VIDEO_DIRECT_MAP).
     models: ['Kling 3.0', 'Kling 2.6', 'Veo 3.1', 'Wan 2.6', 'Seedance 2.0', 'Hailuo 2.3', 'PixVerse 5', 'Sora 2', 'Luma Dream Machine'],
     inputs: [
+      { id: 'image', type: 'image', label: 'Image refs', multiple: true },
       { id: 'prompt', type: 'text', label: 'Prompt' },
-      { id: 'image', type: 'image', label: 'Start frame' },
     ],
     outputs: [{ id: 'video', type: 'video', label: 'Video' }],
     defaultSettings: { model: 'Kling 3.0', duration: 5, aspect_ratio: '16:9' },

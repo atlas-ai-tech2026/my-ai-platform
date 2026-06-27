@@ -1549,25 +1549,35 @@ const NODE_IMAGE_MODEL_NAMES = [
 const NODE_SYNC_SPECS = {
   'image-generator': {
     creditKind: 'image',
-    // A connected upstream image (settings.image_url) switches the node to
-    // image-to-image; otherwise plain text-to-image.
+    // Connected upstream images switch the node out of text-to-image:
+    //   • 2+ references + an edit-capable model → multi-image edit (image_urls)
+    //   • 1 reference → image-to-image (single image param)
+    //   • none → text-to-image
     resolve: (s) => {
       const cfg = MODEL_CONFIG[s?.model] || MODEL_CONFIG['Nano Banana Pro'];
-      return s?.image_url ? (cfg.i2i || cfg.t2i) : cfg.t2i;
+      const n = Array.isArray(s?.image_urls) ? s.image_urls.length : (s?.image_url ? 1 : 0);
+      if (n > 1 && cfg.edit) return cfg.edit;
+      if (n >= 1) return cfg.i2i || cfg.t2i;
+      return cfg.t2i;
     },
     buildInput: (s, prompt) => {
       const cfg = MODEL_CONFIG[s?.model] || MODEL_CONFIG['Nano Banana Pro'];
       const ratio = s?.aspect_ratio || '1:1';
       const quality = s?.quality || '1K';
       const { width, height } = getDimensions(ratio, quality);
-      return {
+      const urls = Array.isArray(s?.image_urls) && s.image_urls.length
+        ? s.image_urls.filter(Boolean)
+        : (s?.image_url ? [s.image_url] : []);
+      const base = {
         prompt, num_images: 1, safety_tolerance: '4',
         ...(cfg.nativeSizing
           ? { aspect_ratio: ratio, resolution: RESOLUTION_MAP[quality] || '1K' }
           : { image_size: { width, height } }),
-        // Reference image → image-to-image (uses the model's image param).
-        ...(s?.image_url ? { [cfg.imgParam || 'image_url']: s.image_url } : {}),
       };
+      // 2+ refs on an edit-capable model → image_urls array; else single i2i.
+      if (urls.length > 1 && cfg.edit) return { ...base, image_urls: urls.slice(0, 14) };
+      if (urls.length >= 1) return { ...base, [cfg.imgParam || 'image_url']: urls[0] };
+      return base;
     },
     extract: (d) => d?.images?.[0]?.url || d?.image?.url || null,
     outKey: 'image',
@@ -1761,12 +1771,21 @@ app.post('/api/node/run-node-async', verifyJwt, requireNotBanned, requireFalKey,
   }
 
   const modelLabel = settings?.model;
-  const imageUrl = settings?.image_url; // upstream image → start frame
-  const useI2V = !!imageUrl;
+  // Upstream image(s). image_urls is the multi-reference array; image_url is
+  // the single start frame (first reference) for back-compat.
+  const imageUrls = Array.isArray(settings?.image_urls)
+    ? settings.image_urls.filter(Boolean)
+    : (settings?.image_url ? [settings.image_url] : []);
+  const imageUrl = settings?.image_url || imageUrls[0] || null;
   // Reuse the same VIDEO_DIRECT_MAP the main Video page uses, so the node
   // hits the exact proven FAL endpoints + correct image field names.
   const dm = VIDEO_DIRECT_MAP[modelLabel] || VIDEO_DIRECT_MAP['Kling 3.0'];
-  const falModel = useI2V ? (dm.i2v || dm.t2v) : dm.t2v;
+  // Multiple references + a model that supports reference-to-video (Seedance
+  // 2.0 family) → use the ref endpoint with image_urls. A single image → i2v
+  // start frame. None → text-to-video.
+  const useRef = imageUrls.length > 0 && !!dm.ref;
+  const useI2V = !useRef && !!imageUrl;
+  const falModel = useRef ? dm.ref : (useI2V ? (dm.i2v || dm.t2v) : dm.t2v);
 
   let chargedKind = null;
   let chargedCost = null;
@@ -1791,9 +1810,11 @@ app.post('/api/node/run-node-async', verifyJwt, requireNotBanned, requireFalKey,
     prompt: prompt.trim(),
     duration: String(settings?.duration || 5),
     aspect_ratio: settings?.aspect_ratio || '16:9',
+    ...(useRef ? { image_urls: imageUrls.slice(0, 9), resolution: settings?.resolution || '720p' } : {}),
     ...(useI2V ? { [imageParam]: imageUrl } : {}),
   };
-  console.log(`[node:run-async] user=${req.user.id} model="${modelLabel}" ${useI2V ? 'i2v' : 't2v'} → ${falModel}`);
+  const mode = useRef ? `ref(${imageUrls.length})` : useI2V ? 'i2v' : 't2v';
+  console.log(`[node:run-async] user=${req.user.id} model="${modelLabel}" ${mode} → ${falModel}`);
 
   try {
     const submitted = await fal.queue.submit(falModel, { input });

@@ -7,8 +7,9 @@ const nodes = [
   { id: 'img1', data: { nodeType: 'image' } },           // out: image
   { id: 'gen1', data: { nodeType: 'image-generator' } }, // in: prompt(text), image(reference) | out: image
   { id: 'gen2', data: { nodeType: 'image-generator' } }, // same shape — used for cycle test
-  { id: 'vid1', data: { nodeType: 'video-generator' } }, // in: prompt(text), image(image) | out: video
+  { id: 'vid1', data: { nodeType: 'video-generator' } }, // in: prompt(text), image(image, multiple) | out: video
   { id: 'txt1', data: { nodeType: 'text' } },            // out: text
+  { id: 'txt2', data: { nodeType: 'text' } },            // out: text
 ];
 
 const conn = (source, sourceHandle, target, targetHandle) => ({ source, sourceHandle, target, targetHandle });
@@ -16,7 +17,7 @@ const conn = (source, sourceHandle, target, targetHandle) => ({ source, sourceHa
 describe('getPort', () => {
   it('resolves typed output/input descriptors from the registry', () => {
     expect(getPort(nodes[0], 'image', 'output')).toMatchObject({ direction: 'output', dataType: 'image' });
-    expect(getPort(nodes[1], 'image', 'input')).toMatchObject({ direction: 'input', dataType: 'reference', label: 'Reference' });
+    expect(getPort(nodes[1], 'image', 'input')).toMatchObject({ direction: 'input', dataType: 'reference', multiple: true });
   });
 });
 
@@ -51,10 +52,17 @@ describe('validateConnection', () => {
     expect(r.reason).toMatch(/loop/i);
   });
 
-  it('rejects a second edge into a full single-connection input', () => {
-    const edges = [{ source: 'img1', sourceHandle: 'image', target: 'gen1', targetHandle: 'image' }];
-    const r = validateConnection(nodes, edges, conn('img1', 'image', 'gen1', 'image'));
+  it('rejects a second edge into a full single-connection input (prompt)', () => {
+    const edges = [{ source: 'txt1', sourceHandle: 'text', target: 'gen1', targetHandle: 'prompt' }];
+    const r = validateConnection(nodes, edges, conn('txt2', 'text', 'gen1', 'prompt'));
     expect(r.ok).toBe(false);
+  });
+
+  it('allows multiple references into a multiple image input', () => {
+    const edges = [{ source: 'img1', sourceHandle: 'image', target: 'gen1', targetHandle: 'image' }];
+    // gen1.image is multiple → a different image source is allowed.
+    const r = validateConnection(nodes, edges, conn('gen2', 'image', 'gen1', 'image'));
+    expect(r.ok).toBe(true);
   });
 
   it('canConnectPorts is the boolean wrapper', () => {

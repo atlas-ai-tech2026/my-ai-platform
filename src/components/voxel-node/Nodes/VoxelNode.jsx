@@ -2,7 +2,7 @@
 // every node type, branching on data.nodeType. Matches the Voxel dark
 // theme: surface #141414, border rgba(255,255,255,0.14), red selected
 // ring, DM Sans. Status pills per spec §11.
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useMemo } from 'react';
 import { Type, Image as ImageIcon, Video as VideoIcon, StickyNote, Loader2, Sparkles, ChevronDown, Mic, Music, Upload, RefreshCw } from 'lucide-react';
 import { getNodeDef } from '../nodeRegistry';
 import { useNodeStore } from '../store';
@@ -27,6 +27,7 @@ export default function VoxelNode({ id, data, selected }) {
   const updateNodeSettings = useNodeStore((s) => s.updateNodeSettings);
   const runNode = useNodeStore((s) => s.runNode);
   const edges = useNodeStore((s) => s.edges);
+  const nodes = useNodeStore((s) => s.nodes);
   const markStale = useNodeStore((s) => s.markStale);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [anchorRect, setAnchorRect] = useState(null);
@@ -34,13 +35,26 @@ export default function VoxelNode({ id, data, selected }) {
   const [uploading, setUploading] = useState(false);
   const [uploadErr, setUploadErr] = useState(null);
   const fileRef = useRef(null);
+  // Connected reference images (shown as thumbnail chips inside the node, the
+  // way Higgsfield/Freepik show what feeds a generator). Resolves both
+  // generated images (outputs.image) and uploaded Image nodes (settings.url).
+  // Declared before any early return to keep hook order stable.
+  const refImages = useMemo(() => (
+    edges
+      .filter((e) => e.target === id && e.targetHandle === 'image')
+      .map((e) => {
+        const src = nodes.find((n) => n.id === e.source);
+        return src?.data?.outputs?.image || src?.data?.settings?.url;
+      })
+      .filter(Boolean)
+  ), [edges, nodes, id]);
   if (!def) return null;
 
   // Node ref handed to Port (it only needs the id).
   const nodeRef = { id };
   // Which input handles already have an edge (drives the "Connect …" hint).
   const filledInput = (handleId) => edges.some((e) => e.target === id && e.targetHandle === handleId);
-  const inputTop = (i) => 46 + i * 28;
+  const inputTop = (i) => 42 + i * 38;
 
   // ── Sticky Note: pure annotation node (no ports, no run) ──────
   if (def.type === 'sticky-note') {
@@ -308,6 +322,20 @@ export default function VoxelNode({ id, data, selected }) {
                 lineHeight: 1.4, textShadow: hasVisual ? '0 1px 3px rgba(0,0,0,0.7)' : 'none',
               }}
             />
+
+            {/* Connected reference thumbnails (what feeds this node) */}
+            {refImages.length > 0 && (
+              <div style={{ position: 'absolute', left: 10, right: 10, bottom: 50, zIndex: 2, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                {refImages.slice(0, 6).map((url, i) => (
+                  <div key={i} style={{ width: 34, height: 34, borderRadius: 7, overflow: 'hidden', border: '1.5px solid rgba(255,255,255,0.5)', boxShadow: '0 2px 8px rgba(0,0,0,0.5)', flexShrink: 0 }}>
+                    <img src={url} alt={`ref ${i + 1}`} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  </div>
+                ))}
+                {refImages.length > 6 && (
+                  <div style={{ width: 34, height: 34, borderRadius: 7, background: 'rgba(0,0,0,0.6)', border: '1.5px solid rgba(255,255,255,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 11, fontWeight: 700 }}>+{refImages.length - 6}</div>
+                )}
+              </div>
+            )}
 
             {/* Bottom bar */}
             <div style={{
