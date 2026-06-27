@@ -267,18 +267,16 @@ function CanvasInner() {
         </div>
       )}
 
-      {/* Left dock — undo / redo / fit / zoom (clears the node panel) */}
-      <div style={dockStyle({ left: 264, top: '50%', transform: 'translateY(-50%)', flexDirection: 'column' })}>
+      {/* Single bottom toolbar — view controls + tools + add (nothing floats
+          over the canvas/nodes anymore). */}
+      <div style={dockStyle({ bottom: 20, left: '50%', transform: 'translateX(-50%)', flexDirection: 'row' })}>
         <DockBtn icon={Undo2} title="Undo (⌘Z)" onClick={undo} disabled={!canUndo} />
         <DockBtn icon={Redo2} title="Redo (⌘⇧Z)" onClick={redo} disabled={!canRedo} />
-        <Divider horizontal />
-        <DockBtn icon={Maximize} title="Fit to screen" onClick={() => fitView({ duration: 300 })} />
-        <DockBtn icon={ZoomIn} title="Zoom in" onClick={() => zoomIn({ duration: 200 })} />
+        <Divider />
         <DockBtn icon={ZoomOut} title="Zoom out" onClick={() => zoomOut({ duration: 200 })} />
-      </div>
-
-      {/* Bottom-center tool dock */}
-      <div style={dockStyle({ bottom: 20, left: '50%', transform: 'translateX(-50%)', flexDirection: 'row' })}>
+        <DockBtn icon={ZoomIn} title="Zoom in" onClick={() => zoomIn({ duration: 200 })} />
+        <DockBtn icon={Maximize} title="Fit to screen" onClick={() => fitView({ duration: 300 })} />
+        <Divider />
         <DockBtn icon={MousePointer2} title="Select (V)" active />
         <DockBtn icon={Hand} title="Pan (H)" />
         <Divider />
