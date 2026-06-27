@@ -64,24 +64,46 @@
   border-color: #ff6b6b;
 }
 
-/* Edge hover delete button (rendered in an EdgeLabelRenderer). */
-.vx-edge-delete {
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  background: #1a1a1a;
+/* Edge hover delete — a blue ✕ at the midpoint with a "Remove connection"
+   tooltip above it, revealed when the edge (or button) is hovered. */
+.vx-edge-tools {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 7px;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+  pointer-events: all;
+}
+.vx-edge-wrap:hover .vx-edge-tools,
+.vx-edge-tools:hover,
+.vx-edge-tools:focus-within { opacity: 1; }
+
+.vx-edge-tip {
+  font-family: "DM Sans", sans-serif;
+  font-size: 13px;
+  font-weight: 600;
   color: #fff;
-  font-size: 11px;
-  line-height: 1;
+  background: rgba(20, 20, 22, 0.96);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 9px;
+  padding: 6px 12px;
+  white-space: nowrap;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.55);
+}
+
+.vx-edge-delete {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: none;
+  background: #5b9bf8;
+  color: #fff;
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  opacity: 0;
-  transition: opacity 0.12s ease, background 0.12s ease;
-  pointer-events: all;
+  box-shadow: 0 4px 16px rgba(91, 155, 248, 0.5);
+  transition: background 0.12s ease, transform 0.12s ease;
 }
-.vx-edge-wrap:hover .vx-edge-delete,
-.vx-edge-delete:focus-visible { opacity: 1; }
-.vx-edge-delete:hover { background: #c81e1e; }
+.vx-edge-delete:hover { background: #3b82f6; transform: scale(1.08); }
