@@ -1549,7 +1549,12 @@ const NODE_IMAGE_MODEL_NAMES = [
 const NODE_SYNC_SPECS = {
   'image-generator': {
     creditKind: 'image',
-    resolve: (s) => (MODEL_CONFIG[s?.model] || MODEL_CONFIG['Nano Banana Pro']).t2i,
+    // A connected upstream image (settings.image_url) switches the node to
+    // image-to-image; otherwise plain text-to-image.
+    resolve: (s) => {
+      const cfg = MODEL_CONFIG[s?.model] || MODEL_CONFIG['Nano Banana Pro'];
+      return s?.image_url ? (cfg.i2i || cfg.t2i) : cfg.t2i;
+    },
     buildInput: (s, prompt) => {
       const cfg = MODEL_CONFIG[s?.model] || MODEL_CONFIG['Nano Banana Pro'];
       const ratio = s?.aspect_ratio || '1:1';
@@ -1560,6 +1565,8 @@ const NODE_SYNC_SPECS = {
         ...(cfg.nativeSizing
           ? { aspect_ratio: ratio, resolution: RESOLUTION_MAP[quality] || '1K' }
           : { image_size: { width, height } }),
+        // Reference image → image-to-image (uses the model's image param).
+        ...(s?.image_url ? { [cfg.imgParam || 'image_url']: s.image_url } : {}),
       };
     },
     extract: (d) => d?.images?.[0]?.url || d?.image?.url || null,

@@ -3,7 +3,7 @@
 import { create } from 'zustand';
 import { addEdge, applyNodeChanges, applyEdgeChanges } from '@xyflow/react';
 import { nodeApi } from './api';
-import { getNodeDef, canConnectPorts } from './graphHelpers';
+import { getNodeDef, validateConnection, getPort } from './graphHelpers';
 
 let saveTimer = null;
 
@@ -79,11 +79,95 @@ export const useNodeStore = create((set, get) => ({
     set({ edges: applyEdgeChanges(changes, get().edges) });
     get().scheduleSave();
   },
+  // ── connection feedback (the core UX fix) ────────────────────
+  // When a drop is rejected we record WHY here so the target port can flash
+  // red and show a tooltip — instead of the line silently vanishing.
+  connectionError: null, // { nodeId, handleId, reason, ts } | null
+  _errTimer: null,
+  setConnectionError: (err) => {
+    if (get()._errTimer) clearTimeout(get()._errTimer);
+    if (!err) { set({ connectionError: null, _errTimer: null }); return; }
+    const ts = Date.now();
+    const timer = setTimeout(() => {
+      if (get().connectionError?.ts === ts) set({ connectionError: null });
+    }, 2600);
+    set({ connectionError: { ...err, ts }, _errTimer: timer });
+  },
+  clearConnectionError: () => {
+    if (get()._errTimer) clearTimeout(get()._errTimer);
+    set({ connectionError: null, _errTimer: null });
+  },
+
+  // The output port a drag/click-connect is currently originating from, so
+  // every other port can show valid-target glow / invalid dim while dragging.
+  connectingFrom: null, // { nodeId, id, direction, dataType } | null
+  setConnectingFrom: (port) => set({ connectingFrom: port }),
+
   onConnect: (conn) => {
-    // Enforce type-safe + acyclic connections before adding the edge.
-    if (!canConnectPorts(get().nodes, get().edges, conn)) return;
+    const { nodes, edges } = get();
+    // Single-connection inputs auto-replace: drop any existing edge on the
+    // same target handle before validating, so a compatible re-wire just
+    // works (Higgsfield/Spaces behavior) instead of being rejected as full.
+    const dstNode = nodes.find((n) => n.id === conn.target);
+    const dstPort = getPort(dstNode, conn.targetHandle, 'input');
+    let baseEdges = edges;
+    if (dstPort && !dstPort.multiple) {
+      baseEdges = edges.filter(
+        (e) => !(e.target === conn.target && e.targetHandle === conn.targetHandle)
+      );
+    }
+    const check = validateConnection(nodes, baseEdges, conn);
+    if (!check.ok) {
+      // Surface the reason on the target port (red flash + tooltip).
+      get().setConnectionError({ nodeId: conn.target, handleId: conn.targetHandle, reason: check.reason });
+      return;
+    }
     get().pushHistory();
-    set({ edges: addEdge({ ...conn, type: 'default' }, get().edges) });
+    set({ edges: addEdge({ ...conn, type: 'default' }, baseEdges) });
+    get().clearConnectionError();
+    get().markStaleSubtree(conn.target);
+    get().scheduleSave();
+  },
+
+  // ── click-to-connect (drag-free fallback) ────────────────────
+  // Click an output port to arm a pending connection, then click a
+  // compatible input port to complete it (or anywhere to cancel).
+  pendingConnection: null, // { nodeId, id, direction, dataType } | null
+  clickPort: (nodeOrId, handleId, direction) => {
+    const id = typeof nodeOrId === 'string' ? nodeOrId : nodeOrId?.id;
+    const node = get().nodes.find((n) => n.id === id);
+    if (!node) return;
+    const pending = get().pendingConnection;
+    // Arm from an output port.
+    if (!pending) {
+      if (direction !== 'output') return;
+      const port = getPort(node, handleId, 'output');
+      set({ pendingConnection: port ? { ...port } : null });
+      get().clearConnectionError();
+      return;
+    }
+    // Clicking the same armed port again cancels.
+    if (pending.nodeId === id && pending.id === handleId && direction === 'output') {
+      set({ pendingConnection: null });
+      return;
+    }
+    // Complete onto an input port.
+    if (direction === 'input') {
+      get().onConnect({
+        source: pending.nodeId, sourceHandle: pending.id,
+        target: id, targetHandle: handleId,
+      });
+      set({ pendingConnection: null });
+    }
+  },
+  cancelPending: () => set({ pendingConnection: null }),
+
+  // Remove a single edge by id (hover-✕ on an edge).
+  removeEdge: (edgeId) => {
+    const edge = get().edges.find((e) => e.id === edgeId);
+    get().pushHistory();
+    set({ edges: get().edges.filter((e) => e.id !== edgeId) });
+    if (edge) get().markStaleSubtree(edge.target);
     get().scheduleSave();
   },
 
@@ -119,6 +203,7 @@ export const useNodeStore = create((set, get) => ({
   },
 
   // Merge a patch into a node's settings (convenience for the inspector).
+  // Editing settings (prompt, model, …) invalidates downstream results.
   updateNodeSettings: (id, settingsPatch) => {
     set({
       nodes: get().nodes.map((n) =>
@@ -127,6 +212,7 @@ export const useNodeStore = create((set, get) => ({
           : n
       ),
     });
+    get().markStale(id);
     get().scheduleSave();
   },
 
@@ -148,18 +234,50 @@ export const useNodeStore = create((set, get) => ({
     return self?.data?.settings?.prompt || '';
   },
 
-  // Resolve an upstream image output connected to this node (used by the
-  // Video Generator as a start frame → triggers image-to-video).
+  // Resolve an upstream image connected to this node (used by the Video
+  // Generator as a start frame → i2v, and the Image Generator as a
+  // reference → i2i/edit). Handles both produced images (outputs.image)
+  // and uploaded Image nodes (settings.url).
   resolveImageInput: (nodeId) => {
     const { nodes, edges } = get();
     const incoming = edges.filter((e) => e.target === nodeId);
     for (const e of incoming) {
       const src = nodes.find((n) => n.id === e.source);
-      const url = src?.data?.outputs?.image;
+      const url = src?.data?.outputs?.image || src?.data?.settings?.url;
       if (url) return url;
     }
     return null;
   },
+
+  // ── staleness (live pipeline) ────────────────────────────────
+  // Mark every node DOWNSTREAM of `nodeId` as stale so the UI can badge it
+  // and the user knows a re-run is needed. Does not touch `nodeId` itself.
+  // Mark a set of nodes stale (only those that have a completed result —
+  // an idle node has nothing to invalidate). `includeRoot` also stales the
+  // root, used when the root's INPUTS changed (edge added/removed) rather
+  // than its output.
+  _markStaleSet: (rootId, includeRoot) => {
+    const { nodes, edges } = get();
+    const dirty = new Set(includeRoot ? [rootId] : []);
+    const walk = (id) => {
+      edges.filter((e) => e.source === id).forEach((e) => {
+        if (!dirty.has(e.target)) { dirty.add(e.target); walk(e.target); }
+      });
+    };
+    walk(rootId);
+    if (dirty.size === 0) return;
+    set({
+      nodes: nodes.map((n) =>
+        dirty.has(n.id) && n.data?.status === 'completed'
+          ? { ...n, data: { ...n.data, stale: true } }
+          : n
+      ),
+    });
+  },
+  // Output of `nodeId` changed → its consumers are stale.
+  markStale: (nodeId) => get()._markStaleSet(nodeId, false),
+  // Inputs of `nodeId` changed (edge added/removed) → it AND its consumers.
+  markStaleSubtree: (nodeId) => get()._markStaleSet(nodeId, true),
 
   // ── run a node (sync image, or async video via submit+poll) ──
   runNode: async (id) => {
@@ -189,15 +307,18 @@ export const useNodeStore = create((set, get) => ({
           get().updateNodeData(id, { status: 'failed', error: 'Video generation failed.' });
           return { error: 'video-failed' };
         }
-        get().updateNodeData(id, { status: 'completed', outputs: { video: url }, error: null });
+        get().updateNodeData(id, { status: 'completed', outputs: { video: url }, error: null, stale: false });
+        get().markStale(id); // output changed → invalidate consumers
         return { outputs: { video: url } };
       }
-      // Sync (image).
+      // Sync (image). A connected upstream image runs image-to-image.
       const { outputs } = await nodeApi.runNode(node.data.nodeType, {
         ...node.data.settings,
         prompt,
+        ...(imageUrl ? { image_url: imageUrl } : {}),
       });
-      get().updateNodeData(id, { status: 'completed', outputs, error: null });
+      get().updateNodeData(id, { status: 'completed', outputs, error: null, stale: false });
+      get().markStale(id); // output changed → invalidate consumers
       return { outputs };
     } catch (err) {
       get().updateNodeData(id, { status: 'failed', error: err.message });

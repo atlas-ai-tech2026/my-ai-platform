@@ -2,13 +2,13 @@
 // every node type, branching on data.nodeType. Matches the Voxel dark
 // theme: surface #141414, border rgba(255,255,255,0.14), red selected
 // ring, DM Sans. Status pills per spec §11.
-import React, { useState } from 'react';
-import { Handle, Position } from '@xyflow/react';
-import { Type, Image as ImageIcon, Video as VideoIcon, StickyNote, Loader2, Sparkles, ChevronDown, Mic, Music } from 'lucide-react';
+import React, { useState, useRef } from 'react';
+import { Type, Image as ImageIcon, Video as VideoIcon, StickyNote, Loader2, Sparkles, ChevronDown, Mic, Music, Upload, RefreshCw } from 'lucide-react';
 import { getNodeDef } from '../nodeRegistry';
-import { typeColor } from '../dataTypes';
 import { useNodeStore } from '../store';
+import { nodeApi } from '../api';
 import ModelPicker from '../ModelPicker';
+import Port from './Port';
 
 const STICKY_COLORS = ['#F5C84B', '#F39C2A', '#38C77A', '#4F8DFF', '#B57BFF', '#FF5454'];
 
@@ -24,11 +24,23 @@ const ICONS = { Type, Image: ImageIcon, Video: VideoIcon, StickyNote, Mic, Music
 export default function VoxelNode({ id, data, selected }) {
   const def = getNodeDef(data.nodeType);
   const updateNodeData = useNodeStore((s) => s.updateNodeData);
+  const updateNodeSettings = useNodeStore((s) => s.updateNodeSettings);
   const runNode = useNodeStore((s) => s.runNode);
+  const edges = useNodeStore((s) => s.edges);
+  const markStale = useNodeStore((s) => s.markStale);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [anchorRect, setAnchorRect] = useState(null);
   const [hovered, setHovered] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [uploadErr, setUploadErr] = useState(null);
+  const fileRef = useRef(null);
   if (!def) return null;
+
+  // Node ref handed to Port (it only needs the id).
+  const nodeRef = { id };
+  // Which input handles already have an edge (drives the "Connect …" hint).
+  const filledInput = (handleId) => edges.some((e) => e.target === id && e.targetHandle === handleId);
+  const inputTop = (i) => 46 + i * 28;
 
   // ── Sticky Note: pure annotation node (no ports, no run) ──────
   if (def.type === 'sticky-note') {
@@ -67,6 +79,92 @@ export default function VoxelNode({ id, data, selected }) {
     );
   }
 
+  // ── Image: uploaded asset node (output port only, no run) ─────
+  if (def.type === 'image') {
+    const url = data.settings?.url;
+    const onPick = async (e) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      setUploadErr(null);
+      setUploading(true);
+      try {
+        const { url: uploaded } = await nodeApi.uploadFile(file);
+        // Mirror the URL into outputs.image so downstream resolution +
+        // staleness treat it like any other image producer, then mark
+        // everything downstream stale (the source pixels changed).
+        updateNodeData(id, {
+          settings: { ...data.settings, url: uploaded, fileName: file.name },
+          outputs: { ...data.outputs, image: uploaded },
+        });
+        markStale(id);
+      } catch (err) {
+        setUploadErr(err.message || 'Upload failed');
+      } finally {
+        setUploading(false);
+        if (fileRef.current) fileRef.current.value = '';
+      }
+    };
+    return (
+      <div
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
+        style={{
+          width: 240, position: 'relative', background: '#141414',
+          border: `1px solid ${selected ? '#E31C1C' : 'rgba(255,255,255,0.14)'}`,
+          borderRadius: 14, fontFamily: '"DM Sans", sans-serif',
+          boxShadow: selected ? '0 0 0 1px #E31C1C, 0 12px 40px rgba(0,0,0,0.5)' : '0 12px 40px rgba(0,0,0,0.45)',
+          overflow: 'hidden',
+        }}
+      >
+        <div style={{ position: 'absolute', top: -24, left: 2, display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#878787', fontWeight: 500 }}>
+          <ImageIcon style={{ width: 13, height: 13 }} /> {def.label}
+        </div>
+
+        <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/webp" onChange={onPick} style={{ display: 'none' }} />
+
+        {url ? (
+          <div style={{ position: 'relative' }}>
+            <img src={url} alt={data.settings?.fileName || 'upload'} style={{ width: '100%', display: 'block', background: '#1A1A1A' }} />
+            {hovered && (
+              <button
+                className="nodrag"
+                onClick={() => fileRef.current?.click()}
+                style={{
+                  position: 'absolute', top: 8, right: 8, display: 'inline-flex', alignItems: 'center', gap: 6,
+                  background: 'rgba(20,20,20,0.8)', backdropFilter: 'blur(8px)', border: '1px solid rgba(255,255,255,0.16)',
+                  borderRadius: 8, padding: '6px 9px', color: '#fff', fontSize: 11, fontWeight: 600, cursor: 'pointer',
+                }}
+              >
+                <RefreshCw style={{ width: 12, height: 12 }} /> Replace
+              </button>
+            )}
+          </div>
+        ) : (
+          <button
+            className="nodrag"
+            onClick={() => fileRef.current?.click()}
+            disabled={uploading}
+            style={{
+              width: '100%', aspectRatio: '1/1', background: '#1A1A1A', border: 'none',
+              display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 10,
+              color: '#9a9a9a', cursor: uploading ? 'wait' : 'pointer', fontFamily: 'inherit',
+            }}
+          >
+            {uploading
+              ? <Loader2 style={{ width: 22, height: 22, animation: 'spin 1s linear infinite' }} />
+              : <Upload style={{ width: 22, height: 22 }} />}
+            <span style={{ fontSize: 12 }}>{uploading ? 'Uploading…' : 'Click to upload image'}</span>
+            {uploadErr && <span style={{ fontSize: 11, color: '#FF8A8A', padding: '0 12px', textAlign: 'center' }}>{uploadErr}</span>}
+          </button>
+        )}
+
+        {def.outputs.map((port) => (
+          <Port key={`out-${port.id}`} node={nodeRef} port={port} direction="output" />
+        ))}
+      </div>
+    );
+  }
+
   const Icon = ICONS[def.icon] || Type;
   const status = STATUS[data.status] || STATUS.idle;
   const isText = def.type === 'text';
@@ -89,7 +187,7 @@ export default function VoxelNode({ id, data, selected }) {
         <div style={{ padding: 12 }}>
           <textarea
             value={data.settings?.value || ''}
-            onChange={(e) => updateNodeData(id, { settings: { ...data.settings, value: e.target.value } })}
+            onChange={(e) => updateNodeSettings(id, { value: e.target.value })}
             placeholder="Type your prompt…"
             className="nodrag"
             style={{
@@ -101,8 +199,7 @@ export default function VoxelNode({ id, data, selected }) {
           />
         </div>
         {def.outputs.map((port) => (
-          <Handle key={`out-${port.id}`} type="source" position={Position.Right} id={port.id}
-            style={{ background: typeColor(port.type), width: 10, height: 10, border: '2px solid #141414' }} />
+          <Port key={`out-${port.id}`} node={nodeRef} port={port} direction="output" />
         ))}
       </div>
     );
@@ -137,21 +234,31 @@ export default function VoxelNode({ id, data, selected }) {
         fontSize: 12, color: '#878787', fontWeight: 500,
       }}>
         <Icon style={{ width: 13, height: 13 }} /> {def.label}
+        {data.stale && (
+          <span style={{
+            display: 'inline-flex', alignItems: 'center', gap: 3, marginLeft: 2,
+            padding: '1px 6px', borderRadius: 999, fontSize: 10, fontWeight: 700,
+            background: 'rgba(245,158,11,0.16)', color: '#F59E0B', border: '1px solid rgba(245,158,11,0.4)',
+          }}>
+            <RefreshCw style={{ width: 9, height: 9 }} /> Stale
+          </span>
+        )}
       </div>
 
       {/* Input handles */}
       {def.inputs.map((port, i) => (
-        <Handle
+        <Port
           key={`in-${port.id}`}
-          type="target"
-          position={Position.Left}
-          id={port.id}
-          style={{ top: 40 + i * 26, background: typeColor(port.type), width: 11, height: 11, border: '2px solid #141414' }}
+          node={nodeRef}
+          port={port}
+          direction="input"
+          offsetTop={inputTop(i)}
+          filled={filledInput(port.id)}
         />
       ))}
 
       {/* Media fills the card */}
-      <div style={{ position: 'relative', minHeight: isAudio ? 170 : 150 }}>
+      <div style={{ position: 'relative', minHeight: isAudio ? 170 : 150, opacity: data.stale && hasVisual ? 0.55 : 1, transition: 'opacity 0.15s ease' }}>
         {data.outputs?.video ? (
           <video src={data.outputs.video} controls autoPlay muted loop playsInline
             style={{ width: '100%', display: 'block', background: '#1A1A1A' }} />
@@ -188,7 +295,7 @@ export default function VoxelNode({ id, data, selected }) {
             {/* Prompt (top) */}
             <textarea
               value={data.settings?.prompt || ''}
-              onChange={(e) => updateNodeData(id, { settings: { ...data.settings, prompt: e.target.value } })}
+              onChange={(e) => updateNodeSettings(id, { prompt: e.target.value })}
               placeholder="Describe what you want to create…"
               className="nodrag"
               style={{
@@ -231,7 +338,7 @@ export default function VoxelNode({ id, data, selected }) {
                   models={def.models}
                   value={data.settings?.model || def.models[0]}
                   anchorRect={anchorRect}
-                  onChange={(m) => updateNodeData(id, { settings: { ...data.settings, model: m } })}
+                  onChange={(m) => updateNodeSettings(id, { model: m })}
                   onClose={() => setPickerOpen(false)}
                 />
               )}
@@ -269,13 +376,7 @@ export default function VoxelNode({ id, data, selected }) {
 
       {/* Output handles */}
       {def.outputs.map((port) => (
-        <Handle
-          key={`out-${port.id}`}
-          type="source"
-          position={Position.Right}
-          id={port.id}
-          style={{ background: typeColor(port.type), width: 11, height: 11, border: '2px solid #141414' }}
-        />
+        <Port key={`out-${port.id}`} node={nodeRef} port={port} direction="output" />
       ))}
     </div>
   );
