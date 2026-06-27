@@ -78,3 +78,18 @@ export function validateConnection(nodes, edges, conn) {
 export function canConnectPorts(nodes, edges, conn) {
   return validateConnection(nodes, edges, conn).ok;
 }
+
+// Lightweight, graph-free check used purely for during-drag visuals: given
+// the port a connection started from, could `candidate` be its other end?
+// Orders the pair by direction and defers to canConnect (type + direction).
+export function portConnectable(origin, candidate) {
+  if (!origin || !candidate) return false;
+  if (origin.nodeId === candidate.nodeId) return false;
+  if (origin.direction === 'output' && candidate.direction === 'input') {
+    return canConnect(origin, candidate).ok;
+  }
+  if (origin.direction === 'input' && candidate.direction === 'output') {
+    return canConnect(candidate, origin).ok;
+  }
+  return false;
+}

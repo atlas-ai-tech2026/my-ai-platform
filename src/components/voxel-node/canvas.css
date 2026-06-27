@@ -1,0 +1,87 @@
+/* Voxel Node — canvas-specific styles for ports, connection feedback,
+   and edge delete affordances. Scoped via .vx-* class names; colors come
+   from the per-port --vx-port-color custom property set in Port.jsx. */
+
+/* Ports: native React Flow handles, restyled. Grow on hover. */
+.vx-port {
+  border-radius: 50%;
+  transition: transform 0.12s ease, box-shadow 0.12s ease, opacity 0.12s ease, background 0.12s ease;
+  cursor: crosshair;
+}
+.vx-port:hover {
+  transform: scale(1.45);
+}
+.vx-port:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.85);
+}
+
+/* Valid drop target during a drag — pulsing colored ring. */
+.vx-port--glow {
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.18), 0 0 12px 3px var(--vx-port-color);
+  animation: vxPulse 1.1s ease-in-out infinite;
+}
+/* Invalid target while dragging — fade back. */
+.vx-port--dim { opacity: 0.28; }
+/* The port the connection started from. */
+.vx-port--origin { transform: scale(1.3); box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.25); }
+
+/* Invalid drop — flash red and shake. */
+.vx-port--error {
+  background: #ff4444 !important;
+  box-shadow: 0 0 0 3px rgba(255, 68, 68, 0.35), 0 0 14px 3px rgba(255, 68, 68, 0.7);
+  animation: vxShake 0.4s ease;
+}
+
+@keyframes vxPulse {
+  0%, 100% { box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.18), 0 0 10px 2px var(--vx-port-color); }
+  50%      { box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.28), 0 0 16px 5px var(--vx-port-color); }
+}
+@keyframes vxShake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-3px); }
+  75% { transform: translateX(3px); }
+}
+
+/* Hint / error tooltip pill rendered beside a port. */
+.vx-port-hint {
+  z-index: 30;
+  pointer-events: none;
+  white-space: nowrap;
+  font-family: "DM Sans", sans-serif;
+  font-size: 11px;
+  font-weight: 600;
+  color: #cfcfcf;
+  background: rgba(20, 20, 20, 0.96);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 7px;
+  padding: 4px 8px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
+}
+.vx-port-hint--error {
+  color: #fff;
+  background: #c81e1e;
+  border-color: #ff6b6b;
+}
+
+/* Edge hover delete button (rendered in an EdgeLabelRenderer). */
+.vx-edge-delete {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: #1a1a1a;
+  color: #fff;
+  font-size: 11px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s ease, background 0.12s ease;
+  pointer-events: all;
+}
+.vx-edge-wrap:hover .vx-edge-delete,
+.vx-edge-delete:focus-visible { opacity: 1; }
+.vx-edge-delete:hover { background: #c81e1e; }
