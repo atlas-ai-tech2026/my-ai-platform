@@ -12,9 +12,25 @@ export const NODE_DEFS = {
     category: 'Input',
     icon: 'Type',
     inputs: [],
-    outputs: [{ id: 'text', type: 'text' }],
+    outputs: [{ id: 'text', type: 'text', label: 'Text' }],
     defaultSettings: { value: '' },
     runnable: false,
+  },
+  // Uploaded image — a first-class "Creation" input node that exposes a
+  // single image output port. The pixels live at settings.url (uploaded via
+  // /api/upload); the same URL is mirrored into data.outputs.image so the
+  // store's resolveImageInput()/staleness logic treats it like any other
+  // upstream image producer.
+  image: {
+    type: 'image',
+    label: 'Image',
+    category: 'Input',
+    icon: 'Image',
+    inputs: [],
+    outputs: [{ id: 'image', type: 'image', label: 'Image' }],
+    defaultSettings: { url: '', fileName: '' },
+    runnable: false,
+    upload: true,
   },
   'sticky-note': {
     type: 'sticky-note',
@@ -36,8 +52,13 @@ export const NODE_DEFS = {
     // proven FAL endpoint via MODEL_CONFIG). The server is the source of
     // truth for the FAL model id.
     models: ['Nano Banana Pro', 'Nano Banana 2', 'GPT Image 2', 'GPT Image 1.5', 'Seedream 4.5', 'Seedream 5.0 Lite', 'Soul 2.0', 'Flux Kontext', 'Flux 2', 'Wan 2.2 Image'],
-    inputs: [{ id: 'prompt', type: 'text' }],
-    outputs: [{ id: 'image', type: 'image' }],
+    // `image` is a REFERENCE input: a connected image triggers image-to-image
+    // / edit on the server (TYPE_COMPAT lets an image output feed it).
+    inputs: [
+      { id: 'prompt', type: 'text', label: 'Prompt' },
+      { id: 'image', type: 'reference', label: 'Reference' },
+    ],
+    outputs: [{ id: 'image', type: 'image', label: 'Image' }],
     defaultSettings: { model: 'Nano Banana Pro', aspect_ratio: '1:1', quality: '1K' },
     runnable: true,
     cost: 2, // display-only; the server computes the real charge
@@ -47,8 +68,8 @@ export const NODE_DEFS = {
     label: 'Voiceover',
     category: 'Audio',
     icon: 'Mic',
-    inputs: [{ id: 'prompt', type: 'text' }],
-    outputs: [{ id: 'audio', type: 'audio' }],
+    inputs: [{ id: 'prompt', type: 'text', label: 'Prompt' }],
+    outputs: [{ id: 'audio', type: 'audio', label: 'Audio' }],
     defaultSettings: { voice: 'Rachel' },
     runnable: true,
     cost: 1,
@@ -58,8 +79,8 @@ export const NODE_DEFS = {
     label: 'Music',
     category: 'Audio',
     icon: 'Music',
-    inputs: [{ id: 'prompt', type: 'text' }],
-    outputs: [{ id: 'audio', type: 'audio' }],
+    inputs: [{ id: 'prompt', type: 'text', label: 'Prompt' }],
+    outputs: [{ id: 'audio', type: 'audio', label: 'Audio' }],
     defaultSettings: {},
     runnable: true,
     cost: 1,
@@ -74,10 +95,10 @@ export const NODE_DEFS = {
     // names match the main Video page (server resolves via VIDEO_DIRECT_MAP).
     models: ['Kling 3.0', 'Kling 2.6', 'Veo 3.1', 'Wan 2.6', 'Seedance 2.0', 'Hailuo 2.3', 'PixVerse 5', 'Sora 2', 'Luma Dream Machine'],
     inputs: [
-      { id: 'prompt', type: 'text' },
-      { id: 'image', type: 'image' },
+      { id: 'prompt', type: 'text', label: 'Prompt' },
+      { id: 'image', type: 'image', label: 'Start frame' },
     ],
-    outputs: [{ id: 'video', type: 'video' }],
+    outputs: [{ id: 'video', type: 'video', label: 'Video' }],
     defaultSettings: { model: 'Kling 3.0', duration: 5, aspect_ratio: '16:9' },
     runnable: true,
     async: true, // queue + poll, not synchronous
