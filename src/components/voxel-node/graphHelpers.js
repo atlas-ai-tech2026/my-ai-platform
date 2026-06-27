@@ -2,10 +2,31 @@
 // (type-safety + no cycles/self-loops + input capacity). Returns structured
 // { ok, reason } so the UI can explain WHY a drop was rejected instead of
 // letting the connection line silently vanish.
-import { getNodeDef as _getNodeDef } from './nodeRegistry';
-import { canConnect } from './dataTypes';
+import { getNodeDef as _getNodeDef, NODE_LIST } from './nodeRegistry';
+import { canConnect, typesCompatible } from './dataTypes';
 
 export const getNodeDef = _getNodeDef;
+
+// For the "drag to empty canvas → pick a node" menu: which node types can
+// RECEIVE a connection of `dataType` (returns the def + the input handle to
+// wire), and which can PRODUCE it (def + output handle). Annotation/ui-only
+// nodes (no matching port) are naturally excluded.
+export function nodesAcceptingType(dataType) {
+  const out = [];
+  for (const def of NODE_LIST) {
+    const port = (def.inputs || []).find((p) => typesCompatible(dataType, p.type));
+    if (port) out.push({ def, handleId: port.id });
+  }
+  return out;
+}
+export function nodesProducingType(dataType) {
+  const out = [];
+  for (const def of NODE_LIST) {
+    const port = (def.outputs || []).find((p) => typesCompatible(p.type, dataType));
+    if (port) out.push({ def, handleId: port.id });
+  }
+  return out;
+}
 
 // Build a normalized port descriptor { id, nodeId, direction, dataType,
 // label, multiple } for a node's handle, or null if the handle is unknown.

@@ -18,9 +18,10 @@ import VoxelNode from './Nodes/VoxelNode';
 import VoxelEdge from './Nodes/VoxelEdge';
 import ConnectionLine from './Nodes/ConnectionLine';
 import { typeColor } from './dataTypes';
-import { getNodeDef, validateConnection, getPort } from './graphHelpers';
+import { getNodeDef, validateConnection, getPort, nodesAcceptingType, nodesProducingType } from './graphHelpers';
 import Spotlight from './Spotlight';
 import NodePanel from './NodePanel';
+import ConnectMenu from './ConnectMenu';
 import './canvas.css';
 
 const nodeTypes = { voxelNode: VoxelNode };
@@ -45,6 +46,8 @@ function CanvasInner() {
 
   const { zoomIn, zoomOut, fitView, screenToFlowPosition } = useReactFlow();
   const [spotlightOpen, setSpotlightOpen] = useState(false);
+  // "Drag a line to empty canvas → pick a node" menu.
+  const [connectMenu, setConnectMenu] = useState(null); // { x, y, flowPos, origin, options }
   const lastPointer = useRef({ x: window.innerWidth / 2, y: window.innerHeight / 2 });
 
   // Track the cursor so a newly-added node lands where the user is looking.
@@ -148,20 +151,53 @@ function CanvasInner() {
     clearConnectionError();
   }, [nodes, setConnectingFrom, clearConnectionError]);
 
-  // On release: if the drop was invalid over a real port, surface WHY
-  // (red flash + tooltip) instead of letting the line vanish silently.
-  const onConnectEnd = useCallback((_e, state) => {
+  // On release:
+  //  • valid drop on a port → React Flow already connected (nothing to do)
+  //  • invalid drop on a real port → red flash + tooltip (never silent)
+  //  • drop on EMPTY canvas → open the "pick a node to build" menu, pre-filtered
+  //    to node types that can connect to the port you dragged from.
+  const onConnectEnd = useCallback((e, state) => {
     setConnectingFrom(null);
     if (!state || state.isValid) return;
     const fromH = state.fromHandle;
     const toH = state.toHandle;
-    if (!fromH || !toH) return; // dropped on empty canvas → clean cancel
-    const conn = fromH.type === 'source'
-      ? { source: fromH.nodeId, sourceHandle: fromH.id, target: toH.nodeId, targetHandle: toH.id }
-      : { source: toH.nodeId, sourceHandle: toH.id, target: fromH.nodeId, targetHandle: fromH.id };
-    const reason = validateConnection(nodes, edges, conn).reason || "Can't connect these ports";
-    setConnectionError({ nodeId: conn.target, handleId: conn.targetHandle, reason });
-  }, [nodes, edges, setConnectingFrom, setConnectionError]);
+    if (!fromH) return;
+
+    if (toH) {
+      const conn = fromH.type === 'source'
+        ? { source: fromH.nodeId, sourceHandle: fromH.id, target: toH.nodeId, targetHandle: toH.id }
+        : { source: toH.nodeId, sourceHandle: toH.id, target: fromH.nodeId, targetHandle: fromH.id };
+      const reason = validateConnection(nodes, edges, conn).reason || "Can't connect these ports";
+      setConnectionError({ nodeId: conn.target, handleId: conn.targetHandle, reason });
+      return;
+    }
+
+    // Dropped on empty canvas → spawn-a-connected-node menu.
+    const fromNode = nodes.find((n) => n.id === fromH.nodeId);
+    const dir = fromH.type === 'source' ? 'output' : 'input';
+    const port = getPort(fromNode, fromH.id, dir);
+    if (!port) return;
+    const pt = { x: e.clientX ?? e.changedTouches?.[0]?.clientX ?? 0, y: e.clientY ?? e.changedTouches?.[0]?.clientY ?? 0 };
+    let flowPos; try { flowPos = screenToFlowPosition(pt); } catch { flowPos = undefined; }
+    const options = dir === 'output' ? nodesAcceptingType(port.dataType) : nodesProducingType(port.dataType);
+    if (options.length === 0) return;
+    setConnectMenu({ x: pt.x, y: pt.y, flowPos, origin: { nodeId: fromH.nodeId, handleId: fromH.id, direction: dir }, options });
+  }, [nodes, edges, setConnectingFrom, setConnectionError, screenToFlowPosition]);
+
+  // Pick from the connect menu → create the node and wire it up.
+  const onConnectMenuPick = useCallback((opt) => {
+    if (!connectMenu) return;
+    const { origin, flowPos } = connectMenu;
+    const id = addNode(opt.def.type, flowPos);
+    if (id) {
+      if (origin.direction === 'output') {
+        onConnect({ source: origin.nodeId, sourceHandle: origin.handleId, target: id, targetHandle: opt.handleId });
+      } else {
+        onConnect({ source: id, sourceHandle: opt.handleId, target: origin.nodeId, targetHandle: origin.handleId });
+      }
+    }
+    setConnectMenu(null);
+  }, [connectMenu, addNode, onConnect]);
 
   // Keyboard: Space or "/" opens Spotlight; Cmd/Ctrl+Z / Shift+Z undo/redo.
   useEffect(() => {
@@ -265,6 +301,16 @@ function CanvasInner() {
       </div>
 
       <Spotlight open={spotlightOpen} onClose={() => setSpotlightOpen(false)} onPick={placeNode} />
+
+      {connectMenu && (
+        <ConnectMenu
+          x={connectMenu.x}
+          y={connectMenu.y}
+          options={connectMenu.options}
+          onPick={onConnectMenuPick}
+          onClose={() => setConnectMenu(null)}
+        />
+      )}
     </div>
   );
 }

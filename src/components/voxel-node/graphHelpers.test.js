@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { validateConnection, canConnectPorts, getPort } from './graphHelpers';
+import { validateConnection, canConnectPorts, getPort, nodesAcceptingType, nodesProducingType } from './graphHelpers';
 
 // Minimal graph: an Image upload node, an Image Generator, a Video Generator,
 // and a Text node — exercising real registry port definitions.
@@ -60,5 +60,23 @@ describe('validateConnection', () => {
   it('canConnectPorts is the boolean wrapper', () => {
     expect(canConnectPorts(nodes, [], conn('img1', 'image', 'gen1', 'image'))).toBe(true);
     expect(canConnectPorts(nodes, [], conn('img1', 'image', 'gen1', 'prompt'))).toBe(false);
+  });
+});
+
+describe('drag-to-empty node menu helpers', () => {
+  it('nodesAcceptingType(image) offers image + video generators, not text', () => {
+    const types = nodesAcceptingType('image').map((o) => o.def.type);
+    expect(types).toContain('image-generator'); // reference input
+    expect(types).toContain('video-generator'); // start-frame input
+    expect(types).not.toContain('text');        // text has no inputs
+    // returns the handle to wire
+    const ig = nodesAcceptingType('image').find((o) => o.def.type === 'image-generator');
+    expect(ig.handleId).toBe('image');
+  });
+
+  it('nodesProducingType(video) offers the video generator', () => {
+    const types = nodesProducingType('video').map((o) => o.def.type);
+    expect(types).toContain('video-generator');
+    expect(types).not.toContain('image');
   });
 });
