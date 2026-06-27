@@ -13,11 +13,15 @@ import {
 } from 'lucide-react';
 import { useNodeStore } from './store';
 import VoxelNode from './Nodes/VoxelNode';
+import VoxelEdge from './Nodes/VoxelEdge';
+import ConnectionLine from './Nodes/ConnectionLine';
 import { typeColor } from './dataTypes';
-import { getNodeDef } from './nodeRegistry';
+import { getNodeDef, validateConnection, getPort } from './graphHelpers';
 import Spotlight from './Spotlight';
+import './canvas.css';
 
 const nodeTypes = { voxelNode: VoxelNode };
+const edgeTypes = { voxelEdge: VoxelEdge };
 
 function CanvasInner() {
   const nodes = useNodeStore((s) => s.nodes);
@@ -25,6 +29,10 @@ function CanvasInner() {
   const onNodesChange = useNodeStore((s) => s.onNodesChange);
   const onEdgesChange = useNodeStore((s) => s.onEdgesChange);
   const onConnect = useNodeStore((s) => s.onConnect);
+  const setConnectingFrom = useNodeStore((s) => s.setConnectingFrom);
+  const setConnectionError = useNodeStore((s) => s.setConnectionError);
+  const clearConnectionError = useNodeStore((s) => s.clearConnectionError);
+  const cancelPending = useNodeStore((s) => s.cancelPending);
   const addNode = useNodeStore((s) => s.addNode);
   const undo = useNodeStore((s) => s.undo);
   const redo = useNodeStore((s) => s.redo);
@@ -50,17 +58,54 @@ function CanvasInner() {
     addNode(type, position);
   }, [addNode, screenToFlowPosition]);
 
-  // Color each edge by its source node's output type.
+  // Color each edge by its SOURCE PORT's data type (handle-aware, so a node
+  // with multiple outputs still colors correctly).
   const styledEdges = useMemo(
     () =>
       edges.map((e) => {
         const src = nodes.find((n) => n.id === e.source);
         const def = getNodeDef(src?.data?.nodeType);
-        const t = def?.outputs?.[0]?.type;
-        return { ...e, animated: true, style: { stroke: typeColor(t), strokeWidth: 2 } };
+        const port = def?.outputs?.find((p) => p.id === e.sourceHandle) || def?.outputs?.[0];
+        return {
+          ...e,
+          type: 'voxelEdge',
+          animated: true,
+          style: { stroke: typeColor(port?.type), strokeWidth: 2 },
+        };
       }),
     [edges, nodes]
   );
+
+  // Validity used by React Flow during a drag (green/red + only connects
+  // when true). Same rule the store re-checks on commit.
+  const isValidConnection = useCallback(
+    (conn) => validateConnection(nodes, edges, conn).ok,
+    [nodes, edges]
+  );
+
+  // Track the originating port so every other port can show glow/dim.
+  const onConnectStart = useCallback((_e, params) => {
+    const { nodeId, handleId, handleType } = params;
+    const node = nodes.find((n) => n.id === nodeId);
+    const port = getPort(node, handleId, handleType === 'source' ? 'output' : 'input');
+    setConnectingFrom(port);
+    clearConnectionError();
+  }, [nodes, setConnectingFrom, clearConnectionError]);
+
+  // On release: if the drop was invalid over a real port, surface WHY
+  // (red flash + tooltip) instead of letting the line vanish silently.
+  const onConnectEnd = useCallback((_e, state) => {
+    setConnectingFrom(null);
+    if (!state || state.isValid) return;
+    const fromH = state.fromHandle;
+    const toH = state.toHandle;
+    if (!fromH || !toH) return; // dropped on empty canvas → clean cancel
+    const conn = fromH.type === 'source'
+      ? { source: fromH.nodeId, sourceHandle: fromH.id, target: toH.nodeId, targetHandle: toH.id }
+      : { source: toH.nodeId, sourceHandle: toH.id, target: fromH.nodeId, targetHandle: fromH.id };
+    const reason = validateConnection(nodes, edges, conn).reason || "Can't connect these ports";
+    setConnectionError({ nodeId: conn.target, handleId: conn.targetHandle, reason });
+  }, [nodes, edges, setConnectingFrom, setConnectionError]);
 
   // Keyboard: Space or "/" opens Spotlight; Cmd/Ctrl+Z / Shift+Z undo/redo.
   useEffect(() => {
@@ -73,11 +118,14 @@ function CanvasInner() {
       } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') {
         e.preventDefault();
         e.shiftKey ? redo() : undo();
+      } else if (e.key === 'Escape') {
+        cancelPending();
+        clearConnectionError();
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [spotlightOpen, undo, redo]);
+  }, [spotlightOpen, undo, redo, cancelPending, clearConnectionError]);
 
   return (
     <div style={{ position: 'absolute', inset: 0, background: '#0F0F0F' }} onMouseMove={onPaneMouseMove}>
@@ -87,10 +135,18 @@ function CanvasInner() {
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
+        onConnectStart={onConnectStart}
+        onConnectEnd={onConnectEnd}
+        isValidConnection={isValidConnection}
+        connectionLineComponent={ConnectionLine}
+        connectionRadius={30}
+        onPaneClick={() => { cancelPending(); clearConnectionError(); }}
         nodeTypes={nodeTypes}
+        edgeTypes={edgeTypes}
+        deleteKeyCode={['Backspace', 'Delete']}
         fitView
         proOptions={{ hideAttribution: true }}
-        defaultEdgeOptions={{ type: 'default' }}
+        defaultEdgeOptions={{ type: 'voxelEdge' }}
       >
         <Background variant={BackgroundVariant.Dots} gap={24} size={1.5} color="rgba(255,255,255,0.12)" />
         <MiniMap

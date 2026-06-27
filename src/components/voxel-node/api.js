@@ -18,6 +18,19 @@ async function jsonOrThrow(res) {
 }
 
 export const nodeApi = {
+  // Upload a binary file (image asset node) → { url }. Multipart, so we set
+  // only Authorization and let the browser set the multipart boundary.
+  uploadFile: (file) => {
+    const token = localStorage.getItem(TOKEN_KEY);
+    const fd = new FormData();
+    fd.append('file', file);
+    return fetch('/api/upload', {
+      method: 'POST',
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      body: fd,
+    }).then(jsonOrThrow);
+  },
+
   listSpaces: () =>
     fetch('/api/node/spaces', { headers: headers() }).then(jsonOrThrow),
 
