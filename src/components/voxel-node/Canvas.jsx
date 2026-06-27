@@ -11,13 +11,16 @@ import {
   Plus, MousePointer2, Hand, Type, StickyNote, MessageCircle,
   Undo2, Redo2, Maximize, ZoomIn, ZoomOut,
 } from 'lucide-react';
+import { toast } from 'sonner';
 import { useNodeStore } from './store';
+import { nodeApi } from './api';
 import VoxelNode from './Nodes/VoxelNode';
 import VoxelEdge from './Nodes/VoxelEdge';
 import ConnectionLine from './Nodes/ConnectionLine';
 import { typeColor } from './dataTypes';
 import { getNodeDef, validateConnection, getPort } from './graphHelpers';
 import Spotlight from './Spotlight';
+import NodePanel from './NodePanel';
 import './canvas.css';
 
 const nodeTypes = { voxelNode: VoxelNode };
@@ -34,6 +37,7 @@ function CanvasInner() {
   const clearConnectionError = useNodeStore((s) => s.clearConnectionError);
   const cancelPending = useNodeStore((s) => s.cancelPending);
   const addNode = useNodeStore((s) => s.addNode);
+  const updateNodeData = useNodeStore((s) => s.updateNodeData);
   const undo = useNodeStore((s) => s.undo);
   const redo = useNodeStore((s) => s.redo);
   const canUndo = useNodeStore((s) => s.past.length > 0);
@@ -57,6 +61,58 @@ function CanvasInner() {
     }
     addNode(type, position);
   }, [addNode, screenToFlowPosition]);
+
+  // Add a node from the left panel — near the middle of the viewport, with a
+  // small cascading offset so repeated adds don't stack exactly on top.
+  const addCount = useRef(0);
+  const addAtCenter = useCallback((type) => {
+    let position;
+    const k = addCount.current++ % 6;
+    try {
+      position = screenToFlowPosition({
+        x: window.innerWidth / 2 + k * 34,
+        y: window.innerHeight / 2 + k * 30,
+      });
+    } catch {
+      position = undefined;
+    }
+    addNode(type, position);
+  }, [addNode, screenToFlowPosition]);
+
+  // Upload an image file → create an Image node holding its URL. Used by the
+  // panel's Upload button and by drag-drop / paste onto the canvas.
+  const uploadImage = useCallback(async (file, screenPos) => {
+    if (!file || !file.type?.startsWith('image/')) {
+      toast.error('Please choose an image file (PNG, JPG, or WebP).');
+      return;
+    }
+    let position;
+    try { position = screenToFlowPosition(screenPos || lastPointer.current); } catch { position = undefined; }
+    const id = addNode('image', position);
+    updateNodeData(id, { status: 'uploading' });
+    try {
+      const { url } = await nodeApi.uploadFile(file);
+      updateNodeData(id, { settings: { url, fileName: file.name }, outputs: { image: url }, status: 'idle' });
+    } catch (err) {
+      updateNodeData(id, { status: 'failed', error: err.message || 'Upload failed' });
+      toast.error(`Upload failed: ${err.message || 'unknown error'}`);
+    }
+  }, [addNode, updateNodeData, screenToFlowPosition]);
+
+  // Drag-and-drop: a file → image node; a panel chip → that node type.
+  const onDrop = useCallback((e) => {
+    e.preventDefault();
+    const pos = { x: e.clientX, y: e.clientY };
+    const file = e.dataTransfer?.files?.[0];
+    if (file) { uploadImage(file, pos); return; }
+    const type = e.dataTransfer?.getData('application/voxel-node');
+    if (type) {
+      let position; try { position = screenToFlowPosition(pos); } catch { position = undefined; }
+      addNode(type, position);
+    }
+  }, [uploadImage, addNode, screenToFlowPosition]);
+
+  const onDragOver = useCallback((e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; }, []);
 
   // Color each edge by its SOURCE PORT's data type (handle-aware, so a node
   // with multiple outputs still colors correctly).
@@ -128,7 +184,7 @@ function CanvasInner() {
   }, [spotlightOpen, undo, redo, cancelPending, clearConnectionError]);
 
   return (
-    <div style={{ position: 'absolute', inset: 0, background: '#0F0F0F' }} onMouseMove={onPaneMouseMove}>
+    <div style={{ position: 'absolute', inset: 0, background: '#0F0F0F' }} onMouseMove={onPaneMouseMove} onDrop={onDrop} onDragOver={onDragOver}>
       <ReactFlow
         nodes={nodes}
         edges={styledEdges}
@@ -141,6 +197,7 @@ function CanvasInner() {
         connectionLineComponent={ConnectionLine}
         connectionRadius={30}
         onPaneClick={() => { cancelPending(); clearConnectionError(); }}
+        onPaneContextMenu={(e) => { e.preventDefault(); setSpotlightOpen(true); }}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
         deleteKeyCode={['Backspace', 'Delete']}
@@ -157,8 +214,25 @@ function CanvasInner() {
         />
       </ReactFlow>
 
-      {/* Left dock — undo / redo / fit / zoom */}
-      <div style={dockStyle({ left: 16, top: '50%', transform: 'translateY(-50%)', flexDirection: 'column' })}>
+      {/* Left node library (always visible) */}
+      <NodePanel onAdd={addAtCenter} onUpload={uploadImage} />
+
+      {/* Empty-canvas guidance */}
+      {nodes.length === 0 && (
+        <div style={{
+          position: 'absolute', top: '50%', left: 'calc(50% + 124px)', transform: 'translate(-50%, -50%)',
+          textAlign: 'center', pointerEvents: 'none', fontFamily: '"DM Sans", sans-serif', maxWidth: 360,
+        }}>
+          <div style={{ fontSize: 18, fontWeight: 700, color: '#fff', marginBottom: 8 }}>Start your canvas</div>
+          <div style={{ fontSize: 14, color: 'rgba(255,255,255,0.55)', lineHeight: 1.6 }}>
+            Pick a node from the left, drag an image anywhere onto the canvas,
+            or press <b style={{ color: '#fff' }}>Space</b> / <b style={{ color: '#fff' }}>/</b> for Spotlight.
+          </div>
+        </div>
+      )}
+
+      {/* Left dock — undo / redo / fit / zoom (clears the node panel) */}
+      <div style={dockStyle({ left: 264, top: '50%', transform: 'translateY(-50%)', flexDirection: 'column' })}>
         <DockBtn icon={Undo2} title="Undo (⌘Z)" onClick={undo} disabled={!canUndo} />
         <DockBtn icon={Redo2} title="Redo (⌘⇧Z)" onClick={redo} disabled={!canRedo} />
         <Divider horizontal />
