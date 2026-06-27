@@ -7,15 +7,43 @@
 //   • click-to-connect fallback; empty-input "Connect …" hint; ARIA
 import React from 'react';
 import { Handle, Position } from '@xyflow/react';
-import { ImageUp, ImageDown, Type, Video as VideoIcon, Music, Square, Hash } from 'lucide-react';
+import { Type, Video as VideoIcon, Music, Square, Hash } from 'lucide-react';
 import { typeColor } from '../dataTypes';
 import { portConnectable } from '../graphHelpers';
 import { useNodeStore } from '../store';
 
-// Direction-aware icons (image-out vs image-in) so a port reads at a glance,
-// matching the Higgsfield/Freepik connector style.
+// Custom image glyphs matching the reference connector design: an image frame
+// with a DIAGONAL arrow — out (↗) for outputs, in (↙) for inputs.
+const svgBase = {
+  fill: 'none', stroke: 'currentColor', strokeWidth: 2,
+  strokeLinecap: 'round', strokeLinejoin: 'round',
+};
+function ImageOutIcon({ style }) {
+  return (
+    <svg viewBox="0 0 24 24" style={style} {...svgBase}>
+      <rect x="2" y="9" width="12" height="12" rx="2.5" />
+      <circle cx="5.6" cy="12.6" r="1.1" />
+      <path d="M2.5 18.5 6 15l3 2.7 2-1.8 2.5 2.3" />
+      <path d="M16 8 21 3" />
+      <path d="M16 3h5v5" />
+    </svg>
+  );
+}
+function ImageInIcon({ style }) {
+  return (
+    <svg viewBox="0 0 24 24" style={style} {...svgBase}>
+      <rect x="2" y="9" width="12" height="12" rx="2.5" />
+      <circle cx="5.6" cy="12.6" r="1.1" />
+      <path d="M2.5 18.5 6 15l3 2.7 2-1.8 2.5 2.3" />
+      <path d="M21 3 16 8" />
+      <path d="M21 8h-5V3" />
+    </svg>
+  );
+}
+
+// Direction-aware icons so a port reads at a glance, matching the reference.
 function iconFor(type, direction) {
-  if (type === 'image' || type === 'reference') return direction === 'output' ? ImageUp : ImageDown;
+  if (type === 'image' || type === 'reference') return direction === 'output' ? ImageOutIcon : ImageInIcon;
   if (type === 'video') return VideoIcon;
   if (type === 'audio') return Music;
   if (type === 'text') return Type;
@@ -72,9 +100,11 @@ export default function Port({ node, port, direction, offsetTop, filled }) {
         }${isValidTarget ? ', compatible' : isInvalidTarget ? ', incompatible' : ''}`}
         style={{
           top: offsetTop,
+          [isInput ? 'left' : 'right']: -19,
           width: 30, height: 30, borderRadius: '50%',
           background: errored ? '#ef4444' : '#2c2d31',
-          border: `1.5px solid ${errored ? '#ff8a8a' : 'rgba(255,255,255,0.16)'}`,
+          border: `1.5px solid ${errored ? '#ff8a8a' : 'rgba(255,255,255,0.18)'}`,
+          boxShadow: '0 2px 8px rgba(0,0,0,0.5)',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           ['--vx-port-color']: color,
         }}
