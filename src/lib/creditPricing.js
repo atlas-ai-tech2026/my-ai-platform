@@ -94,6 +94,19 @@ export const VIDEO_CREDITS = {
       '720p': { off: 3.5, on: 3.5 },
     },
   },
+  // Seedance 2.0 Mini — per second. Priced for a guaranteed ≥10% profit over
+  // FAL's output cost ($0.0721/s @480p, $0.1547/s @720p), calibrated against
+  // the lowest-$/credit plan (Studio @ $0.03225/cr) so every plan clears 10%:
+  //   480p: 0.0721×1.10 ÷ 0.03225 = 2.46 → 2.5 cr/s
+  //   720p: 0.1547×1.10 ÷ 0.03225 = 5.28 → 5.5 cr/s
+  // (audio is free on Seedance, so on === off.)
+  'seedance-2-mini': {
+    type: 'per-sec', defaultRes: '720p',
+    byRes: {
+      '480p': { off: 2.5, on: 2.5 },
+      '720p': { off: 5.5, on: 5.5 },
+    },
+  },
   // Grok Imagine 1.5 (video) — per second (sheet: 2.5 / 4.5 cr/s)
   'grok-imagine': {
     type: 'per-sec', defaultRes: '720p',

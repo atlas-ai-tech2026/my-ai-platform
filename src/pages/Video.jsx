@@ -73,7 +73,7 @@ export default function Video() {
   const [motionModel, setMotionModel] = useState('Kling 3.0 Motion Control');
 
   // ─── Seedance 2.0 specific state ───
-  const isSeedance2 = model.id === 'seedance-2' || model.id === 'seedance-2-fast';
+  const isSeedance2 = model.id === 'seedance-2' || model.id === 'seedance-2-fast' || model.id === 'seedance-2-mini';
   const [seedanceMedia, setSeedanceMedia] = useState({ images: [], videos: [], audios: [] });
   const [seedanceElements, setSeedanceElements] = useState([]);
   const [seedanceAudioOn, setSeedanceAudioOn] = useState(true);

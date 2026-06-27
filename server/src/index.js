@@ -258,6 +258,7 @@ const VIDEO_DIRECT_MAP = {
   "Seedance 1.5 Pro":      { t2v: "fal-ai/bytedance/seedance-1-5-pro-t2v",           i2v: "fal-ai/kling-video/v3/pro/image-to-video",         imageParam: "start_image_url", endParam: "end_image_url" },
   "Seedance 2.0":          { t2v: "bytedance/seedance-2.0/text-to-video",            i2v: "bytedance/seedance-2.0/image-to-video",            ref: "bytedance/seedance-2.0/reference-to-video", imageParam: "image_url", endParam: "end_image_url" },
   "Seedance 2.0 Fast":     { t2v: "bytedance/seedance-2.0/fast/text-to-video",       i2v: "bytedance/seedance-2.0/fast/image-to-video",       ref: "bytedance/seedance-2.0/fast/reference-to-video", imageParam: "image_url", endParam: "end_image_url" },
+  "Seedance 2.0 Mini":     { t2v: "bytedance/seedance-2.0/mini/text-to-video",       i2v: "bytedance/seedance-2.0/mini/image-to-video",       ref: "bytedance/seedance-2.0/mini/reference-to-video", imageParam: "image_url", endParam: "end_image_url" },
   "Seedance 1":            { t2v: "fal-ai/bytedance/seedance-1-lite-t2v",            i2v: "fal-ai/kling-video/v3/pro/image-to-video",         imageParam: "start_image_url", endParam: "end_image_url" },
   // Others
   "LTX 2":                 { t2v: "fal-ai/ltx-video-13b-distilled",                  i2v: "fal-ai/kling-video/v3/pro/image-to-video",         imageParam: "start_image_url", endParam: "end_image_url" },
@@ -1067,7 +1068,10 @@ app.post('/api/generate-video-ref', verifyJwt, requireNotBanned, requireFalKey, 
   if (!prompt) return res.status(400).json({ error: 'prompt required' });
 
   const isFast = model === 'Seedance 2.0 Fast';
-  const endpointBase = isFast ? 'bytedance/seedance-2.0/fast' : 'bytedance/seedance-2.0';
+  const isMini = model === 'Seedance 2.0 Mini';
+  const endpointBase = isFast ? 'bytedance/seedance-2.0/fast'
+                     : isMini ? 'bytedance/seedance-2.0/mini'
+                     : 'bytedance/seedance-2.0';
   // BOTH regular Seedance 2.0 and Fast use image_url / end_image_url
   // for their image-to-video endpoints (verified against FAL schema docs
   // 2026-05). Older code mistakenly sent start_frame/end_frame for the
@@ -1075,7 +1079,7 @@ app.post('/api/generate-video-ref', verifyJwt, requireNotBanned, requireFalKey, 
   // because the required image_url was missing.
   const frameField    = 'image_url';
   const endFrameField = 'end_image_url';
-  const modelLabel = isFast ? 'Seedance 2.0 Fast' : 'Seedance 2.0';
+  const modelLabel = isFast ? 'Seedance 2.0 Fast' : isMini ? 'Seedance 2.0 Mini' : 'Seedance 2.0';
 
   let chargedKind = null;
   let chargedCost = null;
