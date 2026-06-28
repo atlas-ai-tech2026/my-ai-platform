@@ -8,6 +8,16 @@
   </head>
   <body>
     <div id="root"></div>
+    <!-- Belt-and-suspenders: if any stale service worker from an earlier build
+         is still registered, unregister it so it stops serving cached assets.
+         (The kill-switch /sw.js handles tabs the SW currently controls.) -->
+    <script>
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.getRegistrations()
+          .then((regs) => regs.forEach((r) => r.unregister()))
+          .catch(() => {});
+      }
+    </script>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>
