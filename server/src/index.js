@@ -1,7 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
-import rateLimit from 'express-rate-limit';
+import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import multer from 'multer';
 import { fal } from '@fal-ai/client';
 import path from 'node:path';
@@ -88,16 +88,37 @@ app.use(cors({
 
 app.use(express.json({ limit: '50mb' }));
 
-// Brute-force protection. authLimiter caps login/register to 5 attempts per
-// IP per 15 min — combined with the failed_logins DB check inside
-// /api/auth/login, that's two independent throttles. adminLimiter is more
-// generous (admin UI fires multiple reads per page load) but still capped.
-const authLimiter = rateLimit({
+// Real client IP. Behind Cloudflare → DO LB, `req.ip` resolves to a SHARED
+// Cloudflare edge IP, so keying rate limits on it throttles thousands of
+// unrelated users TOGETHER (5 signups behind one edge node blocked everyone).
+// Cloudflare injects the true visitor IP as `CF-Connecting-IP`; fall back to
+// req.ip for non-CF paths (local dev, DO health probe, direct origin hits).
+const clientIp = (req) =>
+  String(req.headers['cf-connecting-ip'] || req.headers['x-real-ip'] || req.ip || '');
+// IPv6-safe key for express-rate-limit v8 (normalizes /64 subnets).
+const ipKey = (req) => ipKeyGenerator(clientIp(req));
+
+// Brute-force protection, keyed on the REAL client IP (see clientIp above).
+//  • loginLimiter: tight, paired with the failed_logins DB check in
+//    /api/auth/login for a second restart-surviving throttle.
+//  • registerLimiter: more generous — many legitimate users legitimately share
+//    one IP (office/campus NAT, mobile carrier CGNAT) and must all be able to
+//    sign up. adminLimiter stays generous for the admin UI's burst of reads.
+const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 5,
+  max: 10,
+  keyGenerator: ipKey,
   standardHeaders: true,
   legacyHeaders: false,
-  message: { error: 'Too many auth attempts. Try again in 15 minutes.' },
+  message: { error: 'Too many login attempts. Try again in a few minutes.' },
+});
+const registerLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 30,
+  keyGenerator: ipKey,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many sign-up attempts. Try again in a few minutes.' },
 });
 const adminLimiter = rateLimit({
   windowMs: 60 * 1000,
@@ -1855,7 +1876,7 @@ app.post('/api/node/run-failed', verifyJwt, requireNotBanned, async (req, res) =
 });
 
 // ─── AUTH: REGISTER ─────────────────────────────────────────────────
-app.post('/api/auth/register', authLimiter, requireAuthInfra, async (req, res) => {
+app.post('/api/auth/register', registerLimiter, requireAuthInfra, async (req, res) => {
   try {
     const email = String(req.body?.email || '').trim().toLowerCase();
     const password = String(req.body?.password || '');
@@ -1893,7 +1914,7 @@ app.post('/api/auth/register', authLimiter, requireAuthInfra, async (req, res) =
     pool.query(
       `INSERT INTO credits_history (user_id, amount, action, ip_address)
        VALUES ($1, 0, 'signup', $2)`,
-      [user.id, req.ip]
+      [user.id, clientIp(req)]
     ).catch(err => console.error('[auth/register] credits_history insert failed:', err.message));
 
     const token = jwt.sign(
@@ -1914,15 +1935,16 @@ app.post('/api/auth/register', authLimiter, requireAuthInfra, async (req, res) =
 // unknown OR the password is wrong. Distinguishing them leaks which emails
 // have accounts (user-enumeration attack).
 //
-// Two independent throttles:
-//  1. authLimiter (express-rate-limit, in-memory): 5 requests / 15min / IP.
+// Two independent throttles, both keyed on the REAL client IP (clientIp →
+// CF-Connecting-IP), NOT the shared Cloudflare edge IP:
+//  1. loginLimiter (express-rate-limit, in-memory): 10 requests / 15min / IP.
 //  2. failed_logins table check: 5 *failed* attempts / 15min / IP → 429
 //     even after the request gets past the in-memory limiter (e.g. after
 //     a server restart that reset the in-memory counter).
 const ADMIN_JWT_EXPIRES = process.env.ADMIN_JWT_EXPIRES_IN || '30m';
 
-app.post('/api/auth/login', authLimiter, requireAuthInfra, async (req, res) => {
-  const ip = req.ip;
+app.post('/api/auth/login', loginLimiter, requireAuthInfra, async (req, res) => {
+  const ip = clientIp(req);
   const ua = req.get('user-agent') || null;
   const email = String(req.body?.email || '').trim().toLowerCase();
   const password = String(req.body?.password || '');
