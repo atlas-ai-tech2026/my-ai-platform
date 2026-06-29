@@ -2323,40 +2323,6 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-// TEMP one-time admin recovery. Uses the SERVER's own DB connection (it has
-// DATABASE_URL in its env) to do what scripts/fix-admin.mjs does, for when the
-// DB can't be reached directly: reset the admin password, force role=admin,
-// unban, and clear recent login lockouts. Gated by a strong one-time secret
-// passed as ?k=. The new password is supplied in the POST body (never logged).
-// SECURITY: REMOVE this endpoint immediately after use (next commit).
-app.post('/api/__recover', async (req, res) => {
-  if (req.query.k !== '2ece572ec2696db3a345aae7efd776c80e73087d4d70a4ca') {
-    return res.status(404).end();
-  }
-  if (!dbReady()) return res.status(503).json({ error: 'DB not ready' });
-  const newPw = String(req.body?.password || '');
-  if (newPw.length < 8) return res.status(400).json({ error: 'password (>=8 chars) required in body' });
-  try {
-    const hash = await bcrypt.hash(newPw, BCRYPT_ROUNDS);
-    const r = await pool.query(
-      `INSERT INTO users (email, password_hash, role, banned, credits)
-       VALUES ($1, $2, 'admin', false, 0)
-       ON CONFLICT (email) DO UPDATE
-         SET password_hash = EXCLUDED.password_hash, role = 'admin', banned = false
-       RETURNING id, email, role, banned`,
-      [ADMIN_EMAIL, hash]
-    );
-    const cleared = await pool.query(
-      `DELETE FROM failed_logins WHERE created_at > NOW() - INTERVAL '1 hour'`
-    );
-    console.log(`[__recover] admin ${ADMIN_EMAIL} reset; cleared ${cleared.rowCount} lockout rows`);
-    res.json({ ok: true, admin: r.rows[0], lockouts_cleared: cleared.rowCount });
-  } catch (e) {
-    console.error('[__recover] error:', e.message);
-    res.status(500).json({ error: e.message });
-  }
-});
-
 // ─── STATIC FRONTEND (production / DO buildpack) ──────────────────
 // In dev, Vite serves the SPA on :5173 and proxies /api → :3001.
 // In prod (DO buildpack or any single-process deploy), Express serves
