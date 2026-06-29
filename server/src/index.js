@@ -138,7 +138,7 @@ const loginLimiter = rateLimit({
 });
 const registerLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 30,
+  max: 100, // generous: NAT/campus/carrier can put many real signups behind one IP
   keyGenerator: ipKey,
   standardHeaders: true,
   legacyHeaders: false,
