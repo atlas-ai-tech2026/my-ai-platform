@@ -113,6 +113,14 @@ const clientIp = (req) =>
 // IPv6-safe key for express-rate-limit v8 (normalizes /64 subnets).
 const ipKey = (req) => ipKeyGenerator(clientIp(req));
 
+// Is this login/register request for the admin account? Used to exempt the
+// admin from the brute-force throttles so an operator can ALWAYS recover CRM
+// access even after many failed attempts. NOTE: this trades brute-force
+// protection on the admin email for guaranteed recoverability — acceptable
+// short-term; revisit once a proper account-recovery flow exists.
+const isAdminAuth = (req) =>
+  String(req.body?.email || '').trim().toLowerCase() === ADMIN_EMAIL;
+
 // Brute-force protection, keyed on the REAL client IP (see clientIp above).
 //  • loginLimiter: tight, paired with the failed_logins DB check in
 //    /api/auth/login for a second restart-surviving throttle.
@@ -123,6 +131,7 @@ const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 10,
   keyGenerator: ipKey,
+  skip: isAdminAuth, // admin is never rate-limited (recoverability over brute-force hardening)
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many login attempts. Try again in a few minutes.' },
@@ -1966,18 +1975,21 @@ app.post('/api/auth/login', loginLimiter, requireAuthInfra, async (req, res) => 
 
   // Persistent brute-force throttle (survives restart). Fires before any
   // bcrypt work so attackers can't pin CPU even at the throttle's edge.
-  try {
-    const { rows: fl } = await pool.query(
-      `SELECT count(*)::int AS c FROM failed_logins
-       WHERE ip_address = $1 AND created_at > NOW() - INTERVAL '15 minutes'`,
-      [ip]
-    );
-    if (fl[0]?.c >= 5) {
-      return res.status(429).json({ error: 'Too many failed attempts from your IP. Try again in 1 hour.' });
+  // Skipped for the admin account so CRM access is always recoverable.
+  if (!isAdminAuth(req)) {
+    try {
+      const { rows: fl } = await pool.query(
+        `SELECT count(*)::int AS c FROM failed_logins
+         WHERE ip_address = $1 AND created_at > NOW() - INTERVAL '15 minutes'`,
+        [ip]
+      );
+      if (fl[0]?.c >= 5) {
+        return res.status(429).json({ error: 'Too many failed attempts from your IP. Try again in 1 hour.' });
+      }
+    } catch (e) {
+      console.error('[auth/login] failed_logins precheck error:', e.message);
+      // fall through — don't lock everyone out if the table is unreachable
     }
-  } catch (e) {
-    console.error('[auth/login] failed_logins precheck error:', e.message);
-    // fall through — don't lock everyone out if the table is unreachable
   }
 
   try {
