@@ -88,13 +88,28 @@ app.use(cors({
 
 app.use(express.json({ limit: '50mb' }));
 
-// Real client IP. Behind Cloudflare → DO LB, `req.ip` resolves to a SHARED
-// Cloudflare edge IP, so keying rate limits on it throttles thousands of
-// unrelated users TOGETHER (5 signups behind one edge node blocked everyone).
-// Cloudflare injects the true visitor IP as `CF-Connecting-IP`; fall back to
-// req.ip for non-CF paths (local dev, DO health probe, direct origin hits).
+// Real client IP. Behind Cloudflare → DO App Platform ingress → Node, `req.ip`
+// resolves to a SHARED upstream IP, so keying rate limits on it throttles
+// thousands of unrelated users TOGETHER (one bucket for everyone → "Too many
+// attempts" for all). We must recover the true visitor IP. Try, in order:
+//   1. CF-Connecting-IP / True-Client-IP — Cloudflare's real-visitor headers
+//   2. leftmost X-Forwarded-For entry — the original client behind the proxies
+//   3. req.ip — last resort (local dev / direct origin hits)
+// (Trustworthy only because the origin is Cloudflare-fronted; lock the DO
+// origin firewall to CF IP ranges so these headers can't be spoofed direct.)
+function xffFirst(req) {
+  const xff = req.headers['x-forwarded-for'];
+  if (!xff) return '';
+  return String(xff).split(',')[0].trim();
+}
 const clientIp = (req) =>
-  String(req.headers['cf-connecting-ip'] || req.headers['x-real-ip'] || req.ip || '');
+  String(
+    req.headers['cf-connecting-ip'] ||
+    req.headers['true-client-ip'] ||
+    xffFirst(req) ||
+    req.ip ||
+    ''
+  );
 // IPv6-safe key for express-rate-limit v8 (normalizes /64 subnets).
 const ipKey = (req) => ipKeyGenerator(clientIp(req));
 
@@ -2305,6 +2320,24 @@ app.get('/api/health', (req, res) => {
     fal_configured: !!FAL_KEY,
     db_configured: dbReady(),
     auth_configured: !!JWT_SECRET,
+  });
+});
+
+// TEMP diagnostic: confirm which header carries the real client IP at the DO
+// origin, so the rate-limiter keys on a per-user value instead of a shared one.
+// Gated by a secret query param. REMOVE after the IP-keying fix is verified.
+app.get('/api/__ipcheck', (req, res) => {
+  if (req.query.k !== 'voxel-ipdiag-2026') return res.status(404).end();
+  res.json({
+    computed_clientIp: clientIp(req),
+    req_ip: req.ip,
+    req_ips: req.ips,
+    headers: {
+      'cf-connecting-ip': req.headers['cf-connecting-ip'] || null,
+      'true-client-ip': req.headers['true-client-ip'] || null,
+      'x-forwarded-for': req.headers['x-forwarded-for'] || null,
+      'x-real-ip': req.headers['x-real-ip'] || null,
+    },
   });
 });
 
