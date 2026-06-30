@@ -129,7 +129,11 @@ const isAdminAuth = (req) =>
 //    sign up. adminLimiter stays generous for the admin UI's burst of reads.
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 10,
+  // Generous per-IP ceiling: many legitimate users share one IP (office/campus
+  // NAT, carrier CGNAT) and all must be able to log in. This counts ALL login
+  // requests (success + fail); per-account brute-force is throttled separately
+  // by the failed_logins (IP, email) check inside /api/auth/login.
+  max: 100,
   keyGenerator: ipKey,
   skip: isAdminAuth, // admin is never rate-limited (recoverability over brute-force hardening)
   standardHeaders: true,
@@ -1961,10 +1965,12 @@ app.post('/api/auth/register', registerLimiter, requireAuthInfra, async (req, re
 //
 // Two independent throttles, both keyed on the REAL client IP (clientIp →
 // CF-Connecting-IP), NOT the shared Cloudflare edge IP:
-//  1. loginLimiter (express-rate-limit, in-memory): 10 requests / 15min / IP.
-//  2. failed_logins table check: 5 *failed* attempts / 15min / IP → 429
-//     even after the request gets past the in-memory limiter (e.g. after
-//     a server restart that reset the in-memory counter).
+//  1. loginLimiter (express-rate-limit, in-memory): 100 requests / 15min / IP
+//     — generous so shared NAT/CGNAT IPs aren't throttled as a group.
+//  2. failed_logins table check: 10 *failed* attempts / 15min per (IP, email)
+//     → 429, even after the request gets past the in-memory limiter (e.g.
+//     after a server restart that reset the in-memory counter). Keyed per
+//     account so one user's typos don't lock out others on the same IP.
 const ADMIN_JWT_EXPIRES = process.env.ADMIN_JWT_EXPIRES_IN || '30m';
 
 app.post('/api/auth/login', loginLimiter, requireAuthInfra, async (req, res) => {
@@ -1978,13 +1984,19 @@ app.post('/api/auth/login', loginLimiter, requireAuthInfra, async (req, res) => 
   // Skipped for the admin account so CRM access is always recoverable.
   if (!isAdminAuth(req)) {
     try {
+      // Scope the throttle to (IP, email) — NOT IP alone. Many legitimate
+      // users share one IP (office/campus NAT, mobile carrier CGNAT); keying
+      // purely on IP let a handful of unrelated people's typos lock out
+      // EVERYONE behind that IP. Per-account keying still stops brute-forcing
+      // a single account, while the per-IP loginLimiter above covers spraying.
       const { rows: fl } = await pool.query(
         `SELECT count(*)::int AS c FROM failed_logins
-         WHERE ip_address = $1 AND created_at > NOW() - INTERVAL '15 minutes'`,
-        [ip]
+         WHERE ip_address = $1 AND email = $2
+           AND created_at > NOW() - INTERVAL '15 minutes'`,
+        [ip, email]
       );
-      if (fl[0]?.c >= 5) {
-        return res.status(429).json({ error: 'Too many failed attempts from your IP. Try again in 1 hour.' });
+      if (fl[0]?.c >= 10) {
+        return res.status(429).json({ error: 'Too many failed attempts for this account. Try again in 15 minutes.' });
       }
     } catch (e) {
       console.error('[auth/login] failed_logins precheck error:', e.message);
