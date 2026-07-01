@@ -5,6 +5,11 @@
 // and Voxel_Credit_Calculator.html. These are the verified Higgsfield credit
 // costs charged to the user per generation.
 //
+// PRICE RAISE (applied on top of the verified baseline): every model is +1
+// credit per generation. For per-second video models that means +0.2 cr/s, so
+// a representative 5-second clip rises by exactly 1 credit. Per-generation
+// prices (images, flat video, per-gen video) are simply +1.
+//
 // If you change a number here, the Image/Video GENERATE buttons update
 // automatically — nothing else to touch.
 //
@@ -38,15 +43,15 @@ export const PLAN_RATES = Object.fromEntries(
 // Quality keys match the app selector: 'Draft' | '1K' | '2K' | '4K'.
 // ----------------------------------------------------------------------------
 export const IMAGE_CREDITS = {
-  // app id        sheet model            Draft  1K   2K   4K
-  'nano-pro':     { Draft: 2,   '1K': 2,   '2K': 2,   '4K': 4   }, // Nano Banana Pro
-  'nano-2':       { Draft: 1.5, '1K': 1.5, '2K': 2,   '4K': 3   }, // Nano Banana 2
-  'seedream-4':   { Draft: 1,   '1K': 1,   '2K': 1,   '4K': 1   }, // Seedream 4.5
-  'gpt-image-2':  { Draft: 4,   '1K': 4,   '2K': 7,   '4K': 12  }, // GPT Image 2 (High variant)
-  'gpt-image':    { Draft: 6,   '1K': 6,   '2K': 6,   '4K': 6   }, // GPT Image 1.5 (High, 1K-only in sheet)
-  'flux-kontext': { Draft: 1.5, '1K': 1.5, '2K': 1.5, '4K': 1.5 }, // Flux Kontext Max (Default rate)
-  'flux-2':       { Draft: 1,   '1K': 1,   '2K': 1.5, '4K': 1.5 }, // FLUX.2 Pro
-  'wan-22':       { Draft: 1,   '1K': 1,   '2K': 1,   '4K': 1   }, // WAN 2.2 image (Default rate)
+  // app id        sheet model            Draft  1K   2K   4K   (baseline +1)
+  'nano-pro':     { Draft: 3,   '1K': 3,   '2K': 3,   '4K': 5   }, // Nano Banana Pro
+  'nano-2':       { Draft: 2.5, '1K': 2.5, '2K': 3,   '4K': 4   }, // Nano Banana 2
+  'seedream-4':   { Draft: 2,   '1K': 2,   '2K': 2,   '4K': 2   }, // Seedream 4.5
+  'gpt-image-2':  { Draft: 5,   '1K': 5,   '2K': 8,   '4K': 13  }, // GPT Image 2 (High variant)
+  'gpt-image':    { Draft: 7,   '1K': 7,   '2K': 7,   '4K': 7   }, // GPT Image 1.5 (High, 1K-only in sheet)
+  'flux-kontext': { Draft: 2.5, '1K': 2.5, '2K': 2.5, '4K': 2.5 }, // Flux Kontext Max (Default rate)
+  'flux-2':       { Draft: 2,   '1K': 2,   '2K': 2.5, '4K': 2.5 }, // FLUX.2 Pro
+  'wan-22':       { Draft: 2,   '1K': 2,   '2K': 2,   '4K': 2   }, // WAN 2.2 image (Default rate)
 };
 
 // Image models NOT in the master plan yet — fall back to model-list `credits`.
@@ -62,109 +67,109 @@ export const IMAGE_PENDING = new Set([
 // `defaultRes` is used when the panel's resolution isn't priced for that model.
 // ----------------------------------------------------------------------------
 export const VIDEO_CREDITS = {
-  // Kling 3.0 — per second; 1080p splits by audio (sheet: 1.5 / 2.0 cr/s)
+  // Kling 3.0 — per second; 1080p splits by audio (sheet: 1.5 / 2.0 cr/s, +0.2)
   'kling-3': {
     type: 'per-sec', defaultRes: '1080p',
     byRes: {
-      '720p':  { off: 1.75, on: 1.75 },
-      '1080p': { off: 1.5,  on: 2.0  },
-      '4K':    { off: 6,    on: 6    },
+      '720p':  { off: 1.95, on: 1.95 },
+      '1080p': { off: 1.7,  on: 2.2  },
+      '4K':    { off: 6.2,  on: 6.2  },
     },
   },
-  // Kling 2.6 — per second @1080p (sheet: 2 cr/s)
+  // Kling 2.6 — per second @1080p (sheet: 2 cr/s, +0.2)
   'kling-2-6': {
     type: 'per-sec', defaultRes: '1080p',
-    byRes: { '1080p': { off: 2, on: 2 } },
+    byRes: { '1080p': { off: 2.2, on: 2.2 } },
   },
-  // Seedance 2.0 — per second by resolution (sheet: 3 / 4.5 / 9 / 22 cr/s)
+  // Seedance 2.0 — per second by resolution (sheet: 3 / 4.5 / 9 / 22 cr/s, +0.2)
   'seedance-2': {
     type: 'per-sec', defaultRes: '720p',
     byRes: {
-      '480p':  { off: 3,   on: 3   },
-      '720p':  { off: 4.5, on: 4.5 },
-      '1080p': { off: 9,   on: 9   },
-      '4K':    { off: 22,  on: 22  },
+      '480p':  { off: 3.2,  on: 3.2  },
+      '720p':  { off: 4.7,  on: 4.7  },
+      '1080p': { off: 9.2,  on: 9.2  },
+      '4K':    { off: 22.2, on: 22.2 },
     },
   },
-  // Seedance 2.0 Fast — per second (sheet: 1.5 / 3.5 cr/s)
+  // Seedance 2.0 Fast — per second (sheet: 1.5 / 3.5 cr/s, +0.2)
   'seedance-2-fast': {
     type: 'per-sec', defaultRes: '720p',
     byRes: {
-      '480p': { off: 1.5, on: 1.5 },
-      '720p': { off: 3.5, on: 3.5 },
+      '480p': { off: 1.7, on: 1.7 },
+      '720p': { off: 3.7, on: 3.7 },
     },
   },
   // Seedance 2.0 Mini — per second. Priced for a guaranteed ≥10% profit over
   // FAL's output cost ($0.0721/s @480p, $0.1547/s @720p), calibrated against
   // the lowest-$/credit plan (Studio @ $0.03225/cr) so every plan clears 10%:
-  //   480p: 0.0721×1.10 ÷ 0.03225 = 2.46 → 2.5 cr/s
-  //   720p: 0.1547×1.10 ÷ 0.03225 = 5.28 → 5.5 cr/s
+  //   480p: 0.0721×1.10 ÷ 0.03225 = 2.46 → 2.5 cr/s (+0.2 raise → 2.7)
+  //   720p: 0.1547×1.10 ÷ 0.03225 = 5.28 → 5.5 cr/s (+0.2 raise → 5.7)
   // (audio is free on Seedance, so on === off.)
   'seedance-2-mini': {
     type: 'per-sec', defaultRes: '720p',
     byRes: {
-      '480p': { off: 2.5, on: 2.5 },
-      '720p': { off: 5.5, on: 5.5 },
+      '480p': { off: 2.7, on: 2.7 },
+      '720p': { off: 5.7, on: 5.7 },
     },
   },
-  // Grok Imagine 1.5 (video) — per second (sheet: 2.5 / 4.5 cr/s)
+  // Grok Imagine 1.5 (video) — per second (sheet: 2.5 / 4.5 cr/s, +0.2)
   'grok-imagine': {
     type: 'per-sec', defaultRes: '720p',
     byRes: {
-      '480p': { off: 2.5, on: 2.5 },
-      '720p': { off: 4.5, on: 4.5 },
+      '480p': { off: 2.7, on: 2.7 },
+      '720p': { off: 4.7, on: 4.7 },
     },
   },
-  // Kling O1 → Kling O1 Video Edit — flat per generation (sheet: 9 cr both res)
+  // Kling O1 → Kling O1 Video Edit — flat per generation (sheet: 9 cr, +1)
   'kling-o1': {
     type: 'flat', defaultRes: '1080p',
-    byRes: { '720p': 9, '1080p': 9 },
+    byRes: { '720p': 10, '1080p': 10 },
   },
-  // Veo 3.1 → mapped to Veo 3.1 Quality — flat per gen by (res, duration 4/6/8)
+  // Veo 3.1 → mapped to Veo 3.1 Quality — flat per gen by (res, duration 4/6/8, +1)
   'veo-3-1': {
     type: 'per-gen', defaultRes: '1080p',
     byResDuration: {
-      '720p':  { 4: 29, 6: 44, 8: 58 },
-      '1080p': { 4: 29, 6: 44, 8: 58 },
-      '4K':    { 4: 44, 6: 66, 8: 88 },
+      '720p':  { 4: 30, 6: 45, 8: 59 },
+      '1080p': { 4: 30, 6: 45, 8: 59 },
+      '4K':    { 4: 45, 6: 67, 8: 89 },
     },
   },
-  // Sora 2 — flat per generation by duration (sheet: 4/8/12 s, single res)
+  // Sora 2 — flat per generation by duration (sheet: 4/8/12 s, single res, +1)
   'sora-2': {
     type: 'per-gen', defaultRes: 'Default',
-    byResDuration: { 'Default': { 4: 10, 8: 20, 12: 29 } },
+    byResDuration: { 'Default': { 4: 11, 8: 21, 12: 30 } },
   },
-  // Kling 3.0 Omni — not in the sheet; mapped to Kling 3.0 per-sec pricing.
+  // Kling 3.0 Omni — not in the sheet; mapped to Kling 3.0 per-sec pricing (+0.2).
   'kling-3-omni': {
     type: 'per-sec', defaultRes: '1080p',
     byRes: {
-      '720p':  { off: 1.75, on: 1.75 },
-      '1080p': { off: 1.5,  on: 2.0  },
-      '4K':    { off: 6,    on: 6    },
+      '720p':  { off: 1.95, on: 1.95 },
+      '1080p': { off: 1.7,  on: 2.2  },
+      '4K':    { off: 6.2,  on: 6.2  },
     },
   },
 
   // ---- Motion Control + Edit panels (keyed by model NAME, not id) ----------
   // These are flat per-generation by resolution.
-  // Kling 3.0 Motion Control (sheet: 720p=7, 1080p=10)
+  // Kling 3.0 Motion Control (sheet: 720p=7, 1080p=10, +1)
   'Kling 3.0 Motion Control': {
     type: 'flat', defaultRes: '1080p',
-    byRes: { '720p': 7, '1080p': 10 },
+    byRes: { '720p': 8, '1080p': 11 },
   },
-  // Kling Motion Control (older) (sheet: 720p=5, 1080p=7)
+  // Kling Motion Control (older) (sheet: 720p=5, 1080p=7, +1)
   'Kling Motion Control': {
     type: 'flat', defaultRes: '720p',
-    byRes: { '720p': 5, '1080p': 7 },
+    byRes: { '720p': 6, '1080p': 8 },
   },
-  // Kling O1 Video Edit (sheet: 9 at both resolutions)
+  // Kling O1 Video Edit (sheet: 9 at both resolutions, +1)
   'Kling O1 Video Edit': {
     type: 'flat', defaultRes: '720p',
-    byRes: { '720p': 9, '1080p': 9 },
+    byRes: { '720p': 10, '1080p': 10 },
   },
-  // Kling 3.0 Omni Edit — not in the sheet; mapped to Kling O1 Video Edit (9).
+  // Kling 3.0 Omni Edit — not in the sheet; mapped to Kling O1 Video Edit (+1).
   'Kling 3.0 Omni Edit': {
     type: 'flat', defaultRes: '720p',
-    byRes: { '720p': 9, '1080p': 9 },
+    byRes: { '720p': 10, '1080p': 10 },
   },
 };
 
