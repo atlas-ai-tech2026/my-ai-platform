@@ -5,6 +5,11 @@ const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
 const api = axios.create({
   baseURL: API_BASE,
   headers: { 'Content-Type': 'application/json' },
+  // Never let a request hang forever. Image generation is synchronous and can
+  // take ~30-60s at FAL, so give it generous headroom — but after this the
+  // request errors with a real message instead of leaving the Generate button
+  // stuck on "GENERATING" indefinitely.
+  timeout: 180000,
 });
 
 api.interceptors.request.use((config) => {

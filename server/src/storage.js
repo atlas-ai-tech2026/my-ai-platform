@@ -42,6 +42,10 @@ if (configured) {
     region: REGION,
     forcePathStyle: false,
     credentials: { accessKeyId: KEY, secretAccessKey: SECRET },
+    // Fail fast on a bad endpoint/creds instead of hanging the generation
+    // response. Two attempts max; short connect/socket timeouts.
+    maxAttempts: 2,
+    requestHandler: { connectionTimeout: 3000, requestTimeout: 8000 },
   });
   console.log(`[storage] DO Spaces configured → bucket=${BUCKET} region=${REGION}`);
 } else {
@@ -84,11 +88,11 @@ function publicUrl(key) {
 // generation the user already paid for.
 //
 // `kind` is a folder prefix like 'image' | 'video' | 'audio'.
-export async function persistFromUrl(sourceUrl, kind = 'output') {
+export async function persistFromUrl(sourceUrl, kind = 'output', signal) {
   if (!configured) throw new Error('Spaces not configured');
   if (!sourceUrl || typeof sourceUrl !== 'string') throw new Error('No source url');
 
-  const resp = await fetch(sourceUrl);
+  const resp = await fetch(sourceUrl, { signal });
   if (!resp.ok) throw new Error(`Fetch source failed: ${resp.status}`);
   const contentType = resp.headers.get('content-type') || '';
   const buf = Buffer.from(await resp.arrayBuffer());
@@ -107,21 +111,28 @@ export async function persistFromUrl(sourceUrl, kind = 'output') {
     ContentType: contentType || 'application/octet-stream',
     ACL: 'public-read', // history images are shown directly in the browser
     CacheControl: 'public, max-age=31536000, immutable',
-  }));
+  }), { abortSignal: signal });
 
   return publicUrl(objectKey);
 }
 
-// Convenience wrapper: try to re-host; on ANY failure log and return the
-// original url so the caller can keep going. Never throws.
-export async function persistOrFallback(sourceUrl, kind = 'output') {
+// Convenience wrapper: try to re-host; on ANY failure OR timeout, log and
+// return the original url so the caller keeps going. NEVER throws and NEVER
+// blocks longer than `timeoutMs` — a misconfigured Spaces must not hang the
+// user's generation response. Default 10s (generous for an image; videos may
+// fall back more often, which is fine — durability is best-effort).
+export async function persistOrFallback(sourceUrl, kind = 'output', { timeoutMs = 10000 } = {}) {
   if (!configured || !sourceUrl) return sourceUrl;
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), timeoutMs);
   try {
-    const url = await persistFromUrl(sourceUrl, kind);
+    const url = await persistFromUrl(sourceUrl, kind, ac.signal);
     console.log(`[storage] re-hosted ${kind} → ${url}`);
     return url;
   } catch (e) {
-    console.error(`[storage] re-host failed (${kind}), keeping FAL url:`, e.message);
+    console.error(`[storage] re-host failed/timed out (${kind}), keeping FAL url:`, e.message);
     return sourceUrl;
+  } finally {
+    clearTimeout(timer);
   }
 }
