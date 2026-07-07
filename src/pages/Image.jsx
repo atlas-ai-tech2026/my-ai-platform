@@ -264,12 +264,12 @@ export default function Image() {
   const { user, isAuthenticated, isLoadingAuth, openAuthModal, refresh: refreshAuth } = useAuth();
   const [selectedModel, setSelectedModel] = useState({ id: 'nano-pro', name: 'Nano Banana Pro' });
   const [prompt, setPrompt] = useState('');
-  const [isGenerating, setIsGenerating] = useState(false);
-  // Synchronous re-entrancy lock. `isGenerating` state disables the button, but
-  // state updates are async — an ultra-fast double-click can fire two
-  // handleGenerate calls (and two credit charges) before the button greys out.
-  // This ref flips synchronously so the second call bails immediately.
-  const generatingRef = useRef(false);
+  // Number of images currently being generated across ALL in-flight batches.
+  // A counter (not a boolean lock) lets the user fire several generations
+  // back-to-back without the button locking — each batch charges credits
+  // independently and the grid shows one loading card per pending image.
+  const [pending, setPending] = useState(0);
+  const isGenerating = pending > 0;
   const [images, setImages] = useState([]);
   const [imageCount, setImageCount] = useState(1);
   const [expandedImage, setExpandedImage] = useState(null);
@@ -347,11 +347,6 @@ export default function Image() {
   }, [isLoadingAuth, isAuthenticated, user?.id]);
 
   const handleGenerate = async (creditCost) => {
-    // Hard guard against re-entrant clicks (double-click / spam) — checked
-    // synchronously so a second call can't slip through before React disables
-    // the button. Each generation charges credits, so this prevents accidental
-    // double-charging.
-    if (generatingRef.current) return;
     if (!prompt.trim()) { toast.error('Please enter a prompt'); return; }
     // Sign-up wall: an unauthenticated user clicking Generate gets the
     // sign-up modal instead of a silent backend 401. The modal closes on
@@ -361,8 +356,12 @@ export default function Image() {
       openAuthModal('login');
       return;
     }
-    generatingRef.current = true;
-    setIsGenerating(true);
+    // Concurrent-friendly: this batch adds its image count to the shared
+    // `pending` counter and removes exactly that amount when done. No lock —
+    // the user can start another generation immediately. Optimistically assume
+    // `imageCount`; reconcile below once composition detection may force it to 1.
+    let added = imageCount || 1;
+    setPending(n => n + added);
     setActiveTab('history');
     try {
       // ─── Step 1: Upload ALL images to FAL storage ───
@@ -385,6 +384,11 @@ export default function Image() {
       const finalPrompt = buildCompositionPrompt(promptWithCamera, uploadedUrls.length);
       const isComposition = uploadedUrls.length >= 2 && detectCompositionIntent(prompt);
       const selectedNumImages = isComposition ? 1 : (imageCount || 1);
+      // Reconcile the optimistic pending count with the real image count.
+      if (selectedNumImages !== added) {
+        setPending(n => n + (selectedNumImages - added));
+        added = selectedNumImages;
+      }
 
       console.log('[API PROMPT]', finalPrompt);
       console.log(`[Prompt] Composition: ${isComposition}, num_images: ${selectedNumImages}`);
@@ -509,8 +513,9 @@ export default function Image() {
       // makes sure the displayed balance matches what the server thinks.
       refreshAuth();
     } finally {
-      generatingRef.current = false;
-      setIsGenerating(false);
+      // Remove exactly what this batch added, so concurrent batches don't
+      // clobber each other's count.
+      setPending(n => Math.max(0, n - added));
     }
   };
 
@@ -624,8 +629,8 @@ export default function Image() {
         <div style={{
           display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 10, padding: '20px 28px 14px'
         }}>
-            {/* Loading cards */}
-            {isGenerating && Array.from({ length: imageCount }).map((_, i) =>
+            {/* Loading cards — one per in-flight image across all batches */}
+            {Array.from({ length: pending }).map((_, i) =>
           <div key={`loading-${i}`} style={{ animation: 'imgFadeIn 0.4s ease forwards' }}>
                 <LoadingCard index={i} />
               </div>

@@ -1042,24 +1042,17 @@ export default function ImagePromptBar({
           {/* Generate capsule — class-driven so the smooth ::before halo
               works (impossible via inline style). The trailing number is the
               credit cost deducted per image, read from the selected model. */}
+          {/* Never disabled — the user can fire off several generations
+              back-to-back. Each click charges credits and adds its own loading
+              card(s) to the grid; the button stays ready for the next one. */}
           <button
             onClick={handleGenerate}
-            disabled={isGenerating}
             title={`Generate · ${creditCost} credits per image`}
             className="voxel-generate"
             style={{ marginLeft: 'auto' }}
           >
-            {isGenerating ? (
-              <span className="voxel-generate__label" style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ width: 13, height: 13, border: '2px solid rgba(255,255,255,0.4)', borderTopColor: '#FFF', borderRadius: '50%', animation: 'imgSpin 0.8s linear infinite' }} />
-                GENERATING
-              </span>
-            ) : (
-              <>
-                <span className="voxel-generate__label">GENERATE</span>
-                <span className="voxel-generate__arrow" aria-hidden>{creditCost}</span>
-              </>
-            )}
+            <span className="voxel-generate__label">GENERATE</span>
+            <span className="voxel-generate__arrow" aria-hidden>{creditCost}</span>
           </button>
         </div>
 
