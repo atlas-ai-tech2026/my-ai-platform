@@ -10,6 +10,7 @@ import dotenv from 'dotenv';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { pool, isReady as dbReady, migrate, ADMIN_EMAIL } from './db.js';
+import { persistOrFallback } from './storage.js';
 import { verifyJwt, requireAdmin, requireNotBanned } from './middleware/auth.js';
 // Restored after the in-file getStore block was removed — DIST_DIR
 // at the bottom of this file still needs __dirname.
@@ -481,7 +482,11 @@ app.post('/api/generate', verifyJwt, requireNotBanned, requireFalKey, async (req
         });
       }
 
-      return res.json({ success: true, type: 'image', result_url: imageUrl, mode });
+      // Copy FAL's ephemeral output into our own Spaces bucket so the image
+      // survives in history after FAL purges its link. Falls back to the FAL
+      // url if Spaces isn't configured or the copy fails.
+      const durableUrl = await persistOrFallback(imageUrl, 'image');
+      return res.json({ success: true, type: 'image', result_url: durableUrl, mode });
     }
 
     // ── VIDEO GENERATION ──
@@ -595,7 +600,10 @@ app.post('/api/checkStatus', async (req, res) => {
         result.data?.image?.url ||
         null;
 
-      return res.json({ status: 'COMPLETED', video_url: videoUrl, image_url: imageUrl });
+      // Re-host outputs to our own Spaces bucket so history stays durable.
+      const durableVideo = await persistOrFallback(videoUrl, 'video');
+      const durableImage = await persistOrFallback(imageUrl, 'image');
+      return res.json({ status: 'COMPLETED', video_url: durableVideo, image_url: durableImage });
     }
 
     if (status.status === 'FAILED') {
@@ -1251,7 +1259,10 @@ app.post('/api/video-status', async (req, res) => {
         return res.json({ status: 'FAILED', error: 'No video URL in result' });
       }
 
-      return res.json({ status: 'COMPLETED', video_url: videoUrl });
+      // Re-host to our own Spaces bucket so history stays durable after FAL
+      // purges its link.
+      const durableVideo = await persistOrFallback(videoUrl, 'video');
+      return res.json({ status: 'COMPLETED', video_url: durableVideo });
     }
 
     if (status.status === 'FAILED') {
