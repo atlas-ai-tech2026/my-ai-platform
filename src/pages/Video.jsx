@@ -92,29 +92,49 @@ export default function Video() {
     if (isLoadingAuth) return;
     if (!isAuthenticated) { setVideos([]); return; }
     let cancelled = false;
-    History_.filter({ type: 'video' }, '-created_date', 50).then(records => {
-      if (cancelled) return;
-      const loaded = records.map(r => ({
-        id: r.id, prompt: r.prompt, model: r.model,
-        duration: r.duration, aspectRatio: r.ratio,
-        result_url: r.result_url, status: r.status || 'completed',
-        job_id: r.job_id, model_id: r.model_id,
-        // Edit-Video / Motion-Control extras — survive server restart so
-        // the detail modal can still show source video, refs, audio,
-        // character image, motion ref video, quality, and scene_control.
-        source_video_url: r.source_video_url,
-        reference_image_urls: r.reference_image_urls,
-        keep_audio: r.keep_audio,
-        character_image_url: r.character_image_url,
-        motion_video_url: r.motion_video_url,
-        quality: r.quality,
-        scene_control: r.scene_control,
-        created_date: r.created_date,
-      }));
-      setVideos(loaded);
-      loaded.filter(v => v.status === 'pending' && v.job_id && v.model_id)
-        .forEach(v => pollVideo(v.id, v.job_id, v.model_id));
-    }).catch(() => {});
+
+    const mapRecord = (r) => ({
+      id: r.id, prompt: r.prompt, model: r.model,
+      duration: r.duration, aspectRatio: r.ratio,
+      result_url: r.result_url, status: r.status || 'completed',
+      job_id: r.job_id, model_id: r.model_id,
+      // Edit-Video / Motion-Control extras — survive server restart so
+      // the detail modal can still show source video, refs, audio,
+      // character image, motion ref video, quality, and scene_control.
+      source_video_url: r.source_video_url,
+      reference_image_urls: r.reference_image_urls,
+      keep_audio: r.keep_audio,
+      character_image_url: r.character_image_url,
+      motion_video_url: r.motion_video_url,
+      quality: r.quality,
+      scene_control: r.scene_control,
+      created_date: r.created_date,
+    });
+
+    // Page through the FULL video history (offset pagination) so nothing is
+    // capped — the first page paints immediately, later pages append.
+    (async () => {
+      const PAGE = 200;
+      let offset = 0;
+      let first = true;
+      for (let page = 0; page < 1000 && !cancelled; page++) {
+        let records;
+        try {
+          records = await History_.filter({ type: 'video' }, '-created_date', PAGE, offset);
+        } catch {
+          break;
+        }
+        if (cancelled) return;
+        const mapped = records.map(mapRecord);
+        setVideos(prev => first ? mapped : [...prev, ...mapped]);
+        first = false;
+        mapped.filter(v => v.status === 'pending' && v.job_id && v.model_id)
+          .forEach(v => pollVideo(v.id, v.job_id, v.model_id));
+        offset += records.length;
+        if (records.length < PAGE) break;
+      }
+    })();
+
     return () => { cancelled = true; };
   }, [isLoadingAuth, isAuthenticated, user?.id]);
 

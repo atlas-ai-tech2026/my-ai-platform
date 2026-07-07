@@ -294,26 +294,50 @@ export default function Image() {
     if (isLoadingAuth) return;
     if (!isAuthenticated) { setImages([]); return; }
     let cancelled = false;
-    History_.filter({ type: 'image' }, '-created_date', 50).then(records => {
-      if (cancelled) return;
-      const loaded = records.map(r => ({
-        id: r.id,
-        url: r.result_url,
-        prompt: r.prompt,
-        model: r.model,
-        aspect: r.ratio,
-        style: r.style,
-        quality: r.quality,
-        camera: r.camera || null,
-        lens: r.lens || null,
-        lensType: r.lens_type || null,
-        focalLength: r.focal_length || null,
-        fstop: r.fstop || null,
-        saved: r.saved || false,
-        gradient: RESULT_GRADIENTS[0],
-      }));
-      setImages(loaded);
-    }).catch(() => {});
+
+    const mapRecord = (r) => ({
+      id: r.id,
+      url: r.result_url,
+      prompt: r.prompt,
+      model: r.model,
+      aspect: r.ratio,
+      style: r.style,
+      quality: r.quality,
+      camera: r.camera || null,
+      lens: r.lens || null,
+      lensType: r.lens_type || null,
+      focalLength: r.focal_length || null,
+      fstop: r.fstop || null,
+      saved: r.saved || false,
+      gradient: RESULT_GRADIENTS[0],
+    });
+
+    // Load the FULL history, not just the newest slice. We page through the
+    // server in batches (offset pagination) and append each page so a user
+    // with thousands of generations still sees every image. First page paints
+    // immediately; later pages stream in and grow the grid.
+    (async () => {
+      const PAGE = 200;
+      let offset = 0;
+      let first = true;
+      // Hard stop well above any realistic history size, purely as a runaway
+      // guard so a server bug can't loop forever.
+      for (let page = 0; page < 1000 && !cancelled; page++) {
+        let records;
+        try {
+          records = await History_.filter({ type: 'image' }, '-created_date', PAGE, offset);
+        } catch {
+          break;
+        }
+        if (cancelled) return;
+        const mapped = records.map(mapRecord);
+        setImages(prev => first ? mapped : [...prev, ...mapped]);
+        first = false;
+        offset += records.length;
+        if (records.length < PAGE) break; // last page reached
+      }
+    })();
+
     return () => { cancelled = true; };
   }, [isLoadingAuth, isAuthenticated, user?.id]);
 

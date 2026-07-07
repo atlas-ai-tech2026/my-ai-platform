@@ -24,9 +24,9 @@ function createEntityProxy(entityName) {
   }
 
   return {
-    async list(sort, limit) {
+    async list(sort, limit, offset) {
       try {
-        const res = await api.get(`/api/entities/${entityName}`, { params: { sort, limit } });
+        const res = await api.get(`/api/entities/${entityName}`, { params: { sort, limit, offset } });
         return res.data;
       } catch {
         const items = getAll();
@@ -38,9 +38,9 @@ function createEntityProxy(entityName) {
       }
     },
 
-    async filter(query, sort, limit) {
+    async filter(query, sort, limit, offset) {
       try {
-        const res = await api.post(`/api/entities/${entityName}/filter`, { query, sort, limit });
+        const res = await api.post(`/api/entities/${entityName}/filter`, { query, sort, limit, offset });
         return res.data;
       } catch {
         let items = getAll();

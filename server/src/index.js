@@ -1480,10 +1480,18 @@ function clampLimit(limit) {
   return Math.min(500, Math.floor(n));
 }
 
+// Page offset for pagination. Clamped to a non-negative integer; unbounded on
+// the high end so a user with 10k+ history items can page all the way through.
+function clampOffset(offset) {
+  const n = Number(offset);
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  return Math.floor(n);
+}
+
 app.post('/api/entities/:name/filter', verifyJwt, async (req, res) => {
   if (!dbReady()) return res.status(503).json({ error: 'Database not configured.' });
   try {
-    const { query, sort, limit } = req.body || {};
+    const { query, sort, limit, offset } = req.body || {};
     const params = [req.user.id, req.params.name];
     let where = `user_id = $1 AND name = $2`;
     if (query && typeof query === 'object' && Object.keys(query).length) {
@@ -1491,7 +1499,10 @@ app.post('/api/entities/:name/filter', verifyJwt, async (req, res) => {
       where += ` AND data @> $${params.length}::jsonb`;
     }
     params.push(clampLimit(limit));
-    const sql = `SELECT * FROM entities WHERE ${where} ${sortClause(sort)} LIMIT $${params.length}`;
+    const limitIdx = params.length;
+    params.push(clampOffset(offset));
+    const offsetIdx = params.length;
+    const sql = `SELECT * FROM entities WHERE ${where} ${sortClause(sort)} LIMIT $${limitIdx} OFFSET $${offsetIdx}`;
     const { rows } = await pool.query(sql, params);
     res.json(rows.map(rowToItem));
   } catch (e) {
@@ -1503,8 +1514,8 @@ app.post('/api/entities/:name/filter', verifyJwt, async (req, res) => {
 app.get('/api/entities/:name', verifyJwt, async (req, res) => {
   if (!dbReady()) return res.status(503).json({ error: 'Database not configured.' });
   try {
-    const params = [req.user.id, req.params.name, clampLimit(req.query.limit)];
-    const sql = `SELECT * FROM entities WHERE user_id = $1 AND name = $2 ${sortClause(req.query.sort)} LIMIT $3`;
+    const params = [req.user.id, req.params.name, clampLimit(req.query.limit), clampOffset(req.query.offset)];
+    const sql = `SELECT * FROM entities WHERE user_id = $1 AND name = $2 ${sortClause(req.query.sort)} LIMIT $3 OFFSET $4`;
     const { rows } = await pool.query(sql, params);
     res.json(rows.map(rowToItem));
   } catch (e) {
