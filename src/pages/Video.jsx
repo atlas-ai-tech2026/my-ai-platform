@@ -33,6 +33,10 @@ export default function Video() {
   const { user, isAuthenticated, isLoadingAuth, openAuthModal, refresh: refreshAuth } = useAuth();
   const [prompt, setPrompt] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
+  // Synchronous re-entrancy lock — blocks double-click / spam from firing two
+  // generations (and two credit charges) before the button disables. Shared by
+  // all three generate handlers (generate / motion-control / edit-video).
+  const generatingRef = useRef(false);
   const [count, setCount] = useState(1);
   const [videos, setVideos] = useState([]);
   const [model, setModel] = useState(DEFAULT_MODEL);
@@ -199,12 +203,14 @@ export default function Video() {
 
   // ─── Standard video generate ───
   const handleGenerate = async (creditCost) => {
+    if (generatingRef.current) return;
     if (!prompt.trim()) { toast.error('Please enter a prompt'); return; }
     if (!isAuthenticated) {
       toast.info('Please sign in to generate.');
       openAuthModal('login');
       return;
     }
+    generatingRef.current = true;
     setIsGenerating(true);
     try {
       // Upload frames ONCE — same uploaded URLs reused for every variant.
@@ -285,7 +291,7 @@ export default function Video() {
       toast.error(err.message || 'Video generation failed');
       refreshAuth();
     }
-    finally { setIsGenerating(false); }
+    finally { generatingRef.current = false; setIsGenerating(false); }
   };
 
   // ─── Motion Control (motion transfer) generate ───
@@ -302,6 +308,8 @@ export default function Video() {
       openAuthModal('login');
       return;
     }
+    if (generatingRef.current) return;
+    generatingRef.current = true;
     setIsGenerating(true);
     try {
       const charUrl = await prepareImageForFal(motionCharImage, 0);
@@ -359,6 +367,7 @@ export default function Video() {
       toast.error(err.message || 'Motion control failed');
       refreshAuth();
     } finally {
+      generatingRef.current = false;
       setIsGenerating(false);
     }
   };
@@ -376,6 +385,8 @@ export default function Video() {
       openAuthModal('login');
       return;
     }
+    if (generatingRef.current) return;
+    generatingRef.current = true;
     setIsGenerating(true);
     try {
       const videoUrl = await prepareImageForFal(editVideoFile, 0);
@@ -445,6 +456,7 @@ export default function Video() {
       toast.error(err.message || 'Video edit failed');
       refreshAuth();
     } finally {
+      generatingRef.current = false;
       setIsGenerating(false);
     }
   };
@@ -564,12 +576,14 @@ export default function Video() {
   //   Images as reference → reference-to-video (image_urls[])
   //   Images as start/end frame → image-to-video (start_frame, end_frame)
   const handleSeedanceGenerate = async (creditCost) => {
+    if (generatingRef.current) return;
     if (!prompt.trim()) { toast.error('Please enter a prompt'); return; }
     if (!isAuthenticated) {
       toast.info('Please sign in to generate.');
       openAuthModal('login');
       return;
     }
+    generatingRef.current = true;
     setIsGenerating(true);
     try {
       const readyImages = seedanceMedia.images.filter(i => i.url && (i.status === 'uploaded' || i.status === 'approved'));
@@ -670,7 +684,7 @@ export default function Video() {
       toast.error(err.message || 'Generation failed');
       refreshAuth();
     }
-    finally { setIsGenerating(false); }
+    finally { generatingRef.current = false; setIsGenerating(false); }
   };
 
   return (

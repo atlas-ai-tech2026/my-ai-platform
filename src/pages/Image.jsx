@@ -265,6 +265,11 @@ export default function Image() {
   const [selectedModel, setSelectedModel] = useState({ id: 'nano-pro', name: 'Nano Banana Pro' });
   const [prompt, setPrompt] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
+  // Synchronous re-entrancy lock. `isGenerating` state disables the button, but
+  // state updates are async — an ultra-fast double-click can fire two
+  // handleGenerate calls (and two credit charges) before the button greys out.
+  // This ref flips synchronously so the second call bails immediately.
+  const generatingRef = useRef(false);
   const [images, setImages] = useState([]);
   const [imageCount, setImageCount] = useState(1);
   const [expandedImage, setExpandedImage] = useState(null);
@@ -342,6 +347,11 @@ export default function Image() {
   }, [isLoadingAuth, isAuthenticated, user?.id]);
 
   const handleGenerate = async (creditCost) => {
+    // Hard guard against re-entrant clicks (double-click / spam) — checked
+    // synchronously so a second call can't slip through before React disables
+    // the button. Each generation charges credits, so this prevents accidental
+    // double-charging.
+    if (generatingRef.current) return;
     if (!prompt.trim()) { toast.error('Please enter a prompt'); return; }
     // Sign-up wall: an unauthenticated user clicking Generate gets the
     // sign-up modal instead of a silent backend 401. The modal closes on
@@ -351,6 +361,7 @@ export default function Image() {
       openAuthModal('login');
       return;
     }
+    generatingRef.current = true;
     setIsGenerating(true);
     setActiveTab('history');
     try {
@@ -498,6 +509,7 @@ export default function Image() {
       // makes sure the displayed balance matches what the server thinks.
       refreshAuth();
     } finally {
+      generatingRef.current = false;
       setIsGenerating(false);
     }
   };
