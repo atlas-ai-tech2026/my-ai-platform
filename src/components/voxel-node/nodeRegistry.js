@@ -48,9 +48,9 @@ export const NODE_DEFS = {
     label: 'Image Generator',
     category: 'Image',
     icon: 'Image',
-    // Same catalog as the main Image page (Voxel_Plans_and_Credits.xlsx,
-    // all kie.ai-backed — server resolves each via MODEL_CONFIG).
-    models: ['Nano Banana Pro', 'Nano Banana 2', 'GPT Image 2', 'Seedream 5.0 Lite'],
+    // Same catalog as the main Image page — kie-first, FAL fallback
+    // (server resolves each via MODEL_CONFIG).
+    models: ['Nano Banana Pro', 'Nano Banana 2', 'GPT Image 2', 'GPT Image 1.5', 'Seedream 5.0 Lite', 'Seedream 4.5', 'Flux Kontext', 'Flux 2', 'Soul 2.0', 'Wan 2.2 Image'],
     // `image` is a REFERENCE input: a connected image triggers image-to-image
     // / edit on the server (TYPE_COMPAT lets an image output feed it).
     inputs: [
@@ -92,8 +92,8 @@ export const NODE_DEFS = {
     // Accepts either a text prompt OR an upstream image (start frame).
     // When an image is connected the server runs image-to-video. Model
     // names match the main Video page (server resolves via VIDEO_DIRECT_MAP).
-    // kie.ai-only catalog (Voxel_Plans_and_Credits.xlsx)
-    models: ['Kling 3.0', 'Kling 2.6', 'Veo 3.1', 'Veo 3 Fast', 'Seedance 2.0', 'Seedance 2.0 Fast', 'Seedance 2.0 Mini'],
+    // kie-first catalog, FAL fallback
+    models: ['Kling 3.0', 'Kling 2.6', 'Veo 3.1', 'Veo 3 Fast', 'Seedance 2.0', 'Seedance 2.0 Fast', 'Seedance 2.0 Mini', 'Seedance 1.5 Pro', 'Sora 2', 'Wan 2.6', 'Grok Imagine'],
     inputs: [
       { id: 'image', type: 'image', label: 'Image refs', multiple: true },
       { id: 'prompt', type: 'text', label: 'Prompt' },

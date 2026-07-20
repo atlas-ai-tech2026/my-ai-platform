@@ -277,9 +277,10 @@ const MODEL_CONFIG = {
   // Nano Banana 2 runs on kie.ai (switched 2026-07-21). Same jobs schema as
   // Pro; image_input supports up to 14 references.
   "Nano Banana 2":     { provider: "kie", family: "jobs", kieModel: "nano-banana-2" },
-  "Flux Kontext":      { t2i: "fal-ai/flux-pro/kontext",     i2i: "fal-ai/flux-pro/kontext",       edit: "fal-ai/flux-pro/kontext",      imgParam: "image_url",           nativeSizing: false },
-  "Flux 2":            { t2i: "fal-ai/flux-pro/v1.1",        i2i: "fal-ai/flux-pro/kontext",       edit: "fal-ai/flux-pro/kontext",      imgParam: "image_url",           nativeSizing: false },
-  "Seedream 4.5":      { t2i: "fal-ai/bytedance/seedream-3", i2i: "fal-ai/flux-pro/kontext",       edit: "fal-ai/nano-banana-pro/edit",  imgParam: "image_url",           nativeSizing: false },
+  // Flux Kontext / Flux 2 / Seedream 4.5 run on kie.ai (switched 2026-07-21).
+  "Flux Kontext":      { provider: "kie", family: "flux", kieModel: "flux-kontext-pro" },
+  "Flux 2":            { provider: "kie", family: "jobs", kieModel: "flux-2/pro-text-to-image", t2iOnly: true },
+  "Seedream 4.5":      { provider: "kie", family: "jobs", kieModel: "seedream/4.5-text-to-image", t2iOnly: true },
   // Seedream 5.0 Lite runs on kie.ai (switched 2026-07-21). Text-to-image
   // only — kie has no edit variant for it, so reference images are ignored.
   "Seedream 5.0 Lite": { provider: "kie", family: "jobs", kieModel: "seedream/5-lite-text-to-image", t2iOnly: true },
@@ -288,7 +289,8 @@ const MODEL_CONFIG = {
   "Skin Enhancer":     { t2i: "fal-ai/aura-sr",             i2i: "fal-ai/aura-sr",                edit: "fal-ai/nano-banana-pro/edit",  imgParam: "image_url",           nativeSizing: false },
   "Face Swap":         { t2i: "fal-ai/face-swap",            i2i: "fal-ai/face-swap",              edit: "fal-ai/nano-banana-pro/edit",  imgParam: "image_url",           nativeSizing: false },
   "Relight":           { t2i: "fal-ai/ic-light",             i2i: "fal-ai/ic-light",               edit: "fal-ai/nano-banana-pro/edit",  imgParam: "image_url",           nativeSizing: false },
-  "GPT Image 1.5":     { t2i: "fal-ai/gpt-image-1",         i2i: "fal-ai/gpt-image-1",            edit: "fal-ai/nano-banana-pro/edit",  imgParam: "image_url",           nativeSizing: false },
+  // GPT Image 1.5 runs on kie.ai (switched 2026-07-21): separate t2i/i2i ids.
+  "GPT Image 1.5":     { provider: "kie", family: "jobs", kieModel: "gpt-image/1.5-text-to-image", kieModelI2I: "gpt-image/1.5-image-to-image" },
   // GPT Image 2 runs on kie.ai (switched from FAL 2026-07-20). Separate jobs
   // models for t2i and i2i; i2i takes input_urls (≤16 images).
   "GPT Image 2":       { provider: "kie", family: "jobs", kieModel: "gpt-image-2-text-to-image", kieModelI2I: "gpt-image-2-image-to-image" },
@@ -355,11 +357,15 @@ const VIDEO_DIRECT_MAP = {
   "Kling Motion Control":     { motion: "fal-ai/kling-video/v2.6/standard/motion-control" },
   "Kling 3.0 Motion Control": { motion: "fal-ai/kling-video/v3/pro/motion-control" },
   // Wan uses image_url
-  "Wan 2.6":               { t2v: "fal-ai/wan-t2v",                                  i2v: "fal-ai/wan-i2v",                                   imageParam: "image_url",       endParam: null },
+  // Wan 2.6 runs on kie.ai (switched 2026-07-21): duration "5"|"10"|"15",
+  // 720p/1080p, single image_urls entry for i2v.
+  "Wan 2.6":               { provider: "kie", family: "jobs", kieModel: "wan/2-6-text-to-video", kieModelI2V: "wan/2-6-image-to-video", kieStyle: "wan" },
   "Wan 2.2":               { t2v: "fal-ai/wan-t2v",                                  i2v: "fal-ai/wan-i2v",                                   imageParam: "image_url",       endParam: null },
   "Wan 2.1":               { t2v: "fal-ai/wan-t2v",                                  i2v: "fal-ai/wan-i2v",                                   imageParam: "image_url",       endParam: null },
   // Seedance
-  "Seedance 1.5 Pro":      { t2v: "fal-ai/bytedance/seedance-1-5-pro-t2v",           i2v: "fal-ai/kling-video/v3/pro/image-to-video",         imageParam: "start_image_url", endParam: "end_image_url" },
+  // Seedance 1.5 Pro runs on kie.ai (switched 2026-07-21): one jobs model,
+  // i2v via input_urls (≤2), duration 4-12s int, 480/720/1080p.
+  "Seedance 1.5 Pro":      { provider: "kie", family: "jobs", kieModel: "bytedance/seedance-1.5-pro", kieStyle: "seedance15" },
   // Seedance 2.x runs on kie.ai (switched from FAL 2026-07-20). One jobs
   // model per variant handles t2v/i2v/reference via first_frame_url /
   // last_frame_url / reference_*_urls — dispatched in /api/generate-video-ref.
@@ -384,9 +390,13 @@ const VIDEO_DIRECT_MAP = {
   // Veo 3.1 runs on kie.ai (switched 2026-07-21) — kie's veo endpoint IS the
   // Veo 3.1 API (model veo3 = Quality tier, veo3_fast = Fast tier).
   "Veo 3.1":               { provider: "kie", kieModel: "veo3" },
-  "Sora 2":                { t2v: "fal-ai/kling-video/v3/pro/text-to-video",         i2v: "fal-ai/kling-video/v3/pro/image-to-video",         imageParam: "start_image_url", endParam: "end_image_url" },
+  // Sora 2 runs on kie.ai (switched 2026-07-21) — REAL Sora 2 (the old FAL
+  // entry silently ran Kling). Minimal input: prompt + optional image.
+  "Sora 2":                { provider: "kie", family: "jobs", kieModel: "sora-2-text-to-video", kieModelI2V: "sora-2-image-to-video", kieStyle: "sora" },
   "Luma Dream Machine":    { t2v: "fal-ai/luma-dream-machine",                       i2v: "fal-ai/luma-dream-machine/image-to-video",         imageParam: "image_url",       endParam: null },
-  "Grok Imagine":          { t2v: "fal-ai/kling-video/v3/pro/text-to-video",         i2v: "fal-ai/kling-video/v3/pro/image-to-video",         imageParam: "start_image_url", endParam: "end_image_url" },
+  // Grok Imagine runs on kie.ai (switched 2026-07-21): duration 6-30s int,
+  // 480p/720p, modes fun/normal/spicy (we always send normal).
+  "Grok Imagine":          { provider: "kie", family: "jobs", kieModel: "grok-imagine/text-to-video", kieModelI2V: "grok-imagine/image-to-video", kieStyle: "grok" },
   "Nano Banana Pro Video": { t2v: "fal-ai/kling-video/v1.6/pro/text-to-video",       i2v: "fal-ai/kling-video/v1.6/pro/image-to-video",       imageParam: "image_url",       endParam: "tail_image_url" },
 };
 
@@ -436,6 +446,28 @@ function buildKieImageInput(cfg, { prompt, ratio, quality, imageUrls }) {
           aspect_ratio: ratio && ratio !== 'auto' ? ratio : '1:1',
           quality: RESOLUTION_MAP[quality] === '4K' ? 'high' : 'basic',
           output_format: 'png',
+        },
+      };
+    }
+    // GPT Image 1.5: separate t2i / i2i ids; minimal documented input
+    // (prompt + input_urls) — omit sizing fields kie may not accept.
+    if (cfg.kieModel.startsWith('gpt-image/')) {
+      return {
+        model: hasImages ? (cfg.kieModelI2I || cfg.kieModel) : cfg.kieModel,
+        input: {
+          prompt,
+          ...(hasImages ? { input_urls: imageUrls.slice(0, 16) } : {}),
+        },
+      };
+    }
+    // Flux 2 Pro: t2i only — {prompt, aspect_ratio, resolution}.
+    if (cfg.kieModel.startsWith('flux-2/')) {
+      return {
+        model: cfg.kieModel,
+        input: {
+          prompt,
+          aspect_ratio: ratio && ratio !== 'auto' ? ratio : '1:1',
+          resolution,
         },
       };
     }
@@ -503,6 +535,79 @@ function buildKieVideoSubmission(mapping, { prompt, frames, duration, aspectRati
         },
       },
       modelIdTag: 'kie:jobs:' + mapping.kieModel,
+    };
+  }
+  if (mapping.family === 'jobs' && mapping.kieStyle === 'sora') {
+    // Sora 2: minimal documented input — prompt (+ single image for i2v).
+    const kieModel = frames.length ? (mapping.kieModelI2V || mapping.kieModel) : mapping.kieModel;
+    return {
+      family: 'jobs',
+      body: {
+        model: kieModel,
+        input: {
+          prompt,
+          ...(frames.length ? { image_urls: [frames[0]] } : {}),
+        },
+      },
+      modelIdTag: 'kie:jobs:' + kieModel,
+    };
+  }
+  if (mapping.family === 'jobs' && mapping.kieStyle === 'wan') {
+    // Wan 2.6: duration "5"|"10"|"15" (string), 720p/1080p, single image i2v.
+    const kieModel = frames.length ? (mapping.kieModelI2V || mapping.kieModel) : mapping.kieModel;
+    const durNum = parseInt(duration, 10) || 5;
+    const dur = durNum >= 13 ? '15' : durNum >= 8 ? '10' : '5';
+    return {
+      family: 'jobs',
+      body: {
+        model: kieModel,
+        input: {
+          prompt,
+          duration: dur,
+          resolution: String(resolution).toLowerCase() === '1080p' ? '1080p' : '720p',
+          ...(frames.length ? { image_urls: [frames[0]] } : {}),
+        },
+      },
+      modelIdTag: 'kie:jobs:' + kieModel,
+    };
+  }
+  if (mapping.family === 'jobs' && mapping.kieStyle === 'seedance15') {
+    // Seedance 1.5 Pro: one model; i2v via input_urls (≤2); duration 4-12 int.
+    const res = ['480p', '720p', '1080p'].includes(String(resolution).toLowerCase())
+      ? String(resolution).toLowerCase() : '720p';
+    return {
+      family: 'jobs',
+      body: {
+        model: mapping.kieModel,
+        input: {
+          prompt,
+          aspect_ratio: ['1:1', '4:3', '3:4', '16:9', '9:16', '21:9'].includes(aspectRatio) ? aspectRatio : '16:9',
+          duration: Math.min(12, Math.max(4, parseInt(duration, 10) || 5)),
+          resolution: res,
+          generate_audio: true,
+          ...(frames.length ? { input_urls: frames.slice(0, 2) } : {}),
+        },
+      },
+      modelIdTag: 'kie:jobs:' + mapping.kieModel,
+    };
+  }
+  if (mapping.family === 'jobs' && mapping.kieStyle === 'grok') {
+    // Grok Imagine: duration 6-30s int, 480p/720p, mode normal.
+    const kieModel = frames.length ? (mapping.kieModelI2V || mapping.kieModel) : mapping.kieModel;
+    return {
+      family: 'jobs',
+      body: {
+        model: kieModel,
+        input: {
+          prompt,
+          aspect_ratio: ['2:3', '3:2', '1:1', '16:9', '9:16'].includes(aspectRatio) ? aspectRatio : '16:9',
+          mode: 'normal',
+          duration: Math.min(30, Math.max(6, parseInt(duration, 10) || 6)),
+          resolution: String(resolution).toLowerCase() === '720p' ? '720p' : '480p',
+          ...(frames.length ? { image_urls: [frames[0]] } : {}),
+        },
+      },
+      modelIdTag: 'kie:jobs:' + kieModel,
     };
   }
   if (mapping.family === 'jobs') {
@@ -1969,9 +2074,11 @@ app.delete('/api/entities/:name/:id', verifyJwt, async (req, res) => {
 // Only text-to-image-capable models are offered as node options (the
 // edit-only tools like Face Swap / Relight need an input image and so
 // aren't generators). Mirrored on the client (nodeRegistry.js).
-// kie.ai-only catalog (Voxel_Plans_and_Credits.xlsx, 2026-07-21).
+// kie-first catalog with FAL fallback (2026-07-21).
 const NODE_IMAGE_MODEL_NAMES = [
-  'Nano Banana Pro', 'Nano Banana 2', 'GPT Image 2', 'Seedream 5.0 Lite',
+  'Nano Banana Pro', 'Nano Banana 2', 'GPT Image 2', 'GPT Image 1.5',
+  'Seedream 5.0 Lite', 'Seedream 4.5', 'Flux Kontext', 'Flux 2',
+  'Soul 2.0', 'Wan 2.2 Image',
 ];
 // Synchronous node run specs (image + audio). Each declares: the credit
 // kind to charge, how to resolve the FAL model, how to build the input,
