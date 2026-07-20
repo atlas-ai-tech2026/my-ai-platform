@@ -274,11 +274,15 @@ const MODEL_CONFIG = {
   // Nano Banana Pro runs on kie.ai (switched from FAL 2026-07-20). One jobs
   // model handles both t2i and edit via image_input (≤8 images).
   "Nano Banana Pro":   { provider: "kie", family: "jobs", kieModel: "nano-banana-pro" },
-  "Nano Banana 2":     { t2i: "fal-ai/nano-banana-2",        i2i: "fal-ai/nano-banana-2",          edit: "fal-ai/nano-banana-2/edit",    imgParam: "reference_image_url", nativeSizing: true  },
+  // Nano Banana 2 runs on kie.ai (switched 2026-07-21). Same jobs schema as
+  // Pro; image_input supports up to 14 references.
+  "Nano Banana 2":     { provider: "kie", family: "jobs", kieModel: "nano-banana-2" },
   "Flux Kontext":      { t2i: "fal-ai/flux-pro/kontext",     i2i: "fal-ai/flux-pro/kontext",       edit: "fal-ai/flux-pro/kontext",      imgParam: "image_url",           nativeSizing: false },
   "Flux 2":            { t2i: "fal-ai/flux-pro/v1.1",        i2i: "fal-ai/flux-pro/kontext",       edit: "fal-ai/flux-pro/kontext",      imgParam: "image_url",           nativeSizing: false },
   "Seedream 4.5":      { t2i: "fal-ai/bytedance/seedream-3", i2i: "fal-ai/flux-pro/kontext",       edit: "fal-ai/nano-banana-pro/edit",  imgParam: "image_url",           nativeSizing: false },
-  "Seedream 5.0 Lite": { t2i: "fal-ai/bytedance/seedream-3", i2i: "fal-ai/flux-pro/kontext",       edit: "fal-ai/nano-banana-pro/edit",  imgParam: "image_url",           nativeSizing: false },
+  // Seedream 5.0 Lite runs on kie.ai (switched 2026-07-21). Text-to-image
+  // only — kie has no edit variant for it, so reference images are ignored.
+  "Seedream 5.0 Lite": { provider: "kie", family: "jobs", kieModel: "seedream/5-lite-text-to-image", t2iOnly: true },
   "Soul 2.0":          { t2i: "fal-ai/flux/dev",             i2i: "fal-ai/flux-pro/kontext",       edit: "fal-ai/nano-banana-pro/edit",  imgParam: "image_url",           nativeSizing: false },
   "Wan 2.2 Image":     { t2i: "fal-ai/wan-t2i",             i2i: "fal-ai/wan-i2i",                edit: "fal-ai/nano-banana-pro/edit",  imgParam: "image_url",           nativeSizing: false },
   "Skin Enhancer":     { t2i: "fal-ai/aura-sr",             i2i: "fal-ai/aura-sr",                edit: "fal-ai/nano-banana-pro/edit",  imgParam: "image_url",           nativeSizing: false },
@@ -377,7 +381,9 @@ const VIDEO_DIRECT_MAP = {
   // history rows store the unprefixed FAL model_id → FAL polling path.
   "Veo 3":                 { provider: "kie", kieModel: "veo3" },
   "Veo 3 Fast":            { provider: "kie", kieModel: "veo3_fast" },
-  "Veo 3.1":               { t2v: "fal-ai/veo3",                                     i2v: "fal-ai/kling-video/v3/pro/image-to-video",         imageParam: "start_image_url", endParam: "end_image_url" },
+  // Veo 3.1 runs on kie.ai (switched 2026-07-21) — kie's veo endpoint IS the
+  // Veo 3.1 API (model veo3 = Quality tier, veo3_fast = Fast tier).
+  "Veo 3.1":               { provider: "kie", kieModel: "veo3" },
   "Sora 2":                { t2v: "fal-ai/kling-video/v3/pro/text-to-video",         i2v: "fal-ai/kling-video/v3/pro/image-to-video",         imageParam: "start_image_url", endParam: "end_image_url" },
   "Luma Dream Machine":    { t2v: "fal-ai/luma-dream-machine",                       i2v: "fal-ai/luma-dream-machine/image-to-video",         imageParam: "image_url",       endParam: null },
   "Grok Imagine":          { t2v: "fal-ai/kling-video/v3/pro/text-to-video",         i2v: "fal-ai/kling-video/v3/pro/image-to-video",         imageParam: "start_image_url", endParam: "end_image_url" },
@@ -408,7 +414,8 @@ function buildKieImageInput(cfg, { prompt, ratio, quality, imageUrls }) {
   if (cfg.family === 'jobs') {
     // Jobs models use 1K/2K/4K resolutions; Draft maps to 1K (no 0.5K tier).
     const resolution = ['2K', '4K'].includes(RESOLUTION_MAP[quality]) ? RESOLUTION_MAP[quality] : '1K';
-    if (cfg.kieModel === 'nano-banana-pro') {
+    // Nano Banana Pro / Nano Banana 2: one model for t2i + edit (image_input).
+    if (cfg.kieModel.startsWith('nano-banana')) {
       return {
         model: cfg.kieModel,
         input: {
@@ -416,7 +423,19 @@ function buildKieImageInput(cfg, { prompt, ratio, quality, imageUrls }) {
           aspect_ratio: ratio || 'auto',
           resolution,
           output_format: 'png',
-          ...(hasImages ? { image_input: imageUrls.slice(0, 8) } : {}),
+          ...(hasImages ? { image_input: imageUrls.slice(0, cfg.kieModel === 'nano-banana-2' ? 14 : 8) } : {}),
+        },
+      };
+    }
+    // Seedream 5.0 Lite: t2i only; quality 'basic' (2K) / 'high' (4K).
+    if (cfg.kieModel.startsWith('seedream/')) {
+      return {
+        model: cfg.kieModel,
+        input: {
+          prompt,
+          aspect_ratio: ratio && ratio !== 'auto' ? ratio : '1:1',
+          quality: RESOLUTION_MAP[quality] === '4K' ? 'high' : 'basic',
+          output_format: 'png',
         },
       };
     }
@@ -464,11 +483,12 @@ function buildKieImageInput(cfg, { prompt, ratio, quality, imageUrls }) {
 // hit, the POST body, and the 'kie:'-prefixed model_id the status routes
 // parse ('kie:jobs:' → Jobs API, plain 'kie:' → dedicated Veo endpoints).
 // Shared by /api/generate-video and the legacy /api/generate video branch.
-function buildKieVideoSubmission(mapping, { prompt, frames, duration, aspectRatio }) {
+function buildKieVideoSubmission(mapping, { prompt, frames, duration, aspectRatio, resolution }) {
   if (mapping.family === 'jobs' && mapping.kieModel === 'kling-3.0/video') {
-    // Kling 3.0: one model for t2v + i2v; quality via mode (pro = 1080p,
-    // matching the app's advertised 720-1080p); duration string "3"-"15".
+    // Kling 3.0: one model for t2v + i2v; quality via mode (std 720p /
+    // pro 1080p / 4K); duration string "3"-"15".
     const dur = Math.min(15, Math.max(3, parseInt(duration, 10) || 5));
+    const mode = String(resolution).toUpperCase() === '4K' ? '4K' : 'pro';
     return {
       family: 'jobs',
       body: {
@@ -477,7 +497,7 @@ function buildKieVideoSubmission(mapping, { prompt, frames, duration, aspectRati
           prompt,
           aspect_ratio: ['16:9', '9:16', '1:1'].includes(aspectRatio) ? aspectRatio : '16:9',
           duration: String(dur),
-          mode: 'pro',
+          mode,
           sound: true,
           ...(frames.length ? { image_urls: frames } : {}),
         },
@@ -506,13 +526,18 @@ function buildKieVideoSubmission(mapping, { prompt, frames, duration, aspectRati
       modelIdTag: 'kie:jobs:' + kieModel,
     };
   }
-  // Veo 3 / Veo 3 Fast (dedicated veo endpoints).
+  // Veo 3 / Veo 3.1 / Veo 3 Fast (dedicated veo endpoints). Resolution is
+  // priced per tier (720p/1080p/4k) so pass the user's choice through.
+  const veoRes = ['720P', '1080P', '4K'].includes(String(resolution).toUpperCase())
+    ? String(resolution).toLowerCase()
+    : '1080p';
   return {
     family: 'veo',
     body: {
       prompt,
       model: mapping.kieModel,
       aspect_ratio: aspectRatio === '9:16' ? '9:16' : '16:9',
+      resolution: veoRes,
       ...(frames.length ? { imageUrls: frames } : {}),
     },
     modelIdTag: 'kie:' + mapping.kieModel,
@@ -861,7 +886,7 @@ app.post('/api/checkStatus', async (req, res) => {
 
 // ─── GENERATE VIDEO (new endpoint with polling) ───────────────────
 app.post('/api/generate-video', verifyJwt, requireNotBanned, requireModelProviderKey, async (req, res) => {
-  const { model, prompt, image_url, tail_image_url, duration, aspect_ratio } = req.body;
+  const { model, prompt, image_url, tail_image_url, duration, aspect_ratio, resolution } = req.body;
 
   if (!model) return res.status(400).json({ error: 'model name required' });
   if (!prompt) return res.status(400).json({ error: 'prompt required' });
@@ -903,7 +928,7 @@ app.post('/api/generate-video', verifyJwt, requireNotBanned, requireModelProvide
     try {
       const frames = image_url ? (tail_image_url ? [image_url, tail_image_url] : [image_url]) : [];
       const { family, body, modelIdTag } = buildKieVideoSubmission(mapping, {
-        prompt, frames, duration, aspectRatio: aspect_ratio,
+        prompt, frames, duration, aspectRatio: aspect_ratio, resolution,
       });
       const taskId = await kieCreateTask(family, body, { tag: 'KIE-VIDEO' });
       console.log(`[KIE-VIDEO] ✅ Submitted ${model} taskId: ${taskId}`);
@@ -2276,6 +2301,7 @@ app.post('/api/node/run-node-async', verifyJwt, requireNotBanned, requireFalKey,
           frames: imageUrl ? [imageUrl] : [],
           duration: settings?.duration,
           aspectRatio: settings?.aspect_ratio,
+          resolution: settings?.resolution,
         });
       }
       console.log(`[node:run-async] user=${req.user.id} model="${modelLabel}" → ${submission.modelIdTag}`);

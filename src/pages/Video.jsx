@@ -229,6 +229,7 @@ export default function Video() {
       const payload = {
         model: model.name, prompt: finalPrompt,
         duration: dur, aspect_ratio: ratio,
+        resolution,
         credit_cost: creditCost,
         ...(imageUrl ? { image_url: imageUrl } : {}),
         ...(tailImageUrl ? { tail_image_url: tailImageUrl } : {}),

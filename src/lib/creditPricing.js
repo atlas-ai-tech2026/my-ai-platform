@@ -1,37 +1,41 @@
 // ============================================================================
 // VOXEL — Credit pricing (SINGLE SOURCE OF TRUTH)
 // ----------------------------------------------------------------------------
-// Derived from Voxel_MASTER_PLAN.xlsx  → sheet "HF Verified Credits"
-// and Voxel_Credit_Calculator.html. These are the verified Higgsfield credit
-// costs charged to the user per generation.
+// Derived from Voxel_Plans_and_Credits.xlsx (2026-07-21) — sheets "Plans",
+// "Model Credits", "Profit Check".
 //
-// PRICE RAISE (applied on top of the verified baseline): every model is +1
-// credit per generation. For per-second video models that means +0.2 cr/s, so
-// a representative 5-second clip rises by exactly 1 credit. Per-generation
-// prices (images, flat video, per-gen video) are simply +1.
+// Pricing rules (from that workbook):
+//   • 1 credit = $0.063333 (anchor: $19 plan / 300 credits) — identical on
+//     every plan, so all plans carry the same margin.
+//   • Cost basis per model = the HIGHER of the fal and kie cost. Sale price =
+//     basis / (1 − 40%). Credits = CEILING(sale / credit value, 0.5).
+//   • Result: every model clears ≥40% profit of sale even against the more
+//     expensive supplier — against the real kie backend the margin is larger.
+//     Worst case anywhere in the sheet: 40.1%.
 //
 // If you change a number here, the Image/Video GENERATE buttons update
 // automatically — nothing else to touch.
 //
-// Mapping notes (documented assumptions — adjust freely):
-//   • The app's image "quality" selector is [Draft, 1K, 2K, 4K]. The sheet has
-//     no "Draft" tier, so Draft reuses the cheapest (1K) price.
-//   • GPT Image models have Low/Mid/High variants in the sheet but the app has
-//     no variant selector — we use the HIGH variant (the flagship tier).
-//   • Models a sheet entry only lists at one resolution reuse that price for
-//     every quality (e.g. Seedream 4.5, WAN 2.2, Flux Kontext).
-//   • Video has no resolution selector in the app, so each video model uses a
-//     default resolution (1080p where available, else 720p).
-//   • "pending: true" = NOT in the master plan yet. Its credit cost falls back
-//     to the value baked into the model list until you send verified numbers.
+// Mapping notes:
+//   • The app's image "quality" selector is [Draft, 1K, 2K, 4K]. The sheet
+//     prices 1K/2K together for Nano models; Draft reuses the 1K price.
+//   • Video per-second rows: credits = rate/s × duration. Kling 2.6 is priced
+//     per 5s clip in the sheet (7.5 / 14.5 with audio) → 1.5 / 2.9 per second.
+//   • Veo 3.1 is per WHOLE video (kie bills per clip), duration-independent.
 // ============================================================================
 
-// ---- Subscription plans (from "Voxel Plans" sheet / calculator tier-grid) ---
+// ---- Subscription plans (Voxel_Plans_and_Credits.xlsx → "Plans") -----------
 export const CREDIT_PLANS = [
-  { id: 'pro',     name: 'Pro',    pricePerMonth: 29,  creditsPerMonth: 800  },
-  { id: 'proPlus', name: 'Pro+',   pricePerMonth: 49,  creditsPerMonth: 1400 },
-  { id: 'studio',  name: 'Studio', pricePerMonth: 129, creditsPerMonth: 4000 },
+  { id: 'micro',   name: 'Micro',   pricePerMonth: 5,   creditsPerMonth: 79   },
+  { id: 'starter', name: 'Starter', pricePerMonth: 10,  creditsPerMonth: 158  },
+  { id: 'basic',   name: 'Basic',   pricePerMonth: 19,  creditsPerMonth: 300  },
+  { id: 'plus',    name: 'Plus',    pricePerMonth: 59,  creditsPerMonth: 932  },
+  { id: 'pro',     name: 'Pro',     pricePerMonth: 95,  creditsPerMonth: 1500 },
+  { id: 'max',     name: 'Max',     pricePerMonth: 129, creditsPerMonth: 2037 },
 ];
+
+// $/credit — constant across plans by design ($19 / 300).
+export const CREDIT_VALUE_USD = 19 / 300;
 
 // $/credit for each plan (derived, used for retail-price math if needed)
 export const PLAN_RATES = Object.fromEntries(
@@ -43,30 +47,16 @@ export const PLAN_RATES = Object.fromEntries(
 // Quality keys match the app selector: 'Draft' | '1K' | '2K' | '4K'.
 // ----------------------------------------------------------------------------
 export const IMAGE_CREDITS = {
-  // app id        sheet model            Draft  1K   2K   4K   (baseline +1)
-  'nano-pro':     { Draft: 3,   '1K': 3,   '2K': 3,   '4K': 5   }, // Nano Banana Pro
-  'nano-2':       { Draft: 2.5, '1K': 2.5, '2K': 3,   '4K': 4   }, // Nano Banana 2
-  'seedream-4':   { Draft: 2,   '1K': 2,   '2K': 2,   '4K': 2   }, // Seedream 4.5
-  'gpt-image-2':  { Draft: 5,   '1K': 5,   '2K': 8,   '4K': 13  }, // GPT Image 2 (High variant)
-  'gpt-image':    { Draft: 7,   '1K': 7,   '2K': 7,   '4K': 7   }, // GPT Image 1.5 (High, 1K-only in sheet)
-  'flux-kontext': { Draft: 2.5, '1K': 2.5, '2K': 2.5, '4K': 2.5 }, // Flux Kontext Max (Default rate)
-  'flux-2':       { Draft: 2,   '1K': 2,   '2K': 2.5, '4K': 2.5 }, // FLUX.2 Pro
-  'wan-22':       { Draft: 2,   '1K': 2,   '2K': 2,   '4K': 2   }, // WAN 2.2 image (Default rate)
-  // ---- kie.ai-backed models (flat — kie has no quality tiers) --------------
-  // Priced with the house margin rule: kie_cost × 1.10 ÷ 0.03225 (Studio
-  // $/credit), rounded UP to the nearest 0.5 so every plan clears ≥10%:
-  //   GPT-4o Image     ~$0.05/img → 1.71 → 2
-  //   Flux Kontext Max ~$0.08/img → 2.73 → 3
-  //   Midjourney       ~$0.08/task (4 images!) → 2.73 → 3
-  'gpt-4o-image':     { Draft: 2, '1K': 2, '2K': 2, '4K': 2 },
-  'flux-kontext-max': { Draft: 3, '1K': 3, '2K': 3, '4K': 3 },
-  'midjourney':       { Draft: 3, '1K': 3, '2K': 3, '4K': 3 },
+  // app id           workbook row                 Draft  1K   2K    4K
+  'nano-pro':        { Draft: 4, '1K': 4, '2K': 4,   '4K': 8  }, // Nano Banana Pro (basis .15/.30)
+  'nano-2':          { Draft: 4, '1K': 4, '2K': 4,   '4K': 8  }, // Nano Banana 2   (basis .15/.30)
+  'gpt-image-2':     { Draft: 6, '1K': 6, '2K': 6.5, '4K': 11 }, // GPT Image 2     (basis .219/.234/.413)
+  'seedream-5-lite': { Draft: 1, '1K': 1, '2K': 1,   '4K': 1  }, // Seedream 5.0 Lite (basis .035, flat)
 };
 
-// Image models NOT in the master plan yet — fall back to model-list `credits`.
-export const IMAGE_PENDING = new Set([
-  'soul-2', 'seedream-5-lite', 'skin-enhancer', 'face-swap', 'relight',
-]);
+// Image models NOT in the pricing workbook — fall back to model-list `credits`.
+// Empty by design: the picker only offers workbook-priced models.
+export const IMAGE_PENDING = new Set([]);
 
 // ----------------------------------------------------------------------------
 // VIDEO — keyed by REAL app model id (from VideoModelModal). Three cost shapes:
@@ -76,99 +66,66 @@ export const IMAGE_PENDING = new Set([
 // `defaultRes` is used when the panel's resolution isn't priced for that model.
 // ----------------------------------------------------------------------------
 export const VIDEO_CREDITS = {
-  // Kling 3.0 — per second; 1080p splits by audio (sheet: 1.5 / 2.0 cr/s, +0.2)
+  // Kling 3.0 — per second (workbook: 1080p 2.5 no-audio / 4 with audio;
+  // 4K 9 with audio). 720p reuses the 1080p rate (kie "std/pro" mode covers
+  // both; the sheet's 720p tier is Kling 3.0 Turbo, not offered yet).
   'kling-3': {
     type: 'per-sec', defaultRes: '1080p',
     byRes: {
-      '720p':  { off: 1.95, on: 1.95 },
-      '1080p': { off: 1.7,  on: 2.2  },
-      '4K':    { off: 6.2,  on: 6.2  },
+      '720p':  { off: 2.5, on: 4 },
+      '1080p': { off: 2.5, on: 4 },
+      '4K':    { off: 9,   on: 9 },
     },
   },
-  // Kling 2.6 — per second @1080p (sheet: 2 cr/s, +0.2)
+  // Kling 2.6 — workbook prices per 5s clip (7.5 no-audio / 14.5 audio)
+  // → 1.5 / 2.9 per second; kie durations are 5s or 10s so this lands
+  // exactly on the sheet numbers (and 2× for 10s).
   'kling-2-6': {
     type: 'per-sec', defaultRes: '1080p',
-    byRes: { '1080p': { off: 2.2, on: 2.2 } },
+    byRes: { '1080p': { off: 1.5, on: 2.9 } },
   },
-  // Seedance 2.0 — per second by resolution (sheet: 3 / 4.5 / 9 / 22 cr/s, +0.2)
+  // Seedance 2.0 — per second by resolution (workbook: 4 / 8 / 18 / 41.5;
+  // audio is free on Seedance, so on === off).
   'seedance-2': {
     type: 'per-sec', defaultRes: '720p',
     byRes: {
-      '480p':  { off: 3.2,  on: 3.2  },
-      '720p':  { off: 4.7,  on: 4.7  },
-      '1080p': { off: 9.2,  on: 9.2  },
-      '4K':    { off: 22.2, on: 22.2 },
+      '480p':  { off: 4,    on: 4    },
+      '720p':  { off: 8,    on: 8    },
+      '1080p': { off: 18,   on: 18   },
+      '4K':    { off: 41.5, on: 41.5 },
     },
   },
-  // Seedance 2.0 Fast — per second (sheet: 1.5 / 3.5 cr/s, +0.2)
+  // Seedance 2.0 Fast — per second (workbook: 3 / 6.5)
   'seedance-2-fast': {
     type: 'per-sec', defaultRes: '720p',
     byRes: {
-      '480p': { off: 1.7, on: 1.7 },
-      '720p': { off: 3.7, on: 3.7 },
+      '480p': { off: 3,   on: 3   },
+      '720p': { off: 6.5, on: 6.5 },
     },
   },
-  // Seedance 2.0 Mini — per second. Priced for a guaranteed ≥10% profit over
-  // FAL's output cost ($0.0721/s @480p, $0.1547/s @720p), calibrated against
-  // the lowest-$/credit plan (Studio @ $0.03225/cr) so every plan clears 10%:
-  //   480p: 0.0721×1.10 ÷ 0.03225 = 2.46 → 2.5 cr/s (+0.2 raise → 2.7)
-  //   720p: 0.1547×1.10 ÷ 0.03225 = 5.28 → 5.5 cr/s (+0.2 raise → 5.7)
-  // (audio is free on Seedance, so on === off.)
+  // Seedance 2.0 Mini — per second (workbook: 1.5 / 3)
   'seedance-2-mini': {
     type: 'per-sec', defaultRes: '720p',
     byRes: {
-      '480p': { off: 2.7, on: 2.7 },
-      '720p': { off: 5.7, on: 5.7 },
+      '480p': { off: 1.5, on: 1.5 },
+      '720p': { off: 3,   on: 3   },
     },
   },
-  // Grok Imagine 1.5 (video) — per second (sheet: 2.5 / 4.5 cr/s, +0.2)
-  'grok-imagine': {
-    type: 'per-sec', defaultRes: '720p',
-    byRes: {
-      '480p': { off: 2.7, on: 2.7 },
-      '720p': { off: 4.7, on: 4.7 },
-    },
-  },
-  // Kling O1 → Kling O1 Video Edit — flat per generation (sheet: 9 cr, +1)
-  'kling-o1': {
-    type: 'flat', defaultRes: '1080p',
-    byRes: { '720p': 10, '1080p': 10 },
-  },
-  // Veo 3.1 → mapped to Veo 3.1 Quality — flat per gen by (res, duration 4/6/8, +1)
+  // Veo 3.1 Quality — flat per WHOLE video (kie bills per clip):
+  // 720p 33 / 1080p 34 / 4K 49.
   'veo-3-1': {
-    type: 'per-gen', defaultRes: '1080p',
-    byResDuration: {
-      '720p':  { 4: 30, 6: 45, 8: 59 },
-      '1080p': { 4: 30, 6: 45, 8: 59 },
-      '4K':    { 4: 45, 6: 67, 8: 89 },
-    },
+    type: 'flat', defaultRes: '1080p',
+    byRes: { '720p': 33, '1080p': 34, '4K': 49 },
   },
-  // Sora 2 — flat per generation by duration (sheet: 4/8/12 s, single res, +1)
-  'sora-2': {
-    type: 'per-gen', defaultRes: 'Default',
-    byResDuration: { 'Default': { 4: 11, 8: 21, 12: 30 } },
-  },
-  // Veo 3 / Veo 3 Fast via kie.ai — flat per generation regardless of
-  // duration (kie prices per video: Veo 3 $1.25, Veo 3 Fast $0.30). House
-  // margin rule (cost × 1.10 ÷ 0.03225, rounded up to 0.5):
-  //   Veo 3:      1.25 → 42.64 → 43
-  //   Veo 3 Fast: 0.30 → 10.23 → 10.5
+  // "Veo 3" label maps to the same kie veo3 Quality backend — same price.
   'veo-3': {
     type: 'flat', defaultRes: '1080p',
-    byRes: { '720p': 43, '1080p': 43 },
+    byRes: { '720p': 33, '1080p': 34, '4K': 49 },
   },
+  // Veo 3.1 Fast — flat per video: 720p 8 / 1080p 9.
   'veo-3-fast': {
     type: 'flat', defaultRes: '1080p',
-    byRes: { '720p': 10.5, '1080p': 10.5 },
-  },
-  // Kling 3.0 Omni — not in the sheet; mapped to Kling 3.0 per-sec pricing (+0.2).
-  'kling-3-omni': {
-    type: 'per-sec', defaultRes: '1080p',
-    byRes: {
-      '720p':  { off: 1.95, on: 1.95 },
-      '1080p': { off: 1.7,  on: 2.2  },
-      '4K':    { off: 6.2,  on: 6.2  },
-    },
+    byRes: { '720p': 8, '1080p': 9 },
   },
 
   // ---- Motion Control + Edit panels (keyed by model NAME, not id) ----------
@@ -195,14 +152,9 @@ export const VIDEO_CREDITS = {
   },
 };
 
-// Video models NOT in the master plan yet — show "—" until you send costs.
-// (kling-3-omni, seedance-1-5, wan-2-6, kling-2-5, kling-2-1, hailuo-2-3,
-//  seedance-1, ltx-2, ltx-2-audio, vidu-q3, pixverse-5, wan-2-2, vidu-q2)
-export const VIDEO_PENDING = new Set([
-  'seedance-1-5', 'wan-2-6', 'kling-2-5', 'kling-2-1',
-  'hailuo-2-3', 'seedance-1', 'ltx-2', 'ltx-2-audio', 'vidu-q3',
-  'pixverse-5', 'wan-2-2', 'vidu-q2',
-]);
+// Video models NOT in the pricing workbook — empty by design: the picker
+// only offers workbook-priced, kie-backed models.
+export const VIDEO_PENDING = new Set([]);
 
 // ---- helpers ---------------------------------------------------------------
 

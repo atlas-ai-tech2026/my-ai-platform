@@ -10,128 +10,88 @@ import {
   AccordionTrigger,
 } from "@/components/ui/accordion";
 
+// ─── Plans (Voxel_Plans_and_Credits.xlsx → "Plans", 2026-07-21) ─────────────
+// 1 credit = $0.063333 on EVERY plan ($19 / 300 anchor), so all tiers carry
+// the identical ≥40% profit margin regardless of which model is generated.
 const plans = [
-  {
-    name: 'Pro',
-    icon: Star,
-    monthlyPrice: 29,
-    annualPrice: 17,
-    credits: '600 credits/month',
-    features: [
-      'No watermark',
-      'Access to Kling 2.6, Seedream 4.5, Soul 2.0',
-      'Face Swap, Upscaler, Lipsync',
-      'Priority generation queue',
-      'Commercial usage rights',
-    ],
-    cta: 'Get Pro',
-    popular: true,
-    highlighted: true,
-  },
-  {
-    name: 'Advanced',
-    icon: Crown,
-    monthlyPrice: 79,
-    annualPrice: 49,
-    credits: '2,000 credits/month',
-    features: [
-      'All models (Sora 2, Veo 3.1, all)',
-      'Team collaboration tools',
-      'API access',
-      '4K export priority',
-      'Premium support',
-      'Custom enterprise pricing',
-    ],
-    cta: 'Get Advanced',
-    popular: false,
-    highlighted: false,
-  },
-  {
-    name: 'Studio',
-    icon: Crown,
-    monthlyPrice: 129,
-    annualPrice: 129,
-    credits: '4,500 credits/month',
-    features: [
-      'Everything in Advanced',
-      'Highest priority generation queue',
-      'Dedicated support',
-    ],
-    cta: 'Get Studio',
-    popular: false,
-    highlighted: false,
-  },
+  { name: 'Micro',   icon: Star,  monthlyPrice: 5,   annualPrice: 5,   credits: '79 credits',    cta: 'Get Micro',   popular: false, highlighted: false },
+  { name: 'Starter', icon: Star,  monthlyPrice: 10,  annualPrice: 10,  credits: '158 credits',   cta: 'Get Starter', popular: false, highlighted: false },
+  { name: 'Basic',   icon: Star,  monthlyPrice: 19,  annualPrice: 19,  credits: '300 credits',   cta: 'Get Basic',   popular: true,  highlighted: true  },
+  { name: 'Plus',    icon: Crown, monthlyPrice: 59,  annualPrice: 59,  credits: '932 credits',   cta: 'Get Plus',    popular: false, highlighted: false },
+  { name: 'Pro',     icon: Crown, monthlyPrice: 95,  annualPrice: 95,  credits: '1,500 credits', cta: 'Get Pro',     popular: false, highlighted: false },
+  { name: 'Max',     icon: Crown, monthlyPrice: 129, annualPrice: 129, credits: '2,037 credits', cta: 'Get Max',     popular: false, highlighted: false },
 ];
 
-// STARTER-style card config (keyed by plan name). Credit math:
-//   Nano Banana Pro 1K = 2 cr  → gens   = credits / 2
-//   Kling 3.0 1080p 5s = 7.5 cr → videos = credits / 7.5
+// STARTER-style card config (keyed by plan name). Quantities come straight
+// from the workbook's "$X qty" columns:
+//   Nano Banana Pro 1K = 4 cr    → gens   = credits / 4
+//   Kling 3.0 1080p 5s = 12.5 cr → videos = credits / 12.5
+// Every plan has the same $/credit, so every plan gets full model access.
+const SHARED_FEATURES = [
+  { ok: true, label: 'All models — full access on every plan' },
+  { ok: true, label: 'No watermark on exports' },
+  { ok: true, label: 'Commercial usage rights' },
+  { ok: true, label: 'Same cost per credit on every plan' },
+];
+const ALL_SEEDANCE = [
+  { name: 'Seedance 2.0',      access: true },
+  { name: 'Seedance 2.0 Mini', access: true },
+  { name: 'Seedance 2.0 Fast', access: true },
+];
 const STARTER_CARD_CONFIG = {
-  Pro: {
+  Micro: {
+    subtitle: 'Try Voxel with real credits',
+    creditsLabel: '79 credits',
+    nanoGens: 19,
+    klingVideos: 6,
+    fixedLabel: 'Fixed amount of 79 credits',
+    features: SHARED_FEATURES,
+    seedance: ALL_SEEDANCE,
+  },
+  Starter: {
+    subtitle: 'For getting started',
+    creditsLabel: '158 credits',
+    nanoGens: 39,
+    klingVideos: 12,
+    fixedLabel: 'Fixed amount of 158 credits',
+    features: SHARED_FEATURES,
+    seedance: ALL_SEEDANCE,
+  },
+  Basic: {
+    subtitle: 'For regular creators',
+    creditsLabel: '300 credits',
+    nanoGens: 75,
+    klingVideos: 24,
+    fixedLabel: 'Fixed amount of 300 credits',
+    features: SHARED_FEATURES,
+    seedance: ALL_SEEDANCE,
+  },
+  Plus: {
     subtitle: 'For serious creators & professionals',
-    creditsLabel: '600 credits/mo.',
-    nanoGens: 300,
-    klingVideos: 80,
-    fixedLabel: 'Fixed amount of 600 credits/mo',
-    features: [
-      { ok: true,  label: 'Parallel generations: up to 2 Videos, 4 Images' },
-      { ok: true,  label: 'No watermark on exports' },
-      { ok: true,  label: 'Access to Kling 2.6, Seedream 4.5, Soul 2.0' },
-      { ok: true,  label: 'Face Swap, Upscaler, Lipsync' },
-      { ok: true,  label: 'Priority generation queue' },
-      { ok: true,  label: 'Commercial usage rights' },
-      { ok: false, label: 'Early access to advanced AI features' },
-      { ok: false, label: 'Lowest cost per credit' },
-    ],
-    seedance: [
-      { name: 'Seedance 2.0',      access: false },
-      { name: 'Seedance 2.0 Mini', access: true },
-      { name: 'Seedance 2.0 Fast', access: true },
-    ],
+    creditsLabel: '932 credits',
+    nanoGens: 233,
+    klingVideos: 74,
+    fixedLabel: 'Fixed amount of 932 credits',
+    features: SHARED_FEATURES,
+    seedance: ALL_SEEDANCE,
   },
-  Advanced: {
+  Pro: {
     subtitle: 'For studios, teams & power users',
-    creditsLabel: '2,000 credits/mo.',
-    nanoGens: 1000,
-    klingVideos: 266,
-    fixedLabel: 'Fixed amount of 2,000 credits/mo',
-    features: [
-      { ok: true, label: 'Parallel generations: up to 4 Videos, 8 Images' },
-      { ok: true, label: 'All models (Sora 2, Veo 3.1, all)' },
-      { ok: true, label: 'Team collaboration tools' },
-      { ok: true, label: 'API access' },
-      { ok: true, label: '4K export priority' },
-      { ok: true, label: 'Premium support' },
-      { ok: true, label: 'Early access to advanced AI features' },
-      { ok: true, label: 'Lowest cost per credit' },
-    ],
-    seedance: [
-      { name: 'Seedance 2.0',      access: true },
-      { name: 'Seedance 2.0 Mini', access: true },
-      { name: 'Seedance 2.0 Fast', access: true },
-    ],
+    creditsLabel: '1,500 credits',
+    nanoGens: 375,
+    klingVideos: 120,
+    fixedLabel: 'Fixed amount of 1,500 credits',
+    features: SHARED_FEATURES,
+    seedance: ALL_SEEDANCE,
   },
-  'Studio': {
+  Max: {
     subtitle: 'For agencies & high-volume production',
-    creditsLabel: '4,500 credits/mo.',
-    nanoGens: 2250,
-    klingVideos: 600,
-    fixedLabel: 'Fixed amount of 4,500 credits/mo',
-    features: [
-      { ok: true, label: 'Parallel generations: up to 8 Videos, 16 Images' },
-      { ok: true, label: 'Everything in Advanced' },
-      { ok: true, label: 'All models, earliest access' },
-      { ok: true, label: 'Highest priority generation queue' },
-      { ok: true, label: 'Dedicated support' },
-      { ok: true, label: 'Team collaboration tools' },
-      { ok: true, label: 'API access' },
-      { ok: true, label: 'Lowest cost per credit' },
-    ],
-    seedance: [
-      { name: 'Seedance 2.0',      access: true },
-      { name: 'Seedance 2.0 Mini', access: true },
-      { name: 'Seedance 2.0 Fast', access: true },
-    ],
+    creditsLabel: '2,037 credits',
+    nanoGens: 509,
+    klingVideos: 162,
+    fixedLabel: 'Fixed amount of 2,037 credits',
+    features: SHARED_FEATURES,
+    seedance: ALL_SEEDANCE,
   },
 };
 
@@ -146,7 +106,7 @@ const faqs = [
   },
   {
     question: 'Do credits expire?',
-    answer: 'Credits roll over to the next month, up to 2x your monthly credit limit. After that, the oldest credits expire. For example, on Pro plan, you can accumulate up to 1,200 credits.',
+    answer: 'Credits roll over to the next month, up to 2x your monthly credit limit. After that, the oldest credits expire. For example, on the Pro plan, you can accumulate up to 3,000 credits.',
   },
   {
     question: 'What are commercial usage rights?',

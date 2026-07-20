@@ -7,24 +7,15 @@ import CameraSelector from './CameraSelector';
 import { getImageCredits } from '@/lib/creditPricing';
 
 // ─── Image Models ────────────────────────────────────────────────────────────
+// Catalog = Voxel_Plans_and_Credits.xlsx ONLY. Every model is kie.ai-backed
+// and priced in creditPricing.js at ≥40% margin of sale. Names must match
+// server MODEL_CONFIG keys exactly; `credits` is the 1K display fallback
+// (getImageCredits drives the real per-quality number).
 const IMAGE_MODELS = [
-  { id: 'nano-pro',        name: 'Nano Banana Pro',   brand: 'VOXEL',            credits: 150,  badge: null,        desc: 'Best 4K image model for stunning high-aesthetic visuals',                   tags: ['4K', 'Fast', 'Portrait'] },
-  { id: 'nano-2',          name: 'Nano Banana 2',     brand: 'VOXEL',            credits: 100,  badge: 'NEW',       desc: 'Pro-level quality at Flash speed with subject consistency',                  tags: ['4K', 'Ultra Fast'] },
-  { id: 'soul-2',          name: 'Soul 2.0',          brand: 'VOXEL',            credits: 120,  badge: null,        desc: 'Fashion-forward portraits with built-in cultural fluency',                   tags: ['4K', 'Fashion', 'Portrait'] },
-  { id: 'seedream-5-lite', name: 'Seedream 5.0 Lite', brand: 'ByteDance',        credits: 50,   badge: 'UNLIMITED', desc: 'Intelligent visual reasoning for logically accurate images',                 tags: ['2K', 'Fast', 'Unlimited'] },
-  { id: 'seedream-4',      name: 'Seedream 4.5',      brand: 'ByteDance',        credits: 80,   badge: null,        desc: 'Next-gen 4K image model for detailed photorealistic images',                 tags: ['4K', 'Photorealistic'] },
-  { id: 'gpt-image-2',     name: 'GPT Image 2',       brand: 'OpenAI',           credits: 250,  badge: 'NEW',       desc: "OpenAI's next-gen alpha — 4K rendering with reference image editing",        tags: ['4K', 'Reference', 'Edit'] },
-  { id: 'gpt-image',       name: 'GPT Image 1.5',     brand: 'OpenAI',           credits: 200,  badge: 'PREMIUM',   desc: 'True-color precision rendering with intelligent composition',                tags: ['4K', 'Precise'] },
-  { id: 'flux-kontext',    name: 'Flux Kontext',       brand: 'Black Forest Labs', credits: 90,  badge: null,        desc: 'Stylistic diversity and aesthetic variations for any genre',                 tags: ['2K', 'Stylized'] },
-  // kie.ai-backed models — names must match server MODEL_CONFIG keys exactly
-  { id: 'gpt-4o-image',    name: 'GPT-4o Image',       brand: 'OpenAI',           credits: 2,    badge: 'NEW',       desc: 'Strong prompt-following and text rendering with reference editing',          tags: ['Reference', 'Edit', 'Text'] },
-  { id: 'flux-kontext-max',name: 'Flux Kontext Max',   brand: 'Black Forest Labs', credits: 3,   badge: 'NEW',       desc: "BFL's top Kontext tier — best-in-class editing and consistency",             tags: ['Edit', 'Consistency'] },
-  { id: 'midjourney',      name: 'Midjourney',         brand: 'Midjourney',       credits: 3,    badge: 'NEW',       desc: 'Distinctive Midjourney aesthetic — 4 variations per generation',             tags: ['Artistic', '4 Images'] },
-  { id: 'flux-2',          name: 'Flux 2',             brand: 'Black Forest Labs', credits: 60,  badge: null,        desc: 'Fast high-quality generation with strong prompt adherence',                  tags: ['2K', 'Fast'] },
-  { id: 'wan-22',          name: 'Wan 2.2 Image',      brand: 'Alibaba',          credits: 70,   badge: null,        desc: 'Stylized and illustrated visual creation with artistic depth',               tags: ['2K', 'Artistic'] },
-  { id: 'skin-enhancer',   name: 'Skin Enhancer',      brand: 'VOXEL',            credits: 40,   badge: null,        desc: 'Adds natural realistic skin textures to any portrait',                       tags: ['Enhancement', 'Portrait'] },
-  { id: 'face-swap',       name: 'Face Swap',          brand: 'VOXEL',            credits: 30,   badge: null,        desc: 'Instant seamless AI face replacement in any image',                          tags: ['Swap', 'Fast'] },
-  { id: 'relight',         name: 'Relight',            brand: 'VOXEL',            credits: 35,   badge: null,        desc: 'Change lighting conditions in any generated or real image',                  tags: ['Edit', 'Lighting'] },
+  { id: 'nano-pro',        name: 'Nano Banana Pro',   brand: 'VOXEL',     credits: 4, badge: null,      desc: 'Best 4K image model for stunning high-aesthetic visuals',       tags: ['4K', 'Fast', 'Portrait'] },
+  { id: 'nano-2',          name: 'Nano Banana 2',     brand: 'VOXEL',     credits: 4, badge: 'NEW',     desc: 'Pro-level quality at Flash speed with subject consistency',      tags: ['4K', 'Ultra Fast'] },
+  { id: 'seedream-5-lite', name: 'Seedream 5.0 Lite', brand: 'ByteDance', credits: 1, badge: 'VALUE',   desc: 'Intelligent visual reasoning for logically accurate images',     tags: ['2K', 'Fast', 'Value'] },
+  { id: 'gpt-image-2',     name: 'GPT Image 2',       brand: 'OpenAI',    credits: 6, badge: 'PREMIUM', desc: "OpenAI's next-gen — 4K rendering with reference image editing",  tags: ['4K', 'Reference', 'Edit'] },
 ];
 
 const ASPECT_RATIOS = [
