@@ -271,7 +271,9 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 // edit = multi-image edit (1-14 images, uses image_urls array)
 // nativeSizing = model handles aspect_ratio + resolution natively
 const MODEL_CONFIG = {
-  "Nano Banana Pro":   { t2i: "fal-ai/nano-banana-pro",      i2i: "fal-ai/nano-banana-pro",        edit: "fal-ai/nano-banana-pro/edit",  imgParam: "reference_image_url", nativeSizing: true  },
+  // Nano Banana Pro runs on kie.ai (switched from FAL 2026-07-20). One jobs
+  // model handles both t2i and edit via image_input (≤8 images).
+  "Nano Banana Pro":   { provider: "kie", family: "jobs", kieModel: "nano-banana-pro" },
   "Nano Banana 2":     { t2i: "fal-ai/nano-banana-2",        i2i: "fal-ai/nano-banana-2",          edit: "fal-ai/nano-banana-2/edit",    imgParam: "reference_image_url", nativeSizing: true  },
   "Flux Kontext":      { t2i: "fal-ai/flux-pro/kontext",     i2i: "fal-ai/flux-pro/kontext",       edit: "fal-ai/flux-pro/kontext",      imgParam: "image_url",           nativeSizing: false },
   "Flux 2":            { t2i: "fal-ai/flux-pro/v1.1",        i2i: "fal-ai/flux-pro/kontext",       edit: "fal-ai/flux-pro/kontext",      imgParam: "image_url",           nativeSizing: false },
@@ -283,7 +285,9 @@ const MODEL_CONFIG = {
   "Face Swap":         { t2i: "fal-ai/face-swap",            i2i: "fal-ai/face-swap",              edit: "fal-ai/nano-banana-pro/edit",  imgParam: "image_url",           nativeSizing: false },
   "Relight":           { t2i: "fal-ai/ic-light",             i2i: "fal-ai/ic-light",               edit: "fal-ai/nano-banana-pro/edit",  imgParam: "image_url",           nativeSizing: false },
   "GPT Image 1.5":     { t2i: "fal-ai/gpt-image-1",         i2i: "fal-ai/gpt-image-1",            edit: "fal-ai/nano-banana-pro/edit",  imgParam: "image_url",           nativeSizing: false },
-  "GPT Image 2":       { t2i: "openai/gpt-image-2",         i2i: "openai/gpt-image-2/edit",       edit: "openai/gpt-image-2/edit",      imgParam: "image_url",           nativeSizing: false },
+  // GPT Image 2 runs on kie.ai (switched from FAL 2026-07-20). Separate jobs
+  // models for t2i and i2i; i2i takes input_urls (≤16 images).
+  "GPT Image 2":       { provider: "kie", family: "jobs", kieModel: "gpt-image-2-text-to-image", kieModelI2I: "gpt-image-2-image-to-image" },
   // ── kie.ai-backed models (provider:'kie' routes them through kie.js) ──
   // family selects the kie endpoint pair; kieModel is the model field where
   // the family needs one (flux). Input building: buildKieImageInput().
@@ -327,9 +331,12 @@ const VIDEO_MODELS = {
 const VIDEO_DIRECT_MAP = {
   // Kling V3 uses start_image_url / end_image_url
   "Kling 3.0 Omni":        { t2v: "fal-ai/kling-video/v3/pro/text-to-video",         i2v: "fal-ai/kling-video/v3/pro/image-to-video",         imageParam: "start_image_url", endParam: "end_image_url" },
-  "Kling 3.0":             { t2v: "fal-ai/kling-video/v3/pro/text-to-video",         i2v: "fal-ai/kling-video/v3/pro/image-to-video",         imageParam: "start_image_url", endParam: "end_image_url" },
-  // Kling V2.6 uses start_image_url / end_image_url
-  "Kling 2.6":             { t2v: "fal-ai/kling-video/v1.6/pro/text-to-video",       i2v: "fal-ai/kling-video/v1.6/pro/image-to-video",       imageParam: "start_image_url", endParam: "end_image_url" },
+  // Kling 3.0 + 2.6 run on kie.ai (switched from FAL 2026-07-20). Kling 3.0
+  // is ONE jobs model for t2v+i2v (frames via image_urls, quality via mode
+  // std/pro/4K); 2.6 has separate t2v/i2v ids, duration "5"|"10" only.
+  // Omni/2.5/2.1/O1 stay on FAL — not confirmed available on kie.
+  "Kling 3.0":             { provider: "kie", family: "jobs", kieModel: "kling-3.0/video" },
+  "Kling 2.6":             { provider: "kie", family: "jobs", kieModel: "kling-2.6/text-to-video", kieModelI2V: "kling-2.6/image-to-video" },
   // Kling V2.5 uses image_url / tail_image_url
   "Kling 2.5":             { t2v: "fal-ai/kling-video/v1.5/pro/text-to-video",       i2v: "fal-ai/kling-video/v1.5/pro/image-to-video",       imageParam: "image_url",       endParam: "tail_image_url" },
   // Kling V2.1 uses image_url / tail_image_url
@@ -349,9 +356,12 @@ const VIDEO_DIRECT_MAP = {
   "Wan 2.1":               { t2v: "fal-ai/wan-t2v",                                  i2v: "fal-ai/wan-i2v",                                   imageParam: "image_url",       endParam: null },
   // Seedance
   "Seedance 1.5 Pro":      { t2v: "fal-ai/bytedance/seedance-1-5-pro-t2v",           i2v: "fal-ai/kling-video/v3/pro/image-to-video",         imageParam: "start_image_url", endParam: "end_image_url" },
-  "Seedance 2.0":          { t2v: "bytedance/seedance-2.0/text-to-video",            i2v: "bytedance/seedance-2.0/image-to-video",            ref: "bytedance/seedance-2.0/reference-to-video", imageParam: "image_url", endParam: "end_image_url" },
-  "Seedance 2.0 Fast":     { t2v: "bytedance/seedance-2.0/fast/text-to-video",       i2v: "bytedance/seedance-2.0/fast/image-to-video",       ref: "bytedance/seedance-2.0/fast/reference-to-video", imageParam: "image_url", endParam: "end_image_url" },
-  "Seedance 2.0 Mini":     { t2v: "bytedance/seedance-2.0/mini/text-to-video",       i2v: "bytedance/seedance-2.0/mini/image-to-video",       ref: "bytedance/seedance-2.0/mini/reference-to-video", imageParam: "image_url", endParam: "end_image_url" },
+  // Seedance 2.x runs on kie.ai (switched from FAL 2026-07-20). One jobs
+  // model per variant handles t2v/i2v/reference via first_frame_url /
+  // last_frame_url / reference_*_urls — dispatched in /api/generate-video-ref.
+  "Seedance 2.0":          { provider: "kie", family: "jobs", kieModel: "bytedance/seedance-2" },
+  "Seedance 2.0 Fast":     { provider: "kie", family: "jobs", kieModel: "bytedance/seedance-2-fast" },
+  "Seedance 2.0 Mini":     { provider: "kie", family: "jobs", kieModel: "bytedance/seedance-2-mini" },
   "Seedance 1":            { t2v: "fal-ai/bytedance/seedance-1-lite-t2v",            i2v: "fal-ai/kling-video/v3/pro/image-to-video",         imageParam: "start_image_url", endParam: "end_image_url" },
   // Others
   "LTX 2":                 { t2v: "fal-ai/ltx-video-13b-distilled",                  i2v: "fal-ai/kling-video/v3/pro/image-to-video",         imageParam: "start_image_url", endParam: "end_image_url" },
@@ -388,11 +398,39 @@ function getDimensions(ratio, quality) {
   }
 }
 
-// Build the kie.ai request body per model family. Each family has its own
-// param names/enums (verified against docs.kie.ai) — normalize our generic
-// { prompt, ratio, imageUrls } into what that family expects.
-function buildKieImageInput(cfg, { prompt, ratio, imageUrls }) {
+// Build the kie.ai request POST body per model family. Each family has its
+// own param names/enums (verified against docs.kie.ai) — normalize our
+// generic { prompt, ratio, quality, imageUrls } into what that family
+// expects. Dedicated families take the input at the body root; the Jobs API
+// wraps it as { model, input }.
+function buildKieImageInput(cfg, { prompt, ratio, quality, imageUrls }) {
   const hasImages = imageUrls.length > 0;
+  if (cfg.family === 'jobs') {
+    // Jobs models use 1K/2K/4K resolutions; Draft maps to 1K (no 0.5K tier).
+    const resolution = ['2K', '4K'].includes(RESOLUTION_MAP[quality]) ? RESOLUTION_MAP[quality] : '1K';
+    if (cfg.kieModel === 'nano-banana-pro') {
+      return {
+        model: cfg.kieModel,
+        input: {
+          prompt,
+          aspect_ratio: ratio || 'auto',
+          resolution,
+          output_format: 'png',
+          ...(hasImages ? { image_input: imageUrls.slice(0, 8) } : {}),
+        },
+      };
+    }
+    // GPT Image 2: separate t2i / i2i model ids; i2i takes input_urls.
+    return {
+      model: hasImages ? (cfg.kieModelI2I || cfg.kieModel) : cfg.kieModel,
+      input: {
+        prompt,
+        aspect_ratio: ratio || 'auto',
+        resolution,
+        ...(hasImages ? { input_urls: imageUrls.slice(0, 16) } : {}),
+      },
+    };
+  }
   if (cfg.family === 'gpt4o') {
     // 4o only supports 1:1 / 3:2 / 2:3 — snap to the closest orientation.
     const portrait = ['9:16', '3:4', '2:3'].includes(ratio);
@@ -420,6 +458,65 @@ function buildKieImageInput(cfg, { prompt, ratio, imageUrls }) {
     };
   }
   throw new Error(`kie.ai: no input builder for family "${cfg.family}"`);
+}
+
+// Build the kie.ai submission for a video model: which family endpoint to
+// hit, the POST body, and the 'kie:'-prefixed model_id the status routes
+// parse ('kie:jobs:' → Jobs API, plain 'kie:' → dedicated Veo endpoints).
+// Shared by /api/generate-video and the legacy /api/generate video branch.
+function buildKieVideoSubmission(mapping, { prompt, frames, duration, aspectRatio }) {
+  if (mapping.family === 'jobs' && mapping.kieModel === 'kling-3.0/video') {
+    // Kling 3.0: one model for t2v + i2v; quality via mode (pro = 1080p,
+    // matching the app's advertised 720-1080p); duration string "3"-"15".
+    const dur = Math.min(15, Math.max(3, parseInt(duration, 10) || 5));
+    return {
+      family: 'jobs',
+      body: {
+        model: mapping.kieModel,
+        input: {
+          prompt,
+          aspect_ratio: ['16:9', '9:16', '1:1'].includes(aspectRatio) ? aspectRatio : '16:9',
+          duration: String(dur),
+          mode: 'pro',
+          sound: true,
+          ...(frames.length ? { image_urls: frames } : {}),
+        },
+      },
+      modelIdTag: 'kie:jobs:' + mapping.kieModel,
+    };
+  }
+  if (mapping.family === 'jobs') {
+    // Kling 2.6: separate t2v/i2v ids; duration only "5" or "10"; i2v takes
+    // a single image_urls entry and no aspect_ratio.
+    const kieModel = frames.length ? (mapping.kieModelI2V || mapping.kieModel) : mapping.kieModel;
+    const dur = (parseInt(duration, 10) || 5) >= 8 ? '10' : '5';
+    return {
+      family: 'jobs',
+      body: {
+        model: kieModel,
+        input: {
+          prompt,
+          sound: true,
+          duration: dur,
+          ...(frames.length
+            ? { image_urls: [frames[0]] }
+            : { aspect_ratio: ['16:9', '9:16', '1:1'].includes(aspectRatio) ? aspectRatio : '16:9' }),
+        },
+      },
+      modelIdTag: 'kie:jobs:' + kieModel,
+    };
+  }
+  // Veo 3 / Veo 3 Fast (dedicated veo endpoints).
+  return {
+    family: 'veo',
+    body: {
+      prompt,
+      model: mapping.kieModel,
+      aspect_ratio: aspectRatio === '9:16' ? '9:16' : '16:9',
+      ...(frames.length ? { imageUrls: frames } : {}),
+    },
+    modelIdTag: 'kie:' + mapping.kieModel,
+  };
 }
 
 // ─── GENERATE ENDPOINT ─────────────────────────────────────────────
@@ -486,7 +583,7 @@ app.post('/api/generate', verifyJwt, requireNotBanned, requireModelProviderKey, 
       // axios timeout). Throws fall into the catch below → refund + named error.
       if (cfg.provider === 'kie') {
         const mode = hasImages ? (readyUrls.length >= 2 ? 'multi-image-edit' : 'image-to-image') : 'text-to-image';
-        const kieInput = buildKieImageInput(cfg, { prompt, ratio, imageUrls: readyUrls });
+        const kieInput = buildKieImageInput(cfg, { prompt, ratio, quality, imageUrls: readyUrls });
         const taskId = await kieCreateTask(cfg.family, kieInput, { tag: 'KIE-IMG' });
         const done = await kiePollUntilDone(cfg.family, taskId, { timeoutMs: 90_000, tag: 'KIE-IMG' });
 
@@ -610,18 +707,15 @@ app.post('/api/generate', verifyJwt, requireNotBanned, requireModelProviderKey, 
         : [];
       const hasFrames = readyUrls.length > 0;
 
-      // kie.ai-backed video (e.g. Veo 3): async task; the kie:-prefixed
+      // kie.ai-backed video (Veo 3 / Kling): async task; the kie:-prefixed
       // model_id tells /api/video-status to poll kie instead of FAL.
       const directMapping = VIDEO_DIRECT_MAP[model];
       if (directMapping?.provider === 'kie') {
-        const kieInput = {
-          prompt,
-          model: directMapping.kieModel,
-          aspect_ratio: ratio === '9:16' ? '9:16' : '16:9',
-          ...(hasFrames ? { imageUrls: readyUrls.slice(0, 2) } : {}),
-        };
-        const taskId = await kieCreateTask('veo', kieInput, { tag: 'KIE-VIDEO' });
-        return res.json({ success: true, type: 'video', job_id: taskId, model_id: 'kie:' + directMapping.kieModel });
+        const { family, body, modelIdTag } = buildKieVideoSubmission(directMapping, {
+          prompt, frames: readyUrls.slice(0, 2), duration, aspectRatio: ratio,
+        });
+        const taskId = await kieCreateTask(family, body, { tag: 'KIE-VIDEO' });
+        return res.json({ success: true, type: 'video', job_id: taskId, model_id: modelIdTag });
       }
 
       let modelId = legacyVideoId;
@@ -713,7 +807,8 @@ app.post('/api/checkStatus', async (req, res) => {
   // kie.ai jobs — same prefix convention as /api/video-status.
   if (model_id.startsWith('kie:')) {
     try {
-      const t = await kieGetTask('veo', job_id, { tag: 'KIE-STATUS' });
+      const family = model_id.startsWith('kie:jobs:') ? 'jobs' : 'veo';
+      const t = await kieGetTask(family, job_id, { tag: 'KIE-STATUS' });
       if (t.state === 'success') {
         const durableUrl = await persistOrFallback(t.resultUrls[0], 'video');
         return res.json({ status: 'COMPLETED', video_url: durableUrl, image_url: null });
@@ -800,21 +895,19 @@ app.post('/api/generate-video', verifyJwt, requireNotBanned, requireModelProvide
     return res.status(500).json({ error: 'Credit charge failed.' });
   }
 
-  // ── kie.ai-backed video (Veo 3 / Veo 3 Fast) ──
+  // ── kie.ai-backed video (Veo 3 / Veo 3 Fast / Kling 3.0 / Kling 2.6) ──
   // Async task like FAL's queue; the kie:-prefixed model_id routes
-  // /api/video-status polling to kie. Old history rows carry unprefixed FAL
-  // ids and keep polling FAL.
+  // /api/video-status polling to kie ('kie:jobs:' → Jobs API, plain 'kie:' →
+  // Veo family). Old history rows carry unprefixed FAL ids and keep polling FAL.
   if (mapping.provider === 'kie') {
     try {
-      const kieInput = {
-        prompt,
-        model: mapping.kieModel,
-        aspect_ratio: aspect_ratio === '9:16' ? '9:16' : '16:9',
-        ...(image_url ? { imageUrls: tail_image_url ? [image_url, tail_image_url] : [image_url] } : {}),
-      };
-      const taskId = await kieCreateTask('veo', kieInput, { tag: 'KIE-VIDEO' });
+      const frames = image_url ? (tail_image_url ? [image_url, tail_image_url] : [image_url]) : [];
+      const { family, body, modelIdTag } = buildKieVideoSubmission(mapping, {
+        prompt, frames, duration, aspectRatio: aspect_ratio,
+      });
+      const taskId = await kieCreateTask(family, body, { tag: 'KIE-VIDEO' });
       console.log(`[KIE-VIDEO] ✅ Submitted ${model} taskId: ${taskId}`);
-      return res.json({ success: true, job_id: taskId, model_id: 'kie:' + mapping.kieModel, model });
+      return res.json({ success: true, job_id: taskId, model_id: modelIdTag, model });
     } catch (error) {
       console.error('[KIE-VIDEO] Error:', error.message);
       if (chargedKind) {
@@ -1294,7 +1387,7 @@ app.post('/api/tts/preview', requireFalKey, async (req, res) => {
 // Supports both:
 //   - "Seedance 2.0"      → bytedance/seedance-2.0/*       (start_frame/end_frame)
 //   - "Seedance 2.0 Fast" → bytedance/seedance-2.0/fast/*  (image_url/end_image_url)
-app.post('/api/generate-video-ref', verifyJwt, requireNotBanned, requireFalKey, async (req, res) => {
+app.post('/api/generate-video-ref', verifyJwt, requireNotBanned, requireModelProviderKey, async (req, res) => {
   const { model, prompt, mode, image_urls, video_urls, audio_urls, start_frame, end_frame, duration, aspect_ratio, resolution, generate_audio } = req.body;
 
   if (!prompt) return res.status(400).json({ error: 'prompt required' });
@@ -1338,6 +1431,53 @@ app.post('/api/generate-video-ref', verifyJwt, requireNotBanned, requireFalKey, 
   const hasRefImages = (image_urls || []).length > 0;
   const hasRefVideos = (video_urls || []).length > 0;
   const hasRefAudios = (audio_urls || []).length > 0;
+
+  // ── kie.ai-backed Seedance (switched from FAL 2026-07-20) ──
+  // One jobs model per variant covers t2v / i2v / reference in a single
+  // schema: first_frame_url / last_frame_url / reference_*_urls. Frontend
+  // polling works unchanged via the kie:jobs: model_id prefix.
+  const seedanceMapping = VIDEO_DIRECT_MAP[modelLabel];
+  if (seedanceMapping?.provider === 'kie') {
+    try {
+      const durInt = Math.min(15, Math.max(4, parseInt(duration, 10) || 5));
+      // kie standard supports up to 4k; fast/mini top out at 720p.
+      const allowedRes = (isFast || isMini) ? ['480p', '720p'] : ['480p', '720p', '1080p', '4k'];
+      const res_ = allowedRes.includes(String(resolution).toLowerCase()) ? String(resolution).toLowerCase() : '720p';
+      const body = {
+        model: seedanceMapping.kieModel,
+        input: {
+          prompt,
+          aspect_ratio: ['1:1', '4:3', '3:4', '16:9', '9:16', '21:9'].includes(aspect_ratio) ? aspect_ratio : 'adaptive',
+          duration: durInt,
+          resolution: res_,
+          generate_audio: generate_audio !== false,
+          ...(hasStartFrame ? { first_frame_url: start_frame } : {}),
+          ...(hasEndFrame ? { last_frame_url: end_frame } : {}),
+          ...(hasRefImages ? { reference_image_urls: image_urls.slice(0, 9) } : {}),
+          ...(hasRefVideos ? { reference_video_urls: video_urls.slice(0, 3) } : {}),
+          ...(hasRefAudios ? { reference_audio_urls: audio_urls.slice(0, 3) } : {}),
+        },
+      };
+      console.log(`[SEEDANCE] [KIE] Variant: ${modelLabel} →`, seedanceMapping.kieModel);
+      const taskId = await kieCreateTask('jobs', body, { tag: 'KIE-SEEDANCE' });
+      console.log(`[SEEDANCE] [KIE] ✅ Submitted taskId: ${taskId}`);
+      return res.json({
+        success: true,
+        job_id: taskId,
+        model_id: 'kie:jobs:' + seedanceMapping.kieModel,
+        model: modelLabel,
+      });
+    } catch (error) {
+      console.error('[SEEDANCE] [KIE] Error:', error.message);
+      if (chargedKind) {
+        refundCredits({
+          userId: req.user.id, kind: chargedKind, ip: req.ip, cost: chargedCost,
+          reason: `kie_seedance_threw: ${error.message}`.slice(0, 500),
+        }).catch(() => {});
+      }
+      return res.status(500).json({ error: 'Seedance generation failed: ' + error.message });
+    }
+  }
 
   let falModel;
   let input = {
@@ -1417,10 +1557,12 @@ app.post('/api/video-status', async (req, res) => {
   if (!job_id || !model_id) return res.status(400).json({ error: 'job_id and model_id required' });
 
   // kie.ai jobs carry a 'kie:'-prefixed model_id (set at submit time);
-  // everything else is a FAL request id → FAL polling below.
+  // 'kie:jobs:...' → unified Jobs API, plain 'kie:...' → Veo endpoints.
+  // Everything else is a FAL request id → FAL polling below.
   if (model_id.startsWith('kie:')) {
     try {
-      const t = await kieGetTask('veo', job_id, { tag: 'KIE-VIDEO' });
+      const family = model_id.startsWith('kie:jobs:') ? 'jobs' : 'veo';
+      const t = await kieGetTask(family, job_id, { tag: 'KIE-VIDEO' });
       if (t.state === 'success') {
         const durableUrl = await persistOrFallback(t.resultUrls[0], 'video');
         return res.json({ status: 'COMPLETED', video_url: durableUrl });
@@ -1996,6 +2138,37 @@ app.post('/api/node/run-node', verifyJwt, requireNotBanned, requireFalKey, async
     return res.status(500).json({ error: 'Credit charge failed.' });
   }
 
+  // ── kie.ai-backed image models (Nano Banana Pro, GPT Image 2) ──
+  // Same createTask → poll → re-host flow as /api/generate's kie branch.
+  const nodeImgCfg = type === 'image-generator'
+    ? (MODEL_CONFIG[settings?.model] || MODEL_CONFIG['Nano Banana Pro'])
+    : null;
+  if (nodeImgCfg?.provider === 'kie') {
+    try {
+      const urls = Array.isArray(settings?.image_urls) && settings.image_urls.length
+        ? settings.image_urls.filter(Boolean)
+        : (settings?.image_url ? [settings.image_url] : []);
+      const body = buildKieImageInput(nodeImgCfg, {
+        prompt: prompt.trim(),
+        ratio: settings?.aspect_ratio || '1:1',
+        quality: settings?.quality || '1K',
+        imageUrls: urls,
+      });
+      console.log(`[node:run] user=${req.user.id} type=${type} model="${settings?.model || '-'}" → kie:${nodeImgCfg.kieModel}`);
+      const taskId = await kieCreateTask(nodeImgCfg.family, body, { tag: 'KIE-NODE' });
+      const done = await kiePollUntilDone(nodeImgCfg.family, taskId, { timeoutMs: 90_000, tag: 'KIE-NODE' });
+      const url = await persistOrFallback(done.resultUrls[0], 'image');
+      console.log(`[node:run] ✅ ${url}`);
+      return res.json({ success: true, outputs: { [spec.outKey]: url } });
+    } catch (error) {
+      console.error('[node:run] [KIE] error:', error.message);
+      if (chargedKind) {
+        refundCredits({ userId: req.user.id, kind: chargedKind, ip: req.ip, reason: `node_run_kie_threw: ${error.message}`.slice(0, 500) }).catch(() => {});
+      }
+      return res.status(500).json({ error: 'Node run failed: ' + error.message });
+    }
+  }
+
   const input = spec.buildInput(settings, prompt.trim());
   console.log(`[node:run] user=${req.user.id} type=${type} model="${settings?.model || '-'}" → ${falModel}`);
 
@@ -2066,6 +2239,56 @@ app.post('/api/node/run-node-async', verifyJwt, requireNotBanned, requireFalKey,
     if (e.code === 'BANNED') return res.status(403).json({ error: 'Account is banned.' });
     console.error('[node:run-async] charge error:', e.message);
     return res.status(500).json({ error: 'Credit charge failed.' });
+  }
+
+  // ── kie.ai-backed video models (Kling 3.0/2.6, Seedance 2.x, Veo 3) ──
+  // Submit to kie and hand back a kie:-prefixed model_id; the node polls the
+  // same /api/video-status route, which routes the prefix to kie.
+  if (dm.provider === 'kie') {
+    try {
+      let submission;
+      if (dm.kieModel?.startsWith('bytedance/seedance')) {
+        // Seedance jobs schema: references vs start frame vs plain t2v.
+        const allowedRes = dm.kieModel === 'bytedance/seedance-2'
+          ? ['480p', '720p', '1080p', '4k'] : ['480p', '720p'];
+        const res_ = allowedRes.includes(String(settings?.resolution).toLowerCase())
+          ? String(settings.resolution).toLowerCase() : '720p';
+        submission = {
+          family: 'jobs',
+          body: {
+            model: dm.kieModel,
+            input: {
+              prompt: prompt.trim(),
+              aspect_ratio: ['1:1', '4:3', '3:4', '16:9', '9:16', '21:9'].includes(settings?.aspect_ratio)
+                ? settings.aspect_ratio : 'adaptive',
+              duration: Math.min(15, Math.max(4, parseInt(settings?.duration, 10) || 5)),
+              resolution: res_,
+              generate_audio: true,
+              ...(imageUrls.length > 1 ? { reference_image_urls: imageUrls.slice(0, 9) } : {}),
+              ...(imageUrls.length === 1 ? { first_frame_url: imageUrls[0] } : {}),
+            },
+          },
+          modelIdTag: 'kie:jobs:' + dm.kieModel,
+        };
+      } else {
+        submission = buildKieVideoSubmission(dm, {
+          prompt: prompt.trim(),
+          frames: imageUrl ? [imageUrl] : [],
+          duration: settings?.duration,
+          aspectRatio: settings?.aspect_ratio,
+        });
+      }
+      console.log(`[node:run-async] user=${req.user.id} model="${modelLabel}" → ${submission.modelIdTag}`);
+      const taskId = await kieCreateTask(submission.family, submission.body, { tag: 'KIE-NODE' });
+      videoNodeJobs.set(taskId, { userId: req.user.id, kind: chargedKind, modelId: submission.modelIdTag, refunded: false });
+      return res.json({ success: true, job_id: taskId, model_id: submission.modelIdTag });
+    } catch (error) {
+      console.error('[node:run-async] [KIE] error:', error.message);
+      if (chargedKind) {
+        refundCredits({ userId: req.user.id, kind: chargedKind, ip: req.ip, cost: chargedCost, reason: `node_async_kie_threw: ${error.message}`.slice(0, 500) }).catch(() => {});
+      }
+      return res.status(500).json({ error: 'Node video failed: ' + error.message });
+    }
   }
 
   // Use the model's own start-frame field name (start_image_url / image_url /

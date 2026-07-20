@@ -59,6 +59,23 @@ const FAMILIES = {
     status: '/api/v1/veo/record-info',
     extract: (d) => d?.response?.resultUrls || [],
   },
+  // Unified Jobs API — the path for all newer "market" models (Nano Banana
+  // Pro, GPT Image 2, Kling 3.0/2.6, Seedance 2.x, …). createTask takes
+  // { model, input } (the caller builds that full body); record-info reports
+  // state ('waiting'|'queuing'|'generating'|'success'|'fail') instead of
+  // successFlag, and results come back in resultJson — a JSON STRING
+  // containing { resultUrls }.
+  jobs: {
+    create: '/api/v1/jobs/createTask',
+    status: '/api/v1/jobs/recordInfo',
+    extract: (d) => {
+      let rj = d?.resultJson;
+      if (typeof rj === 'string') {
+        try { rj = JSON.parse(rj); } catch { rj = null; }
+      }
+      return rj?.resultUrls || [];
+    },
+  },
 };
 
 let KIE_KEY = '';
@@ -110,22 +127,32 @@ export async function kieCreateTask(family, input, { tag = 'KIE' } = {}) {
 }
 
 // Query a task once. Returns { state: 'pending'|'success'|'fail', resultUrls,
-// failMsg } — normalized across families.
+// failMsg } — normalized across families. Dedicated families report
+// successFlag (0 generating / 1 success / 2-3 failed); the Jobs API reports
+// state ('waiting'|'queuing'|'generating'|'success'|'fail') with failMsg.
 export async function kieGetTask(family, taskId, { tag = 'KIE' } = {}) {
   if (!KIE_KEY) throw new Error('KIE_KEY not configured');
   const spec = familySpec(family);
   const data = await kieFetch(`${spec.status}?taskId=${encodeURIComponent(taskId)}`, { tag });
 
-  // successFlag is the cross-family state field: 0=generating, 1=success,
-  // 2=create failed, 3=generation failed.
-  const flag = Number(data?.successFlag);
-  if (flag === 1) {
+  const succeeded = typeof data?.state === 'string'
+    ? data.state === 'success'
+    : Number(data?.successFlag) === 1;
+  const failed = typeof data?.state === 'string'
+    ? data.state === 'fail'
+    : (Number(data?.successFlag) === 2 || Number(data?.successFlag) === 3);
+
+  if (succeeded) {
     const resultUrls = spec.extract(data);
     if (!resultUrls.length) throw new Error('kie.ai task succeeded but returned no result URLs');
     return { state: 'success', resultUrls, failMsg: null };
   }
-  if (flag === 2 || flag === 3) {
-    return { state: 'fail', resultUrls: [], failMsg: data?.errorMessage || 'Generation failed at kie.ai' };
+  if (failed) {
+    return {
+      state: 'fail',
+      resultUrls: [],
+      failMsg: data?.failMsg || data?.errorMessage || 'Generation failed at kie.ai',
+    };
   }
   return { state: 'pending', resultUrls: [], failMsg: null };
 }
