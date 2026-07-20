@@ -515,7 +515,7 @@ function buildKieImageInput(cfg, { prompt, ratio, quality, imageUrls }) {
 // hit, the POST body, and the 'kie:'-prefixed model_id the status routes
 // parse ('kie:jobs:' → Jobs API, plain 'kie:' → dedicated Veo endpoints).
 // Shared by /api/generate-video and the legacy /api/generate video branch.
-function buildKieVideoSubmission(mapping, { prompt, frames, duration, aspectRatio, resolution }) {
+function buildKieVideoSubmission(mapping, { prompt, frames, duration, aspectRatio, resolution, audio = false }) {
   if (mapping.family === 'jobs' && mapping.kieModel === 'kling-3.0/video') {
     // Kling 3.0: one model for t2v + i2v; quality via mode (std 720p /
     // pro 1080p / 4K); duration string "3"-"15".
@@ -530,7 +530,12 @@ function buildKieVideoSubmission(mapping, { prompt, frames, duration, aspectRati
           aspect_ratio: ['16:9', '9:16', '1:1'].includes(aspectRatio) ? aspectRatio : '16:9',
           duration: String(dur),
           mode,
-          sound: true,
+          // sound follows the user's Audio toggle — credits are priced per
+          // audio tier (2.5 vs 4 cr/s), so charge and generation must match.
+          sound: !!audio,
+          // kie REQUIRES multi_shots ("multi_shots cannot be empty") — we
+          // always generate single-shot clips from the Video page.
+          multi_shots: false,
           ...(frames.length ? { image_urls: frames } : {}),
         },
       },
@@ -621,7 +626,9 @@ function buildKieVideoSubmission(mapping, { prompt, frames, duration, aspectRati
         model: kieModel,
         input: {
           prompt,
-          sound: true,
+          // Kling 2.6 is priced per audio tier (1.5 vs 2.9 cr/s) — honor the
+          // user's Audio toggle so charge and generation match.
+          sound: !!audio,
           duration: dur,
           ...(frames.length
             ? { image_urls: [frames[0]] }
@@ -991,7 +998,7 @@ app.post('/api/checkStatus', async (req, res) => {
 
 // ─── GENERATE VIDEO (new endpoint with polling) ───────────────────
 app.post('/api/generate-video', verifyJwt, requireNotBanned, requireModelProviderKey, async (req, res) => {
-  const { model, prompt, image_url, tail_image_url, duration, aspect_ratio, resolution } = req.body;
+  const { model, prompt, image_url, tail_image_url, duration, aspect_ratio, resolution, audio } = req.body;
 
   if (!model) return res.status(400).json({ error: 'model name required' });
   if (!prompt) return res.status(400).json({ error: 'prompt required' });
@@ -1033,7 +1040,7 @@ app.post('/api/generate-video', verifyJwt, requireNotBanned, requireModelProvide
     try {
       const frames = image_url ? (tail_image_url ? [image_url, tail_image_url] : [image_url]) : [];
       const { family, body, modelIdTag } = buildKieVideoSubmission(mapping, {
-        prompt, frames, duration, aspectRatio: aspect_ratio, resolution,
+        prompt, frames, duration, aspectRatio: aspect_ratio, resolution, audio,
       });
       const taskId = await kieCreateTask(family, body, { tag: 'KIE-VIDEO' });
       console.log(`[KIE-VIDEO] ✅ Submitted ${model} taskId: ${taskId}`);

@@ -202,7 +202,7 @@ export default function Video() {
   };
 
   // ─── Standard video generate ───
-  const handleGenerate = async (creditCost) => {
+  const handleGenerate = async (creditCost, genOpts = {}) => {
     if (generatingRef.current) return;
     if (!prompt.trim()) { toast.error('Please enter a prompt'); return; }
     if (!isAuthenticated) {
@@ -230,6 +230,7 @@ export default function Video() {
         model: model.name, prompt: finalPrompt,
         duration: dur, aspect_ratio: ratio,
         resolution,
+        audio: !!genOpts.audio,
         credit_cost: creditCost,
         ...(imageUrl ? { image_url: imageUrl } : {}),
         ...(tailImageUrl ? { tail_image_url: tailImageUrl } : {}),

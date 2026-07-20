@@ -143,7 +143,9 @@ export default function VideoLeftPanel({
       toast.error('Type a prompt to generate');
       return;
     }
-    onGenerate?.(creditCost);
+    // Pass the audio toggle up with the cost — the backend needs it so kie
+    // generates (and bills) exactly what the user was charged for.
+    onGenerate?.(creditCost, { audio: audioOn });
   };
 
   return (
