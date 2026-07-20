@@ -1969,10 +1969,9 @@ app.delete('/api/entities/:name/:id', verifyJwt, async (req, res) => {
 // Only text-to-image-capable models are offered as node options (the
 // edit-only tools like Face Swap / Relight need an input image and so
 // aren't generators). Mirrored on the client (nodeRegistry.js).
+// kie.ai-only catalog (Voxel_Plans_and_Credits.xlsx, 2026-07-21).
 const NODE_IMAGE_MODEL_NAMES = [
-  'Nano Banana Pro', 'Nano Banana 2', 'GPT Image 2', 'GPT Image 1.5',
-  'Seedream 4.5', 'Seedream 5.0 Lite', 'Soul 2.0', 'Flux Kontext',
-  'Flux 2', 'Wan 2.2 Image',
+  'Nano Banana Pro', 'Nano Banana 2', 'GPT Image 2', 'Seedream 5.0 Lite',
 ];
 // Synchronous node run specs (image + audio). Each declares: the credit
 // kind to charge, how to resolve the FAL model, how to build the input,
