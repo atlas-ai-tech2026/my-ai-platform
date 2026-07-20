@@ -52,6 +52,15 @@ export const IMAGE_CREDITS = {
   'flux-kontext': { Draft: 2.5, '1K': 2.5, '2K': 2.5, '4K': 2.5 }, // Flux Kontext Max (Default rate)
   'flux-2':       { Draft: 2,   '1K': 2,   '2K': 2.5, '4K': 2.5 }, // FLUX.2 Pro
   'wan-22':       { Draft: 2,   '1K': 2,   '2K': 2,   '4K': 2   }, // WAN 2.2 image (Default rate)
+  // ---- kie.ai-backed models (flat — kie has no quality tiers) --------------
+  // Priced with the house margin rule: kie_cost × 1.10 ÷ 0.03225 (Studio
+  // $/credit), rounded UP to the nearest 0.5 so every plan clears ≥10%:
+  //   GPT-4o Image     ~$0.05/img → 1.71 → 2
+  //   Flux Kontext Max ~$0.08/img → 2.73 → 3
+  //   Midjourney       ~$0.08/task (4 images!) → 2.73 → 3
+  'gpt-4o-image':     { Draft: 2, '1K': 2, '2K': 2, '4K': 2 },
+  'flux-kontext-max': { Draft: 3, '1K': 3, '2K': 3, '4K': 3 },
+  'midjourney':       { Draft: 3, '1K': 3, '2K': 3, '4K': 3 },
 };
 
 // Image models NOT in the master plan yet — fall back to model-list `credits`.
@@ -138,6 +147,19 @@ export const VIDEO_CREDITS = {
   'sora-2': {
     type: 'per-gen', defaultRes: 'Default',
     byResDuration: { 'Default': { 4: 11, 8: 21, 12: 30 } },
+  },
+  // Veo 3 / Veo 3 Fast via kie.ai — flat per generation regardless of
+  // duration (kie prices per video: Veo 3 $1.25, Veo 3 Fast $0.30). House
+  // margin rule (cost × 1.10 ÷ 0.03225, rounded up to 0.5):
+  //   Veo 3:      1.25 → 42.64 → 43
+  //   Veo 3 Fast: 0.30 → 10.23 → 10.5
+  'veo-3': {
+    type: 'flat', defaultRes: '1080p',
+    byRes: { '720p': 43, '1080p': 43 },
+  },
+  'veo-3-fast': {
+    type: 'flat', defaultRes: '1080p',
+    byRes: { '720p': 10.5, '1080p': 10.5 },
   },
   // Kling 3.0 Omni — not in the sheet; mapped to Kling 3.0 per-sec pricing (+0.2).
   'kling-3-omni': {

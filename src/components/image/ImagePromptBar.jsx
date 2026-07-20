@@ -16,6 +16,10 @@ const IMAGE_MODELS = [
   { id: 'gpt-image-2',     name: 'GPT Image 2',       brand: 'OpenAI',           credits: 250,  badge: 'NEW',       desc: "OpenAI's next-gen alpha — 4K rendering with reference image editing",        tags: ['4K', 'Reference', 'Edit'] },
   { id: 'gpt-image',       name: 'GPT Image 1.5',     brand: 'OpenAI',           credits: 200,  badge: 'PREMIUM',   desc: 'True-color precision rendering with intelligent composition',                tags: ['4K', 'Precise'] },
   { id: 'flux-kontext',    name: 'Flux Kontext',       brand: 'Black Forest Labs', credits: 90,  badge: null,        desc: 'Stylistic diversity and aesthetic variations for any genre',                 tags: ['2K', 'Stylized'] },
+  // kie.ai-backed models — names must match server MODEL_CONFIG keys exactly
+  { id: 'gpt-4o-image',    name: 'GPT-4o Image',       brand: 'OpenAI',           credits: 2,    badge: 'NEW',       desc: 'Strong prompt-following and text rendering with reference editing',          tags: ['Reference', 'Edit', 'Text'] },
+  { id: 'flux-kontext-max',name: 'Flux Kontext Max',   brand: 'Black Forest Labs', credits: 3,   badge: 'NEW',       desc: "BFL's top Kontext tier — best-in-class editing and consistency",             tags: ['Edit', 'Consistency'] },
+  { id: 'midjourney',      name: 'Midjourney',         brand: 'Midjourney',       credits: 3,    badge: 'NEW',       desc: 'Distinctive Midjourney aesthetic — 4 variations per generation',             tags: ['Artistic', '4 Images'] },
   { id: 'flux-2',          name: 'Flux 2',             brand: 'Black Forest Labs', credits: 60,  badge: null,        desc: 'Fast high-quality generation with strong prompt adherence',                  tags: ['2K', 'Fast'] },
   { id: 'wan-22',          name: 'Wan 2.2 Image',      brand: 'Alibaba',          credits: 70,   badge: null,        desc: 'Stylized and illustrated visual creation with artistic depth',               tags: ['2K', 'Artistic'] },
   { id: 'skin-enhancer',   name: 'Skin Enhancer',      brand: 'VOXEL',            credits: 40,   badge: null,        desc: 'Adds natural realistic skin textures to any portrait',                       tags: ['Enhancement', 'Portrait'] },
@@ -53,6 +57,7 @@ const brandColors = {
   OpenAI: '#10A37F',
   'Black Forest Labs': '#8B5CF6',
   Alibaba: '#F97316',
+  Midjourney: '#5865F2',
 };
 
 const Badge = ({ type }) => {

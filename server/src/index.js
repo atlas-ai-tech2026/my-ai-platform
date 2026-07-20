@@ -11,6 +11,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { pool, isReady as dbReady, migrate, ADMIN_EMAIL } from './db.js';
 import { persistOrFallback } from './storage.js';
+import { configureKie, kieCreateTask, kieGetTask, kiePollUntilDone } from './kie.js';
 import { verifyJwt, requireAdmin, requireNotBanned } from './middleware/auth.js';
 // Restored after the in-file getStore block was removed — DIST_DIR
 // at the bottom of this file still needs __dirname.
@@ -39,7 +40,7 @@ process.on('unhandledRejection', (e) => console.error('[UNHANDLED] rejection:', 
 // long their values are, NEVER the values themselves. This is what tells you
 // definitively whether DO is injecting the secret you set in the dashboard
 // (vs. it being silently missing, mistyped, or shadowed by a spec slot).
-const _envSummary = ['FAL_KEY', 'JWT_SECRET', 'DATABASE_URL', 'PORT', 'NODE_ENV']
+const _envSummary = ['FAL_KEY', 'KIE_KEY', 'JWT_SECRET', 'DATABASE_URL', 'PORT', 'NODE_ENV']
   .map((k) => {
     const v = process.env[k];
     if (v === undefined) return `${k}=✗MISSING`;
@@ -190,6 +191,42 @@ function requireFalKey(req, res, next) {
   next();
 }
 
+// ─── KIE.AI CONFIG ─────────────────────────────────────────────────
+// Second model aggregator alongside FAL. Same wiring pattern: key from env,
+// configured once here, guarded per-route. kie.js never reads process.env
+// itself (dotenv runs after imports are hoisted).
+const KIE_KEY = (process.env.KIE_KEY || '').trim();
+configureKie(KIE_KEY);
+if (!KIE_KEY) {
+  console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  console.error('[FATAL-CONFIG] KIE_KEY is not set.');
+  console.error('  Local dev  : ensure server/.env contains KIE_KEY=...');
+  console.error('  DO deploy  : add it as an Encrypted env var in App Platform');
+  console.error('  kie.ai-backed models will return 503 until fixed (FAL models unaffected).');
+  console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+}
+
+function requireKieKey(req, res, next) {
+  if (!KIE_KEY) {
+    return res.status(503).json({
+      error:
+        'KIE_KEY not configured on the server — kie.ai models are disabled. Check server/.env and restart the API.',
+    });
+  }
+  next();
+}
+
+// For the two mixed routes (/api/generate, /api/generate-video) that serve
+// BOTH providers: require only the key the selected model actually needs, so
+// a missing FAL key doesn't 503 kie models and vice versa. Unknown models
+// fall through — the route 400s them with a named error.
+function requireModelProviderKey(req, res, next) {
+  const model = req.body?.model;
+  const cfg = MODEL_CONFIG[model] || VIDEO_DIRECT_MAP[model] || null;
+  if (cfg?.provider === 'kie') return requireKieKey(req, res, next);
+  return requireFalKey(req, res, next);
+}
+
 // ─── AUTH CONFIG ────────────────────────────────────────────────────
 // JWT_SECRET must be set in production. We deliberately refuse to fall back
 // to a hardcoded default — silent insecure-default secrets are how every
@@ -247,6 +284,12 @@ const MODEL_CONFIG = {
   "Relight":           { t2i: "fal-ai/ic-light",             i2i: "fal-ai/ic-light",               edit: "fal-ai/nano-banana-pro/edit",  imgParam: "image_url",           nativeSizing: false },
   "GPT Image 1.5":     { t2i: "fal-ai/gpt-image-1",         i2i: "fal-ai/gpt-image-1",            edit: "fal-ai/nano-banana-pro/edit",  imgParam: "image_url",           nativeSizing: false },
   "GPT Image 2":       { t2i: "openai/gpt-image-2",         i2i: "openai/gpt-image-2/edit",       edit: "openai/gpt-image-2/edit",      imgParam: "image_url",           nativeSizing: false },
+  // ── kie.ai-backed models (provider:'kie' routes them through kie.js) ──
+  // family selects the kie endpoint pair; kieModel is the model field where
+  // the family needs one (flux). Input building: buildKieImageInput().
+  "GPT-4o Image":      { provider: "kie", family: "gpt4o" },
+  "Flux Kontext Max":  { provider: "kie", family: "flux", kieModel: "flux-kontext-max" },
+  "Midjourney":        { provider: "kie", family: "mj" },
 };
 
 // ─── VIDEO MODEL CONFIG ────────────────────────────────────────────
@@ -318,7 +361,12 @@ const VIDEO_DIRECT_MAP = {
   "PixVerse 5":            { t2v: "fal-ai/pixverse/v4.5/text-to-video",              i2v: "fal-ai/kling-video/v3/pro/image-to-video",         imageParam: "start_image_url", endParam: "end_image_url" },
   "Vidu Q3":               { t2v: "fal-ai/vidu/q1",                                  i2v: "fal-ai/kling-video/v3/pro/image-to-video",         imageParam: "start_image_url", endParam: "end_image_url" },
   "Vidu Q2":               { t2v: "fal-ai/vidu/q1",                                  i2v: "fal-ai/kling-video/v3/pro/image-to-video",         imageParam: "start_image_url", endParam: "end_image_url" },
-  "Veo 3":                 { t2v: "fal-ai/veo3",                                     i2v: "fal-ai/kling-video/v3/pro/image-to-video",         imageParam: "start_image_url", endParam: "end_image_url" },
+  // Veo 3 runs on kie.ai (repointed from FAL 2026-07-20 — kie is cheaper).
+  // kie's Veo endpoint natively supports i2v via imageUrls, so no separate
+  // i2v mapping is needed. Old in-flight FAL jobs keep completing: their
+  // history rows store the unprefixed FAL model_id → FAL polling path.
+  "Veo 3":                 { provider: "kie", kieModel: "veo3" },
+  "Veo 3 Fast":            { provider: "kie", kieModel: "veo3_fast" },
   "Veo 3.1":               { t2v: "fal-ai/veo3",                                     i2v: "fal-ai/kling-video/v3/pro/image-to-video",         imageParam: "start_image_url", endParam: "end_image_url" },
   "Sora 2":                { t2v: "fal-ai/kling-video/v3/pro/text-to-video",         i2v: "fal-ai/kling-video/v3/pro/image-to-video",         imageParam: "start_image_url", endParam: "end_image_url" },
   "Luma Dream Machine":    { t2v: "fal-ai/luma-dream-machine",                       i2v: "fal-ai/luma-dream-machine/image-to-video",         imageParam: "image_url",       endParam: null },
@@ -340,14 +388,48 @@ function getDimensions(ratio, quality) {
   }
 }
 
+// Build the kie.ai request body per model family. Each family has its own
+// param names/enums (verified against docs.kie.ai) — normalize our generic
+// { prompt, ratio, imageUrls } into what that family expects.
+function buildKieImageInput(cfg, { prompt, ratio, imageUrls }) {
+  const hasImages = imageUrls.length > 0;
+  if (cfg.family === 'gpt4o') {
+    // 4o only supports 1:1 / 3:2 / 2:3 — snap to the closest orientation.
+    const portrait = ['9:16', '3:4', '2:3'].includes(ratio);
+    const size = ratio === '1:1' || !ratio ? '1:1' : (portrait ? '2:3' : '3:2');
+    return { prompt, size, ...(hasImages ? { filesUrl: imageUrls.slice(0, 5) } : {}) };
+  }
+  if (cfg.family === 'flux') {
+    const allowed = ['21:9', '16:9', '4:3', '1:1', '3:4', '9:16'];
+    return {
+      prompt,
+      model: cfg.kieModel || 'flux-kontext-pro',
+      aspectRatio: allowed.includes(ratio) ? ratio : '1:1',
+      outputFormat: 'png',
+      ...(hasImages ? { inputImage: imageUrls[0] } : {}),
+    };
+  }
+  if (cfg.family === 'mj') {
+    return {
+      taskType: hasImages ? 'mj_img2img' : 'mj_txt2img',
+      prompt,
+      speed: 'fast',
+      version: '7',
+      ...(ratio ? { aspectRatio: ratio } : {}),
+      ...(hasImages ? { fileUrl: imageUrls[0] } : {}),
+    };
+  }
+  throw new Error(`kie.ai: no input builder for family "${cfg.family}"`);
+}
+
 // ─── GENERATE ENDPOINT ─────────────────────────────────────────────
 // Auth + credit gating:
 //   1. verifyJwt — must be logged in
 //   2. requireNotBanned — banned users immediately blocked (no JWT revocation needed)
-//   3. requireFalKey — server must have a FAL key configured
+//   3. requireModelProviderKey — server must have the key for the model's provider (FAL or kie.ai)
 //   4. chargeCredits — atomic balance deduct + history insert; 402 if insufficient
-//   5. If FAL call fails → refundCredits so the user isn't billed for nothing
-app.post('/api/generate', verifyJwt, requireNotBanned, requireFalKey, async (req, res) => {
+//   5. If the provider call fails → refundCredits so the user isn't billed for nothing
+app.post('/api/generate', verifyJwt, requireNotBanned, requireModelProviderKey, async (req, res) => {
   const { model, prompt, type, duration, ratio, imageUrls, negativePrompt, quality, numImages, safetyTolerance } = req.body;
 
   console.log('=== REQUEST ===', { model, type, imageUrls: (imageUrls || []).length, quality, ratio, numImages, user: req.user?.email });
@@ -356,8 +438,18 @@ app.post('/api/generate', verifyJwt, requireNotBanned, requireFalKey, async (req
   if (!prompt || typeof prompt !== 'string') return res.status(400).json({ error: 'Prompt required' });
   if (!type || (type !== 'image' && type !== 'video')) return res.status(400).json({ error: 'Type must be image or video' });
 
-  // Charge BEFORE the FAL call so a user can't burn through quota by spamming
-  // requests that race past the balance check.
+  // Resolve the model BEFORE charging: an unknown model must 400 without
+  // touching the balance (previously it was charged, 400'd, and never
+  // refunded), and dispatch needs to know the provider up front.
+  const cfg = type === 'image' ? MODEL_CONFIG[model] : null;
+  const legacyVideoId = type === 'video' ? VIDEO_MODELS[model] : null;
+  if (type === 'image' && !cfg) return res.status(400).json({ error: 'Unknown image model: ' + model });
+  if (type === 'video' && !legacyVideoId && VIDEO_DIRECT_MAP[model]?.provider !== 'kie') {
+    return res.status(400).json({ error: 'Unknown video model: ' + model });
+  }
+
+  // Charge BEFORE the provider call so a user can't burn through quota by
+  // spamming requests that race past the balance check.
   let chargedKind = null;
   let chargedCost = null;
   try {
@@ -383,13 +475,35 @@ app.post('/api/generate', verifyJwt, requireNotBanned, requireFalKey, async (req
   try {
     // ── IMAGE GENERATION ──
     if (type === 'image') {
-      const cfg = MODEL_CONFIG[model];
-      if (!cfg) return res.status(400).json({ error: 'Unknown image model: ' + model });
-
       const readyUrls = Array.isArray(imageUrls)
         ? imageUrls.filter(u => u && typeof u === 'string' && u.startsWith('http'))
         : [];
       const hasImages = readyUrls.length > 0;
+
+      // ── kie.ai-backed image models: createTask → poll → re-host ──
+      // Synchronous within the request like fal.subscribe. Poll capped at 90s
+      // (< Cloudflare's ~100s proxied-request limit, < the frontend's 180s
+      // axios timeout). Throws fall into the catch below → refund + named error.
+      if (cfg.provider === 'kie') {
+        const mode = hasImages ? (readyUrls.length >= 2 ? 'multi-image-edit' : 'image-to-image') : 'text-to-image';
+        const kieInput = buildKieImageInput(cfg, { prompt, ratio, imageUrls: readyUrls });
+        const taskId = await kieCreateTask(cfg.family, kieInput, { tag: 'KIE-IMG' });
+        const done = await kiePollUntilDone(cfg.family, taskId, { timeoutMs: 90_000, tag: 'KIE-IMG' });
+
+        // kie result urls expire after ~14 days — re-host to our Spaces
+        // bucket so history stays durable (same as FAL outputs).
+        const durableUrl = await persistOrFallback(done.resultUrls[0], 'image');
+        // Midjourney returns 4 images per task; surface the extras so the
+        // client can use them later without another charge.
+        const extra = done.resultUrls.slice(1);
+        return res.json({
+          success: true,
+          type: 'image',
+          result_url: durableUrl,
+          ...(extra.length ? { result_urls: [durableUrl, ...extra] } : {}),
+          mode,
+        });
+      }
 
       let falModelId;
       let mode;
@@ -491,13 +605,26 @@ app.post('/api/generate', verifyJwt, requireNotBanned, requireFalKey, async (req
 
     // ── VIDEO GENERATION ──
     if (type === 'video') {
-      let modelId = VIDEO_MODELS[model];
-      if (!modelId) return res.status(400).json({ error: 'Unknown video model: ' + model });
-
       const readyUrls = Array.isArray(imageUrls)
         ? imageUrls.filter(u => u && typeof u === 'string' && u.startsWith('http'))
         : [];
       const hasFrames = readyUrls.length > 0;
+
+      // kie.ai-backed video (e.g. Veo 3): async task; the kie:-prefixed
+      // model_id tells /api/video-status to poll kie instead of FAL.
+      const directMapping = VIDEO_DIRECT_MAP[model];
+      if (directMapping?.provider === 'kie') {
+        const kieInput = {
+          prompt,
+          model: directMapping.kieModel,
+          aspect_ratio: ratio === '9:16' ? '9:16' : '16:9',
+          ...(hasFrames ? { imageUrls: readyUrls.slice(0, 2) } : {}),
+        };
+        const taskId = await kieCreateTask('veo', kieInput, { tag: 'KIE-VIDEO' });
+        return res.json({ success: true, type: 'video', job_id: taskId, model_id: 'kie:' + directMapping.kieModel });
+      }
+
+      let modelId = legacyVideoId;
 
       // Switch to image-to-video endpoint if frames provided
       if (hasFrames) {
@@ -550,20 +677,23 @@ app.post('/api/generate', verifyJwt, requireNotBanned, requireFalKey, async (req
     // Refund the credits we deducted up front — the user shouldn't pay for
     // a generation that never happened. Best-effort; we don't fail the
     // response on a refund failure (we'd just be overwriting the real error).
+    const providerTag =
+      (MODEL_CONFIG[model]?.provider === 'kie' || VIDEO_DIRECT_MAP[model]?.provider === 'kie')
+        ? 'kie_threw' : 'fal_threw';
     if (chargedKind) {
       refundCredits({
         userId: req.user.id,
         kind: chargedKind,
         ip: req.ip,
         cost: chargedCost,
-        reason: `fal_threw: ${humanReason}`.slice(0, 500),
+        reason: `${providerTag}: ${humanReason}`.slice(0, 500),
       }).catch(() => {});
     }
 
     return res.status(500).json({
       error: 'Generation failed: ' + humanReason,
       details: {
-        reason: 'fal_threw',
+        reason: providerTag,
         status: error.status ?? null,
         statusCode: error.statusCode ?? null,
         body: error.body ?? null,
@@ -579,6 +709,22 @@ app.post('/api/checkStatus', async (req, res) => {
 
   if (!job_id || typeof job_id !== 'string') return res.status(400).json({ error: 'Invalid job_id' });
   if (!model_id || typeof model_id !== 'string') return res.status(400).json({ error: 'Invalid model_id' });
+
+  // kie.ai jobs — same prefix convention as /api/video-status.
+  if (model_id.startsWith('kie:')) {
+    try {
+      const t = await kieGetTask('veo', job_id, { tag: 'KIE-STATUS' });
+      if (t.state === 'success') {
+        const durableUrl = await persistOrFallback(t.resultUrls[0], 'video');
+        return res.json({ status: 'COMPLETED', video_url: durableUrl, image_url: null });
+      }
+      if (t.state === 'fail') return res.json({ status: 'FAILED', error: t.failMsg || 'Generation failed' });
+      return res.json({ status: 'IN_PROGRESS', queue_position: null });
+    } catch (error) {
+      console.error('[checkStatus] [KIE] error:', error.message);
+      return res.status(500).json({ status: 'ERROR', error: 'Could not check status.' });
+    }
+  }
 
   try {
     const status = await fal.queue.status(model_id, {
@@ -619,13 +765,22 @@ app.post('/api/checkStatus', async (req, res) => {
 });
 
 // ─── GENERATE VIDEO (new endpoint with polling) ───────────────────
-app.post('/api/generate-video', verifyJwt, requireNotBanned, requireFalKey, async (req, res) => {
+app.post('/api/generate-video', verifyJwt, requireNotBanned, requireModelProviderKey, async (req, res) => {
   const { model, prompt, image_url, tail_image_url, duration, aspect_ratio } = req.body;
 
   if (!model) return res.status(400).json({ error: 'model name required' });
   if (!prompt) return res.status(400).json({ error: 'prompt required' });
 
-  // Charge BEFORE submission so we don't enqueue a FAL job we can't bill for.
+  // Look up the model BEFORE charging — an unsupported model must 400
+  // without touching the balance (previously it was charged and never
+  // refunded), and dispatch needs the provider up front.
+  const mapping = VIDEO_DIRECT_MAP[model];
+  if (!mapping) {
+    console.error(`[VIDEO] Model not supported: "${model}"`);
+    return res.status(400).json({ error: `Model not supported: ${model}` });
+  }
+
+  // Charge BEFORE submission so we don't enqueue a job we can't bill for.
   let chargedKind = null;
   let chargedCost = null;
   try {
@@ -645,11 +800,31 @@ app.post('/api/generate-video', verifyJwt, requireNotBanned, requireFalKey, asyn
     return res.status(500).json({ error: 'Credit charge failed.' });
   }
 
-  // Look up the model by name — use EXACT model user selected
-  const mapping = VIDEO_DIRECT_MAP[model];
-  if (!mapping) {
-    console.error(`[VIDEO] Model not supported: "${model}"`);
-    return res.status(400).json({ error: `Model not supported: ${model}` });
+  // ── kie.ai-backed video (Veo 3 / Veo 3 Fast) ──
+  // Async task like FAL's queue; the kie:-prefixed model_id routes
+  // /api/video-status polling to kie. Old history rows carry unprefixed FAL
+  // ids and keep polling FAL.
+  if (mapping.provider === 'kie') {
+    try {
+      const kieInput = {
+        prompt,
+        model: mapping.kieModel,
+        aspect_ratio: aspect_ratio === '9:16' ? '9:16' : '16:9',
+        ...(image_url ? { imageUrls: tail_image_url ? [image_url, tail_image_url] : [image_url] } : {}),
+      };
+      const taskId = await kieCreateTask('veo', kieInput, { tag: 'KIE-VIDEO' });
+      console.log(`[KIE-VIDEO] ✅ Submitted ${model} taskId: ${taskId}`);
+      return res.json({ success: true, job_id: taskId, model_id: 'kie:' + mapping.kieModel, model });
+    } catch (error) {
+      console.error('[KIE-VIDEO] Error:', error.message);
+      if (chargedKind) {
+        refundCredits({
+          userId: req.user.id, kind: chargedKind, ip: req.ip, cost: chargedCost,
+          reason: `kie_video_threw: ${error.message}`.slice(0, 500),
+        }).catch(() => {});
+      }
+      return res.status(500).json({ error: 'Video generation failed: ' + error.message });
+    }
   }
 
   // Pick t2v or i2v based on whether images are attached
@@ -1240,6 +1415,25 @@ app.post('/api/check-character-eligibility', async (req, res) => {
 app.post('/api/video-status', async (req, res) => {
   const { job_id, model_id } = req.body;
   if (!job_id || !model_id) return res.status(400).json({ error: 'job_id and model_id required' });
+
+  // kie.ai jobs carry a 'kie:'-prefixed model_id (set at submit time);
+  // everything else is a FAL request id → FAL polling below.
+  if (model_id.startsWith('kie:')) {
+    try {
+      const t = await kieGetTask('veo', job_id, { tag: 'KIE-VIDEO' });
+      if (t.state === 'success') {
+        const durableUrl = await persistOrFallback(t.resultUrls[0], 'video');
+        return res.json({ status: 'COMPLETED', video_url: durableUrl });
+      }
+      if (t.state === 'fail') {
+        return res.json({ status: 'FAILED', error: t.failMsg || 'Generation failed' });
+      }
+      return res.json({ status: 'IN_PROGRESS' });
+    } catch (error) {
+      console.error('[VIDEO-STATUS] [KIE] ❌ Error checking status:', error.message);
+      return res.json({ status: 'FAILED', error: error.message });
+    }
+  }
 
   try {
     const status = await fal.queue.status(model_id, { requestId: job_id, logs: false });
@@ -2364,6 +2558,7 @@ app.get('/api/health', (req, res) => {
   res.json({
     status: 'ok',
     fal_configured: !!FAL_KEY,
+    kie_configured: !!KIE_KEY,
     db_configured: dbReady(),
     auth_configured: !!JWT_SECRET,
   });
@@ -2394,7 +2589,7 @@ if (existsSync(DIST_DIR)) {
 function startListening() {
   app.listen(PORT, () => {
     console.log(
-      `[voxel-api] listening on :${PORT} — FAL_KEY=${!!FAL_KEY}, db=${dbReady()}, jwt=${!!JWT_SECRET} — entities now in Postgres`
+      `[voxel-api] listening on :${PORT} — FAL_KEY=${!!FAL_KEY}, KIE_KEY=${!!KIE_KEY}, db=${dbReady()}, jwt=${!!JWT_SECRET} — entities now in Postgres`
     );
   });
 }

@@ -35,7 +35,10 @@ const MODEL_SUBTITLES = {
   'Wan 2.2 Image': 'Artistic and illustrated visual creation',
   'Skin Enhancer': 'Natural realistic skin texture enhancement',
   'Face Swap': 'Seamless instant face replacement',
-  'Relight': 'Change the light, change the mood'
+  'Relight': 'Change the light, change the mood',
+  'GPT-4o Image': 'Strong prompt-following with crisp text rendering',
+  'Flux Kontext Max': "BFL's best-in-class editing and consistency",
+  'Midjourney': 'The Midjourney aesthetic — 4 variations per run',
 };
 
 const RESULT_GRADIENTS = [

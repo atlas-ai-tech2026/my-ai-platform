@@ -46,6 +46,9 @@ const DURATION_OPTIONS_BY_MODEL = {
   'wan-2-2':         ['5s', '10s'],
   // Veo: short clips
   'veo-3-1':         ['4s', '5s', '6s', '7s', '8s'],
+  // kie.ai Veo endpoint prices per generation (duration doesn't change cost)
+  'veo-3':           ['4s', '6s', '8s'],
+  'veo-3-fast':      ['4s', '6s', '8s'],
   // Sora 2: 4-12s
   'sora-2':          ['4s', '5s', '6s', '7s', '8s', '9s', '10s', '11s', '12s'],
   // LTX 2: 6-10s

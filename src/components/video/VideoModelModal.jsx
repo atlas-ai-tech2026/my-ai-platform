@@ -15,6 +15,9 @@ const VIDEO_MODELS = [
   { id:'kling-2-6',      name:'Kling 2.6',                brand:'Kling',     color:'#2563EB', badge:null,  desc:'Cinematic videos with audio & voice',          tags:['Start/End','Audio'],              res:'720-1080p', dur:'5-10s',  img:'https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?w=120&q=80&fit=crop' },
   { id:'wan-2-6',        name:'Wan 2.6',                  brand:'Wan',       color:'#7C3AED', badge:null,  desc:'Cinematic videos with audio & multi-shots',   tags:['Start Frame','Multi-shots','Audio'],res:'720-1080p',dur:'5-15s',   img:'https://images.unsplash.com/photo-1500462918059-b1a0cb512f1d?w=120&q=80&fit=crop' },
   { id:'veo-3-1',        name:'Veo 3.1',                  brand:'Google',    color:'#10A37F', badge:null,  desc:'High fidelity videos with audio & 4K',        tags:['Reference','Start/End','Audio','4K'],res:'4K',    dur:'4-8s',    img:'https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=120&q=80&fit=crop' },
+  // kie.ai-backed Veo — names must match server VIDEO_DIRECT_MAP keys exactly
+  { id:'veo-3',          name:'Veo 3',                    brand:'Google',    color:'#10A37F', badge:'NEW', desc:'Google Veo 3 with native audio',              tags:['Start Frame','Audio'],            res:'720-1080p', dur:'8s',    img:'https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=120&q=80&fit=crop' },
+  { id:'veo-3-fast',     name:'Veo 3 Fast',               brand:'Google',    color:'#10A37F', badge:'FAST',desc:'Faster, cheaper Veo 3 tier with audio',       tags:['Start Frame','Audio','Fast'],     res:'720-1080p', dur:'8s',    img:'https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=120&q=80&fit=crop' },
   { id:'sora-2',         name:'Sora 2',                   brand:'Sora',      color:'#444',    badge:null,  desc:'Story-telling videos with audio',              tags:['Start Frame','Audio'],            res:'720-1080p', dur:'4-12s',  img:'https://images.unsplash.com/photo-1518770660439-4636190af475?w=120&q=80&fit=crop' },
   { id:'grok-imagine',   name:'Grok Imagine',             brand:'Grok',      color:'#D97706', badge:'NEW', desc:'Fast generation of cinematic videos',          tags:['Start Frame','Audio'],            res:'480-720p',  dur:'1-15s',  img:'https://images.unsplash.com/photo-1534972195531-d756b9bfa9f2?w=120&q=80&fit=crop' },
   { id:'kling-2-5',      name:'Kling 2.5',                brand:'Kling',     color:'#2563EB', badge:null,  desc:'Great creativity with exceptional value',      tags:['Start/End'],                      res:'720-1080p', dur:'5-10s',  img:'https://images.unsplash.com/photo-1560942485-b2a11cc13456?w=120&q=80&fit=crop' },
@@ -121,7 +124,7 @@ export default function VideoModelModal({ selectedId, onSelect, onClose }) {
       <div style={{ flex:1, overflowY:'auto', padding:'8px 24px 32px' }}>
         {filtered.map(m => {
           const isSel = selectedId === m.id;
-          const logoStyle = m.id === 'veo-3-1'
+          const logoStyle = m.id.startsWith('veo-3')
             ? { background:'#fff', color:'#4285F4' }
             : m.id === 'sora-2'
             ? { background:'#1A1A1A', border:'1.5px solid #3A3A3A', color:'rgba(255,255,255,0.8)' }
