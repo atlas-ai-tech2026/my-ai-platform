@@ -181,11 +181,27 @@ if (FAL_KEY) {
 
 // Middleware used by routes that hit the FAL API. Returns a readable 503
 // instead of letting downstream calls throw a cryptic SDK error.
+// ─── USER-FACING ERROR SCRUBBER ────────────────────────────────────
+// Upstream error text (and our own config messages) must never reveal which
+// provider we run on. Full unscrubbed detail is ALWAYS logged server-side
+// before this is applied — this only shapes what the USER sees.
+function publicError(msg, fallback = 'Generation failed. Please try again.') {
+  if (!msg || typeof msg !== 'string') return fallback;
+  const scrubbed = msg
+    .replace(/fal[-.]ai\/?/gi, '')          // 'fal-ai/...', 'fal.ai'
+    .replace(/kie[.]ai\/?/gi, '')           // 'kie.ai'
+    .replace(/\b(KIE|FAL)_KEY\b/gi, 'API key')
+    .replace(/\b(kie|fal)\b/gi, 'provider') // bare brand mentions
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+  return scrubbed || fallback;
+}
+
 function requireFalKey(req, res, next) {
   if (!FAL_KEY) {
     return res.status(503).json({
       error:
-        'FAL_KEY not configured on the server — generation is disabled. Check server/.env and restart the API.',
+        'Generation is temporarily unavailable — the service is not configured. Please contact support.',
     });
   }
   next();
@@ -208,9 +224,10 @@ if (!KIE_KEY) {
 
 function requireKieKey(req, res, next) {
   if (!KIE_KEY) {
+    // Real cause (KIE_KEY missing) is in the startup FATAL-CONFIG log —
+    // users get a provider-neutral message.
     return res.status(503).json({
-      error:
-        'KIE_KEY not configured on the server — kie.ai models are disabled. Check server/.env and restart the API.',
+      error: 'This model is temporarily unavailable — the service is not configured. Please contact support.',
     });
   }
   next();
@@ -870,13 +887,9 @@ app.post('/api/generate', verifyJwt, requireNotBanned, requireModelProviderKey, 
             reason: `fal_empty_result: ${reason}`.slice(0, 500),
           }).catch(() => {});
         }
-        return res.status(500).json({
-          error: reason,
-          details: {
-            reason: 'empty_result',
-            result: result?.data || result,
-          },
-        });
+        // No details in the response — the raw provider payload is already
+        // in the server logs and must not reach the client.
+        return res.status(500).json({ error: publicError(reason) });
       }
 
       // Copy FAL's ephemeral output into our own Spaces bucket so the image
@@ -972,16 +985,9 @@ app.post('/api/generate', verifyJwt, requireNotBanned, requireModelProviderKey, 
       }).catch(() => {});
     }
 
-    return res.status(500).json({
-      error: 'Generation failed: ' + humanReason,
-      details: {
-        reason: providerTag,
-        status: error.status ?? null,
-        statusCode: error.statusCode ?? null,
-        body: error.body ?? null,
-        responseData: error.response?.data ?? null,
-      },
-    });
+    // No details in the response — raw provider payloads (which name the
+    // upstream) are already logged server-side and must not reach the client.
+    return res.status(500).json({ error: 'Generation failed: ' + publicError(humanReason) });
   }
 });
 
@@ -1004,7 +1010,7 @@ app.post('/api/checkStatus', async (req, res) => {
       }
       if (t.state === 'fail') {
         await refundFailedVideo(job_id, `kie: ${t.failMsg || 'generation failed'}`);
-        return res.json({ status: 'FAILED', error: t.failMsg || 'Generation failed' });
+        return res.json({ status: 'FAILED', error: publicError(t.failMsg, 'Generation failed') });
       }
       return res.json({ status: 'IN_PROGRESS', queue_position: null });
     } catch (error) {
@@ -1115,7 +1121,7 @@ app.post('/api/generate-video', verifyJwt, requireNotBanned, requireModelProvide
           reason: `kie_video_threw: ${error.message}`.slice(0, 500),
         }).catch(() => {});
       }
-      return res.status(500).json({ error: 'Video generation failed: ' + error.message });
+      return res.status(500).json({ error: 'Video generation failed: ' + publicError(error.message) });
     }
   }
 
@@ -1169,7 +1175,7 @@ app.post('/api/generate-video', verifyJwt, requireNotBanned, requireModelProvide
         reason: `fal_video_threw: ${error.message}`.slice(0, 500),
       }).catch(() => {});
     }
-    return res.status(500).json({ error: 'Video generation failed: ' + error.message });
+    return res.status(500).json({ error: 'Video generation failed: ' + publicError(error.message) });
   }
 });
 
@@ -1251,7 +1257,7 @@ app.post('/api/edit-video-omni', verifyJwt, requireNotBanned, requireFalKey, asy
         reason: `fal_video_edit_omni_threw: ${error.message}`.slice(0, 500),
       }).catch(() => {});
     }
-    return res.status(500).json({ error: 'Video edit failed: ' + error.message });
+    return res.status(500).json({ error: 'Video edit failed: ' + publicError(error.message) });
   }
 });
 
@@ -1333,7 +1339,7 @@ app.post('/api/motion-control', verifyJwt, requireNotBanned, requireFalKey, asyn
         reason: `fal_motion_control_threw: ${error.message}`.slice(0, 500),
       }).catch(() => {});
     }
-    return res.status(500).json({ error: 'Motion control failed: ' + error.message });
+    return res.status(500).json({ error: 'Motion control failed: ' + publicError(error.message) });
   }
 });
 
@@ -1436,7 +1442,7 @@ app.post('/api/tts', verifyJwt, requireNotBanned, requireFalKey, async (req, res
         reason: `fal_tts_threw: ${error.message}`.slice(0, 500),
       }).catch(() => {});
     }
-    return res.status(500).json({ error: 'TTS failed: ' + error.message });
+    return res.status(500).json({ error: 'TTS failed: ' + publicError(error.message) });
   }
 });
 
@@ -1514,7 +1520,7 @@ app.post('/api/generate-music', verifyJwt, requireNotBanned, requireFalKey, asyn
         reason: `fal_music_threw: ${error.message}`.slice(0, 500),
       }).catch(() => {});
     }
-    return res.status(500).json({ error: 'Music generation failed: ' + error.message });
+    return res.status(500).json({ error: 'Music generation failed: ' + publicError(error.message) });
   }
 });
 
@@ -1577,7 +1583,7 @@ app.post('/api/tts/preview', requireFalKey, async (req, res) => {
     return res.json({ success: true, audio_url: audioUrl, cached: false });
   } catch (error) {
     console.error('[TTS-PREVIEW] Error:', error.message);
-    return res.status(500).json({ error: 'Preview failed: ' + error.message });
+    return res.status(500).json({ error: 'Preview failed: ' + publicError(error.message) });
   }
 });
 
@@ -1678,7 +1684,7 @@ app.post('/api/generate-video-ref', verifyJwt, requireNotBanned, requireModelPro
           reason: `kie_seedance_threw: ${error.message}`.slice(0, 500),
         }).catch(() => {});
       }
-      return res.status(500).json({ error: 'Seedance generation failed: ' + error.message });
+      return res.status(500).json({ error: 'Seedance generation failed: ' + publicError(error.message) });
     }
   }
 
@@ -1733,7 +1739,7 @@ app.post('/api/generate-video-ref', verifyJwt, requireNotBanned, requireModelPro
         reason: `seedance_threw: ${error.message}`.slice(0, 500),
       }).catch(() => {});
     }
-    return res.status(500).json({ error: 'Seedance generation failed: ' + error.message });
+    return res.status(500).json({ error: 'Seedance generation failed: ' + publicError(error.message) });
   }
 });
 
@@ -1774,13 +1780,13 @@ app.post('/api/video-status', async (req, res) => {
       }
       if (t.state === 'fail') {
         await refundFailedVideo(job_id, `kie: ${t.failMsg || 'generation failed'}`);
-        return res.json({ status: 'FAILED', error: t.failMsg || 'Generation failed' });
+        return res.json({ status: 'FAILED', error: publicError(t.failMsg, 'Generation failed') });
       }
       return res.json({ status: 'IN_PROGRESS' });
     } catch (error) {
       console.error('[VIDEO-STATUS] [KIE] ❌ Error checking status:', error.message);
       await refundFailedVideo(job_id, `kie status error: ${error.message}`);
-      return res.json({ status: 'FAILED', error: error.message });
+      return res.json({ status: 'FAILED', error: publicError(error.message) });
     }
   }
 
@@ -1822,7 +1828,7 @@ app.post('/api/video-status', async (req, res) => {
   } catch (error) {
     console.error('[VIDEO-STATUS] ❌ Error checking status:', error.message);
     await refundFailedVideo(job_id, `fal status error: ${error.message}`);
-    return res.json({ status: 'FAILED', error: error.message });
+    return res.json({ status: 'FAILED', error: publicError(error.message) });
   }
 });
 
@@ -1846,7 +1852,7 @@ app.post('/api/upload', (req, res, next) => {
   // will fail with a cryptic auth error that's hard to interpret.
   if (!FAL_KEY) {
     console.error('[UPLOAD] ❌ FAL_KEY missing on server');
-    return res.status(500).json({ error: 'Upload service not configured (FAL_KEY missing on server)' });
+    return res.status(500).json({ error: 'Upload service not configured — please contact support.' });
   }
 
   const info = `${req.file.originalname} · ${(req.file.size / (1024 * 1024)).toFixed(2)} MB · ${req.file.mimetype}`;
@@ -2377,7 +2383,7 @@ app.post('/api/node/run-node', verifyJwt, requireNotBanned, requireFalKey, async
       if (chargedKind) {
         refundCredits({ userId: req.user.id, kind: chargedKind, ip: req.ip, reason: `node_run_kie_threw: ${error.message}`.slice(0, 500) }).catch(() => {});
       }
-      return res.status(500).json({ error: 'Node run failed: ' + error.message });
+      return res.status(500).json({ error: 'Node run failed: ' + publicError(error.message) });
     }
   }
 
@@ -2395,7 +2401,7 @@ app.post('/api/node/run-node', verifyJwt, requireNotBanned, requireFalKey, async
     if (chargedKind) {
       refundCredits({ userId: req.user.id, kind: chargedKind, ip: req.ip, reason: `node_run_threw: ${error.message}`.slice(0, 500) }).catch(() => {});
     }
-    return res.status(500).json({ error: 'Node run failed: ' + (error?.body?.detail || error.message) });
+    return res.status(500).json({ error: 'Node run failed: ' + publicError(error?.body?.detail || error.message) });
   }
 });
 
@@ -2500,7 +2506,7 @@ app.post('/api/node/run-node-async', verifyJwt, requireNotBanned, requireFalKey,
       if (chargedKind) {
         refundCredits({ userId: req.user.id, kind: chargedKind, ip: req.ip, cost: chargedCost, reason: `node_async_kie_threw: ${error.message}`.slice(0, 500) }).catch(() => {});
       }
-      return res.status(500).json({ error: 'Node video failed: ' + error.message });
+      return res.status(500).json({ error: 'Node video failed: ' + publicError(error.message) });
     }
   }
 
@@ -2527,7 +2533,7 @@ app.post('/api/node/run-node-async', verifyJwt, requireNotBanned, requireFalKey,
     if (chargedKind) {
       refundCredits({ userId: req.user.id, kind: chargedKind, ip: req.ip, reason: `node_async_threw: ${error.message}`.slice(0, 500) }).catch(() => {});
     }
-    return res.status(500).json({ error: 'Video submit failed: ' + (error?.body?.detail || error.message) });
+    return res.status(500).json({ error: 'Video submit failed: ' + publicError(error?.body?.detail || error.message) });
   }
 });
 

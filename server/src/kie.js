@@ -86,7 +86,7 @@ export function configureKie(key) {
 
 function familySpec(family) {
   const spec = FAMILIES[family];
-  if (!spec) throw new Error(`kie.ai: unknown model family "${family}"`);
+  if (!spec) throw new Error(`generation service: unknown model family "${family}"`);
   return spec;
 }
 
@@ -109,19 +109,19 @@ async function kieFetch(path, { method = 'GET', body, signal, tag = 'KIE' } = {}
   if (!resp.ok || (json && json.code !== 200)) {
     const reason = json?.msg || `HTTP ${resp.status}`;
     console.error(`[${tag}] kie.ai request failed: ${method} ${path} → ${reason}`);
-    throw new Error(`kie.ai error: ${reason}`);
+    throw new Error(`generation error: ${reason}`);
   }
   return json?.data ?? {};
 }
 
 // Create a generation task. Returns the taskId string.
 export async function kieCreateTask(family, input, { tag = 'KIE' } = {}) {
-  if (!KIE_KEY) throw new Error('KIE_KEY not configured');
+  if (!KIE_KEY) throw new Error('Generation service is not configured on the server');
   const spec = familySpec(family);
   console.log(`[${tag}] createTask ${family}:`, JSON.stringify(input).slice(0, 300));
   const data = await kieFetch(spec.create, { method: 'POST', body: input, tag });
   const taskId = data?.taskId;
-  if (!taskId) throw new Error('kie.ai createTask returned no taskId');
+  if (!taskId) throw new Error('generation service returned no task id');
   console.log(`[${tag}] ✅ taskId: ${taskId}`);
   return taskId;
 }
@@ -131,7 +131,7 @@ export async function kieCreateTask(family, input, { tag = 'KIE' } = {}) {
 // successFlag (0 generating / 1 success / 2-3 failed); the Jobs API reports
 // state ('waiting'|'queuing'|'generating'|'success'|'fail') with failMsg.
 export async function kieGetTask(family, taskId, { tag = 'KIE' } = {}) {
-  if (!KIE_KEY) throw new Error('KIE_KEY not configured');
+  if (!KIE_KEY) throw new Error('Generation service is not configured on the server');
   const spec = familySpec(family);
   const data = await kieFetch(`${spec.status}?taskId=${encodeURIComponent(taskId)}`, { tag });
 
@@ -144,14 +144,14 @@ export async function kieGetTask(family, taskId, { tag = 'KIE' } = {}) {
 
   if (succeeded) {
     const resultUrls = spec.extract(data);
-    if (!resultUrls.length) throw new Error('kie.ai task succeeded but returned no result URLs');
+    if (!resultUrls.length) throw new Error('generation finished but returned no output');
     return { state: 'success', resultUrls, failMsg: null };
   }
   if (failed) {
     return {
       state: 'fail',
       resultUrls: [],
-      failMsg: data?.failMsg || data?.errorMessage || 'Generation failed at kie.ai',
+      failMsg: data?.failMsg || data?.errorMessage || 'Generation failed',
     };
   }
   return { state: 'pending', resultUrls: [], failMsg: null };
@@ -165,12 +165,12 @@ export async function kiePollUntilDone(family, taskId, { timeoutMs = 90_000, int
   for (;;) {
     const t = await kieGetTask(family, taskId, { tag });
     if (t.state === 'success') return t;
-    if (t.state === 'fail') throw new Error(`kie.ai generation failed: ${t.failMsg}`);
+    if (t.state === 'fail') throw new Error(`generation failed: ${t.failMsg}`);
     if (Date.now() + intervalMs > deadline) {
       // The task may still complete on kie's side after we give up — log so
       // occurrences are countable (we refund the user but ate the kie cost).
       console.error(`[${tag}] timeout-after-create taskId=${taskId} (${timeoutMs}ms)`);
-      throw new Error(`kie.ai timed out after ${Math.round(timeoutMs / 1000)}s — credits refunded`);
+      throw new Error(`generation timed out after ${Math.round(timeoutMs / 1000)}s — credits refunded, please try again`);
     }
     await new Promise((r) => setTimeout(r, intervalMs));
   }
