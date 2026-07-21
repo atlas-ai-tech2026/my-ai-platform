@@ -2996,9 +2996,15 @@ app.get('/api/admin/stats', adminGate, async (req, res) => {
 });
 
 // ─── HEALTH CHECK ──────────────────────────────────────────────────
+// Process start time — lets an external check tell WHEN the api container
+// last restarted (i.e. whether a backend-only deploy actually rolled, since
+// those don't change the frontend bundle hash).
+const SERVER_STARTED_AT = new Date().toISOString();
+
 app.get('/api/health', (req, res) => {
   res.json({
     status: 'ok',
+    started_at: SERVER_STARTED_AT,
     fal_configured: !!FAL_KEY,
     kie_configured: !!KIE_KEY,
     db_configured: dbReady(),
