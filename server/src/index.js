@@ -511,6 +511,45 @@ function buildKieImageInput(cfg, { prompt, ratio, quality, imageUrls }) {
   throw new Error(`kie.ai: no input builder for family "${cfg.family}"`);
 }
 
+// ─── ASYNC VIDEO CHARGE TRACKING ───────────────────────────────────
+// Async video jobs charge credits at submit time, but the generation can
+// fail MINUTES later at the provider. Without this, a late failure meant
+// the user paid for nothing. Every async submit registers its charge here;
+// /api/video-status auto-refunds (once) when a job reaches FAILED.
+// In-memory by design (single-file convention): a server restart forgets
+// in-flight jobs, so those rare failures need a manual admin refund —
+// look for '[video-refund]' gaps in the logs.
+const asyncVideoCharges = new Map(); // job_id → { userId, kind, cost, refunded }
+
+function trackVideoCharge(jobId, { userId, kind, cost }) {
+  if (!jobId) return;
+  // Backstop prune so the map can't grow unbounded.
+  if (asyncVideoCharges.size > 5000) {
+    asyncVideoCharges.delete(asyncVideoCharges.keys().next().value);
+  }
+  asyncVideoCharges.set(jobId, { userId, kind, cost, refunded: false });
+}
+
+// Refund a failed async job exactly once. The `refunded` flag flips
+// synchronously before the awaited refund, so concurrent pollers (two tabs,
+// rapid polls) can't double-refund.
+async function refundFailedVideo(jobId, reason) {
+  const rec = asyncVideoCharges.get(jobId);
+  if (!rec || rec.refunded) return;
+  rec.refunded = true;
+  try {
+    await refundCredits({
+      userId: rec.userId, kind: rec.kind, cost: rec.cost,
+      reason: `video_failed_async: ${reason}`.slice(0, 500),
+    });
+    console.log(`[video-refund] refunded job ${jobId} user=${rec.userId} (${reason})`);
+  } catch (e) {
+    console.error(`[video-refund] FAILED for job ${jobId} user=${rec.userId}:`, e.message);
+  } finally {
+    asyncVideoCharges.delete(jobId);
+  }
+}
+
 // Build the kie.ai submission for a video model: which family endpoint to
 // hit, the POST body, and the 'kie:'-prefixed model_id the status routes
 // parse ('kie:jobs:' → Jobs API, plain 'kie:' → dedicated Veo endpoints).
@@ -852,6 +891,7 @@ app.post('/api/generate', verifyJwt, requireNotBanned, requireModelProviderKey, 
           prompt, frames: readyUrls.slice(0, 2), duration, aspectRatio: ratio,
         });
         const taskId = await kieCreateTask(family, body, { tag: 'KIE-VIDEO' });
+        trackVideoCharge(taskId, { userId: req.user.id, kind: chargedKind, cost: chargedCost });
         return res.json({ success: true, type: 'video', job_id: taskId, model_id: modelIdTag });
       }
 
@@ -877,6 +917,7 @@ app.post('/api/generate', verifyJwt, requireNotBanned, requireModelProviderKey, 
       };
 
       const submitted = await fal.queue.submit(modelId, { input });
+      trackVideoCharge(submitted.request_id, { userId: req.user.id, kind: chargedKind, cost: chargedCost });
       return res.json({ success: true, type: 'video', job_id: submitted.request_id, model_id: modelId });
     }
 
@@ -947,10 +988,14 @@ app.post('/api/checkStatus', async (req, res) => {
       const family = model_id.startsWith('kie:jobs:') ? 'jobs' : 'veo';
       const t = await kieGetTask(family, job_id, { tag: 'KIE-STATUS' });
       if (t.state === 'success') {
+        asyncVideoCharges.delete(job_id); // settled — charge stands
         const durableUrl = await persistOrFallback(t.resultUrls[0], 'video');
         return res.json({ status: 'COMPLETED', video_url: durableUrl, image_url: null });
       }
-      if (t.state === 'fail') return res.json({ status: 'FAILED', error: t.failMsg || 'Generation failed' });
+      if (t.state === 'fail') {
+        await refundFailedVideo(job_id, `kie: ${t.failMsg || 'generation failed'}`);
+        return res.json({ status: 'FAILED', error: t.failMsg || 'Generation failed' });
+      }
       return res.json({ status: 'IN_PROGRESS', queue_position: null });
     } catch (error) {
       console.error('[checkStatus] [KIE] error:', error.message);
@@ -978,6 +1023,7 @@ app.post('/api/checkStatus', async (req, res) => {
         result.data?.image?.url ||
         null;
 
+      asyncVideoCharges.delete(job_id); // settled — charge stands
       // Re-host outputs to our own Spaces bucket so history stays durable.
       const durableVideo = await persistOrFallback(videoUrl, 'video');
       const durableImage = await persistOrFallback(imageUrl, 'image');
@@ -985,6 +1031,7 @@ app.post('/api/checkStatus', async (req, res) => {
     }
 
     if (status.status === 'FAILED') {
+      await refundFailedVideo(job_id, 'fal: generation failed');
       return res.json({ status: 'FAILED', error: 'Generation failed. Please try again.' });
     }
 
@@ -1044,6 +1091,7 @@ app.post('/api/generate-video', verifyJwt, requireNotBanned, requireModelProvide
       });
       const taskId = await kieCreateTask(family, body, { tag: 'KIE-VIDEO' });
       console.log(`[KIE-VIDEO] ✅ Submitted ${model} taskId: ${taskId}`);
+      trackVideoCharge(taskId, { userId: req.user.id, kind: chargedKind, cost: chargedCost });
       return res.json({ success: true, job_id: taskId, model_id: modelIdTag, model });
     } catch (error) {
       console.error('[KIE-VIDEO] Error:', error.message);
@@ -1090,6 +1138,7 @@ app.post('/api/generate-video', verifyJwt, requireNotBanned, requireModelProvide
     const submitted = await fal.queue.submit(falModel, { input });
     const requestId = submitted.request_id;
     console.log(`[VIDEO] ✅ Submitted, request_id: ${requestId}`);
+    trackVideoCharge(requestId, { userId: req.user.id, kind: chargedKind, cost: chargedCost });
 
     return res.json({
       success: true,
@@ -1177,6 +1226,7 @@ app.post('/api/edit-video-omni', verifyJwt, requireNotBanned, requireFalKey, asy
     const submitted = await fal.queue.submit(falModel, { input });
     const requestId = submitted.request_id;
     console.log(`[VIDEO-EDIT-OMNI] ✅ Submitted, request_id: ${requestId}`);
+    trackVideoCharge(requestId, { userId: req.user.id, kind: chargedKind, cost: chargedCost });
 
     return res.json({ success: true, job_id: requestId, model_id: falModel, model });
   } catch (error) {
@@ -1258,6 +1308,7 @@ app.post('/api/motion-control', verifyJwt, requireNotBanned, requireFalKey, asyn
     const submitted = await fal.queue.submit(falModel, { input });
     const requestId = submitted.request_id;
     console.log(`[MOTION-CONTROL] ✅ Submitted, request_id: ${requestId}`);
+    trackVideoCharge(requestId, { userId: req.user.id, kind: chargedKind, cost: chargedCost });
 
     return res.json({ success: true, job_id: requestId, model_id: falModel, model });
   } catch (error) {
@@ -1598,6 +1649,7 @@ app.post('/api/generate-video-ref', verifyJwt, requireNotBanned, requireModelPro
       console.log(`[SEEDANCE] [KIE] Variant: ${modelLabel} →`, seedanceMapping.kieModel);
       const taskId = await kieCreateTask('jobs', body, { tag: 'KIE-SEEDANCE' });
       console.log(`[SEEDANCE] [KIE] ✅ Submitted taskId: ${taskId}`);
+      trackVideoCharge(taskId, { userId: req.user.id, kind: chargedKind, cost: chargedCost });
       return res.json({
         success: true,
         job_id: taskId,
@@ -1651,6 +1703,7 @@ app.post('/api/generate-video-ref', verifyJwt, requireNotBanned, requireModelPro
   try {
     const submitted = await fal.queue.submit(falModel, { input });
     console.log(`[SEEDANCE] ✅ Submitted, request_id: ${submitted.request_id}`);
+    trackVideoCharge(submitted.request_id, { userId: req.user.id, kind: chargedKind, cost: chargedCost });
 
     return res.json({
       success: true,
@@ -1701,15 +1754,18 @@ app.post('/api/video-status', async (req, res) => {
       const family = model_id.startsWith('kie:jobs:') ? 'jobs' : 'veo';
       const t = await kieGetTask(family, job_id, { tag: 'KIE-VIDEO' });
       if (t.state === 'success') {
+        asyncVideoCharges.delete(job_id); // settled — charge stands
         const durableUrl = await persistOrFallback(t.resultUrls[0], 'video');
         return res.json({ status: 'COMPLETED', video_url: durableUrl });
       }
       if (t.state === 'fail') {
+        await refundFailedVideo(job_id, `kie: ${t.failMsg || 'generation failed'}`);
         return res.json({ status: 'FAILED', error: t.failMsg || 'Generation failed' });
       }
       return res.json({ status: 'IN_PROGRESS' });
     } catch (error) {
       console.error('[VIDEO-STATUS] [KIE] ❌ Error checking status:', error.message);
+      await refundFailedVideo(job_id, `kie status error: ${error.message}`);
       return res.json({ status: 'FAILED', error: error.message });
     }
   }
@@ -1729,9 +1785,11 @@ app.post('/api/video-status', async (req, res) => {
         null;
 
       if (!videoUrl) {
+        await refundFailedVideo(job_id, 'fal: no video URL in result');
         return res.json({ status: 'FAILED', error: 'No video URL in result' });
       }
 
+      asyncVideoCharges.delete(job_id); // settled — charge stands
       // Re-host to our own Spaces bucket so history stays durable after FAL
       // purges its link.
       const durableVideo = await persistOrFallback(videoUrl, 'video');
@@ -1739,6 +1797,7 @@ app.post('/api/video-status', async (req, res) => {
     }
 
     if (status.status === 'FAILED') {
+      await refundFailedVideo(job_id, 'fal: generation failed');
       return res.json({ status: 'FAILED', error: 'Generation failed' });
     }
 
@@ -1748,6 +1807,7 @@ app.post('/api/video-status', async (req, res) => {
     });
   } catch (error) {
     console.error('[VIDEO-STATUS] ❌ Error checking status:', error.message);
+    await refundFailedVideo(job_id, `fal status error: ${error.message}`);
     return res.json({ status: 'FAILED', error: error.message });
   }
 });
