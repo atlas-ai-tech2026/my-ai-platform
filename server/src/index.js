@@ -862,6 +862,14 @@ app.post('/api/generate', verifyJwt, requireNotBanned, requireModelProviderKey, 
         const reason = typeof falError === 'string'
           ? falError
           : (falError ? JSON.stringify(falError) : 'No image returned. Please try again.');
+        // The user paid for an image and got none — refund before returning.
+        // (This early-return path used to skip the catch-block refund.)
+        if (chargedKind) {
+          refundCredits({
+            userId: req.user.id, kind: chargedKind, ip: req.ip, cost: chargedCost,
+            reason: `fal_empty_result: ${reason}`.slice(0, 500),
+          }).catch(() => {});
+        }
         return res.status(500).json({
           error: reason,
           details: {
