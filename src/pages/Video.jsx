@@ -231,6 +231,7 @@ export default function Video() {
         duration: dur, aspect_ratio: ratio,
         resolution,
         audio: !!genOpts.audio,
+        multi_shots: !!genOpts.multiShots,
         credit_cost: creditCost,
         ...(imageUrl ? { image_url: imageUrl } : {}),
         ...(tailImageUrl ? { tail_image_url: tailImageUrl } : {}),

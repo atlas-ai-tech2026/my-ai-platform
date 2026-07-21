@@ -554,12 +554,16 @@ async function refundFailedVideo(jobId, reason) {
 // hit, the POST body, and the 'kie:'-prefixed model_id the status routes
 // parse ('kie:jobs:' → Jobs API, plain 'kie:' → dedicated Veo endpoints).
 // Shared by /api/generate-video and the legacy /api/generate video branch.
-function buildKieVideoSubmission(mapping, { prompt, frames, duration, aspectRatio, resolution, audio = false }) {
+function buildKieVideoSubmission(mapping, { prompt, frames, duration, aspectRatio, resolution, audio = false, multiShots = false }) {
   if (mapping.family === 'jobs' && mapping.kieModel === 'kling-3.0/video') {
     // Kling 3.0: one model for t2v + i2v; quality via mode (std 720p /
     // pro 1080p / 4K); duration string "3"-"15".
+    // Per kie's spec: multi_shots=false → single continuous shot, image_urls
+    // [start] or [start, end] frames. multi_shots=true (user's Multi Shot
+    // toggle) → Kling splits into shots; only the FIRST frame is supported.
     const dur = Math.min(15, Math.max(3, parseInt(duration, 10) || 5));
     const mode = String(resolution).toUpperCase() === '4K' ? '4K' : 'pro';
+    const ms = !!multiShots;
     return {
       family: 'jobs',
       body: {
@@ -572,10 +576,8 @@ function buildKieVideoSubmission(mapping, { prompt, frames, duration, aspectRati
           // sound follows the user's Audio toggle — credits are priced per
           // audio tier (2.5 vs 4 cr/s), so charge and generation must match.
           sound: !!audio,
-          // kie REQUIRES multi_shots ("multi_shots cannot be empty") — we
-          // always generate single-shot clips from the Video page.
-          multi_shots: false,
-          ...(frames.length ? { image_urls: frames } : {}),
+          multi_shots: ms,
+          ...(frames.length ? { image_urls: ms ? [frames[0]] : frames } : {}),
         },
       },
       modelIdTag: 'kie:jobs:' + mapping.kieModel,
@@ -1045,7 +1047,7 @@ app.post('/api/checkStatus', async (req, res) => {
 
 // ─── GENERATE VIDEO (new endpoint with polling) ───────────────────
 app.post('/api/generate-video', verifyJwt, requireNotBanned, requireModelProviderKey, async (req, res) => {
-  const { model, prompt, image_url, tail_image_url, duration, aspect_ratio, resolution, audio } = req.body;
+  const { model, prompt, image_url, tail_image_url, duration, aspect_ratio, resolution, audio, multi_shots } = req.body;
 
   if (!model) return res.status(400).json({ error: 'model name required' });
   if (!prompt) return res.status(400).json({ error: 'prompt required' });
@@ -1088,7 +1090,11 @@ app.post('/api/generate-video', verifyJwt, requireNotBanned, requireModelProvide
       const frames = image_url ? (tail_image_url ? [image_url, tail_image_url] : [image_url]) : [];
       const { family, body, modelIdTag } = buildKieVideoSubmission(mapping, {
         prompt, frames, duration, aspectRatio: aspect_ratio, resolution, audio,
+        multiShots: multi_shots,
       });
+      // Full payload log — the ground truth of what kie was asked to do
+      // (verifiable against kie.ai/logs when debugging output complaints).
+      console.log('[KIE-VIDEO] payload:', JSON.stringify(body));
       const taskId = await kieCreateTask(family, body, { tag: 'KIE-VIDEO' });
       console.log(`[KIE-VIDEO] ✅ Submitted ${model} taskId: ${taskId}`);
       trackVideoCharge(taskId, { userId: req.user.id, kind: chargedKind, cost: chargedCost });

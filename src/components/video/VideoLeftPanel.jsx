@@ -89,6 +89,10 @@ export default function VideoLeftPanel({
   const [cameraMotion, setCameraMotion] = useState(null);
   const [showCameraDrop, setShowCameraDrop] = useState(false);
   const [audioOn, setAudioOn] = useState(false);
+  // Kling 3.0 only: multi-shot mode (the model splits the clip into up to 5
+  // camera shots). OFF by default — single continuous shot from the start
+  // frame. Only sent for Kling 3.0; other models ignore it.
+  const [multiShotsOn, setMultiShotsOn] = useState(false);
   const [showDurationDrop, setShowDurationDrop] = useState(false);
   const [showResDrop, setShowResDrop] = useState(false);
   const [showRatioDrop, setShowRatioDrop] = useState(false);
@@ -143,9 +147,9 @@ export default function VideoLeftPanel({
       toast.error('Type a prompt to generate');
       return;
     }
-    // Pass the audio toggle up with the cost — the backend needs it so kie
-    // generates (and bills) exactly what the user was charged for.
-    onGenerate?.(creditCost, { audio: audioOn });
+    // Pass the audio + multi-shot toggles up with the cost — the backend
+    // needs them so kie generates (and bills) exactly what the user chose.
+    onGenerate?.(creditCost, { audio: audioOn, multiShots: multiShotsOn });
   };
 
   return (
@@ -488,6 +492,19 @@ export default function VideoLeftPanel({
           onSelect={v => { onAspectRatioChange?.(v); setShowRatioDrop(false); }}
           selected={aspectRatio || 'Auto'}
         />
+        {/* Kling 3.0 only — multi-shot mode. OFF (default) = one continuous
+            shot animated from the start frame; ON = Kling splits the clip
+            into multiple camera shots. */}
+        {model?.id === 'kling-3' && (
+          <OptionChip
+            icon="🎬"
+            label="Multi Shot"
+            value={multiShotsOn ? 'On' : 'Off'}
+            toggle
+            on={multiShotsOn}
+            onToggle={() => setMultiShotsOn(v => !v)}
+          />
+        )}
       </div>
 
       {/* §3.8 — Count stepper + GENERATE capsule. Both 32 px tall.
