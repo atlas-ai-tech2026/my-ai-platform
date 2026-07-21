@@ -109,7 +109,7 @@ async function kieFetch(path, { method = 'GET', body, signal, tag = 'KIE' } = {}
   if (!resp.ok || (json && json.code !== 200)) {
     const reason = json?.msg || `HTTP ${resp.status}`;
     console.error(`[${tag}] kie.ai request failed: ${method} ${path} → ${reason}`);
-    throw new Error(`generation error: ${reason}`);
+    throw new Error(`${reason}`);
   }
   return json?.data ?? {};
 }
@@ -121,7 +121,7 @@ export async function kieCreateTask(family, input, { tag = 'KIE' } = {}) {
   console.log(`[${tag}] createTask ${family}:`, JSON.stringify(input).slice(0, 300));
   const data = await kieFetch(spec.create, { method: 'POST', body: input, tag });
   const taskId = data?.taskId;
-  if (!taskId) throw new Error('generation service returned no task id');
+  if (!taskId) throw new Error('the request was not accepted — please try again');
   console.log(`[${tag}] ✅ taskId: ${taskId}`);
   return taskId;
 }
@@ -144,7 +144,7 @@ export async function kieGetTask(family, taskId, { tag = 'KIE' } = {}) {
 
   if (succeeded) {
     const resultUrls = spec.extract(data);
-    if (!resultUrls.length) throw new Error('generation finished but returned no output');
+    if (!resultUrls.length) throw new Error('no output was returned — please try again');
     return { state: 'success', resultUrls, failMsg: null };
   }
   if (failed) {
@@ -165,12 +165,12 @@ export async function kiePollUntilDone(family, taskId, { timeoutMs = 90_000, int
   for (;;) {
     const t = await kieGetTask(family, taskId, { tag });
     if (t.state === 'success') return t;
-    if (t.state === 'fail') throw new Error(`generation failed: ${t.failMsg}`);
+    if (t.state === 'fail') throw new Error(t.failMsg || 'the model could not complete this generation');
     if (Date.now() + intervalMs > deadline) {
       // The task may still complete on kie's side after we give up — log so
       // occurrences are countable (we refund the user but ate the kie cost).
       console.error(`[${tag}] timeout-after-create taskId=${taskId} (${timeoutMs}ms)`);
-      throw new Error(`generation timed out after ${Math.round(timeoutMs / 1000)}s — credits refunded, please try again`);
+      throw new Error('the image is taking longer than expected, so we stopped and refunded your credits — please try again');
     }
     await new Promise((r) => setTimeout(r, intervalMs));
   }
