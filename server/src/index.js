@@ -2942,6 +2942,46 @@ app.post('/api/admin/users/:id/ban', adminGate, async (req, res) => {
   }
 });
 
+// ─── ADMIN: RESET USER PASSWORD ─────────────────────────────────────
+// Passwords are bcrypt-hashed and unrecoverable by design — "forgot my
+// password" is resolved by an admin setting a NEW one here and handing it
+// to the user. Refuses to touch other admins (self-reset is allowed).
+app.post('/api/admin/users/:id/reset-password', adminGate, async (req, res) => {
+  try {
+    const targetId = parseInt(req.params.id, 10);
+    if (!Number.isFinite(targetId) || targetId <= 0) {
+      return res.status(400).json({ error: 'Invalid user id.' });
+    }
+    const newPassword = String(req.body?.new_password || '');
+    if (newPassword.length < 8) {
+      return res.status(400).json({ error: 'Password must be at least 8 characters.' });
+    }
+
+    const target = await pool.query(`SELECT id, email, role FROM users WHERE id = $1`, [targetId]);
+    if (target.rowCount === 0) return res.status(404).json({ error: 'User not found.' });
+    if (target.rows[0].role === 'admin' && target.rows[0].id !== req.user.id) {
+      return res.status(403).json({ error: "Cannot reset another admin's password." });
+    }
+
+    const hash = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
+    await pool.query(`UPDATE users SET password_hash = $1 WHERE id = $2`, [hash, targetId]);
+
+    // Audit trail alongside the other moderation actions.
+    pool.query(
+      `INSERT INTO credits_history
+         (user_id, amount, action, admin_email, reason, ip_address)
+       VALUES ($1, 0, 'password_reset', $2, $3, $4)`,
+      [targetId, req.user.email, 'admin password reset', req.ip]
+    ).catch(() => {});
+
+    console.log(`[admin] password reset for user #${targetId} (${target.rows[0].email}) by ${req.user.email}`);
+    res.json({ success: true, email: target.rows[0].email });
+  } catch (err) {
+    console.error('[admin/reset-password] error:', err);
+    res.status(500).json({ error: 'Password reset failed.' });
+  }
+});
+
 // ─── ADMIN: USER HISTORY ────────────────────────────────────────────
 app.get('/api/admin/users/:id/history', adminGate, async (req, res) => {
   try {

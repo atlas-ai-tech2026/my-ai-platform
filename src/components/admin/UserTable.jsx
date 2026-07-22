@@ -55,6 +55,7 @@ export default function UserTable({ users, page, total, limit, onPage, onAction 
                       >{u.banned ? 'Unban' : 'Ban'}</ActionBtn>
                     )}
                     <ActionBtn onClick={() => onAction('history', u)}>History</ActionBtn>
+                    <ActionBtn onClick={() => onAction('reset-password', u)}>Reset PW</ActionBtn>
                   </div>
                 </Td>
               </tr>

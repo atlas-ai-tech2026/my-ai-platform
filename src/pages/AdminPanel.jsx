@@ -69,6 +69,18 @@ export default function AdminPanel() {
       } catch (e) { handleError(e, 'History fetch failed'); }
       return;
     }
+    if (action === 'reset-password') {
+      // Passwords are hashed and unrecoverable — admin sets a NEW one and
+      // hands it to the user. prompt() keeps this dead simple for an
+      // internal tool.
+      const pw = window.prompt(`New password for ${user.email} (min 8 characters):`);
+      if (pw === null) return;
+      if (pw.length < 8) { toast.error('Password must be at least 8 characters'); return; }
+      adminApi.resetPassword(user.id, pw)
+        .then(() => toast.success(`Password reset for ${user.email} — share it with them securely`))
+        .catch(e => handleError(e, 'Password reset failed'));
+      return;
+    }
     // grant / revoke / ban / unban → open modal
     setPendingAction({ action, user });
   }, []);
