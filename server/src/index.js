@@ -538,21 +538,21 @@ function buildKieImageInput(cfg, { prompt, ratio, quality, imageUrls }) {
 // look for '[video-refund]' gaps in the logs.
 const asyncVideoCharges = new Map(); // job_id → { userId, kind, cost, refunded }
 
-function trackVideoCharge(jobId, { userId, kind, cost }) {
+function trackVideoCharge(jobId, { userId, kind, cost, modelId = null }) {
   if (!jobId) return;
   // Backstop prune so the map can't grow unbounded.
   if (asyncVideoCharges.size > 5000) {
     asyncVideoCharges.delete(asyncVideoCharges.keys().next().value);
   }
-  asyncVideoCharges.set(jobId, { userId, kind, cost, refunded: false });
+  asyncVideoCharges.set(jobId, { userId, kind, cost, modelId, refunded: false });
 }
 
 // Refund a failed async job exactly once. The `refunded` flag flips
 // synchronously before the awaited refund, so concurrent pollers (two tabs,
-// rapid polls) can't double-refund.
+// rapid polls) can't double-refund. Returns true iff a refund was executed.
 async function refundFailedVideo(jobId, reason) {
   const rec = asyncVideoCharges.get(jobId);
-  if (!rec || rec.refunded) return;
+  if (!rec || rec.refunded) return false;
   rec.refunded = true;
   try {
     await refundCredits({
@@ -560,8 +560,10 @@ async function refundFailedVideo(jobId, reason) {
       reason: `video_failed_async: ${reason}`.slice(0, 500),
     });
     console.log(`[video-refund] refunded job ${jobId} user=${rec.userId} (${reason})`);
+    return true;
   } catch (e) {
     console.error(`[video-refund] FAILED for job ${jobId} user=${rec.userId}:`, e.message);
+    return false;
   } finally {
     asyncVideoCharges.delete(jobId);
   }
@@ -1785,6 +1787,12 @@ app.post('/api/video-status', async (req, res) => {
       return res.json({ status: 'IN_PROGRESS' });
     } catch (error) {
       console.error('[VIDEO-STATUS] [KIE] ❌ Error checking status:', error.message);
+      // Transient failures (network, provider 5xx) must NOT refund or kill
+      // the job — the video may still be rendering; the client keeps polling
+      // (its own 10-min cap bounds this). Only a definitive provider
+      // rejection (4xx: unknown/invalid task) settles as FAILED + refund.
+      const st = error.httpStatus;
+      if (!st || st >= 500) return res.json({ status: 'IN_PROGRESS' });
       await refundFailedVideo(job_id, `kie status error: ${error.message}`);
       return res.json({ status: 'FAILED', error: publicError(error.message) });
     }
@@ -1827,6 +1835,10 @@ app.post('/api/video-status', async (req, res) => {
     });
   } catch (error) {
     console.error('[VIDEO-STATUS] ❌ Error checking status:', error.message);
+    // Same transient-vs-definitive rule as the kie branch: only a 4xx from
+    // the provider (bad/unknown request id) settles as FAILED + refund.
+    const st = error.status ?? error.httpStatus;
+    if (!st || st >= 500) return res.json({ status: 'IN_PROGRESS' });
     await refundFailedVideo(job_id, `fal status error: ${error.message}`);
     return res.json({ status: 'FAILED', error: publicError(error.message) });
   }
@@ -2231,12 +2243,10 @@ const NODE_VIDEO_MODEL_NAMES = [
   'Hailuo 2.3', 'PixVerse 5', 'Sora 2', 'Luma Dream Machine',
 ];
 
-// Tracks submitted async (video) node jobs so we can refund the charge if
-// the FAL job later FAILS during client-side polling. In-memory (single
-// instance) — on restart we simply lose the ability to auto-refund a
-// then-in-flight job, which is acceptable and never double-charges.
-// Keyed by job_id → { userId, kind, modelId, refunded }.
-const videoNodeJobs = new Map();
+// Async node video charges are tracked in the shared asyncVideoCharges map
+// (see trackVideoCharge/refundFailedVideo) — one idempotent refund path for
+// every async video, whether it fails via /api/video-status polling or is
+// reported by the node client through /api/node/run-failed.
 
 // Ownership guard: returns the row if the caller owns the space, else
 // writes the right status and returns null.
@@ -2499,7 +2509,7 @@ app.post('/api/node/run-node-async', verifyJwt, requireNotBanned, requireFalKey,
       }
       console.log(`[node:run-async] user=${req.user.id} model="${modelLabel}" → ${submission.modelIdTag}`);
       const taskId = await kieCreateTask(submission.family, submission.body, { tag: 'KIE-NODE' });
-      videoNodeJobs.set(taskId, { userId: req.user.id, kind: chargedKind, modelId: submission.modelIdTag, refunded: false });
+      trackVideoCharge(taskId, { userId: req.user.id, kind: chargedKind, cost: chargedCost, modelId: submission.modelIdTag });
       return res.json({ success: true, job_id: taskId, model_id: submission.modelIdTag });
     } catch (error) {
       console.error('[node:run-async] [KIE] error:', error.message);
@@ -2525,8 +2535,8 @@ app.post('/api/node/run-node-async', verifyJwt, requireNotBanned, requireFalKey,
 
   try {
     const submitted = await fal.queue.submit(falModel, { input });
-    // Remember the job so /run-failed can refund if it later fails.
-    videoNodeJobs.set(submitted.request_id, { userId: req.user.id, kind: chargedKind, modelId: falModel, refunded: false });
+    // Registered so /run-failed and /api/video-status can refund on failure.
+    trackVideoCharge(submitted.request_id, { userId: req.user.id, kind: chargedKind, cost: chargedCost, modelId: falModel });
     return res.json({ success: true, job_id: submitted.request_id, model_id: falModel });
   } catch (error) {
     console.error('[node:run-async] submit error:', error.message);
@@ -2542,19 +2552,27 @@ app.post('/api/node/run-node-async', verifyJwt, requireNotBanned, requireFalKey,
 // and that the caller owns it, and refunds at most once.
 app.post('/api/node/run-failed', verifyJwt, requireNotBanned, async (req, res) => {
   const { job_id } = req.body || {};
-  const rec = job_id && videoNodeJobs.get(job_id);
+  const rec = job_id && asyncVideoCharges.get(job_id);
   if (!rec) return res.json({ refunded: false, reason: 'unknown_job' });
   if (rec.userId !== req.user.id) return res.status(403).json({ error: 'Forbidden' });
   if (rec.refunded) return res.json({ refunded: false, reason: 'already' });
 
   try {
-    const status = await fal.queue.status(rec.modelId, { requestId: job_id, logs: false });
-    const failed = status.status === 'FAILED' || status.status === 'ERROR';
-    if (!failed) return res.json({ refunded: false, reason: 'not_failed', status: status.status });
-    rec.refunded = true;
-    await refundCredits({ userId: rec.userId, kind: rec.kind, ip: req.ip, reason: `node_video_job_failed: ${job_id}` });
-    console.log(`[node:run-failed] refunded video job ${job_id} for user=${rec.userId}`);
-    return res.json({ refunded: true });
+    // Verify the failure with the job's ACTUAL provider before refunding —
+    // a client claim alone never moves money. kie:-prefixed model ids poll
+    // kie; everything else is a FAL request id.
+    let failed;
+    if (String(rec.modelId || '').startsWith('kie:')) {
+      const family = rec.modelId.startsWith('kie:jobs:') ? 'jobs' : 'veo';
+      const t = await kieGetTask(family, job_id, { tag: 'KIE-NODE' });
+      failed = t.state === 'fail';
+    } else {
+      const status = await fal.queue.status(rec.modelId, { requestId: job_id, logs: false });
+      failed = status.status === 'FAILED' || status.status === 'ERROR';
+    }
+    if (!failed) return res.json({ refunded: false, reason: 'not_failed' });
+    const refunded = await refundFailedVideo(job_id, 'node client reported failure (provider-verified)');
+    return res.json({ refunded });
   } catch (e) {
     console.error('[node:run-failed] error:', e.message);
     return res.status(500).json({ error: 'Refund check failed.' });

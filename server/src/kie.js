@@ -109,7 +109,13 @@ async function kieFetch(path, { method = 'GET', body, signal, tag = 'KIE' } = {}
   if (!resp.ok || (json && json.code !== 200)) {
     const reason = json?.msg || `HTTP ${resp.status}`;
     console.error(`[${tag}] kie.ai request failed: ${method} ${path} → ${reason}`);
-    throw new Error(`${reason}`);
+    // Carry the status so callers can distinguish a definitive provider
+    // rejection (4xx) from a transient failure (5xx / network) — refunds
+    // must only fire on definitive failures.
+    const e = new Error(`${reason}`);
+    e.httpStatus = resp.status;
+    e.kieCode = json?.code ?? null;
+    throw e;
   }
   return json?.data ?? {};
 }
