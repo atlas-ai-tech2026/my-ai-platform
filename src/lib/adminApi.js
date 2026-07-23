@@ -57,7 +57,7 @@ export const adminApi = {
     request('POST', `/api/admin/users/${id}/credits`, { amount, action, reason }),
   setBan:      (id, banned, reason)  => request('POST', `/api/admin/users/${id}/ban`, { banned, reason }),
   resetPassword: (id, newPassword)   => request('POST', `/api/admin/users/${id}/reset-password`, { new_password: newPassword }),
-  history:     (id, limit = 100)     => request('GET', `/api/admin/users/${id}/history?limit=${limit}`),
+  history:     (id, limit = 10000)   => request('GET', `/api/admin/users/${id}/history?limit=${limit}`),
   stats:       ()                    => request('GET', '/api/admin/stats'),
 };
 

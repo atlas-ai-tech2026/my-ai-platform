@@ -37,7 +37,7 @@ export class InsufficientCreditsError extends Error {
  * Wrapped in a transaction so the balance UPDATE and credits_history INSERT
  * either both happen or both don't.
  */
-export async function chargeCredits({ userId, kind, ip, cost: costOverride }) {
+export async function chargeCredits({ userId, kind, ip, cost: costOverride, note }) {
   // Prefer the computed per-generation cost sent by the client (model +
   // resolution + duration aware). Fall back to the flat per-kind cost when
   // it's missing/invalid (e.g. a model not yet in the pricing table).
@@ -82,10 +82,12 @@ export async function chargeCredits({ userId, kind, ip, cost: costOverride }) {
       throw new InsufficientCreditsError(rows[0].credits, cost);
     }
 
+    // `note` labels the spend (e.g. "image: Nano Banana Pro") so the admin
+    // ledger shows WHAT each charge was for, not just the amount.
     await client.query(
-      `INSERT INTO credits_history (user_id, amount, action, ip_address)
-       VALUES ($1, $2, 'spend', $3)`,
-      [userId, -cost, ip || null]
+      `INSERT INTO credits_history (user_id, amount, action, reason, ip_address)
+       VALUES ($1, $2, 'spend', $3, $4)`,
+      [userId, -cost, (note || '').slice(0, 500) || null, ip || null]
     );
 
     await client.query('COMMIT');

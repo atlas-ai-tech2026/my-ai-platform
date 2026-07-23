@@ -93,7 +93,8 @@ export const NODE_DEFS = {
     // When an image is connected the server runs image-to-video. Model
     // names match the main Video page (server resolves via VIDEO_DIRECT_MAP).
     // kie-first catalog, FAL fallback
-    models: ['Kling 3.0', 'Kling 2.6', 'Veo 3.1', 'Veo 3 Fast', 'Seedance 2.0', 'Seedance 2.0 Fast', 'Seedance 2.0 Mini', 'Seedance 1.5 Pro', 'Sora 2', 'Wan 2.6', 'Grok Imagine'],
+    // (Sora 2 removed while kie's Sora interface is paused — restore with the picker entry.)
+    models: ['Kling 3.0', 'Kling 2.6', 'Veo 3.1', 'Veo 3 Fast', 'Seedance 2.0', 'Seedance 2.0 Fast', 'Seedance 2.0 Mini', 'Seedance 1.5 Pro', 'Wan 2.6', 'Grok Imagine'],
     inputs: [
       { id: 'image', type: 'image', label: 'Image refs', multiple: true },
       { id: 'prompt', type: 'text', label: 'Prompt' },
