@@ -3023,6 +3023,76 @@ app.get('/api/admin/users/:id/history', adminGate, async (req, res) => {
   }
 });
 
+// ─── ADMIN: REFUND AUDIT ────────────────────────────────────────────
+// Answers "did any user's FAILED generation keep its charge?" by cross-
+// referencing failed video GenerationHistory records against the refund
+// ledger, per user.
+//
+// Honest limits of this report:
+//   • Failed IMAGES never produce a history record (the sync route refunds
+//     inline and the client only saves successes), so images can't be
+//     audited retroactively — their refund paths are enforced in code.
+//   • refund_count includes image refunds too, so possible_unrefunded =
+//     failed_videos − refunds is a CONSERVATIVE floor, not an exact count.
+//     A user showing 0 is definitely clean; a positive number deserves a
+//     look at their History before granting make-good credits.
+app.get('/api/admin/audit/refunds', adminGate, async (req, res) => {
+  try {
+    const [{ rows: failed }, { rows: refunds }] = await Promise.all([
+      pool.query(
+        `SELECT e.user_id, u.email, e.id, e.created_date, e.data->>'model' AS model
+           FROM entities e JOIN users u ON u.id = e.user_id
+          WHERE e.name = 'GenerationHistory'
+            AND e.data->>'type' = 'video'
+            AND e.data->>'status' = 'failed'
+          ORDER BY e.created_date DESC
+          LIMIT 2000`
+      ),
+      pool.query(
+        `SELECT user_id, COUNT(*)::int AS refund_count,
+                COALESCE(SUM(amount), 0)::float AS refund_total
+           FROM credits_history WHERE action = 'refund'
+          GROUP BY user_id`
+      ),
+    ]);
+
+    const refundByUser = new Map(refunds.map((r) => [r.user_id, r]));
+    const byUser = new Map();
+    for (const f of failed) {
+      if (!byUser.has(f.user_id)) {
+        byUser.set(f.user_id, { user_id: f.user_id, email: f.email, failures: [] });
+      }
+      byUser.get(f.user_id).failures.push({ model: f.model || '—', at: f.created_date });
+    }
+
+    const report = [...byUser.values()]
+      .map((u) => {
+        const r = refundByUser.get(u.user_id) || { refund_count: 0, refund_total: 0 };
+        return {
+          user_id: u.user_id,
+          email: u.email,
+          failed_videos: u.failures.length,
+          refund_count: r.refund_count,
+          refund_total: r.refund_total,
+          possible_unrefunded: Math.max(0, u.failures.length - r.refund_count),
+          failures: u.failures.slice(0, 20),
+        };
+      })
+      .sort((a, b) => b.possible_unrefunded - a.possible_unrefunded || b.failed_videos - a.failed_videos);
+
+    res.json({
+      generated_at: new Date().toISOString(),
+      failed_videos_total: failed.length,
+      users_with_failures: report.length,
+      users_with_possible_gaps: report.filter((x) => x.possible_unrefunded > 0).length,
+      report,
+    });
+  } catch (err) {
+    console.error('[admin/audit] error:', err);
+    res.status(500).json({ error: 'Audit failed.' });
+  }
+});
+
 // ─── ADMIN: STATS ───────────────────────────────────────────────────
 // Single round-trip: aggregate stats + last-10 admin logins for the banner.
 app.get('/api/admin/stats', adminGate, async (req, res) => {

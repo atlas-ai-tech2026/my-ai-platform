@@ -26,6 +26,20 @@ export default function AdminPanel() {
   const [historyFor, setHistoryFor] = useState(null);       // user
   const [historyRows, setHistoryRows] = useState(null);
 
+  // Refund audit report (null = not run, 'loading', or the report object)
+  const [audit, setAudit] = useState(null);
+
+  const runAudit = useCallback(async () => {
+    setAudit('loading');
+    try {
+      const r = await adminApi.auditRefunds();
+      setAudit(r);
+    } catch (e) {
+      setAudit(null);
+      handleError(e, 'Audit failed');
+    }
+  }, []);
+
   // Initial + post-action data load
   const reload = useCallback(async () => {
     try {
@@ -115,6 +129,40 @@ export default function AdminPanel() {
 
         <StatsCards stats={stats} />
 
+        {/* Refund audit — cross-references failed videos vs refunds. */}
+        <div style={{ marginBottom: 16 }}>
+          <button onClick={runAudit} disabled={audit === 'loading'} style={auditBtnStyle}>
+            {audit === 'loading' ? 'Auditing…' : '🔍 Refund Audit'}
+          </button>
+          {audit && audit !== 'loading' && (
+            <div style={auditBoxStyle}>
+              <div style={{ marginBottom: 8, color: audit.users_with_possible_gaps ? '#fbbf24' : '#4ade80', fontWeight: 600 }}>
+                {audit.users_with_possible_gaps === 0
+                  ? `✅ Clean — ${audit.failed_videos_total} failed videos across ${audit.users_with_failures} users, every one covered by a refund.`
+                  : `⚠ ${audit.users_with_possible_gaps} user(s) may have unrefunded failures — review below.`}
+              </div>
+              {audit.report.filter(u => u.possible_unrefunded > 0).map(u => (
+                <div key={u.user_id} style={{ padding: '8px 0', borderTop: '1px solid rgba(255,255,255,0.08)', fontSize: 13 }}>
+                  <b>{u.email}</b> — {u.failed_videos} failed videos, {u.refund_count} refunds
+                  (+{u.refund_total}) → <span style={{ color: '#fbbf24' }}>{u.possible_unrefunded} possibly unrefunded</span>
+                  <div style={{ color: 'rgba(255,255,255,0.45)', marginTop: 2 }}>
+                    {u.failures.slice(0, 5).map((f, i) => (
+                      <span key={i}>{f.model} · {new Date(f.at).toLocaleString()}{i < Math.min(u.failures.length, 5) - 1 ? '  |  ' : ''}</span>
+                    ))}
+                  </div>
+                  <div style={{ color: 'rgba(255,255,255,0.35)', marginTop: 2 }}>
+                    Check their History for the exact spends, then use + Credits to make good.
+                  </div>
+                </div>
+              ))}
+              <div style={{ marginTop: 8, color: 'rgba(255,255,255,0.35)', fontSize: 12 }}>
+                Note: refund counts include image refunds, so the gap number is a conservative signal, not an exact figure.
+                Failed images have no history rows (their refunds are immediate and code-enforced) and can't be audited retroactively.
+              </div>
+            </div>
+          )}
+        </div>
+
         <input
           type="text" placeholder="Search by email…"
           value={searchTerm} onChange={e => setSearchTerm(e.target.value)}
@@ -172,6 +220,16 @@ function handleError(e, fallback) {
 const containerStyle = {
   minHeight: '100vh', background: '#0a0a0c',
   fontFamily: '"DM Sans", sans-serif', color: '#fff',
+};
+const auditBtnStyle = {
+  height: 36, padding: '0 16px', borderRadius: 10, cursor: 'pointer',
+  background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)',
+  color: '#fff', fontSize: 13, fontWeight: 600, fontFamily: 'inherit',
+};
+const auditBoxStyle = {
+  marginTop: 10, padding: '12px 16px', borderRadius: 12,
+  background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)',
+  fontFamily: 'inherit', fontSize: 13,
 };
 const searchInputStyle = {
   width: '100%', height: 42, padding: '0 16px', marginBottom: 16,
