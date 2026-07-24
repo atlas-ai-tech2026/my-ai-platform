@@ -10,7 +10,7 @@ import dotenv from 'dotenv';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { pool, isReady as dbReady, migrate, ADMIN_EMAIL } from './db.js';
-import { persistOrFallback } from './storage.js';
+import { persistOrFallback, persistBuffer, isReady as spacesReady } from './storage.js';
 import { configureKie, kieCreateTask, kieGetTask, kiePollUntilDone } from './kie.js';
 import { verifyJwt, requireAdmin, requireNotBanned } from './middleware/auth.js';
 // Restored after the in-file getStore block was removed — DIST_DIR
@@ -723,6 +723,73 @@ function buildKieVideoSubmission(mapping, { prompt, frames, duration, aspectRati
 //   3. requireModelProviderKey — server must have the key for the model's provider (FAL or kie.ai)
 //   4. chargeCredits — atomic balance deduct + history insert; 402 if insufficient
 //   5. If the provider call fails → refundCredits so the user isn't billed for nothing
+// ─── REFERENCE URL RESOLUTION ──────────────────────────────────────
+// User reference images normally arrive as public https urls, but /api/upload
+// falls back to a base64 data: URI when neither Spaces nor FAL storage
+// accepts the file (FAL keys without the storage scope 403 there). FAL
+// inference accepts data: URIs natively, but kie.ai only fetches public
+// http(s) urls — so the old `startsWith('http')` filter silently dropped
+// those refs and the generation quietly degraded to text-to-image without
+// the user's character.
+//
+// Resolution: keep http(s) refs as-is; re-host data: refs (Spaces first,
+// FAL storage second); a kie-bound ref that can't be re-hosted THROWS a
+// named error — the route's catch refunds and the user sees the real reason
+// instead of an output that ignored their upload.
+async function resolveReferenceUrls(rawUrls, { forKie = false, tag = 'REFS' } = {}) {
+  const provided = Array.isArray(rawUrls) ? rawUrls.filter(Boolean).length : 0;
+  const refs = Array.isArray(rawUrls)
+    ? rawUrls.filter((u) => typeof u === 'string' && (/^https?:/i.test(u) || u.startsWith('data:')))
+    : [];
+  const out = [];
+  for (const [i, ref] of refs.entries()) {
+    if (/^https?:/i.test(ref)) { out.push(ref); continue; }
+
+    const m = ref.match(/^data:([^;,]*);base64,(.+)$/s);
+    if (!m) {
+      console.error(`[${tag}] reference ${i + 1} is a non-base64 data URI — cannot use`);
+      throw new Error('A reference image could not be read — please re-upload it and try again');
+    }
+    const contentType = m[1] || 'image/png';
+    const buf = Buffer.from(m[2], 'base64');
+
+    if (spacesReady()) {
+      try {
+        const url = await persistBuffer(buf, contentType, 'reference');
+        console.log(`[${tag}] re-hosted data-URI reference ${i + 1} → ${url}`);
+        out.push(url);
+        continue;
+      } catch (e) {
+        console.error(`[${tag}] Spaces re-host failed for reference ${i + 1}:`, e.message);
+      }
+    }
+    try {
+      const url = await fal.storage.upload(new Blob([buf], { type: contentType }));
+      if (typeof url !== 'string') throw new Error('storage returned no url');
+      console.log(`[${tag}] re-hosted data-URI reference ${i + 1} via provider storage → ${url}`);
+      out.push(url);
+      continue;
+    } catch (e) {
+      console.error(`[${tag}] provider storage re-host failed for reference ${i + 1}:`, e.message);
+    }
+
+    if (forKie) {
+      // kie.ai cannot fetch data: URIs; without a public re-host the
+      // reference would be silently ignored. Fail loudly + refund instead.
+      throw new Error('Your reference image could not be prepared — please try again in a moment');
+    }
+    // FAL accepts base64 data URIs directly in place of file urls.
+    console.log(`[${tag}] passing data-URI reference ${i + 1} through (base64 accepted)`);
+    out.push(ref);
+  }
+  // Refs were provided but none survived → the output would silently miss
+  // the user's character. Fail + refund instead of degrading to text-only.
+  if (provided > 0 && out.length === 0) {
+    throw new Error('Your reference image could not be processed — please re-upload it and try again');
+  }
+  return out;
+}
+
 app.post('/api/generate', verifyJwt, requireNotBanned, requireModelProviderKey, async (req, res) => {
   const { model, prompt, type, duration, ratio, imageUrls, negativePrompt, quality, numImages, safetyTolerance } = req.body;
 
@@ -769,9 +836,9 @@ app.post('/api/generate', verifyJwt, requireNotBanned, requireModelProviderKey, 
   try {
     // ── IMAGE GENERATION ──
     if (type === 'image') {
-      const readyUrls = Array.isArray(imageUrls)
-        ? imageUrls.filter(u => u && typeof u === 'string' && u.startsWith('http'))
-        : [];
+      const readyUrls = await resolveReferenceUrls(imageUrls, {
+        forKie: cfg.provider === 'kie', tag: 'REFS-IMG',
+      });
       const hasImages = readyUrls.length > 0;
 
       // ── kie.ai-backed image models: createTask → poll → re-host ──
@@ -903,9 +970,9 @@ app.post('/api/generate', verifyJwt, requireNotBanned, requireModelProviderKey, 
 
     // ── VIDEO GENERATION ──
     if (type === 'video') {
-      const readyUrls = Array.isArray(imageUrls)
-        ? imageUrls.filter(u => u && typeof u === 'string' && u.startsWith('http'))
-        : [];
+      const readyUrls = await resolveReferenceUrls(imageUrls, {
+        forKie: VIDEO_DIRECT_MAP[model]?.provider === 'kie', tag: 'REFS-VID',
+      });
       const hasFrames = readyUrls.length > 0;
 
       // kie.ai-backed video (Veo 3 / Kling): async task; the kie:-prefixed
@@ -1870,8 +1937,25 @@ app.post('/api/upload', (req, res, next) => {
   const info = `${req.file.originalname} · ${(req.file.size / (1024 * 1024)).toFixed(2)} MB · ${req.file.mimetype}`;
   console.log('[UPLOAD] ⏳', info);
 
-  // Try File API first (Node 18+), fall back to Blob if it explodes.
   let attempts = [];
+
+  // ── DO Spaces first ────────────────────────────────────────────
+  // A Spaces URL is public https, so BOTH providers can fetch it (kie.ai
+  // cannot read data: URIs at all), and it never expires. FAL storage is
+  // the fallback because FAL keys without the storage scope get 403
+  // "Unauthorized" here even though inference works fine.
+  if (spacesReady()) {
+    try {
+      const url = await persistBuffer(req.file.buffer, req.file.mimetype, 'reference');
+      console.log('[UPLOAD] ✅ Spaces URL:', url);
+      return res.json({ url });
+    } catch (error) {
+      attempts.push(`Spaces: ${error.message}`);
+      console.error('[UPLOAD] ⚠️ Spaces path failed:', error.message);
+    }
+  }
+
+  // Try File API first (Node 18+), fall back to Blob if it explodes.
   try {
     const file = new File([req.file.buffer], req.file.originalname, { type: req.file.mimetype });
     const url = await fal.storage.upload(file);
@@ -2373,9 +2457,10 @@ app.post('/api/node/run-node', verifyJwt, requireNotBanned, requireFalKey, async
     : null;
   if (nodeImgCfg?.provider === 'kie') {
     try {
-      const urls = Array.isArray(settings?.image_urls) && settings.image_urls.length
+      const rawNodeUrls = Array.isArray(settings?.image_urls) && settings.image_urls.length
         ? settings.image_urls.filter(Boolean)
         : (settings?.image_url ? [settings.image_url] : []);
+      const urls = await resolveReferenceUrls(rawNodeUrls, { forKie: true, tag: 'REFS-NODE' });
       const body = buildKieImageInput(nodeImgCfg, {
         prompt: prompt.trim(),
         ratio: settings?.aspect_ratio || '1:1',

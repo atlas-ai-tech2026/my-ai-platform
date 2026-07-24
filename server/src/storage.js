@@ -96,7 +96,18 @@ export async function persistFromUrl(sourceUrl, kind = 'output', signal) {
   if (!resp.ok) throw new Error(`Fetch source failed: ${resp.status}`);
   const contentType = resp.headers.get('content-type') || '';
   const buf = Buffer.from(await resp.arrayBuffer());
-  if (!buf.length) throw new Error('Empty source body');
+
+  return persistBuffer(buf, contentType, kind, signal, sourceUrl);
+}
+
+// Write a raw buffer straight into the bucket and return its permanent public
+// URL. Used by persistFromUrl above and by /api/upload for user reference
+// images — those need a public https URL that external providers can fetch
+// (kie.ai cannot read data: URIs, and FAL storage rejects keys without the
+// storage scope).
+export async function persistBuffer(buf, contentType, kind = 'output', signal, sourceUrl = null) {
+  if (!configured) throw new Error('Spaces not configured');
+  if (!buf?.length) throw new Error('Empty source body');
 
   const ext = pickExt(contentType, sourceUrl);
   const id = crypto.randomUUID();
