@@ -5,6 +5,7 @@ import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import multer from 'multer';
 import { fal } from '@fal-ai/client';
 import path from 'node:path';
+import zlib from 'node:zlib';
 import { fileURLToPath } from 'node:url';
 import dotenv from 'dotenv';
 import bcrypt from 'bcryptjs';
@@ -3191,6 +3192,55 @@ app.get('/api/admin/audit/refunds', adminGate, async (req, res) => {
 
 // ─── ADMIN: STATS ───────────────────────────────────────────────────
 // Single round-trip: aggregate stats + last-10 admin logins for the banner.
+// ─── ADMIN: FULL DATABASE BACKUP ────────────────────────────────────
+// GET /api/admin/backup → streams a gzipped NDJSON dump of every table.
+// Exists because prod runs on an App Platform DEV database: no automated
+// backups and no external connections (pg_dump from a laptop times out),
+// so the app itself is the only thing that can read the data out.
+// First line is a meta record; every following line is {"table","row"}.
+// Restore = iterate lines and INSERT per table (order below respects FKs:
+// users first). Batched keyset-free pagination (ORDER BY id + OFFSET) is
+// fine at this platform's scale and works for both serial and uuid ids.
+app.get('/api/admin/backup', adminGate, async (req, res) => {
+  if (!dbReady()) return res.status(503).json({ error: 'Database not configured.' });
+  const TABLES = ['users', 'credits_history', 'admin_audit_log', 'failed_logins', 'entities', 'node_spaces'];
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+  res.setHeader('Content-Type', 'application/gzip');
+  res.setHeader('Content-Disposition', `attachment; filename="voxel-backup-${stamp}.ndjson.gz"`);
+
+  const gz = zlib.createGzip();
+  gz.pipe(res);
+  // Respect gzip backpressure so a large entities table can't balloon memory.
+  const write = (obj) => new Promise((resolve, reject) => {
+    gz.write(JSON.stringify(obj) + '\n', (err) => (err ? reject(err) : resolve()));
+  });
+
+  try {
+    await write({ meta: { exported_at: new Date().toISOString(), tables: TABLES, version: 1 } });
+    const counts = {};
+    for (const table of TABLES) {
+      const BATCH = 1000;
+      let offset = 0;
+      for (;;) {
+        const { rows } = await pool.query(`SELECT * FROM ${table} ORDER BY id LIMIT ${BATCH} OFFSET ${offset}`);
+        for (const row of rows) await write({ table, row });
+        offset += rows.length;
+        if (rows.length < BATCH) break;
+      }
+      counts[table] = offset;
+    }
+    await write({ done: true, counts });
+    gz.end();
+    console.log('[admin/backup] ✅ exported', JSON.stringify(counts));
+  } catch (err) {
+    console.error('[admin/backup] error:', err);
+    // Headers are already sent mid-stream — destroy so the client sees a
+    // truncated/failed download instead of a silently incomplete backup.
+    gz.destroy();
+    res.destroy(err);
+  }
+});
+
 app.get('/api/admin/stats', adminGate, async (req, res) => {
   try {
     const [agg, recent] = await Promise.all([

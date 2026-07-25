@@ -29,6 +29,36 @@ export default function AdminPanel() {
   // Refund audit report (null = not run, 'loading', or the report object)
   const [audit, setAudit] = useState(null);
 
+  // Full DB backup download. Plain fetch (not adminApi) because the response
+  // is a gzip stream, not JSON — saved via a temporary <a download>.
+  const [backingUp, setBackingUp] = useState(false);
+  const downloadBackup = useCallback(async () => {
+    setBackingUp(true);
+    try {
+      const token = localStorage.getItem(VOXEL_TOKEN_KEY);
+      const res = await fetch('/api/admin/backup', {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || `Backup failed (HTTP ${res.status})`);
+      }
+      const blob = await res.blob();
+      const name = (res.headers.get('content-disposition') || '').match(/filename="([^"]+)"/)?.[1]
+        || `voxel-backup-${new Date().toISOString().slice(0, 10)}.ndjson.gz`;
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = name;
+      a.click();
+      URL.revokeObjectURL(a.href);
+      toast.success(`Backup downloaded: ${name} — keep it somewhere safe`);
+    } catch (e) {
+      toast.error(e.message || 'Backup failed');
+    } finally {
+      setBackingUp(false);
+    }
+  }, []);
+
   const runAudit = useCallback(async () => {
     setAudit('loading');
     try {
@@ -133,6 +163,10 @@ export default function AdminPanel() {
         <div style={{ marginBottom: 16 }}>
           <button onClick={runAudit} disabled={audit === 'loading'} style={auditBtnStyle}>
             {audit === 'loading' ? 'Auditing…' : '🔍 Refund Audit'}
+          </button>
+          <button onClick={downloadBackup} disabled={backingUp} style={{ ...auditBtnStyle, marginLeft: 8 }}
+            title="Download a full database backup (users, credits, history). The prod DB has no automatic backups — do this regularly.">
+            {backingUp ? 'Exporting…' : '💾 Download Backup'}
           </button>
           {audit && audit !== 'loading' && (
             <div style={auditBoxStyle}>
