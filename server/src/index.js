@@ -11,7 +11,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { pool, isReady as dbReady, migrate, ADMIN_EMAIL } from './db.js';
 import { persistOrFallback, persistBuffer, isReady as spacesReady } from './storage.js';
-import { configureKie, kieCreateTask, kieGetTask, kiePollUntilDone } from './kie.js';
+import { configureKie, kieCreateTask, kieGetTask, kiePollUntilDone, kieUploadBuffer } from './kie.js';
 import { verifyJwt, requireAdmin, requireNotBanned } from './middleware/auth.js';
 // Restored after the in-file getStore block was removed — DIST_DIR
 // at the bottom of this file still needs __dirname.
@@ -774,8 +774,19 @@ async function resolveReferenceUrls(rawUrls, { forKie = false, tag = 'REFS' } = 
     }
 
     if (forKie) {
-      // kie.ai cannot fetch data: URIs; without a public re-host the
-      // reference would be silently ignored. Fail loudly + refund instead.
+      // kie.ai cannot fetch data: URIs — but it has its own file storage
+      // that accepts base64 and returns a public url (expires ~3 days;
+      // fine for a reference fetched within seconds). Last host in line
+      // because Spaces urls are durable and provider-neutral.
+      try {
+        const url = await kieUploadBuffer(buf, contentType, { tag });
+        out.push(url);
+        continue;
+      } catch (e) {
+        console.error(`[${tag}] kie storage re-host failed for reference ${i + 1}:`, e.message);
+      }
+      // No host would take the file — without a public url the reference
+      // would be silently ignored. Fail loudly + refund instead.
       throw new Error('Your reference image could not be prepared — please try again in a moment');
     }
     // FAL accepts base64 data URIs directly in place of file urls.

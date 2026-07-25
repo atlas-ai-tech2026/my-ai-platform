@@ -120,6 +120,43 @@ async function kieFetch(path, { method = 'GET', body, signal, tag = 'KIE' } = {}
   return json?.data ?? {};
 }
 
+// Upload a raw buffer to kie's file storage (base64 endpoint) and return its
+// public download URL. This is how a data-URI reference becomes a URL that
+// kie's generation models can fetch — kie models only accept http(s) urls in
+// image inputs, never inline base64. Files auto-delete after ~3 days, which
+// is fine for references (the generation fetches them within seconds); do
+// NOT persist these urls anywhere durable. NOTE: this endpoint lives on a
+// different host than the task API (kieai.redpandaai.co per docs.kie.ai —
+// api.kie.ai 404s for it; verified 2026-07-25).
+const UPLOAD_BASE = 'https://kieai.redpandaai.co';
+
+export async function kieUploadBuffer(buf, contentType = 'image/png', { tag = 'KIE-UPLOAD' } = {}) {
+  if (!KIE_KEY) throw new Error('Generation service is not configured on the server');
+  if (!buf?.length) throw new Error('Empty file');
+  const resp = await fetch(`${UPLOAD_BASE}/api/file-base64-upload`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${KIE_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      base64Data: `data:${contentType};base64,${buf.toString('base64')}`,
+      uploadPath: 'images/references',
+    }),
+    signal: AbortSignal.timeout(30000),
+  });
+  let json = null;
+  try { json = await resp.json(); } catch { /* non-JSON error body */ }
+  const url = json?.data?.downloadUrl;
+  if (!resp.ok || !url) {
+    const reason = json?.msg || `HTTP ${resp.status}`;
+    console.error(`[${tag}] base64 upload failed: ${reason}`);
+    throw new Error(reason);
+  }
+  console.log(`[${tag}] ✅ reference uploaded → ${url}`);
+  return url;
+}
+
 // Create a generation task. Returns the taskId string.
 export async function kieCreateTask(family, input, { tag = 'KIE' } = {}) {
   if (!KIE_KEY) throw new Error('Generation service is not configured on the server');
