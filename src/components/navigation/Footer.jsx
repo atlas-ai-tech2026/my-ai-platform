@@ -22,11 +22,10 @@ const footerLinks = {
     { name: 'Tutorials', path: '#' },
   ],
   company: [
-    { name: 'About', path: '#' },
-    { name: 'Blog', path: '#' },
-    { name: 'Careers', path: '#' },
-    { name: 'Press Kit', path: '#' },
-    { name: 'Contact', path: '#' },
+    { name: 'About', path: '/about' },
+    { name: 'Contact', path: '/contact' },
+    { name: 'Privacy Policy', path: '/privacy' },
+    { name: 'Terms of Service', path: '/terms' },
     { name: 'Q&A', path: '#' },
   ],
 };
@@ -123,9 +122,9 @@ export default function Footer({ minimal = false }) {
               &copy; 2026 VOXEL AI&trade;. All rights reserved.
             </p>
             <div className="flex items-center gap-6 text-sm text-foreground-muted">
-              <a href="#" className="hover:text-white transition-colors">Privacy</a>
-              <a href="#" className="hover:text-white transition-colors">Terms</a>
-              <a href="#" className="hover:text-white transition-colors">Cookie Notice</a>
+              <Link to="/privacy" className="hover:text-white transition-colors">Privacy</Link>
+              <Link to="/terms" className="hover:text-white transition-colors">Terms</Link>
+              <Link to="/contact" className="hover:text-white transition-colors">Contact</Link>
               <button onClick={() => window.__voxelChatOpen?.()} className="hover:text-white transition-colors">Q&amp;A</button>
             </div>
           </div>

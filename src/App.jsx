@@ -1,3 +1,4 @@
+import { Suspense, lazy } from 'react';
 import { Toaster } from "@/components/ui/toaster"
 import { QueryClientProvider } from '@tanstack/react-query'
 import { queryClientInstance } from '@/lib/query-client'
@@ -6,10 +7,19 @@ import { BrowserRouter as Router, Route, Routes } from 'react-router-dom';
 import PageNotFound from './lib/PageNotFound';
 import { AuthProvider, useAuth } from '@/lib/AuthContext';
 import LoginModal from '@/components/auth/LoginModal';
-import AdminPanel from '@/pages/AdminPanel';
 import AdminGuard from '@/components/admin/AdminGuard';
-import NodeLanding from '@/pages/NodeLanding';
-import NodeCanvas from '@/pages/NodeCanvas';
+
+// Heavy standalone pages are lazy like everything in pages.config — the
+// admin panel and node canvas never ship to ordinary visitors' first load.
+const AdminPanel = lazy(() => import('@/pages/AdminPanel'));
+const NodeLanding = lazy(() => import('@/pages/NodeLanding'));
+const NodeCanvas = lazy(() => import('@/pages/NodeCanvas'));
+
+// Route-chunk loading state: plain dark screen, matches the app background
+// so navigation feels like a beat of black rather than a flash of white.
+const RouteFallback = () => (
+  <div className="min-h-screen bg-background" aria-busy="true" />
+);
 
 // Obscure URL for the admin panel — security through obscurity is NOT a real
 // defense, but it does keep automated scanners from probing /admin. Real
@@ -46,6 +56,7 @@ const AuthenticatedApp = () => {
   // Unauthenticated visitors can browse Explore/Image/Video/etc.; the
   // sign-up wall fires only when they try to actually generate.
   return (
+    <Suspense fallback={<RouteFallback />}>
     <Routes>
       <Route path="/" element={
         <LayoutWrapper currentPageName={mainPageKey}>
@@ -78,6 +89,7 @@ const AuthenticatedApp = () => {
       ))}
       <Route path="*" element={<PageNotFound />} />
     </Routes>
+    </Suspense>
   );
 };
 

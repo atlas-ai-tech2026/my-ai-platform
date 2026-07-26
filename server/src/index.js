@@ -1,5 +1,6 @@
 import express from 'express';
 import cors from 'cors';
+import compression from 'compression';
 import helmet from 'helmet';
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import multer from 'multer';
@@ -67,18 +68,46 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 100
 // attacker IPs everyone). Setting it to 1 trusts exactly one hop (the LB).
 app.set('trust proxy', 1);
 
+// Gzip text responses (HTML/JS/CSS/JSON) at the origin. Cloudflare compresses
+// at the edge, but the origin should stand on its own — SEO crawlers and any
+// direct-origin fetch see small transfers either way. New dep is justified:
+// hand-rolling streaming zlib with backpressure/Vary/filter handling is
+// exactly what this express-team package exists for. It skips content that
+// is already encoded (e.g. /api/admin/backup's application/gzip stream) and
+// non-text types like images automatically.
+app.use(compression());
+
 app.use(helmet({
-  // We serve the SPA + Tailwind from the same origin and FAL's image URLs
-  // come from arbitrary hosts. A strict CSP would break both. Tightening
-  // this is a separate task once we have a stable inventory of asset hosts.
-  contentSecurityPolicy: false,
+  // CSP: scripts/styles are same-origin (index.html has no inline <script>;
+  // the JSON-LD block is data, not executable, so script-src 'self' is fine).
+  // img/media/connect stay https:-wide because generation outputs come from
+  // arbitrary FAL/kie/Spaces hosts. style-src needs 'unsafe-inline' for
+  // React/framer-motion style attributes + Google Fonts CSS.
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'"],
+      styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
+      fontSrc: ["'self'", 'https://fonts.gstatic.com', 'data:'],
+      imgSrc: ["'self'", 'data:', 'blob:', 'https:'],
+      mediaSrc: ["'self'", 'data:', 'blob:', 'https:'],
+      connectSrc: ["'self'", 'blob:', 'https:'],
+      workerSrc: ["'self'", 'blob:'],
+      objectSrc: ["'none'"],
+      baseUri: ["'self'"],
+      formAction: ["'self'"],
+      frameAncestors: ["'self'"],
+    },
+  },
   crossOriginEmbedderPolicy: false,
 }));
 
 // Lock CORS to known origins. Empty Origin (curl, server-to-server) is
 // allowed because admin curl + DO health probe both have no Origin header.
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS ||
-  'https://voxel-ai.ai,http://localhost:5173,http://localhost:8080')
+  // :3001 = single-process prod repro (Express serves dist/ directly);
+  // module <script crossorigin> sends Origin, so it must be allowed.
+  'https://voxel-ai.ai,http://localhost:5173,http://localhost:8080,http://localhost:3001')
   .split(',').map(s => s.trim()).filter(Boolean);
 app.use(cors({
   origin: (origin, cb) => {
@@ -3298,6 +3327,19 @@ const DIST_DIR = path.resolve(__dirname, '../../dist');
 if (existsSync(DIST_DIR)) {
   app.use(express.static(DIST_DIR, { maxAge: '1y', index: false }));
   app.get(/^\/(?!api\/).*/, (req, res) => {
+    // Anything with a file extension that express.static didn't match does
+    // not exist — return a real 404 instead of index.html. Serving HTML at
+    // /sitemap1.xml, /robots.txt, etc. made SEO crawlers report "8 invalid
+    // sitemaps" (every probed path answered 200 with the SPA shell).
+    if (path.extname(req.path)) {
+      return res.status(404).type('text/plain').send('Not found');
+    }
+    // HTML gets a SHORT freshness lifetime (60s), not a long one: hashed
+    // asset URLs change every deploy, so stale HTML points at dead bundles.
+    // 60s is bounded and self-heals — unlike the old 1980-Last-Modified 304
+    // loop that served stale HTML forever. ETag/Last-Modified from sendFile
+    // keep revalidation after the 60s a cheap 304.
+    res.set('Cache-Control', 'public, max-age=60, must-revalidate');
     res.sendFile(path.join(DIST_DIR, 'index.html'));
   });
   console.log(`[voxel-api] serving static frontend from ${DIST_DIR}`);

@@ -35,8 +35,15 @@ export default function Layout({ children, currentPageName }) {
 
   return (
     <div className="min-h-screen bg-background text-foreground">
+      {/* Keyboard users can jump past the navbar; visually hidden until focused */}
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[100] focus:px-4 focus:py-2 focus:bg-primary focus:text-white focus:rounded-md"
+      >
+        Skip to main content
+      </a>
       <Navbar />
-      <main className="pt-16" style={(isMinimal || hideFooter) ? { height: 'calc(100vh - 0px)', overflow: 'hidden' } : {}}>
+      <main id="main-content" tabIndex={-1} className="pt-16" style={(isMinimal || hideFooter) ? { height: 'calc(100vh - 0px)', overflow: 'hidden' } : {}}>
         {children}
       </main>
       {/* Tool pages (image/video/edit/apps) drop the footer black bar entirely

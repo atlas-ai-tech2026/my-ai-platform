@@ -9,6 +9,20 @@ export default defineConfig({
       '@': path.resolve(__dirname, './src'),
     },
   },
+  build: {
+    rollupOptions: {
+      output: {
+        // Split the shared entry chunk so no single JS file exceeds ~250KB
+        // (routes are already lazy via pages.config.js). React and
+        // framer-motion are the two heavyweights; each caches independently
+        // and they download in parallel.
+        manualChunks: {
+          'react-vendor': ['react', 'react-dom', 'react-router-dom'],
+          'motion': ['framer-motion'],
+        },
+      },
+    },
+  },
   test: {
     environment: 'jsdom',
     globals: true,

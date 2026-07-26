@@ -6,6 +6,12 @@
       "runtimeExecutable": "/usr/local/bin/node",
       "runtimeArgs": ["./node_modules/.bin/vite", "--port", "5173"],
       "port": 5173
+    },
+    {
+      "name": "voxel-prod",
+      "runtimeExecutable": "/usr/local/bin/node",
+      "runtimeArgs": ["server/src/index.js"],
+      "port": 3001
     }
   ]
 }

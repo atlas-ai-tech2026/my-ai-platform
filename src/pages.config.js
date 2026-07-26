@@ -1,62 +1,33 @@
 /**
  * pages.config.js - Page routing configuration
- * 
- * This file is AUTO-GENERATED. Do not add imports or modify PAGES manually.
- * Pages are auto-registered when you create files in the ./pages/ folder.
- * 
- * THE ONLY EDITABLE VALUE: mainPage
- * This controls which page is the landing page (shown when users visit the app).
- * 
- * Example file structure:
- * 
- *   import HomePage from './pages/HomePage';
- *   import Dashboard from './pages/Dashboard';
- *   import Settings from './pages/Settings';
- *   
- *   export const PAGES = {
- *       "HomePage": HomePage,
- *       "Dashboard": Dashboard,
- *       "Settings": Settings,
- *   }
- *   
- *   export const pagesConfig = {
- *       mainPage: "HomePage",
- *       Pages: PAGES,
- *   };
- * 
- * Example with Layout (wraps all pages):
  *
- *   import Home from './pages/Home';
- *   import Settings from './pages/Settings';
- *   import __Layout from './Layout.jsx';
+ * Pages are registered here and routed automatically in App.jsx as `/${key}`
+ * (React Router matches case-insensitively, so "About" serves /about).
  *
- *   export const PAGES = {
- *       "Home": Home,
- *       "Settings": Settings,
- *   }
+ * THE ONLY OTHER EDITABLE VALUE: mainPage — controls which page is the
+ * landing page (shown when users visit "/"). It must match a key in PAGES.
  *
- *   export const pagesConfig = {
- *       mainPage: "Home",
- *       Pages: PAGES,
- *       Layout: __Layout,
- *   };
- *
- * To change the main page from HomePage to Dashboard, use find_replace:
- *   Old: mainPage: "HomePage",
- *   New: mainPage: "Dashboard",
- *
- * The mainPage value must match a key in the PAGES object exactly.
+ * All pages are lazy-loaded (React.lazy + dynamic import) so Vite splits
+ * each route into its own chunk instead of one ~1MB bundle. App.jsx wraps
+ * the routes in <Suspense>. mainPage's chunk is fetched immediately on
+ * load; the rest fetch on navigation.
  */
-import Apps from './pages/Apps';
-import Audio from './pages/Audio';
-import Community from './pages/Community';
-import Edit from './pages/Edit';
-import Explore from './pages/Explore';
-import Image from './pages/Image';
-import Pricing from './pages/Pricing';
-import Studio from './pages/Studio';
-import Templates from './pages/Templates';
-import Video from './pages/Video';
+import { lazy } from 'react';
+
+const Apps = lazy(() => import('./pages/Apps'));
+const Audio = lazy(() => import('./pages/Audio'));
+const Community = lazy(() => import('./pages/Community'));
+const Edit = lazy(() => import('./pages/Edit'));
+const Explore = lazy(() => import('./pages/Explore'));
+const Image = lazy(() => import('./pages/Image'));
+const Pricing = lazy(() => import('./pages/Pricing'));
+const Studio = lazy(() => import('./pages/Studio'));
+const Templates = lazy(() => import('./pages/Templates'));
+const Video = lazy(() => import('./pages/Video'));
+const About = lazy(() => import('./pages/About'));
+const Contact = lazy(() => import('./pages/Contact'));
+const Privacy = lazy(() => import('./pages/Privacy'));
+const Terms = lazy(() => import('./pages/Terms'));
 import __Layout from './Layout.jsx';
 
 
@@ -71,6 +42,10 @@ export const PAGES = {
     "Studio": Studio,
     "Templates": Templates,
     "Video": Video,
+    "About": About,
+    "Contact": Contact,
+    "Privacy": Privacy,
+    "Terms": Terms,
 }
 
 export const pagesConfig = {

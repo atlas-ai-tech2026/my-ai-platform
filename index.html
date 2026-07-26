@@ -5,19 +5,128 @@
     <link rel="icon" type="image/svg+xml" href="/voxel-icon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>VOXEL.AI — AI-Powered Creative Studio</title>
-  </head>
-  <body>
-    <div id="root"></div>
-    <!-- Belt-and-suspenders: if any stale service worker from an earlier build
-         is still registered, unregister it so it stops serving cached assets.
-         (The kill-switch /sw.js handles tabs the SW currently controls.) -->
-    <script>
-      if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.getRegistrations()
-          .then((regs) => regs.forEach((r) => r.unregister()))
-          .catch(() => {});
-      }
+
+    <!-- Core SEO -->
+    <meta name="description" content="VOXEL.AI is an AI-powered creative studio for generating images, videos, and audio from text. Create with Kling, Veo, Seedance, LTX and more — from prompt to production." />
+    <link rel="canonical" href="https://voxel-ai.ai/" />
+    <meta name="robots" content="index, follow" />
+    <meta name="theme-color" content="#0a0a0a" />
+
+    <!-- Open Graph -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="VOXEL.AI" />
+    <meta property="og:title" content="VOXEL.AI — AI-Powered Creative Studio" />
+    <meta property="og:description" content="Generate images, videos, and audio with state-of-the-art AI models. From prompt to production in one studio." />
+    <meta property="og:url" content="https://voxel-ai.ai/" />
+    <meta property="og:image" content="https://voxel-ai.ai/media/og-image.jpg" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+
+    <!-- Twitter Card -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="VOXEL.AI — AI-Powered Creative Studio" />
+    <meta name="twitter:description" content="Generate images, videos, and audio with state-of-the-art AI models. From prompt to production in one studio." />
+    <meta name="twitter:image" content="https://voxel-ai.ai/media/og-image.jpg" />
+
+    <!-- Fonts: direct link instead of CSS @import (shortens the critical
+         request chain — the stylesheet no longer gates font discovery) -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Anton&family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600;700&family=Fraunces:opsz,wght@9..144,300;9..144,400;9..144,500;9..144,600&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&family=Oswald:wght@400;500;600;700&display=swap" rel="stylesheet" />
+
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "WebApplication",
+      "name": "VOXEL.AI",
+      "url": "https://voxel-ai.ai/",
+      "applicationCategory": "MultimediaApplication",
+      "description": "AI-powered creative studio for generating images, videos, and audio from text prompts.",
+      "operatingSystem": "Web",
+      "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
+    }
     </script>
+  </head>
+  <body style="margin:0;background:#0a0a0a;color:#e5e5e5">
+    <!-- Static pre-render inside #root: crawlers and social previews see real
+         content; React's createRoot().render() replaces all of this the moment
+         the bundle loads. Keep copy roughly in sync with the Explore hero.
+         The old inline service-worker-unregister script moved to main.jsx so
+         index.html has zero inline scripts (strict CSP: script-src 'self'). -->
+    <div id="root">
+      <div style="font-family:Inter,system-ui,sans-serif;max-width:960px;margin:0 auto;padding:48px 24px">
+        <header>
+          <nav aria-label="Primary">
+            <a href="/" style="color:#e5e5e5">VOXEL.AI</a> ·
+            <a href="/image" style="color:#a3a3a3">Image Generation</a> ·
+            <a href="/video" style="color:#a3a3a3">Video Creation</a> ·
+            <a href="/audio" style="color:#a3a3a3">Audio Studio</a> ·
+            <a href="/edit" style="color:#a3a3a3">Video Editor</a> ·
+            <a href="/apps" style="color:#a3a3a3">Apps</a> ·
+            <a href="/templates" style="color:#a3a3a3">Templates</a> ·
+            <a href="/community" style="color:#a3a3a3">Community</a> ·
+            <a href="/pricing" style="color:#a3a3a3">Pricing</a>
+          </nav>
+        </header>
+        <main id="main-content">
+          <h1>VOXEL.AI — AI-Powered Creative Studio</h1>
+          <p>
+            VOXEL.AI is a creative studio powered by artificial intelligence. Generate
+            production-quality images, cinematic videos, and audio from simple text
+            prompts — all in one place, with no software to install. Whether you are a
+            content creator, marketer, filmmaker, or designer, VOXEL.AI turns ideas
+            into finished visuals in minutes instead of days.
+          </p>
+          <h2>AI Image Generation</h2>
+          <p>
+            Create striking images with state-of-the-art models. Control camera,
+            lens, focal length, and aperture like a real photographer, upload
+            reference images to keep characters consistent, and upscale results to
+            print resolution. Every generation is saved to your personal history so
+            you never lose a creation.
+          </p>
+          <h2>AI Video Creation</h2>
+          <p>
+            Produce cinematic video from text or animate a still image with leading
+            models including Kling, Veo, Seedance, LTX, and Sora. Direct the shot
+            with camera-motion controls, choose duration, resolution, and aspect
+            ratio, and add synchronized audio — all from a single interface.
+          </p>
+          <h2>Audio, Editing, and Node Canvas</h2>
+          <p>
+            Synthesize voice-overs and sound in the Audio Studio, cut and refine
+            footage in the Video Editor, and chain models together visually on the
+            Voxel Node canvas to build repeatable creative workflows.
+          </p>
+          <h2>Simple credit pricing</h2>
+          <p>
+            Start free and scale with transparent credit plans — from hobby projects
+            to studio production. Every plan carries the same cost per credit, full
+            access to every model, no watermarks on exports, and commercial usage
+            rights on everything you make. See the
+            <a href="/pricing" style="color:#e5e5e5">pricing page</a> for current
+            plans, or <a href="/explore" style="color:#e5e5e5">explore the community feed</a>
+            to see what creators are making with VOXEL.AI today.
+          </p>
+          <h2>Built for creators, marketers, and studios</h2>
+          <p>
+            From a single social post to a full campaign, VOXEL.AI keeps your whole
+            pipeline in one browser tab: generate, refine with reference images,
+            upscale, edit, and publish. Templates give you a running start, and the
+            community feed is an endless source of prompts and inspiration.
+          </p>
+        </main>
+        <footer>
+          <nav aria-label="Legal">
+            <a href="/about" style="color:#a3a3a3">About</a> ·
+            <a href="/contact" style="color:#a3a3a3">Contact</a> ·
+            <a href="/privacy" style="color:#a3a3a3">Privacy Policy</a> ·
+            <a href="/terms" style="color:#a3a3a3">Terms of Service</a>
+          </nav>
+          <p style="color:#737373">© VOXEL.AI — AI-driven content creation.</p>
+        </footer>
+      </div>
+    </div>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>
