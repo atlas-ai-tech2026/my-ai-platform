@@ -23,9 +23,15 @@ describe('estimateFalCost', () => {
     expect(estimateFalCost({ kind: 'audio', model: 'TTS', chars: 2000 })).toBe(0.2);
   });
 
-  it('returns null for models without a fal price on file', () => {
-    expect(estimateFalCost({ kind: 'video', model: 'Kling 2.1', duration: 5 })).toBeNull();
-    expect(estimateFalCost({ kind: 'image', model: 'Soul 2.0' })).toBeNull();
+  it('prices the restored-catalog FAL models from their conservative bases', () => {
+    // Kling 2.1 $0.057/s × 5s; Soul 2.0 flat $0.025/image
+    expect(estimateFalCost({ kind: 'video', model: 'Kling 2.1', duration: 5 })).toBe(0.285);
+    expect(estimateFalCost({ kind: 'image', model: 'Soul 2.0' })).toBe(0.025);
+    expect(estimateFalCost({ kind: 'video', model: 'Kling O1 Video Edit', duration: 5 })).toBe(0.38);
+  });
+
+  it('returns null for truly unknown models', () => {
+    expect(estimateFalCost({ kind: 'video', model: 'Totally Unknown', duration: 5 })).toBeNull();
   });
 });
 
@@ -47,8 +53,17 @@ describe('backfillFalEstimate (historical rows)', () => {
     expect(backfillFalEstimate({ reason: 'audio: TTS', amount: '-1.00', createdAt: '2026-07-25' })).toBe(0.1);
   });
 
-  it('refuses unlabeled and unpriced rows', () => {
+  it('falls back to the 40%-margin share for FAL labels without explicit prices', () => {
+    // Kling 2.1 override: 8 voxel × 0.0285 = $0.228
+    expect(backfillFalEstimate({ reason: 'video: Kling 2.1', amount: '-8', createdAt: '2026-07-15' })).toBe(0.228);
+    // generic: Wan 2.2 10 voxel × 0.038 = $0.38; node labels too
+    expect(backfillFalEstimate({ reason: 'video: Wan 2.2', amount: '-10', createdAt: '2026-07-15' })).toBe(0.38);
+    expect(backfillFalEstimate({ reason: 'node video: video-generator', amount: '-10', createdAt: '2026-07-15' })).toBe(0.38);
+  });
+
+  it('refuses unlabeled rows and kie-only models', () => {
     expect(backfillFalEstimate({ reason: null, amount: '-4', createdAt: '2026-07-15' })).toBeNull();
-    expect(backfillFalEstimate({ reason: 'video: Kling 2.1', amount: '-8', createdAt: '2026-07-15' })).toBeNull();
+    // Sora 2 is kie-only (since 2026-07-21) — its rows are never FAL-billed
+    expect(backfillFalEstimate({ reason: 'video: Sora 2', amount: '-8', createdAt: '2026-07-25' })).toBeNull();
   });
 });

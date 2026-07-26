@@ -58,8 +58,16 @@ const KIE_USD = {
   'Kling 2.6': {
     perSecond: { audio: { flat: 0.11 }, noAudio: { flat: 0.055 } },
   },
-  // kie price not yet confirmed for: Sora 2, Wan 2.6, Grok Imagine,
-  // Seedance 1.5 Pro → intentionally absent.
+  // ── conservative bases from creditPricing.js restored catalog (the "≤$X"
+  //    figures the sale prices were derived from at 40% margin) ──
+  'Sora 2':           { perVideo: { flat: 0.30 } },
+  'Wan 2.6':          { perSecond: { flat: 0.076 } },
+  'Grok Imagine':     { perSecond: { flat: 0.019 } },
+  'Seedance 1.5 Pro': { perSecond: { '480p': 0.076, '720p': 0.133, '1080p': 0.247 } },
+  'GPT-4o Image':     { perImage: { '1K': 0.05, '2K': 0.05, '4K': 0.05 } },
+  'Midjourney':       { perImage: { '1K': 0.08, '2K': 0.08, '4K': 0.08 } }, // per task (4 images)
+  'Flux Kontext Max': { perImage: { '1K': 0.08, '2K': 0.08, '4K': 0.08 } },
+  'Flux 2':           { perImage: { '1K': 0.04, '2K': 0.04, '4K': 0.04 } },
 };
 
 const usdToCredits = (usd) => Math.round((usd / KIE_USD_PER_CREDIT) * 100) / 100;
@@ -119,6 +127,10 @@ const KIE_SWITCH_DATE = {
   'Nano Banana Pro': '2026-07-20',
   'Nano Banana 2': '2026-07-21', 'Flux Kontext': '2026-07-21', 'Seedream 4.5': '2026-07-21',
   'Seedream 5.0 Lite': '2026-07-21', 'GPT Image 1.5': '2026-07-21', 'GPT Image 2': '2026-07-21',
+  // kie-only since the restored catalog (2026-07-21) — never ran on FAL here
+  'Sora 2': '2026-07-21', 'Wan 2.6': '2026-07-21', 'Grok Imagine': '2026-07-21',
+  'Seedance 1.5 Pro': '2026-07-21', 'GPT-4o Image': '2026-07-21', 'Midjourney': '2026-07-21',
+  'Flux Kontext Max': '2026-07-21', 'Flux 2': '2026-07-21',
 };
 
 // amount (positive voxel credits) → kie credits, per image model
@@ -130,6 +142,10 @@ const IMAGE_BACKFILL = {
   'Flux Kontext':      () => 8,
   'Seedream 4.5':      (a) => (a >= 2 ? 12 : 6),
   'Seedream 5.0 Lite': () => 5.5,
+  'GPT-4o Image':      () => 10,
+  'Midjourney':        () => 16,
+  'Flux Kontext Max':  () => 16,
+  'Flux 2':            () => 8,
 };
 
 // voxel→kie multiplier per video model (kieUSD/basisUSD scaled by the
@@ -143,6 +159,11 @@ const VIDEO_BACKFILL_MULTIPLIER = {
   'Veo 3': 7.6,
   'Veo 3.1': 7.6,
   'Veo 3 Fast': 7.6,
+  // kie-only models priced at exactly 40% margin → voxel×7.6 IS the basis
+  'Sora 2': 7.5,
+  'Wan 2.6': 7.6,
+  'Grok Imagine': 7.6,
+  'Seedance 1.5 Pro': 7.6,
 };
 
 /**

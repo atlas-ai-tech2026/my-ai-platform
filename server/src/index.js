@@ -863,6 +863,7 @@ app.post('/api/generate', verifyJwt, requireNotBanned, requireModelProviderKey, 
     const estOpts = { kind: type, model, quality, resolution: req.body.resolution, duration, audio: req.body.audio };
     const charge = await chargeCredits({
       userId: req.user.id, kind: type, ip: req.ip, cost: req.body.credit_cost, note: `${type}: ${model}`,
+      provider: isKie ? 'kie' : 'fal',
       kieCredits: isKie ? estimateKieCredits(estOpts) : null,
       falCost: isKie ? null : estimateFalCost(estOpts),
     });
@@ -1201,6 +1202,7 @@ app.post('/api/generate-video', verifyJwt, requireNotBanned, requireModelProvide
   try {
     const charge = await chargeCredits({
       userId: req.user.id, kind: 'video', ip: req.ip, cost: req.body.credit_cost, note: `video: ${model}`,
+      provider: mapping.provider === 'kie' ? 'kie' : 'fal',
       kieCredits: mapping.provider === 'kie' ? estimateKieCredits({ kind: 'video', model, resolution, duration, audio }) : null,
       falCost: mapping.provider === 'kie' ? null : estimateFalCost({ kind: 'video', model, resolution, duration, audio }),
     });
@@ -1327,7 +1329,7 @@ app.post('/api/edit-video-omni', verifyJwt, requireNotBanned, requireFalKey, asy
   let chargedKind = null;
   let chargedCost = null;
   try {
-    const charge = await chargeCredits({ userId: req.user.id, kind: 'video', ip: req.ip, cost: req.body.credit_cost , note: `video: ${req.body?.model || 'Edit Video'}` });
+    const charge = await chargeCredits({ userId: req.user.id, kind: 'video', ip: req.ip, cost: req.body.credit_cost, note: `video: ${req.body?.model || 'Edit Video'}`, provider: 'fal' });
     chargedKind = 'video';
     chargedCost = charge.cost;
     res.setHeader('X-Credits-Remaining', String(charge.newBalance));
@@ -1411,7 +1413,7 @@ app.post('/api/motion-control', verifyJwt, requireNotBanned, requireFalKey, asyn
   let chargedKind = null;
   let chargedCost = null;
   try {
-    const charge = await chargeCredits({ userId: req.user.id, kind: 'video', ip: req.ip, cost: req.body.credit_cost , note: `video: ${req.body?.model || 'Motion Control'}` });
+    const charge = await chargeCredits({ userId: req.user.id, kind: 'video', ip: req.ip, cost: req.body.credit_cost, note: `video: ${req.body?.model || 'Motion Control'}`, provider: 'fal' });
     chargedKind = 'video';
     chargedCost = charge.cost;
     res.setHeader('X-Credits-Remaining', String(charge.newBalance));
@@ -1510,7 +1512,7 @@ app.post('/api/tts', verifyJwt, requireNotBanned, requireFalKey, async (req, res
   let chargedCost = null;
   try {
     const charge = await chargeCredits({
-      userId: req.user.id, kind: 'audio', ip: req.ip, note: 'audio: TTS',
+      userId: req.user.id, kind: 'audio', ip: req.ip, note: 'audio: TTS', provider: 'fal',
       falCost: estimateFalCost({ kind: 'audio', model: 'TTS', chars: text.length }),
     });
     chargedKind = 'audio';
@@ -1595,7 +1597,7 @@ app.post('/api/generate-music', verifyJwt, requireNotBanned, requireFalKey, asyn
   let chargedKind = null;
   let chargedCost = null;
   try {
-    const charge = await chargeCredits({ userId: req.user.id, kind: 'audio', ip: req.ip , note: 'audio: Music' });
+    const charge = await chargeCredits({ userId: req.user.id, kind: 'audio', ip: req.ip, note: 'audio: Music', provider: 'fal' });
     chargedKind = 'audio';
     res.setHeader('X-Credits-Remaining', String(charge.newBalance));
   } catch (e) {
@@ -1746,6 +1748,7 @@ app.post('/api/generate-video-ref', verifyJwt, requireNotBanned, requireModelPro
   try {
     const charge = await chargeCredits({
       userId: req.user.id, kind: 'video', ip: req.ip, cost: req.body.credit_cost, note: `video: ${modelLabel}`,
+      provider: VIDEO_DIRECT_MAP[modelLabel]?.provider === 'kie' ? 'kie' : 'fal',
       kieCredits: VIDEO_DIRECT_MAP[modelLabel]?.provider === 'kie'
         ? estimateKieCredits({ kind: 'video', model: modelLabel, resolution, duration, audio: generate_audio }) : null,
       falCost: VIDEO_DIRECT_MAP[modelLabel]?.provider === 'kie'
@@ -2502,7 +2505,7 @@ app.post('/api/node/run-node', verifyJwt, requireNotBanned, requireFalKey, async
   let chargedKind = null;
   let chargedCost = null;
   try {
-    const charge = await chargeCredits({ userId: req.user.id, kind: spec.creditKind, ip: req.ip, note: `node: ${settings?.model || type}` });
+    const charge = await chargeCredits({ userId: req.user.id, kind: spec.creditKind, ip: req.ip, note: `node: ${settings?.model || type}`, provider: 'fal' });
     chargedKind = spec.creditKind;
     res.setHeader('X-Credits-Remaining', String(charge.newBalance));
   } catch (e) {
@@ -2605,7 +2608,7 @@ app.post('/api/node/run-node-async', verifyJwt, requireNotBanned, requireFalKey,
   let chargedKind = null;
   let chargedCost = null;
   try {
-    const charge = await chargeCredits({ userId: req.user.id, kind: 'video', ip: req.ip, cost: req.body.credit_cost , note: `node video: ${modelLabel || 'video-generator'}` });
+    const charge = await chargeCredits({ userId: req.user.id, kind: 'video', ip: req.ip, cost: req.body.credit_cost, note: `node video: ${modelLabel || 'video-generator'}`, provider: 'fal' });
     chargedKind = 'video';
     chargedCost = charge.cost;
     res.setHeader('X-Credits-Remaining', String(charge.newBalance));

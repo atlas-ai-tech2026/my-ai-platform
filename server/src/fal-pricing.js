@@ -29,6 +29,27 @@ const FAL_USD = {
     perSecond: { audio: { '1080p': 0.112 }, noAudio: { '1080p': 0.084 } },
   },
 
+  // ── conservative bases from creditPricing.js restored catalog (the "≤$X"
+  //    figures the 40%-margin sale prices were derived from) ──
+  'Kling 3.0 Omni':    { perSecond: { flat: 0.152 } },
+  'Kling 2.5':         { perSecond: { flat: 0.0456 } },
+  'Kling 2.1':         { perSecond: { flat: 0.057 } },
+  'Kling O1 Video Edit': { perVideo: { flat: 0.38 } },
+  'Hailuo 2.3':        { perVideo: { flat: 0.285 } },
+  'Seedance 1':        { perSecond: { flat: 0.057 } },
+  'LTX 2':             { perSecond: { flat: 0.076 } },
+  'Vidu':              { perVideo: { flat: 0.42 } },
+  'PixVerse 5':        { perSecond: { flat: 0.038 } },
+  'Wan 2.2':           { perSecond: { flat: 0.057 } },
+  'Soul 2.0':          { perImage: { '1K': 0.025, '2K': 0.025, '4K': 0.025 } },
+  'Wan 2.2 Image':     { perImage: { '1K': 0.05, '2K': 0.05, '4K': 0.05 } },
+  'Skin Enhancer':     { perImage: { '1K': 0.05, '2K': 0.05, '4K': 0.05 } },
+  'Face Swap':         { perImage: { '1K': 0.04, '2K': 0.04, '4K': 0.04 } },
+  'Relight':           { perImage: { '1K': 0.04, '2K': 0.04, '4K': 0.04 } },
+  // Motion Control panels (sheet voxel prices × the 0.038 margin share)
+  'Kling 3.0 Motion Control': { perVideo: { '720p': 0.266, '1080p': 0.38 } },
+  'Kling Motion Control':     { perVideo: { '720p': 0.19, '1080p': 0.266 } },
+
   // ── audio (per 1,000 characters, ElevenLabs via FAL) ──
   'TTS': { per1kChars: 0.1 },
 };
@@ -79,12 +100,15 @@ export function estimateFalCost({ kind, model, resolution, duration, audio, qual
     const n = Math.max(1, Number(chars) || 1000);
     return round4(entry.per1kChars * (n / 1000));
   }
-  const table = entry.perSecond;
+  const table = entry.perSecond || entry.perVideo;
   const tiered = table.audio || table.noAudio ? (audio ? table.audio : table.noAudio) : table;
   const usd = pickRes(tiered, resolution);
   if (usd == null) return null;
-  const secs = Math.max(1, parseInt(duration, 10) || 5);
-  return round4(usd * secs);
+  if (entry.perSecond) {
+    const secs = Math.max(1, parseInt(duration, 10) || 5);
+    return round4(usd * secs);
+  }
+  return round4(usd);
 }
 
 // ─── Historical backfill ─────────────────────────────────────────────────────
@@ -102,6 +126,10 @@ const KIE_SWITCH_DATE = {
   'Nano Banana Pro': '2026-07-20',
   'Nano Banana 2': '2026-07-21', 'Flux Kontext': '2026-07-21', 'Seedream 4.5': '2026-07-21',
   'Seedream 5.0 Lite': '2026-07-21', 'GPT Image 1.5': '2026-07-21', 'GPT Image 2': '2026-07-21',
+  // kie-only since the restored catalog — FAL never billed these here
+  'Sora 2': '2026-07-21', 'Wan 2.6': '2026-07-21', 'Grok Imagine': '2026-07-21',
+  'Seedance 1.5 Pro': '2026-07-21', 'GPT-4o Image': '2026-07-21', 'Midjourney': '2026-07-21',
+  'Flux Kontext Max': '2026-07-21', 'Flux 2': '2026-07-21',
 };
 
 // amount (positive voxel credits) → FAL USD, per image model — the voxel
@@ -111,15 +139,22 @@ const IMAGE_BACKFILL = {
   'Nano Banana 2':     (a) => (a >= 8 ? 0.30 : 0.15),
   'GPT Image 2':       (a) => (a >= 11 ? 0.413 : a >= 6.5 ? 0.234 : 0.219),
   'Seedream 5.0 Lite': () => 0.035,
+  'Soul 2.0':          () => 0.025,
+  'Wan 2.2 Image':     () => 0.05,
+  'Skin Enhancer':     () => 0.05,
+  'Face Swap':         () => 0.04,
+  'Relight':           () => 0.04,
 };
 
 // voxel→FAL-USD multiplier per video model: voxel credits × creditValue ×
 // (1−margin) × (falUSD/basisUSD). For FAL-only models fal IS the basis →
-// voxel × 0.038; for Kling 3.0 fal was cheaper than kie (~0.85×).
+// voxel × 0.038 (the DEFAULT below); overrides where the documented basis
+// sits below the 40%-margin ceiling (ceiling rounding inflated the credits).
+const FAL_DEFAULT_MULTIPLIER = 0.038;
 const VIDEO_BACKFILL_MULTIPLIER = {
   'Kling 3.0': 0.032,
-  'Seedance 2.0': 0.038,
-  'Seedance 2.0 Fast': 0.038,
+  'Kling 2.1': 0.0285,
+  'Seedance 1': 0.0285,
 };
 
 /**
@@ -127,7 +162,9 @@ const VIDEO_BACKFILL_MULTIPLIER = {
  * or null (kie-era row, unlabeled, or no fal price on file).
  */
 export function backfillFalEstimate({ reason, amount, createdAt }) {
-  const m = /^(image|video|audio):\s*(.+)$/.exec(String(reason || '').trim());
+  // node runs were always FAL-billed; their labels are "node: X" /
+  // "node video: X" and take the video fallback path.
+  const m = /^(image|video|audio|node video|node):\s*(.+)$/.exec(String(reason || '').trim());
   if (!m) return null;
   const model = m[2].trim();
   const voxel = Math.abs(Number(amount));
@@ -139,13 +176,17 @@ export function backfillFalEstimate({ reason, amount, createdAt }) {
 
   if (m[1] === 'audio') {
     // 'audio: TTS' rows are flat 1 voxel credit with no char count recorded;
-    // assume a typical full take (~1,000 chars → $0.10).
-    return model === 'TTS' ? 0.1 : null;
+    // assume a typical full take (~1,000 chars → $0.10). Other audio spends
+    // (Music) fall back to the margin share of the voxel price.
+    return model === 'TTS' ? 0.1 : round4(voxel * FAL_DEFAULT_MULTIPLIER);
   }
   if (m[1] === 'image') {
     const fn = IMAGE_BACKFILL[model];
-    return fn ? round4(fn(voxel)) : null;
+    // Unknown FAL image models: margin share of the voxel price.
+    return round4(fn ? fn(voxel) : voxel * FAL_DEFAULT_MULTIPLIER);
   }
-  const mult = VIDEO_BACKFILL_MULTIPLIER[model];
-  return mult ? round4(voxel * mult) : null;
+  // Video (incl. Edit / Motion Control / node labels): per-model override or
+  // the universal 40%-margin share. Every non-kie label here was FAL-billed.
+  const mult = VIDEO_BACKFILL_MULTIPLIER[model] ?? FAL_DEFAULT_MULTIPLIER;
+  return round4(voxel * mult);
 }

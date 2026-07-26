@@ -40,9 +40,15 @@ describe('estimateKieCredits', () => {
       .toBe(estimateKieCredits({ kind: 'video', model: 'Seedance 2.0 Fast', resolution: '720p', duration: 5 }));
   });
 
-  it('returns null for models without a kie price on file', () => {
-    expect(estimateKieCredits({ kind: 'video', model: 'Sora 2', duration: 10 })).toBeNull();
-    expect(estimateKieCredits({ kind: 'image', model: 'Midjourney' })).toBeNull();
+  it('prices the restored-catalog kie models from their conservative bases', () => {
+    // Sora 2: flat $0.30/clip → 60 kie cr; Midjourney task $0.08 → 16 cr
+    expect(estimateKieCredits({ kind: 'video', model: 'Sora 2', duration: 10 })).toBe(60);
+    expect(estimateKieCredits({ kind: 'image', model: 'Midjourney' })).toBe(16);
+    // Wan 2.6: $0.076/s × 10s → 152 cr
+    expect(estimateKieCredits({ kind: 'video', model: 'Wan 2.6', duration: 10 })).toBe(152);
+  });
+
+  it('returns null for truly unknown models', () => {
     expect(estimateKieCredits({ kind: 'video', model: 'Totally Unknown' })).toBeNull();
   });
 
@@ -68,10 +74,16 @@ describe('backfillKieEstimate (historical rows)', () => {
     expect(backfillKieEstimate({ reason: 'video: Kling 3.0', amount: '-12.50', createdAt: '2026-07-15' })).toBeNull();
   });
 
-  it('refuses FAL models, unlabeled rows, and unpriced kie models', () => {
+  it('refuses FAL models, unlabeled rows, and audio', () => {
     expect(backfillKieEstimate({ reason: 'video: Kling 2.1', amount: '-8', createdAt: '2026-07-25' })).toBeNull();
     expect(backfillKieEstimate({ reason: null, amount: '-4', createdAt: '2026-07-25' })).toBeNull();
-    expect(backfillKieEstimate({ reason: 'video: Sora 2', amount: '-10', createdAt: '2026-07-25' })).toBeNull();
     expect(backfillKieEstimate({ reason: 'audio: TTS', amount: '-1', createdAt: '2026-07-25' })).toBeNull();
+  });
+
+  it('fills kie-only restored-catalog models via the margin ratio', () => {
+    // Sora 2: 10 voxel × 7.5 = 75 kie cr (flat $0.30 clip at 8 cr = 60)
+    expect(backfillKieEstimate({ reason: 'video: Sora 2', amount: '-10', createdAt: '2026-07-25' })).toBe(75);
+    // but not before the restored catalog existed
+    expect(backfillKieEstimate({ reason: 'video: Sora 2', amount: '-10', createdAt: '2026-07-15' })).toBeNull();
   });
 });

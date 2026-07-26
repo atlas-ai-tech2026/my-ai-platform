@@ -37,7 +37,13 @@ export class InsufficientCreditsError extends Error {
  * Wrapped in a transaction so the balance UPDATE and credits_history INSERT
  * either both happen or both don't.
  */
-export async function chargeCredits({ userId, kind, ip, cost: costOverride, note, kieCredits, falCost }) {
+// Provider-cost share of a voxel credit: (1 − 40% margin) × $0.063333.
+// Every model is priced so its provider cost is AT MOST this share of the
+// sale — used as the fallback estimate when no explicit price is on file.
+const PROVIDER_COST_SHARE_USD = 0.038;
+const KIE_USD_PER_CREDIT = 0.005;
+
+export async function chargeCredits({ userId, kind, ip, cost: costOverride, note, kieCredits, falCost, provider }) {
   // Prefer the computed per-generation cost sent by the client (model +
   // resolution + duration aware). Fall back to the flat per-kind cost when
   // it's missing/invalid (e.g. a model not yet in the pricing table).
@@ -86,11 +92,19 @@ export async function chargeCredits({ userId, kind, ip, cost: costOverride, note
     // ledger shows WHAT each charge was for, not just the amount.
     // `kie_credits` is the estimated KIE-credit cost on our kie.ai balance
     // (null for FAL-backed models / models without a kie price on file).
-    const kie = Number.isFinite(Number(kieCredits)) && Number(kieCredits) > 0
+    let kie = Number.isFinite(Number(kieCredits)) && Number(kieCredits) > 0
       ? Math.round(Number(kieCredits) * 100) / 100 : null;
     // `fal_cost` is the FAL twin: estimated USD on our fal.ai bill.
-    const fal = Number.isFinite(Number(falCost)) && Number(falCost) > 0
+    let fal = Number.isFinite(Number(falCost)) && Number(falCost) > 0
       ? Math.round(Number(falCost) * 10000) / 10000 : null;
+    // No explicit price on file but the provider is known → margin-derived
+    // fallback, so no billed generation ever shows "—" going forward.
+    if (kie == null && provider === 'kie') {
+      kie = Math.round(cost * (PROVIDER_COST_SHARE_USD / KIE_USD_PER_CREDIT) * 100) / 100;
+    }
+    if (fal == null && provider === 'fal') {
+      fal = Math.round(cost * PROVIDER_COST_SHARE_USD * 10000) / 10000;
+    }
     await client.query(
       `INSERT INTO credits_history (user_id, amount, action, reason, ip_address, kie_credits, fal_cost)
        VALUES ($1, $2, 'spend', $3, $4, $5, $6)`,
