@@ -94,6 +94,80 @@ function normalizeQuality(quality) {
   return '1K'; // Draft and 1K share pricing throughout the workbook
 }
 
+// ─── Historical backfill ─────────────────────────────────────────────────────
+// Ledger rows from before per-transaction KIE tracking (2026-07-26) carry
+// only a label ("video: Kling 3.0") and the voxel amount — no resolution,
+// duration, or audio flag. Two inference tricks recover a solid estimate:
+//
+//  • IMAGES — the voxel amount encodes the quality tier (Nano Banana Pro:
+//    4 cr = 1K/2K → $0.09 → 18 kie cr; 8 cr = 4K → $0.12 → 24 kie cr), so
+//    the mapping is nearly exact.
+//  • VIDEO — voxel price and kie price are both ~proportional to
+//    duration×resolution, and the 40%-margin formula makes their ratio a
+//    per-model constant: kie_credits ≈ voxel_credits × (kieUSD/basisUSD) ×
+//    (1−margin)×creditValue/0.005 ≈ voxel × 7.6 when kie IS the basis,
+//    lower when FAL was the pricier supplier. Accurate to ~±10%.
+//
+// Only rows AFTER the model's FAL→kie switch date may be backfilled — a
+// "Kling 3.0" generated on 2026-07-15 ran on FAL and cost us zero kie
+// credits. Models with no confirmed kie price stay null.
+
+const KIE_SWITCH_DATE = {
+  'Kling 3.0': '2026-07-20', 'Kling 2.6': '2026-07-20',
+  'Seedance 2.0': '2026-07-20', 'Seedance 2.0 Fast': '2026-07-20', 'Seedance 2.0 Mini': '2026-07-20',
+  'Veo 3': '2026-07-20', 'Veo 3.1': '2026-07-20', 'Veo 3 Fast': '2026-07-20',
+  'Nano Banana Pro': '2026-07-20',
+  'Nano Banana 2': '2026-07-21', 'Flux Kontext': '2026-07-21', 'Seedream 4.5': '2026-07-21',
+  'Seedream 5.0 Lite': '2026-07-21', 'GPT Image 1.5': '2026-07-21', 'GPT Image 2': '2026-07-21',
+};
+
+// amount (positive voxel credits) → kie credits, per image model
+const IMAGE_BACKFILL = {
+  'Nano Banana Pro':   (a) => (a >= 8 ? 24 : 18),
+  'Nano Banana 2':     (a) => (a >= 8 ? 18 : 8),
+  'GPT Image 2':       (a) => (a >= 11 ? 16 : a >= 6.5 ? 10 : 6),
+  'GPT Image 1.5':     () => 34,
+  'Flux Kontext':      () => 8,
+  'Seedream 4.5':      (a) => (a >= 2 ? 12 : 6),
+  'Seedream 5.0 Lite': () => 5.5,
+};
+
+// voxel→kie multiplier per video model (kieUSD/basisUSD scaled by the
+// margin formula; 7.6 = kie is the cost basis, lower = FAL was pricier)
+const VIDEO_BACKFILL_MULTIPLIER = {
+  'Kling 3.0': 7.0,
+  'Kling 2.6': 7.4,
+  'Seedance 2.0': 5.1,
+  'Seedance 2.0 Fast': 5.2,
+  'Seedance 2.0 Mini': 7.6,
+  'Veo 3': 7.6,
+  'Veo 3.1': 7.6,
+  'Veo 3 Fast': 7.6,
+};
+
+/**
+ * Estimate KIE credits for a PRE-TRACKING ledger row from its label +
+ * voxel amount. Returns a number or null (FAL-backed, unlabeled, unpriced,
+ * or generated before the model's kie switch date).
+ */
+export function backfillKieEstimate({ reason, amount, createdAt }) {
+  const m = /^(image|video):\s*(.+)$/.exec(String(reason || '').trim());
+  if (!m) return null;
+  const model = m[2].trim();
+  const voxel = Math.abs(Number(amount));
+  if (!Number.isFinite(voxel) || voxel <= 0) return null;
+
+  const switchDate = KIE_SWITCH_DATE[model];
+  if (!switchDate || new Date(createdAt) < new Date(switchDate)) return null;
+
+  if (m[1] === 'image') {
+    const fn = IMAGE_BACKFILL[model];
+    return fn ? fn(voxel) : null;
+  }
+  const mult = VIDEO_BACKFILL_MULTIPLIER[model];
+  return mult ? Math.round(voxel * mult * 100) / 100 : null;
+}
+
 /**
  * Estimated KIE credits a generation consumes from OUR kie.ai balance.
  * Returns a number (2dp) or null when the model has no kie price on file —

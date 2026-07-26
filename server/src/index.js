@@ -14,7 +14,7 @@ import jwt from 'jsonwebtoken';
 import { pool, isReady as dbReady, migrate, ADMIN_EMAIL } from './db.js';
 import { persistOrFallback, persistBuffer, isReady as spacesReady } from './storage.js';
 import { configureKie, kieCreateTask, kieGetTask, kiePollUntilDone, kieUploadBuffer, kieGetCredits } from './kie.js';
-import { estimateKieCredits } from './kie-pricing.js';
+import { estimateKieCredits, backfillKieEstimate } from './kie-pricing.js';
 import { verifyJwt, requireAdmin, requireNotBanned } from './middleware/auth.js';
 // Restored after the in-file getStore block was removed — DIST_DIR
 // at the bottom of this file still needs __dirname.
@@ -3490,8 +3490,66 @@ function startListening() {
   });
 }
 
+// ─── KIE-credit backfill (historical ledger rows) ──────────────────
+// Rows created before per-transaction KIE tracking shipped have
+// kie_credits = NULL. Fill them with label+amount-derived estimates
+// (kie-pricing.js backfillKieEstimate) so the admin Logs/Usage pages show
+// history, not dashes. Idempotent and safe to run every boot:
+//   • only touches rows BEFORE the tracking cutoff — live-tracked rows and
+//     genuinely-null ones (FAL, unlabeled, pre-kie-switch) are never written
+//   • groups by (reason, amount) so it's a handful of UPDATEs, not
+//     thousands of row round-trips
+const KIE_TRACKING_STARTED = '2026-07-26T16:00:00Z';
+async function backfillKieCredits() {
+  if (!dbReady()) return;
+  try {
+    const { rows: groups } = await pool.query(
+      `SELECT reason, amount, MIN(created_at) AS first_at, MAX(created_at) AS last_at, COUNT(*)::int AS n
+         FROM credits_history
+        WHERE action = 'spend' AND kie_credits IS NULL AND reason IS NOT NULL
+          AND created_at < $1
+        GROUP BY reason, amount`,
+      [KIE_TRACKING_STARTED]
+    );
+    let updated = 0;
+    for (const g of groups) {
+      // Estimate against the group's EARLIEST row; the per-row date check
+      // below re-verifies each row against the model's kie switch date.
+      const est = backfillKieEstimate({ reason: g.reason, amount: g.amount, createdAt: g.last_at });
+      if (est == null) continue;
+      const switchSafe = backfillKieEstimate({ reason: g.reason, amount: g.amount, createdAt: g.first_at }) != null
+        ? '1970-01-01' // whole group is past the switch date — no per-row cut needed
+        : null;
+      const { rowCount } = await pool.query(
+        `UPDATE credits_history SET kie_credits = $1
+          WHERE action = 'spend' AND kie_credits IS NULL AND reason = $2 AND amount = $3
+            AND created_at < $4 AND created_at >= $5`,
+        [est, g.reason, g.amount, KIE_TRACKING_STARTED,
+         switchSafe ?? kieSwitchDateFor(g.reason)]
+      );
+      updated += rowCount;
+    }
+    if (updated) console.log(`[kie-backfill] estimated kie_credits on ${updated} historical ledger row(s)`);
+  } catch (err) {
+    console.error('[kie-backfill] non-fatal:', err.message);
+  }
+}
+// The switch date for a labeled model, for the per-row cut when a group
+// straddles it. Mirrors KIE_SWITCH_DATE in kie-pricing.js via the estimator.
+function kieSwitchDateFor(reason) {
+  // Probe earliest-first: the first switch day at which the model already
+  // estimates non-null IS its switch day.
+  for (const d of ['2026-07-20', '2026-07-21']) {
+    if (backfillKieEstimate({ reason, amount: 1, createdAt: d }) != null) return d;
+  }
+  return KIE_TRACKING_STARTED; // unpriced model — matches nothing
+}
+
 migrate()
-  .then(startListening)
+  .then(async () => {
+    await backfillKieCredits();
+    startListening();
+  })
   .catch((err) => {
     console.error('[voxel-api] continuing despite migration error:', err.message);
     startListening();

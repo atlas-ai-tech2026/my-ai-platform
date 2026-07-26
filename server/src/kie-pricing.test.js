@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { estimateKieCredits, KIE_USD_PER_CREDIT } from './kie-pricing.js';
+import { estimateKieCredits, backfillKieEstimate, KIE_USD_PER_CREDIT } from './kie-pricing.js';
 
 // Workbook cross-checks (Voxel_Plans_and_Credits.xlsx → "Model Credits",
 // kie cost column): kie credits = kie USD / 0.005.
@@ -48,5 +48,30 @@ describe('estimateKieCredits', () => {
 
   it('uses the documented kie credit rate', () => {
     expect(KIE_USD_PER_CREDIT).toBe(0.005);
+  });
+});
+
+describe('backfillKieEstimate (historical rows)', () => {
+  it('infers image quality tier from the voxel amount', () => {
+    // Nano Banana Pro: -4 = 1K/2K → 18 kie cr; -8 = 4K → 24 kie cr
+    expect(backfillKieEstimate({ reason: 'image: Nano Banana Pro', amount: '-4.00', createdAt: '2026-07-25' })).toBe(18);
+    expect(backfillKieEstimate({ reason: 'image: Nano Banana Pro', amount: '-8.00', createdAt: '2026-07-25' })).toBe(24);
+  });
+
+  it('scales video estimates from voxel credits by the per-model ratio', () => {
+    // Kling 3.0: -12.5 voxel (5s 1080p) × 7.0 → 87.5 kie cr (direct calc: 90)
+    expect(backfillKieEstimate({ reason: 'video: Kling 3.0', amount: '-12.50', createdAt: '2026-07-25' })).toBe(87.5);
+  });
+
+  it('refuses rows from before the model ran on kie', () => {
+    // Kling 3.0 switched FAL→kie on 2026-07-20; earlier rows cost zero kie
+    expect(backfillKieEstimate({ reason: 'video: Kling 3.0', amount: '-12.50', createdAt: '2026-07-15' })).toBeNull();
+  });
+
+  it('refuses FAL models, unlabeled rows, and unpriced kie models', () => {
+    expect(backfillKieEstimate({ reason: 'video: Kling 2.1', amount: '-8', createdAt: '2026-07-25' })).toBeNull();
+    expect(backfillKieEstimate({ reason: null, amount: '-4', createdAt: '2026-07-25' })).toBeNull();
+    expect(backfillKieEstimate({ reason: 'video: Sora 2', amount: '-10', createdAt: '2026-07-25' })).toBeNull();
+    expect(backfillKieEstimate({ reason: 'audio: TTS', amount: '-1', createdAt: '2026-07-25' })).toBeNull();
   });
 });
