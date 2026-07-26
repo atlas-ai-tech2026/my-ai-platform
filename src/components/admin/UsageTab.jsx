@@ -45,8 +45,8 @@ export default function UsageTab({ onError }) {
   const exportCsv = useCallback(() => {
     if (!data?.daily?.length) return;
     const csv = [
-      ['day', 'voxel_spent', 'voxel_refunded', 'kie_credits', 'generations'].join(','),
-      ...data.daily.map(d => [d.day, d.voxel_spent, d.voxel_refunded, d.kie_credits, d.generations].join(',')),
+      ['day', 'voxel_spent', 'voxel_refunded', 'kie_credits', 'fal_cost_usd', 'generations'].join(','),
+      ...data.daily.map(d => [d.day, d.voxel_spent, d.voxel_refunded, d.kie_credits, d.fal_cost, d.generations].join(',')),
     ].join('\n');
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
@@ -61,7 +61,7 @@ export default function UsageTab({ onError }) {
     <div>
       <div style={{ color: 'rgba(255,255,255,0.4)', fontSize: 13, marginBottom: 16 }}>
         Credit consumption across all users — Voxel credits (what users spend) next to
-        KIE credits (what our kie.ai balance pays for those generations).
+        KIE credits (our kie.ai balance) and FAL cost (our fal.ai bill, USD).
       </div>
 
       {/* Controls */}
@@ -91,6 +91,8 @@ export default function UsageTab({ onError }) {
           sub={t ? `${t.voxel_refunded.toLocaleString()} refunded` : ''} accent="#f87171" />
         <Card label="KIE credits used" value={t ? t.kie_credits.toLocaleString() : '…'}
           sub="estimated, kie-backed models only" accent="#c084fc" />
+        <Card label="FAL cost" value={t ? `$${t.fal_cost.toLocaleString(undefined, { maximumFractionDigits: 2 })}` : '…'}
+          sub="estimated, FAL-backed models only" accent="#fb923c" />
         <Card label="Generations" value={t ? t.generations.toLocaleString() : '…'}
           sub={t ? `${t.active_users} active user(s)` : ''} accent="#4ade80" />
       </div>
@@ -105,6 +107,8 @@ export default function UsageTab({ onError }) {
               <XAxis dataKey="day" tick={{ fill: 'rgba(255,255,255,0.45)', fontSize: 11 }}
                 tickFormatter={(d) => d.slice(5)} axisLine={false} tickLine={false} />
               <YAxis tick={{ fill: 'rgba(255,255,255,0.45)', fontSize: 11 }} axisLine={false} tickLine={false} />
+              <YAxis yAxisId="usd" orientation="right" tick={{ fill: 'rgba(251,146,60,0.7)', fontSize: 11 }}
+                axisLine={false} tickLine={false} tickFormatter={(v) => `$${v}`} />
               <Tooltip
                 contentStyle={{ background: '#141417', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 10, fontSize: 12 }}
                 labelStyle={{ color: 'rgba(255,255,255,0.6)' }}
@@ -112,6 +116,7 @@ export default function UsageTab({ onError }) {
               <Legend wrapperStyle={{ fontSize: 12 }} />
               <Bar dataKey="voxel_spent" name="Voxel credits" fill="#e0442c" radius={[4, 4, 0, 0]} maxBarSize={28} />
               <Line dataKey="kie_credits" name="KIE credits" stroke="#c084fc" strokeWidth={2} dot={false} type="monotone" />
+              <Line yAxisId="usd" dataKey="fal_cost" name="FAL cost ($)" stroke="#fb923c" strokeWidth={2} dot={false} type="monotone" />
             </ComposedChart>
           </ResponsiveContainer>
         ) : (
@@ -128,14 +133,14 @@ export default function UsageTab({ onError }) {
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
             <thead>
               <tr>
-                {['Model', 'Generations', 'Voxel credits', 'KIE credits'].map(h => (
+                {['Model', 'Generations', 'Voxel credits', 'KIE credits', 'FAL cost'].map(h => (
                   <th key={h} style={thStyle}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {data?.models?.length === 0 && (
-                <tr><td colSpan={4} style={{ padding: 24, textAlign: 'center', color: 'rgba(255,255,255,0.35)' }}>No spends in this range.</td></tr>
+                <tr><td colSpan={5} style={{ padding: 24, textAlign: 'center', color: 'rgba(255,255,255,0.35)' }}>No spends in this range.</td></tr>
               )}
               {data?.models?.map(m => (
                 <tr key={m.model} style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
@@ -144,6 +149,9 @@ export default function UsageTab({ onError }) {
                   <td style={{ ...tdStyle, color: '#f87171', fontWeight: 600 }}>{m.voxel_spent.toLocaleString()}</td>
                   <td style={{ ...tdStyle, color: m.kie_credits ? '#c084fc' : 'rgba(255,255,255,0.3)', fontWeight: m.kie_credits ? 600 : 400 }}>
                     {m.kie_credits ? m.kie_credits.toLocaleString() : '—'}
+                  </td>
+                  <td style={{ ...tdStyle, color: m.fal_cost ? '#fb923c' : 'rgba(255,255,255,0.3)', fontWeight: m.fal_cost ? 600 : 400 }}>
+                    {m.fal_cost ? `$${m.fal_cost.toLocaleString(undefined, { maximumFractionDigits: 2 })}` : '—'}
                   </td>
                 </tr>
               ))}

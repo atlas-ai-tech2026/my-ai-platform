@@ -61,10 +61,10 @@ export default function LogsTab({ onError }) {
     if (!rows?.length) return;
     const esc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
     const csv = [
-      ['time', 'user', 'details', 'action', 'voxel_credits', 'kie_credits'].join(','),
+      ['time', 'user', 'details', 'action', 'voxel_credits', 'kie_credits', 'fal_cost_usd'].join(','),
       ...rows.map(r => [
         esc(new Date(r.created_at).toISOString()), esc(r.email), esc(r.reason),
-        esc(r.action), esc(r.amount), esc(r.kie_credits ?? ''),
+        esc(r.action), esc(r.amount), esc(r.kie_credits ?? ''), esc(r.fal_cost ?? ''),
       ].join(',')),
     ].join('\n');
     const a = document.createElement('a');
@@ -78,15 +78,17 @@ export default function LogsTab({ onError }) {
     if (!rows?.length) return null;
     const voxel = rows.reduce((s, r) => s + (r.action === 'spend' ? -Number(r.amount) : 0), 0);
     const kie = rows.reduce((s, r) => s + (r.kie_credits ? Number(r.kie_credits) : 0), 0);
-    return { voxel: voxel.toFixed(2), kie: kie.toFixed(2) };
+    const fal = rows.reduce((s, r) => s + (r.fal_cost ? Number(r.fal_cost) : 0), 0);
+    return { voxel: voxel.toFixed(2), kie: kie.toFixed(2), fal: fal.toFixed(2) };
   }, [rows]);
 
   return (
     <div>
       <div style={{ color: 'rgba(255,255,255,0.4)', fontSize: 13, marginBottom: 16 }}>
         An overview of the latest requests across all users. Voxel credits = what the
-        user paid; KIE credits = estimated cost on our kie.ai balance ("—" = FAL-backed,
-        no kie price on file, or predates KIE tracking).
+        user paid; KIE credits = estimated cost on our kie.ai balance; FAL cost =
+        estimated USD on our fal.ai bill. "—" = other provider, no price on file,
+        or unlabeled historical row.
       </div>
 
       {/* Filters row */}
@@ -113,7 +115,8 @@ export default function LogsTab({ onError }) {
       {summary && (
         <div style={{ color: 'rgba(255,255,255,0.45)', fontSize: 12, marginBottom: 10 }}>
           This page: <b style={{ color: '#fff' }}>{summary.voxel}</b> voxel credits spent ·{' '}
-          <b style={{ color: '#fff' }}>{summary.kie}</b> KIE credits
+          <b style={{ color: '#fff' }}>{summary.kie}</b> KIE credits ·{' '}
+          <b style={{ color: '#fff' }}>${summary.fal}</b> FAL cost
         </div>
       )}
 
@@ -122,17 +125,17 @@ export default function LogsTab({ onError }) {
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
           <thead>
             <tr>
-              {['Time', 'User', 'Model & Details', 'Status', 'Voxel credits', 'KIE credits'].map(h => (
+              {['Time', 'User', 'Model & Details', 'Status', 'Voxel credits', 'KIE credits', 'FAL cost'].map(h => (
                 <th key={h} style={thStyle}>{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
             {rows === null && (
-              <tr><td colSpan={6} style={emptyStyle}>Loading…</td></tr>
+              <tr><td colSpan={7} style={emptyStyle}>Loading…</td></tr>
             )}
             {rows?.length === 0 && (
-              <tr><td colSpan={6} style={emptyStyle}>No log entries match these filters.</td></tr>
+              <tr><td colSpan={7} style={emptyStyle}>No log entries match these filters.</td></tr>
             )}
             {rows?.map(r => {
               const chip = ACTION_CHIP[r.action] || { label: r.action, color: '#aaa', bg: 'rgba(255,255,255,0.08)' };
@@ -157,6 +160,9 @@ export default function LogsTab({ onError }) {
                   </td>
                   <td style={{ ...tdStyle, color: r.kie_credits ? '#c084fc' : 'rgba(255,255,255,0.3)', fontWeight: r.kie_credits ? 600 : 400 }}>
                     {r.kie_credits ? `−${Number(r.kie_credits)}` : '—'}
+                  </td>
+                  <td style={{ ...tdStyle, color: r.fal_cost ? '#fb923c' : 'rgba(255,255,255,0.3)', fontWeight: r.fal_cost ? 600 : 400 }}>
+                    {r.fal_cost ? `−$${Number(r.fal_cost)}` : '—'}
                   </td>
                 </tr>
               );

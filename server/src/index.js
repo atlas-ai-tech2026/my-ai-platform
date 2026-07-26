@@ -15,6 +15,7 @@ import { pool, isReady as dbReady, migrate, ADMIN_EMAIL } from './db.js';
 import { persistOrFallback, persistBuffer, isReady as spacesReady } from './storage.js';
 import { configureKie, kieCreateTask, kieGetTask, kiePollUntilDone, kieUploadBuffer, kieGetCredits } from './kie.js';
 import { estimateKieCredits, backfillKieEstimate } from './kie-pricing.js';
+import { estimateFalCost, backfillFalEstimate } from './fal-pricing.js';
 import { verifyJwt, requireAdmin, requireNotBanned } from './middleware/auth.js';
 // Restored after the in-file getStore block was removed — DIST_DIR
 // at the bottom of this file still needs __dirname.
@@ -856,12 +857,14 @@ app.post('/api/generate', verifyJwt, requireNotBanned, requireModelProviderKey, 
   let chargedKind = null;
   let chargedCost = null;
   try {
-    // KIE-credit estimate rides along on the ledger row when this model
-    // burns our kie.ai balance (null for FAL-backed models).
+    // Provider-cost estimate rides along on the ledger row: KIE credits
+    // when the model burns our kie.ai balance, FAL USD when it bills fal.
     const isKie = cfg?.provider === 'kie' || VIDEO_DIRECT_MAP[model]?.provider === 'kie';
+    const estOpts = { kind: type, model, quality, resolution: req.body.resolution, duration, audio: req.body.audio };
     const charge = await chargeCredits({
       userId: req.user.id, kind: type, ip: req.ip, cost: req.body.credit_cost, note: `${type}: ${model}`,
-      kieCredits: isKie ? estimateKieCredits({ kind: type, model, quality, resolution: req.body.resolution, duration, audio: req.body.audio }) : null,
+      kieCredits: isKie ? estimateKieCredits(estOpts) : null,
+      falCost: isKie ? null : estimateFalCost(estOpts),
     });
     chargedKind = type;
     chargedCost = charge.cost;
@@ -1199,6 +1202,7 @@ app.post('/api/generate-video', verifyJwt, requireNotBanned, requireModelProvide
     const charge = await chargeCredits({
       userId: req.user.id, kind: 'video', ip: req.ip, cost: req.body.credit_cost, note: `video: ${model}`,
       kieCredits: mapping.provider === 'kie' ? estimateKieCredits({ kind: 'video', model, resolution, duration, audio }) : null,
+      falCost: mapping.provider === 'kie' ? null : estimateFalCost({ kind: 'video', model, resolution, duration, audio }),
     });
     chargedKind = 'video';
     chargedCost = charge.cost;
@@ -1505,7 +1509,10 @@ app.post('/api/tts', verifyJwt, requireNotBanned, requireFalKey, async (req, res
   let chargedKind = null;
   let chargedCost = null;
   try {
-    const charge = await chargeCredits({ userId: req.user.id, kind: 'audio', ip: req.ip , note: 'audio: TTS' });
+    const charge = await chargeCredits({
+      userId: req.user.id, kind: 'audio', ip: req.ip, note: 'audio: TTS',
+      falCost: estimateFalCost({ kind: 'audio', model: 'TTS', chars: text.length }),
+    });
     chargedKind = 'audio';
     res.setHeader('X-Credits-Remaining', String(charge.newBalance));
   } catch (e) {
@@ -1741,6 +1748,8 @@ app.post('/api/generate-video-ref', verifyJwt, requireNotBanned, requireModelPro
       userId: req.user.id, kind: 'video', ip: req.ip, cost: req.body.credit_cost, note: `video: ${modelLabel}`,
       kieCredits: VIDEO_DIRECT_MAP[modelLabel]?.provider === 'kie'
         ? estimateKieCredits({ kind: 'video', model: modelLabel, resolution, duration, audio: generate_audio }) : null,
+      falCost: VIDEO_DIRECT_MAP[modelLabel]?.provider === 'kie'
+        ? null : estimateFalCost({ kind: 'video', model: modelLabel, resolution, duration, audio: generate_audio }),
     });
     chargedKind = 'video';
     chargedCost = charge.cost;
@@ -3151,7 +3160,7 @@ app.get('/api/admin/users/:id/history', adminGate, async (req, res) => {
     // backstop only — nothing is ever deleted from credits_history.
     const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 10000, 1), 10000);
     const { rows } = await pool.query(
-      `SELECT id, amount, action, admin_email, reason, ip_address, created_at, kie_credits
+      `SELECT id, amount, action, admin_email, reason, ip_address, created_at, kie_credits, fal_cost
          FROM credits_history WHERE user_id = $1
          ORDER BY created_at DESC LIMIT $2`,
       [targetId, limit]
@@ -3339,7 +3348,7 @@ app.get('/api/admin/logs', adminGate, async (req, res) => {
 
     const [rows, count] = await Promise.all([
       pool.query(
-        `SELECT ch.id, ch.created_at, ch.action, ch.amount, ch.kie_credits,
+        `SELECT ch.id, ch.created_at, ch.action, ch.amount, ch.kie_credits, ch.fal_cost,
                 ch.reason, u.id AS user_id, u.email
            FROM credits_history ch
            JOIN users u ON u.id = ch.user_id
@@ -3382,6 +3391,7 @@ app.get('/api/admin/usage', adminGate, async (req, res) => {
                 COALESCE(SUM(-amount) FILTER (WHERE action = 'spend'), 0)::float   AS voxel_spent,
                 COALESCE(SUM(amount)  FILTER (WHERE action = 'refund'), 0)::float  AS voxel_refunded,
                 COALESCE(SUM(kie_credits) FILTER (WHERE action = 'spend'), 0)::float AS kie_credits,
+                COALESCE(SUM(fal_cost) FILTER (WHERE action = 'spend'), 0)::float AS fal_cost,
                 COUNT(*) FILTER (WHERE action = 'spend')::int AS generations
            FROM credits_history
           WHERE created_at >= $1 AND created_at < $2::timestamptz + INTERVAL '1 day'
@@ -3392,7 +3402,8 @@ app.get('/api/admin/usage', adminGate, async (req, res) => {
         `SELECT COALESCE(reason, '(unlabeled)') AS model,
                 COUNT(*)::int AS generations,
                 SUM(-amount)::float AS voxel_spent,
-                COALESCE(SUM(kie_credits), 0)::float AS kie_credits
+                COALESCE(SUM(kie_credits), 0)::float AS kie_credits,
+                COALESCE(SUM(fal_cost), 0)::float AS fal_cost
            FROM credits_history
           WHERE action = 'spend' AND created_at >= $1 AND created_at < $2::timestamptz + INTERVAL '1 day'
           GROUP BY 1 ORDER BY voxel_spent DESC LIMIT 50`,
@@ -3402,6 +3413,7 @@ app.get('/api/admin/usage', adminGate, async (req, res) => {
         `SELECT COALESCE(SUM(-amount) FILTER (WHERE action = 'spend'), 0)::float  AS voxel_spent,
                 COALESCE(SUM(amount)  FILTER (WHERE action = 'refund'), 0)::float AS voxel_refunded,
                 COALESCE(SUM(kie_credits) FILTER (WHERE action = 'spend'), 0)::float AS kie_credits,
+                COALESCE(SUM(fal_cost) FILTER (WHERE action = 'spend'), 0)::float AS fal_cost,
                 COUNT(*) FILTER (WHERE action = 'spend')::int AS generations,
                 COUNT(DISTINCT user_id) FILTER (WHERE action = 'spend')::int AS active_users
            FROM credits_history
@@ -3500,38 +3512,53 @@ function startListening() {
 //   • groups by (reason, amount) so it's a handful of UPDATEs, not
 //     thousands of row round-trips
 const KIE_TRACKING_STARTED = '2026-07-26T16:00:00Z';
-async function backfillKieCredits() {
+async function backfillProviderCosts() {
   if (!dbReady()) return;
   try {
     const { rows: groups } = await pool.query(
       `SELECT reason, amount, MIN(created_at) AS first_at, MAX(created_at) AS last_at, COUNT(*)::int AS n
          FROM credits_history
-        WHERE action = 'spend' AND kie_credits IS NULL AND reason IS NOT NULL
+        WHERE action = 'spend' AND reason IS NOT NULL
+          AND (kie_credits IS NULL OR fal_cost IS NULL)
           AND created_at < $1
         GROUP BY reason, amount`,
       [KIE_TRACKING_STARTED]
     );
-    let updated = 0;
+    let kieRows = 0, falRows = 0;
     for (const g of groups) {
-      // Estimate against the group's EARLIEST row; the per-row date check
-      // below re-verifies each row against the model's kie switch date.
-      const est = backfillKieEstimate({ reason: g.reason, amount: g.amount, createdAt: g.last_at });
-      if (est == null) continue;
-      const switchSafe = backfillKieEstimate({ reason: g.reason, amount: g.amount, createdAt: g.first_at }) != null
-        ? '1970-01-01' // whole group is past the switch date — no per-row cut needed
-        : null;
-      const { rowCount } = await pool.query(
-        `UPDATE credits_history SET kie_credits = $1
-          WHERE action = 'spend' AND kie_credits IS NULL AND reason = $2 AND amount = $3
-            AND created_at < $4 AND created_at >= $5`,
-        [est, g.reason, g.amount, KIE_TRACKING_STARTED,
-         switchSafe ?? kieSwitchDateFor(g.reason)]
-      );
-      updated += rowCount;
+      const sw = kieSwitchDateFor(g.reason); // switch day, or the cutoff sentinel for never-switched models
+
+      // KIE side: rows AT/AFTER the model's kie switch (estimator returns
+      // null pre-switch, so probing last_at covers the newest rows).
+      const kieEst = backfillKieEstimate({ reason: g.reason, amount: g.amount, createdAt: g.last_at });
+      if (kieEst != null) {
+        const r = await pool.query(
+          `UPDATE credits_history SET kie_credits = $1
+            WHERE action = 'spend' AND kie_credits IS NULL AND reason = $2 AND amount = $3
+              AND created_at >= $4 AND created_at < $5`,
+          [kieEst, g.reason, g.amount, sw, KIE_TRACKING_STARTED]
+        );
+        kieRows += r.rowCount;
+      }
+
+      // FAL side: the complement — rows BEFORE the switch (or the whole
+      // pre-tracking span for models that never moved to kie).
+      const falEst = backfillFalEstimate({ reason: g.reason, amount: g.amount, createdAt: g.first_at });
+      if (falEst != null) {
+        const r = await pool.query(
+          `UPDATE credits_history SET fal_cost = $1
+            WHERE action = 'spend' AND fal_cost IS NULL AND reason = $2 AND amount = $3
+              AND created_at < LEAST($4::timestamptz, $5::timestamptz)`,
+          [falEst, g.reason, g.amount, sw, KIE_TRACKING_STARTED]
+        );
+        falRows += r.rowCount;
+      }
     }
-    if (updated) console.log(`[kie-backfill] estimated kie_credits on ${updated} historical ledger row(s)`);
+    if (kieRows || falRows) {
+      console.log(`[provider-backfill] estimated kie_credits on ${kieRows} and fal_cost on ${falRows} historical ledger row(s)`);
+    }
   } catch (err) {
-    console.error('[kie-backfill] non-fatal:', err.message);
+    console.error('[provider-backfill] non-fatal:', err.message);
   }
 }
 // The switch date for a labeled model, for the per-row cut when a group
@@ -3547,7 +3574,7 @@ function kieSwitchDateFor(reason) {
 
 migrate()
   .then(async () => {
-    await backfillKieCredits();
+    await backfillProviderCosts();
     startListening();
   })
   .catch((err) => {

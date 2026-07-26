@@ -25,6 +25,7 @@ export default function HistoryModal({ user, history, onClose }) {
                   <Th>Action</Th>
                   <Th>Δ</Th>
                   <Th>KIE credit</Th>
+                  <Th>FAL cost</Th>
                   <Th>By</Th>
                   <Th>Reason</Th>
                   <Th>IP</Th>
@@ -48,6 +49,12 @@ export default function HistoryModal({ user, history, onClose }) {
                           kie.ai balance; "—" = FAL-backed / untracked row. */}
                       <span style={{ color: h.kie_credits ? '#c084fc' : 'rgba(255,255,255,0.3)', fontWeight: h.kie_credits ? 600 : 400 }}>
                         {h.kie_credits ? `−${Number(h.kie_credits).toFixed(2)}` : '—'}
+                      </span>
+                    </Td>
+                    <Td>
+                      {/* Estimated USD on our fal.ai bill; "—" = kie-backed / untracked. */}
+                      <span style={{ color: h.fal_cost ? '#fb923c' : 'rgba(255,255,255,0.3)', fontWeight: h.fal_cost ? 600 : 400 }}>
+                        {h.fal_cost ? `−$${Number(h.fal_cost).toFixed(2)}` : '—'}
                       </span>
                     </Td>
                     <Td>{h.admin_email || <span style={{ color: 'rgba(255,255,255,0.3)' }}>system</span>}</Td>

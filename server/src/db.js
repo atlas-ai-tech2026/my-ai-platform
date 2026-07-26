@@ -142,6 +142,12 @@ export async function migrate() {
     // no kie price on file, or a row from before this column existed —
     // the admin UI renders those as "—".
     await client.query(`ALTER TABLE credits_history ADD COLUMN IF NOT EXISTS kie_credits NUMERIC(12,2);`);
+
+    // fal_cost: estimated USD the transaction cost on OUR fal.ai bill
+    // (server/src/fal-pricing.js). NULL = kie-backed model, no fal price on
+    // file, or pre-tracking row → UI shows "—". FAL bills in dollars, not
+    // credits, hence a separate USD column rather than reusing kie_credits.
+    await client.query(`ALTER TABLE credits_history ADD COLUMN IF NOT EXISTS fal_cost NUMERIC(12,4);`);
     await client.query(`CREATE INDEX IF NOT EXISTS credits_history_recent_idx ON credits_history (created_at DESC);`);
 
     // ─── admin_audit_log ────────────────────────────────────────────
