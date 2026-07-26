@@ -10,10 +10,21 @@ import StatsCards from '@/components/admin/StatsCards';
 import UserTable from '@/components/admin/UserTable';
 import CreditsModal from '@/components/admin/CreditsModal';
 import HistoryModal from '@/components/admin/HistoryModal';
+import LogsTab from '@/components/admin/LogsTab';
+import UsageTab from '@/components/admin/UsageTab';
 
 const PAGE_SIZE = 50;
 
+// kie.ai-style sections: Users (the original CRM), API Usage (aggregates +
+// kie balance), Logs (per-transaction ledger with voxel + KIE credits).
+const TABS = [
+  { id: 'users', label: 'Users' },
+  { id: 'usage', label: 'API Usage' },
+  { id: 'logs',  label: 'Logs' },
+];
+
 export default function AdminPanel() {
+  const [tab, setTab] = useState('users');
   const [stats, setStats] = useState(null);
   const [page, setPage] = useState(1);
   const [users, setUsers] = useState(null);
@@ -157,6 +168,26 @@ export default function AdminPanel() {
           Signed in as {stats?.admin_email || getStoredUser()?.email || '—'}.
         </div>
 
+        {/* Tab bar — kie.ai dashboard style */}
+        <div style={{ display: 'flex', gap: 6, marginBottom: 20, borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+          {TABS.map(t => (
+            <button key={t.id} onClick={() => setTab(t.id)}
+              style={{
+                padding: '10px 18px', fontSize: 14, fontWeight: 600, fontFamily: 'inherit',
+                background: 'none', border: 'none', cursor: 'pointer',
+                color: tab === t.id ? '#fff' : 'rgba(255,255,255,0.4)',
+                borderBottom: tab === t.id ? '2px solid #e0442c' : '2px solid transparent',
+                marginBottom: -1,
+              }}>
+              {t.label}
+            </button>
+          ))}
+        </div>
+
+        {tab === 'usage' && <UsageTab onError={handleError} />}
+        {tab === 'logs' && <LogsTab onError={handleError} />}
+
+        {tab === 'users' && (<>
         <StatsCards stats={stats} />
 
         {/* Refund audit — cross-references failed videos vs refunds. */}
@@ -211,6 +242,7 @@ export default function AdminPanel() {
           onPage={(p) => { if (p < 1) return; setPage(p); }}
           onAction={onAction}
         />
+        </>)}
       </div>
 
       {pendingAction && (

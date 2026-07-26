@@ -19,6 +19,9 @@ export default defineConfig({
         manualChunks: {
           'react-vendor': ['react', 'react-dom', 'react-router-dom'],
           'motion': ['framer-motion'],
+          // recharts only loads with the (lazy) AdminPanel; splitting it
+          // keeps every emitted chunk under the 250KB audit threshold.
+          'charts': ['recharts'],
         },
       },
     },
@@ -27,7 +30,7 @@ export default defineConfig({
     environment: 'jsdom',
     globals: true,
     setupFiles: ['./src/test/setup.js'],
-    include: ['src/**/*.{test,spec}.{js,jsx}'],
+    include: ['src/**/*.{test,spec}.{js,jsx}', 'server/src/**/*.test.js'],
   },
   server: {
     port: 5173,

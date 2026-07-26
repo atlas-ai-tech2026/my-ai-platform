@@ -37,7 +37,7 @@ export class InsufficientCreditsError extends Error {
  * Wrapped in a transaction so the balance UPDATE and credits_history INSERT
  * either both happen or both don't.
  */
-export async function chargeCredits({ userId, kind, ip, cost: costOverride, note }) {
+export async function chargeCredits({ userId, kind, ip, cost: costOverride, note, kieCredits }) {
   // Prefer the computed per-generation cost sent by the client (model +
   // resolution + duration aware). Fall back to the flat per-kind cost when
   // it's missing/invalid (e.g. a model not yet in the pricing table).
@@ -84,10 +84,14 @@ export async function chargeCredits({ userId, kind, ip, cost: costOverride, note
 
     // `note` labels the spend (e.g. "image: Nano Banana Pro") so the admin
     // ledger shows WHAT each charge was for, not just the amount.
+    // `kie_credits` is the estimated KIE-credit cost on our kie.ai balance
+    // (null for FAL-backed models / models without a kie price on file).
+    const kie = Number.isFinite(Number(kieCredits)) && Number(kieCredits) > 0
+      ? Math.round(Number(kieCredits) * 100) / 100 : null;
     await client.query(
-      `INSERT INTO credits_history (user_id, amount, action, reason, ip_address)
-       VALUES ($1, $2, 'spend', $3, $4)`,
-      [userId, -cost, (note || '').slice(0, 500) || null, ip || null]
+      `INSERT INTO credits_history (user_id, amount, action, reason, ip_address, kie_credits)
+       VALUES ($1, $2, 'spend', $3, $4, $5)`,
+      [userId, -cost, (note || '').slice(0, 500) || null, ip || null, kie]
     );
 
     await client.query('COMMIT');

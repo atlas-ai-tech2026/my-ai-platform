@@ -60,6 +60,19 @@ export const adminApi = {
   history:     (id, limit = 10000)   => request('GET', `/api/admin/users/${id}/history?limit=${limit}`),
   auditRefunds: ()                   => request('GET', '/api/admin/audit/refunds'),
   stats:       ()                    => request('GET', '/api/admin/stats'),
+
+  // ─── Logs + API Usage (kie.ai-style pages) ────────────────────────
+  logs: (params = {}) => {
+    const qs = new URLSearchParams(
+      Object.entries(params).filter(([, v]) => v !== undefined && v !== null && v !== '')
+    ).toString();
+    return request('GET', `/api/admin/logs${qs ? '?' + qs : ''}`);
+  },
+  usage: (from, to) => {
+    const qs = new URLSearchParams({ ...(from && { from }), ...(to && { to }) }).toString();
+    return request('GET', `/api/admin/usage${qs ? '?' + qs : ''}`);
+  },
+  kieBalance: () => request('GET', '/api/admin/kie-balance'),
 };
 
 // Decode a JWT payload WITHOUT verifying its signature. Used only for

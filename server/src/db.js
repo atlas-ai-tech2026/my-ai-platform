@@ -137,6 +137,13 @@ export async function migrate() {
     `);
     await client.query(`CREATE INDEX IF NOT EXISTS credits_history_user_idx ON credits_history (user_id, created_at DESC);`);
 
+    // kie_credits: estimated KIE credits the transaction consumed from OUR
+    // kie.ai balance (server/src/kie-pricing.js). NULL = FAL-backed model,
+    // no kie price on file, or a row from before this column existed —
+    // the admin UI renders those as "—".
+    await client.query(`ALTER TABLE credits_history ADD COLUMN IF NOT EXISTS kie_credits NUMERIC(12,2);`);
+    await client.query(`CREATE INDEX IF NOT EXISTS credits_history_recent_idx ON credits_history (created_at DESC);`);
+
     // ─── admin_audit_log ────────────────────────────────────────────
     // Every admin API call is logged here. Used for "who did what / from
     // where / when" investigations and for the "Last admin login" banner.

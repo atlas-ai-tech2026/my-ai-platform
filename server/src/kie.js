@@ -157,6 +157,19 @@ export async function kieUploadBuffer(buf, contentType = 'image/png', { tag = 'K
   return url;
 }
 
+// Remaining credit balance on OUR kie.ai account. kie's "Get remaining
+// credits" endpoint (docs.kie.ai) returns data as a plain number; tolerate
+// an object shape too in case they wrap it later. Used by the admin API
+// Usage page's balance widget — a failure here must never break anything
+// else, so callers should catch.
+export async function kieGetCredits({ tag = 'KIE-BALANCE' } = {}) {
+  if (!KIE_KEY) throw new Error('kie.ai is not configured on the server');
+  const data = await kieFetch('/api/v1/chat/credit', { tag });
+  const credits = typeof data === 'number' ? data : Number(data?.credits ?? data?.balance);
+  if (!Number.isFinite(credits)) throw new Error('kie.ai returned an unreadable balance');
+  return credits;
+}
+
 // Create a generation task. Returns the taskId string.
 export async function kieCreateTask(family, input, { tag = 'KIE' } = {}) {
   if (!KIE_KEY) throw new Error('Generation service is not configured on the server');

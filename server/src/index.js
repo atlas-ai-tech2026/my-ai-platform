@@ -13,7 +13,8 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { pool, isReady as dbReady, migrate, ADMIN_EMAIL } from './db.js';
 import { persistOrFallback, persistBuffer, isReady as spacesReady } from './storage.js';
-import { configureKie, kieCreateTask, kieGetTask, kiePollUntilDone, kieUploadBuffer } from './kie.js';
+import { configureKie, kieCreateTask, kieGetTask, kiePollUntilDone, kieUploadBuffer, kieGetCredits } from './kie.js';
+import { estimateKieCredits } from './kie-pricing.js';
 import { verifyJwt, requireAdmin, requireNotBanned } from './middleware/auth.js';
 // Restored after the in-file getStore block was removed — DIST_DIR
 // at the bottom of this file still needs __dirname.
@@ -855,7 +856,13 @@ app.post('/api/generate', verifyJwt, requireNotBanned, requireModelProviderKey, 
   let chargedKind = null;
   let chargedCost = null;
   try {
-    const charge = await chargeCredits({ userId: req.user.id, kind: type, ip: req.ip, cost: req.body.credit_cost, note: `${type}: ${model}` });
+    // KIE-credit estimate rides along on the ledger row when this model
+    // burns our kie.ai balance (null for FAL-backed models).
+    const isKie = cfg?.provider === 'kie' || VIDEO_DIRECT_MAP[model]?.provider === 'kie';
+    const charge = await chargeCredits({
+      userId: req.user.id, kind: type, ip: req.ip, cost: req.body.credit_cost, note: `${type}: ${model}`,
+      kieCredits: isKie ? estimateKieCredits({ kind: type, model, quality, resolution: req.body.resolution, duration, audio: req.body.audio }) : null,
+    });
     chargedKind = type;
     chargedCost = charge.cost;
     res.setHeader('X-Credits-Remaining', String(charge.newBalance));
@@ -1189,7 +1196,10 @@ app.post('/api/generate-video', verifyJwt, requireNotBanned, requireModelProvide
   let chargedKind = null;
   let chargedCost = null;
   try {
-    const charge = await chargeCredits({ userId: req.user.id, kind: 'video', ip: req.ip, cost: req.body.credit_cost , note: `video: ${model}` });
+    const charge = await chargeCredits({
+      userId: req.user.id, kind: 'video', ip: req.ip, cost: req.body.credit_cost, note: `video: ${model}`,
+      kieCredits: mapping.provider === 'kie' ? estimateKieCredits({ kind: 'video', model, resolution, duration, audio }) : null,
+    });
     chargedKind = 'video';
     chargedCost = charge.cost;
     res.setHeader('X-Credits-Remaining', String(charge.newBalance));
@@ -1727,7 +1737,11 @@ app.post('/api/generate-video-ref', verifyJwt, requireNotBanned, requireModelPro
   let chargedKind = null;
   let chargedCost = null;
   try {
-    const charge = await chargeCredits({ userId: req.user.id, kind: 'video', ip: req.ip, cost: req.body.credit_cost , note: `video: ${modelLabel}` });
+    const charge = await chargeCredits({
+      userId: req.user.id, kind: 'video', ip: req.ip, cost: req.body.credit_cost, note: `video: ${modelLabel}`,
+      kieCredits: VIDEO_DIRECT_MAP[modelLabel]?.provider === 'kie'
+        ? estimateKieCredits({ kind: 'video', model: modelLabel, resolution, duration, audio: generate_audio }) : null,
+    });
     chargedKind = 'video';
     chargedCost = charge.cost;
     res.setHeader('X-Credits-Remaining', String(charge.newBalance));
@@ -3137,7 +3151,7 @@ app.get('/api/admin/users/:id/history', adminGate, async (req, res) => {
     // backstop only — nothing is ever deleted from credits_history.
     const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 10000, 1), 10000);
     const { rows } = await pool.query(
-      `SELECT id, amount, action, admin_email, reason, ip_address, created_at
+      `SELECT id, amount, action, admin_email, reason, ip_address, created_at, kie_credits
          FROM credits_history WHERE user_id = $1
          ORDER BY created_at DESC LIMIT $2`,
       [targetId, limit]
@@ -3297,6 +3311,122 @@ app.get('/api/admin/stats', adminGate, async (req, res) => {
   } catch (err) {
     console.error('[admin/stats] error:', err);
     res.status(500).json({ error: 'Stats fetch failed.' });
+  }
+});
+
+// ─── ADMIN: LOGS (kie.ai-style request ledger) ─────────────────────
+// Paginated view of credits_history across ALL users, filterable like
+// kie.ai's Logs page: action (their "status"), free-text model match,
+// user email, and a date range. Each row carries BOTH meters: `amount`
+// (signed voxel credits) and `kie_credits` (estimated KIE credits the
+// generation burned from our kie.ai balance; null → rendered "—").
+app.get('/api/admin/logs', adminGate, async (req, res) => {
+  try {
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 50, 1), 200);
+    const offset = Math.max(parseInt(req.query.offset, 10) || 0, 0);
+
+    const where = [];
+    const params = [];
+    const p = (v) => { params.push(v); return `$${params.length}`; };
+
+    const action = String(req.query.action || '').toLowerCase();
+    if (['spend', 'refund', 'grant', 'revoke'].includes(action)) where.push(`ch.action = ${p(action)}`);
+    if (req.query.q) where.push(`ch.reason ILIKE ${p('%' + String(req.query.q).slice(0, 100) + '%')}`);
+    if (req.query.email) where.push(`u.email ILIKE ${p('%' + String(req.query.email).slice(0, 100) + '%')}`);
+    if (req.query.from) where.push(`ch.created_at >= ${p(new Date(req.query.from))}`);
+    if (req.query.to) where.push(`ch.created_at < ${p(new Date(req.query.to))}::timestamptz + INTERVAL '1 day'`);
+    const whereSql = where.length ? 'WHERE ' + where.join(' AND ') : '';
+
+    const [rows, count] = await Promise.all([
+      pool.query(
+        `SELECT ch.id, ch.created_at, ch.action, ch.amount, ch.kie_credits,
+                ch.reason, u.id AS user_id, u.email
+           FROM credits_history ch
+           JOIN users u ON u.id = ch.user_id
+          ${whereSql}
+          ORDER BY ch.created_at DESC
+          LIMIT ${p(limit)} OFFSET ${p(offset)}`,
+        params
+      ),
+      pool.query(
+        `SELECT count(*)::int AS total
+           FROM credits_history ch JOIN users u ON u.id = ch.user_id ${whereSql}`,
+        params.slice(0, params.length - 2)
+      ),
+    ]);
+    res.json({ logs: rows.rows, total: count.rows[0].total, limit, offset });
+  } catch (err) {
+    console.error('[admin/logs] error:', err);
+    res.status(500).json({ error: 'Logs fetch failed.' });
+  }
+});
+
+// ─── ADMIN: API USAGE (kie.ai-style aggregates) ────────────────────
+// Daily totals + per-model breakdown for a date range (default last 14
+// days, kie.ai's default window). Voxel credits and KIE credits are
+// summed side by side; kie_credits is NULL on FAL rows and on rows from
+// before per-transaction KIE tracking began, so the KIE series starts at
+// that deploy date.
+app.get('/api/admin/usage', adminGate, async (req, res) => {
+  try {
+    const to = req.query.to ? new Date(req.query.to) : new Date();
+    const from = req.query.from
+      ? new Date(req.query.from)
+      : new Date(Date.now() - 13 * 24 * 3600 * 1000);
+    if (isNaN(from) || isNaN(to)) return res.status(400).json({ error: 'Bad date range' });
+
+    const params = [from, to];
+    const [daily, models, totals] = await Promise.all([
+      pool.query(
+        `SELECT to_char(date_trunc('day', created_at), 'YYYY-MM-DD') AS day,
+                COALESCE(SUM(-amount) FILTER (WHERE action = 'spend'), 0)::float   AS voxel_spent,
+                COALESCE(SUM(amount)  FILTER (WHERE action = 'refund'), 0)::float  AS voxel_refunded,
+                COALESCE(SUM(kie_credits) FILTER (WHERE action = 'spend'), 0)::float AS kie_credits,
+                COUNT(*) FILTER (WHERE action = 'spend')::int AS generations
+           FROM credits_history
+          WHERE created_at >= $1 AND created_at < $2::timestamptz + INTERVAL '1 day'
+          GROUP BY 1 ORDER BY 1`,
+        params
+      ),
+      pool.query(
+        `SELECT COALESCE(reason, '(unlabeled)') AS model,
+                COUNT(*)::int AS generations,
+                SUM(-amount)::float AS voxel_spent,
+                COALESCE(SUM(kie_credits), 0)::float AS kie_credits
+           FROM credits_history
+          WHERE action = 'spend' AND created_at >= $1 AND created_at < $2::timestamptz + INTERVAL '1 day'
+          GROUP BY 1 ORDER BY voxel_spent DESC LIMIT 50`,
+        params
+      ),
+      pool.query(
+        `SELECT COALESCE(SUM(-amount) FILTER (WHERE action = 'spend'), 0)::float  AS voxel_spent,
+                COALESCE(SUM(amount)  FILTER (WHERE action = 'refund'), 0)::float AS voxel_refunded,
+                COALESCE(SUM(kie_credits) FILTER (WHERE action = 'spend'), 0)::float AS kie_credits,
+                COUNT(*) FILTER (WHERE action = 'spend')::int AS generations,
+                COUNT(DISTINCT user_id) FILTER (WHERE action = 'spend')::int AS active_users
+           FROM credits_history
+          WHERE created_at >= $1 AND created_at < $2::timestamptz + INTERVAL '1 day'`,
+        params
+      ),
+    ]);
+    res.json({ daily: daily.rows, models: models.rows, totals: totals.rows[0] });
+  } catch (err) {
+    console.error('[admin/usage] error:', err);
+    res.status(500).json({ error: 'Usage fetch failed.' });
+  }
+});
+
+// ─── ADMIN: KIE BALANCE ────────────────────────────────────────────
+// Live remaining credits on OUR kie.ai account, for the API Usage page's
+// balance widget. Never cached server-side — the widget has its own
+// refresh button and the call is cheap.
+app.get('/api/admin/kie-balance', adminGate, async (req, res) => {
+  try {
+    const credits = await kieGetCredits();
+    res.json({ credits, usd: Math.round(credits * 0.005 * 100) / 100 });
+  } catch (err) {
+    console.error('[admin/kie-balance] error:', err.message);
+    res.status(502).json({ error: `kie.ai balance unavailable: ${err.message}` });
   }
 });
 
