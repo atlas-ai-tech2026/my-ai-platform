@@ -233,6 +233,23 @@ function CreditButton({ user }) {
             <span>Upgrade</span>
             <span>→</span>
           </Link>
+
+          {/* Users open this popup looking for account controls too (the
+              avatar menu next door is easy to miss) — give them a path. */}
+          <Link
+            to="/account"
+            onClick={() => setOpen(false)}
+            style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+              width: '100%', height: 36, marginTop: 8, borderRadius: 10,
+              background: 'rgba(255,255,255,0.05)',
+              border: '1px solid rgba(255,255,255,0.1)',
+              color: 'rgba(255,255,255,0.75)', fontSize: 12, fontWeight: 600,
+              textDecoration: 'none',
+            }}
+          >
+            Manage account
+          </Link>
         </div>
       )}
     </div>
