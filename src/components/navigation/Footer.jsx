@@ -24,7 +24,6 @@ const footerLinks = {
   company: [
     { name: 'About', path: '/about' },
     { name: 'Contact', path: '/contact' },
-    { name: 'Privacy Policy', path: '/privacy' },
     { name: 'Terms of Service', path: '/terms' },
     { name: 'Q&A', path: '#' },
   ],
@@ -122,7 +121,6 @@ export default function Footer({ minimal = false }) {
               &copy; 2026 VOXEL AI&trade;. All rights reserved.
             </p>
             <div className="flex items-center gap-6 text-sm text-foreground-muted">
-              <Link to="/privacy" className="hover:text-white transition-colors">Privacy</Link>
               <Link to="/terms" className="hover:text-white transition-colors">Terms</Link>
               <Link to="/contact" className="hover:text-white transition-colors">Contact</Link>
               <button onClick={() => window.__voxelChatOpen?.()} className="hover:text-white transition-colors">Q&amp;A</button>

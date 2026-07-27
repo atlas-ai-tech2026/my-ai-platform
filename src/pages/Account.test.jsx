@@ -29,6 +29,12 @@ beforeEach(() => {
         generations: 411, videos: 139, images: 260, credits_spent: 3200,
         top_model: { model: 'image: Nano Banana Pro', generations: 376 },
       },
+      models: [
+        { model: 'video: Kling 3.0', credits_spent: 12.5, generations: 1 },
+        { model: 'image: Nano Banana Pro', credits_spent: 12.5, generations: 3 },
+      ],
+      range: { credits_spent: 25, generations: 4 },
+      days: 30,
     }),
   });
 });
@@ -50,11 +56,19 @@ describe('Account page (signed in)', () => {
     }
   });
 
-  it('Usage section lists the user\'s own spends only', async () => {
+  it('Usage section shows spend overview, share bar, and filterable ledger', async () => {
     renderPage();
     fireEvent.click(screen.getByText('Usage'));
-    await waitFor(() => expect(screen.getByText('video: Kling 3.0')).toBeInTheDocument());
-    expect(screen.getByText('-12.5')).toBeInTheDocument();
+    // Spend overview tiles: 25 credits × $0.063333 ≈ $1.58, 4 generations
+    await waitFor(() => expect(screen.getByText('$1.58')).toBeInTheDocument());
+    expect(screen.getByText('Credits spent')).toBeInTheDocument();
+    expect(screen.getByText('Total generations')).toBeInTheDocument();
+    // ledger row: cleaned model name + "12.5 credits" + action label
+    expect(screen.getAllByText('Kling 3.0').length).toBeGreaterThan(0);
+    expect(screen.getByText('12.5 credits')).toBeInTheDocument();
+    expect(screen.getAllByText('Spent').length).toBeGreaterThan(0);
+    // refund shows green positive credits
+    expect(screen.getByText('+50 credits')).toBeInTheDocument();
   });
 
   it('Promocode section shows redeemed promos and the redeem box', async () => {

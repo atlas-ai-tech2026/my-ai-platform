@@ -2945,15 +2945,18 @@ app.patch('/api/me', verifyJwt, requireNotBanned, async (req, res) => {
 // redemptions) for the Usage / Promocode / Gifts sections.
 app.get('/api/me/usage', verifyJwt, async (req, res) => {
   try {
-    const [daily, recent, lifetime, top] = await Promise.all([
+    // Range window for the chart / spend-overview / model shares (higgsfield
+    // offers 7-day style ranges); recent + lifetime stay range-independent.
+    const days = Math.min(Math.max(parseInt(req.query.days, 10) || 30, 1), 365);
+    const [daily, recent, lifetime, top, models, rangeTotals] = await Promise.all([
       pool.query(
         `SELECT to_char(date_trunc('day', created_at), 'YYYY-MM-DD') AS day,
                 COALESCE(SUM(-amount) FILTER (WHERE action = 'spend'), 0)::float AS credits_spent,
                 COUNT(*) FILTER (WHERE action = 'spend')::int AS generations
            FROM credits_history
-          WHERE user_id = $1 AND created_at > NOW() - INTERVAL '30 days'
+          WHERE user_id = $1 AND created_at > NOW() - ($2 || ' days')::interval
           GROUP BY 1 ORDER BY 1`,
-        [req.user.id]
+        [req.user.id, days]
       ),
       pool.query(
         `SELECT id, created_at, action, amount, reason
@@ -2978,10 +2981,31 @@ app.get('/api/me/usage', verifyJwt, async (req, res) => {
           GROUP BY reason ORDER BY generations DESC LIMIT 1`,
         [req.user.id]
       ),
+      // Per-model share within the range — powers the spend-overview bar.
+      pool.query(
+        `SELECT COALESCE(reason, 'Other') AS model,
+                SUM(-amount)::float AS credits_spent,
+                COUNT(*)::int AS generations
+           FROM credits_history
+          WHERE user_id = $1 AND action = 'spend'
+            AND created_at > NOW() - ($2 || ' days')::interval
+          GROUP BY 1 ORDER BY credits_spent DESC LIMIT 20`,
+        [req.user.id, days]
+      ),
+      pool.query(
+        `SELECT COALESCE(SUM(-amount) FILTER (WHERE action = 'spend'), 0)::float AS credits_spent,
+                COUNT(*) FILTER (WHERE action = 'spend')::int AS generations
+           FROM credits_history
+          WHERE user_id = $1 AND created_at > NOW() - ($2 || ' days')::interval`,
+        [req.user.id, days]
+      ),
     ]);
     res.json({
+      days,
       daily: daily.rows,
       recent: recent.rows,
+      models: models.rows,
+      range: rangeTotals.rows[0],
       lifetime: { ...lifetime.rows[0], top_model: top.rows[0] || null },
     });
   } catch (err) {

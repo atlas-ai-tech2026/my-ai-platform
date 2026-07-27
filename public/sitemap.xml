@@ -79,12 +79,6 @@
     <priority>0.5</priority>
   </url>
   <url>
-    <loc>https://voxel-ai.ai/privacy</loc>
-    <lastmod>2026-07-26</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.3</priority>
-  </url>
-  <url>
     <loc>https://voxel-ai.ai/terms</loc>
     <lastmod>2026-07-26</lastmod>
     <changefreq>monthly</changefreq>

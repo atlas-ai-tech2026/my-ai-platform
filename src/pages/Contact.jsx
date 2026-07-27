@@ -1,5 +1,4 @@
 import React from 'react';
-import { Link } from 'react-router-dom';
 import { Mail, MessageCircle, ShieldAlert } from 'lucide-react';
 import StaticPage from '@/components/common/StaticPage';
 
@@ -45,8 +44,7 @@ export default function Contact() {
         <ShieldAlert className="inline mr-1 -mt-1" size={16} />
         To exercise a data right (access, correction, deletion, export), email{' '}
         <a href="mailto:info@voxel-ai.ai">info@voxel-ai.ai</a> with the subject
-        line "Privacy request" from the address on your account. See the{' '}
-        <Link to="/privacy">Privacy Policy</Link> for details.
+        line "Privacy request" from the address on your account.
       </p>
 
       <h2>Something broken?</h2>

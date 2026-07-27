@@ -27,7 +27,6 @@ const Video = lazy(() => import('./pages/Video'));
 const Account = lazy(() => import('./pages/Account'));
 const About = lazy(() => import('./pages/About'));
 const Contact = lazy(() => import('./pages/Contact'));
-const Privacy = lazy(() => import('./pages/Privacy'));
 const Terms = lazy(() => import('./pages/Terms'));
 import __Layout from './Layout.jsx';
 
@@ -46,7 +45,6 @@ export const PAGES = {
     "Account": Account,
     "About": About,
     "Contact": Contact,
-    "Privacy": Privacy,
     "Terms": Terms,
 }
 

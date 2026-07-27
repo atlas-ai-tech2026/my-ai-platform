@@ -18,7 +18,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '@/lib/AuthContext';
 import { VOXEL_TOKEN_KEY } from '@/lib/adminApi';
-import { CREDIT_PLANS } from '@/lib/creditPricing';
+import { CREDIT_PLANS, CREDIT_VALUE_USD } from '@/lib/creditPricing';
 import Avatar from '@/components/common/Avatar';
 
 const SECTIONS = [
@@ -47,15 +47,16 @@ async function authedFetch(path, opts = {}) {
 export default function Account() {
   const { user, isAuthenticated, isLoadingAuth, openAuthModal, refresh, logout } = useAuth();
   const [section, setSection] = useState('profile');
-  const [usage, setUsage] = useState(null); // { daily, recent }
+  const [usage, setUsage] = useState(null); // { daily, recent, models, range, lifetime }
+  const [usageDays, setUsageDays] = useState(30);
 
   const loadUsage = useCallback(async () => {
     try {
-      setUsage(await authedFetch('/api/me/usage'));
+      setUsage(await authedFetch(`/api/me/usage?days=${usageDays}`));
     } catch (e) {
       console.error('[account] usage load failed:', e.message);
     }
-  }, []);
+  }, [usageDays]);
 
   useEffect(() => { if (isAuthenticated) loadUsage(); }, [isAuthenticated, loadUsage]);
 
@@ -114,7 +115,10 @@ export default function Account() {
           {section === 'gifts' && <RedeemSection kindLabel="gift card" user={user} usage={usage} refresh={refresh} loadUsage={loadUsage} action="gift"
             blurb="Have a Voxel gift card? Each card is a one-time voucher — redeem it here and the credits land instantly." />}
           {section === 'subscription' && <SubscriptionSection user={user} usage={usage} />}
-          {section === 'usage' && <UsageSection user={user} usage={usage} />}
+          {section === 'usage' && (
+            <UsageSection user={user} usage={usage} days={usageDays}
+              onDays={setUsageDays} onRefresh={loadUsage} />
+          )}
           {section === 'promocode' && <RedeemSection kindLabel="promo code" user={user} usage={usage} refresh={refresh} loadUsage={loadUsage} action="promo"
             blurb="Got a promo code from a campaign or giveaway? Redeem it here — each code works once per account." />}
         </div>
@@ -360,48 +364,178 @@ function SubscriptionSection({ user, usage }) {
 }
 
 // ─── Usage ───────────────────────────────────────────────────────────────────
-function UsageSection({ user, usage }) {
-  const spends = useMemo(
-    () => (usage?.recent || []).filter(r => r.action === 'spend'),
+// higgsfield-style "Usage history": header + Refresh + range picker, Spend
+// overview tiles (total cost $, credits spent, features used, generations),
+// per-model share bar with legend, daily chart, and a filterable ledger
+// table (Credits | Feature | Action | Date) with pagination.
+const SHARE_COLORS = ['#e0442c', '#c084fc', '#4ade80', '#60a5fa', '#fbbf24', '#f472b6', '#2dd4bf', '#a3a3a3'];
+const cleanModel = (reason) => String(reason || '').replace(/^(image|video|audio|node video|node):\s*/, '') || 'Other';
+
+const ACTION_LABEL = {
+  spend:  { label: 'Spent', cls: 'text-foreground-secondary' },
+  refund: { label: 'Refunded', cls: 'text-green-400' },
+  promo:  { label: 'Promo', cls: 'text-purple-300' },
+  gift:   { label: 'Gift card', cls: 'text-pink-300' },
+  grant:  { label: 'Granted', cls: 'text-blue-300' },
+  revoke: { label: 'Revoked', cls: 'text-red-400' },
+};
+
+const PAGE = 25;
+
+function UsageSection({ user, usage, days, onDays, onRefresh }) {
+  const [feature, setFeature] = useState('');
+  const [action, setAction] = useState('');
+  const [page, setPage] = useState(1);
+
+  const models = usage?.models || [];
+  const range = usage?.range;
+  const totalSpent = Number(range?.credits_spent || 0);
+
+  const features = useMemo(
+    () => [...new Set((usage?.recent || []).map(r => cleanModel(r.reason)).filter(m => m !== 'Other'))],
     [usage]
   );
-  const total30 = useMemo(
-    () => (usage?.daily || []).reduce((s, d) => s + d.credits_spent, 0),
-    [usage]
-  );
+  const rows = useMemo(() => {
+    let r = usage?.recent || [];
+    if (feature) r = r.filter(x => cleanModel(x.reason) === feature);
+    if (action) r = r.filter(x => x.action === action);
+    return r;
+  }, [usage, feature, action]);
+  const pages = Math.max(1, Math.ceil(rows.length / PAGE));
+  const pageRows = rows.slice((page - 1) * PAGE, page * PAGE);
+
   return (
-    <div className="space-y-6">
-      <h1 className="text-2xl font-bold text-white">Usage</h1>
-      <div className="rounded-2xl border border-border bg-white/[0.03] p-6">
-        <div className="text-sm text-foreground-muted mb-4">
-          Last 30 days — <b className="text-white">{total30.toLocaleString()}</b> credits used
-          · balance <b className="text-white">{Number(user?.credits || 0).toLocaleString()}</b>
+    <div className="space-y-5">
+      {/* Header row — title + Refresh + range picker */}
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div>
+          <h1 className="text-2xl font-bold text-white">Usage history</h1>
+          <p className="text-foreground-muted text-sm mt-1">View credits usage, history and statistics</p>
         </div>
-        <MiniUsageChart daily={usage?.daily} height={220} showAxis />
+        <div className="flex items-center gap-2">
+          <button onClick={onRefresh}
+            className="px-4 py-2 rounded-full bg-white/10 hover:bg-white/15 text-white text-sm font-semibold transition-colors">
+            ⟳ Refresh
+          </button>
+          <select value={days} onChange={e => { onDays(Number(e.target.value)); setPage(1); }}
+            className="px-4 py-2 rounded-full bg-white/10 text-white text-sm font-semibold outline-none border border-border"
+            style={{ colorScheme: 'dark' }}>
+            <option value={7}>Last 7 days</option>
+            <option value={30}>Last 30 days</option>
+            <option value={90}>Last 90 days</option>
+          </select>
+        </div>
       </div>
+
+      {/* Spend overview — higgsfield's four tiles */}
+      <div className="rounded-2xl border border-border bg-white/[0.03] p-6">
+        <div className="text-sm text-foreground-muted mb-4">Spend overview</div>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <div>
+            <div className="text-2xl font-bold text-white">${(totalSpent * CREDIT_VALUE_USD).toFixed(2)}</div>
+            <div className="text-sm text-foreground-muted">Total cost</div>
+          </div>
+          <div>
+            <div className="text-2xl font-bold text-white">{totalSpent.toLocaleString()}</div>
+            <div className="text-sm text-foreground-muted">Credits spent</div>
+          </div>
+          <div>
+            <div className="text-2xl font-bold text-white">{models.length}</div>
+            <div className="text-sm text-foreground-muted">Features used</div>
+          </div>
+          <div>
+            <div className="text-2xl font-bold text-white">{Number(range?.generations || 0).toLocaleString()}</div>
+            <div className="text-sm text-foreground-muted">Total generations</div>
+          </div>
+        </div>
+
+        {/* Per-model share bar + legend */}
+        {models.length > 0 && totalSpent > 0 && (
+          <>
+            <div className="flex h-2.5 rounded-full overflow-hidden mt-6 bg-white/10">
+              {models.map((m, i) => (
+                <div key={m.model} title={`${cleanModel(m.model)} ${(m.credits_spent / totalSpent * 100).toFixed(0)}%`}
+                  style={{ width: `${(m.credits_spent / totalSpent) * 100}%`, background: SHARE_COLORS[i % SHARE_COLORS.length] }} />
+              ))}
+            </div>
+            <div className="flex flex-wrap gap-x-5 gap-y-1.5 mt-3">
+              {models.slice(0, 8).map((m, i) => (
+                <span key={m.model} className="flex items-center gap-1.5 text-xs text-foreground-muted">
+                  <span className="w-2.5 h-2.5 rounded-full inline-block" style={{ background: SHARE_COLORS[i % SHARE_COLORS.length] }} />
+                  {cleanModel(m.model)}
+                  <b className="text-white">{Math.round((m.credits_spent / totalSpent) * 100)}%</b>
+                </span>
+              ))}
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* Daily chart */}
+      <div className="rounded-2xl border border-border bg-white/[0.03] p-6">
+        <MiniUsageChart daily={usage?.daily} height={200} showAxis />
+      </div>
+
+      {/* Usage history table — Credits | Feature | Action | Date */}
       <div className="rounded-2xl border border-border bg-white/[0.03] overflow-hidden">
+        <div className="flex items-center gap-2 px-5 pt-4 pb-1 flex-wrap">
+          <span className="text-white font-semibold mr-2">Usage history</span>
+          <span className="text-xs text-foreground-muted bg-white/10 rounded-full px-2 py-0.5">{rows.length}</span>
+          <div className="flex-1" />
+          <select value={feature} onChange={e => { setFeature(e.target.value); setPage(1); }}
+            className="px-3 py-1.5 rounded-lg bg-white/5 border border-border text-sm text-white outline-none" style={{ colorScheme: 'dark' }}>
+            <option value="">All features</option>
+            {features.map(f => <option key={f} value={f}>{f}</option>)}
+          </select>
+          <select value={action} onChange={e => { setAction(e.target.value); setPage(1); }}
+            className="px-3 py-1.5 rounded-lg bg-white/5 border border-border text-sm text-white outline-none" style={{ colorScheme: 'dark' }}>
+            <option value="">All actions</option>
+            <option value="spend">Spent</option>
+            <option value="refund">Refunded</option>
+            <option value="promo">Promo</option>
+            <option value="gift">Gift card</option>
+          </select>
+        </div>
         <table className="w-full text-sm">
           <thead>
             <tr className="text-left text-foreground-muted">
-              <th className="px-5 py-3 font-medium">When</th>
-              <th className="px-5 py-3 font-medium">Generation</th>
-              <th className="px-5 py-3 font-medium text-right">Credits</th>
+              <th className="px-5 py-3 font-medium">Credits</th>
+              <th className="px-5 py-3 font-medium">Feature</th>
+              <th className="px-5 py-3 font-medium">Action</th>
+              <th className="px-5 py-3 font-medium">Date</th>
             </tr>
           </thead>
           <tbody>
-            {!usage && <tr><td colSpan={3} className="px-5 py-8 text-center text-foreground-muted">Loading…</td></tr>}
-            {usage && spends.length === 0 && (
-              <tr><td colSpan={3} className="px-5 py-8 text-center text-foreground-muted">No generations yet — your usage will appear here.</td></tr>
+            {!usage && <tr><td colSpan={4} className="px-5 py-8 text-center text-foreground-muted">Loading…</td></tr>}
+            {usage && pageRows.length === 0 && (
+              <tr><td colSpan={4} className="px-5 py-8 text-center text-foreground-muted">No activity matches these filters yet.</td></tr>
             )}
-            {spends.slice(0, 30).map(r => (
-              <tr key={r.id} className="border-t border-border/60">
-                <td className="px-5 py-3 text-foreground-muted whitespace-nowrap">{new Date(r.created_at).toLocaleString()}</td>
-                <td className="px-5 py-3 text-white">{r.reason || 'Generation'}</td>
-                <td className="px-5 py-3 text-right text-red-400 font-semibold">{Number(r.amount)}</td>
-              </tr>
-            ))}
+            {pageRows.map(r => {
+              const amt = Number(r.amount);
+              const a = ACTION_LABEL[r.action] || { label: r.action, cls: 'text-foreground-muted' };
+              return (
+                <tr key={r.id} className="border-t border-border/60">
+                  <td className={`px-5 py-3 font-semibold whitespace-nowrap ${amt > 0 ? 'text-green-400' : 'text-white'}`}>
+                    {amt > 0 ? `+${amt}` : Math.abs(amt)} credits
+                  </td>
+                  <td className="px-5 py-3 text-white">{cleanModel(r.reason)}</td>
+                  <td className={`px-5 py-3 ${a.cls}`}>{a.label}</td>
+                  <td className="px-5 py-3 text-foreground-muted whitespace-nowrap">{new Date(r.created_at).toLocaleString()}</td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
+        <div className="flex items-center justify-between px-5 py-3 border-t border-border/60 text-sm text-foreground-muted">
+          <span>Show {PAGE}</span>
+          <span>Page {page} of {pages}</span>
+          <span className="flex gap-2">
+            <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page <= 1}
+              className="px-3 py-1 rounded-lg bg-white/10 disabled:opacity-40 text-white">‹</button>
+            <button onClick={() => setPage(p => Math.min(pages, p + 1))} disabled={page >= pages}
+              className="px-3 py-1 rounded-lg bg-white/10 disabled:opacity-40 text-white">›</button>
+          </span>
+        </div>
       </div>
     </div>
   );
