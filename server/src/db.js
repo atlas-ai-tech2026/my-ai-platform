@@ -17,6 +17,20 @@
 // FAL-only deploys keep working. Auth routes check isReady() and return 503.
 
 import pg from 'pg';
+import dotenv from 'dotenv';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+// Load .env HERE, not just in index.js: ES imports are hoisted, so this
+// module's body runs BEFORE index.js gets to call dotenv.config() — reading
+// process.env.DATABASE_URL below would see it unset in local dev and skip
+// migrations ("DATABASE_URL not set" with the var sitting in server/.env).
+// Same pitfall kie.js documents. Anchored to this file (like index.js) so
+// it works from any cwd; dotenv never overrides platform-set vars, so prod
+// is unaffected.
+dotenv.config({
+  path: path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../.env'),
+});
 
 const { Pool } = pg;
 

@@ -75,7 +75,8 @@ export default function UsageTab({ onError }) {
 
       {/* Stat cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 20 }}>
-        <Card label="kie.ai balance (live)" accent="#c084fc"
+        <Card label="kie.ai balance (live)"
+          accent={balance?.credits != null && Number(balance.credits) < 3000 ? '#f87171' : '#c084fc'}
           value={
             balance === 'loading' || balance === null ? '…'
               : balance.error ? '—'
@@ -83,7 +84,9 @@ export default function UsageTab({ onError }) {
           }
           sub={
             balance?.error ? balance.error
-              : balance?.usd != null ? `≈ $${balance.usd} · 1 cr = $0.005` : ''
+              : balance?.credits != null && Number(balance.credits) < 3000
+                ? `⚠ LOW — ≈ $${balance.usd} left, top up soon`
+                : balance?.usd != null ? `≈ $${balance.usd} · 1 cr = $0.005` : ''
           }
           action={<button onClick={loadBalance} style={miniBtnStyle} title="Refresh kie.ai balance">⟳</button>}
         />

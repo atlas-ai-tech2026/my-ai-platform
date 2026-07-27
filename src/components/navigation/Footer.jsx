@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import VoxelLogo from '../VoxelLogo';
-import { Share2, Camera, Play, Briefcase, Code2 } from 'lucide-react';
 import ChatWidget from '../common/ChatWidget';
 
 const footerLinks = {
@@ -14,12 +13,11 @@ const footerLinks = {
     { name: 'All Apps', path: 'Apps' },
     { name: 'Templates', path: 'Templates' },
   ],
+  // Documentation / API Reference / Tutorials were '#' placeholders — dead
+  // links removed until those pages exist (2026-07 audit finding #7).
   resources: [
     { name: 'Community', path: 'Community' },
     { name: 'Pricing', path: 'Pricing' },
-    { name: 'Documentation', path: '#' },
-    { name: 'API Reference', path: '#' },
-    { name: 'Tutorials', path: '#' },
   ],
   company: [
     { name: 'About', path: '/about' },
@@ -29,13 +27,8 @@ const footerLinks = {
   ],
 };
 
-const socialLinks = [
-  { icon: Share2, href: '#', label: 'Twitter' },
-  { icon: Camera, href: '#', label: 'Instagram' },
-  { icon: Play, href: '#', label: 'YouTube' },
-  { icon: Briefcase, href: '#', label: 'LinkedIn' },
-  { icon: Code2, href: '#', label: 'GitHub' },
-];
+// Social icons removed 2026-07 (audit finding #7): all five were '#'
+// placeholders. Re-add here with real profile URLs when accounts exist.
 
 export default function Footer({ minimal = false }) {
   return (
@@ -51,18 +44,6 @@ export default function Footer({ minimal = false }) {
                 <p className="mt-4 text-sm text-foreground-muted max-w-xs">
                   AI-Driven Content Creation. Revolutionizing how creators, businesses, and marketers produce content.
                 </p>
-                <div className="flex items-center gap-4 mt-6">
-                  {socialLinks.map((social) => (
-                    <a
-                      key={social.label}
-                      href={social.href}
-                      className="text-foreground-muted hover:text-primary transition-colors"
-                      aria-label={social.label}
-                    >
-                      <social.icon size={20} />
-                    </a>
-                  ))}
-                </div>
               </div>
 
               {/* Product Links */}

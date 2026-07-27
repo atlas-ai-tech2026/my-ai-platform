@@ -24,7 +24,7 @@
 //                     (if unset we derive a URL from endpoint + bucket)
 
 import crypto from 'node:crypto';
-import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, PutObjectCommand, ListObjectsV2Command, DeleteObjectCommand } from '@aws-sdk/client-s3';
 
 const ENDPOINT = (process.env.SPACES_ENDPOINT || '').trim();
 const REGION = (process.env.SPACES_REGION || '').trim();
@@ -54,6 +54,28 @@ if (configured) {
 
 export function isReady() {
   return configured;
+}
+
+// ─── Private objects (automated DB backups) ─────────────────────────────────
+// Backups contain user emails and full ledgers — ALWAYS private ACL, unlike
+// media uploads which are public-read by design.
+export async function uploadPrivate(key, body, contentType = 'application/gzip') {
+  if (!configured) throw new Error('Spaces not configured');
+  await client.send(new PutObjectCommand({
+    Bucket: BUCKET, Key: key, Body: body, ContentType: contentType, ACL: 'private',
+  }));
+  return key;
+}
+
+export async function listKeys(prefix) {
+  if (!configured) throw new Error('Spaces not configured');
+  const out = await client.send(new ListObjectsV2Command({ Bucket: BUCKET, Prefix: prefix, MaxKeys: 1000 }));
+  return (out.Contents || []).map(o => ({ key: o.Key, size: o.Size, modified: o.LastModified }));
+}
+
+export async function deleteKey(key) {
+  if (!configured) throw new Error('Spaces not configured');
+  await client.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: key }));
 }
 
 // Map a content-type / source url to a file extension. Best-effort; defaults to

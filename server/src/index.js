@@ -13,7 +13,7 @@ import dotenv from 'dotenv';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { pool, isReady as dbReady, migrate, ADMIN_EMAIL } from './db.js';
-import { persistOrFallback, persistBuffer, isReady as spacesReady } from './storage.js';
+import { persistOrFallback, persistBuffer, isReady as spacesReady, uploadPrivate, listKeys, deleteKey } from './storage.js';
 import { configureKie, kieCreateTask, kieGetTask, kiePollUntilDone, kieUploadBuffer, kieGetCredits } from './kie.js';
 import { estimateKieCredits, backfillKieEstimate } from './kie-pricing.js';
 import { estimateFalCost, backfillFalEstimate } from './fal-pricing.js';
@@ -71,6 +71,17 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 100
 // attacker IPs everyone). Setting it to 1 trusts exactly one hop (the LB).
 app.set('trust proxy', 1);
 
+// www → apex, permanently. Cloudflare proxies www to this same origin but
+// the API's CORS allowlist (and the canonical tags) speak apex — without
+// this redirect a visitor on www.voxel-ai.ai could browse yet every API
+// call died with 403 (2026-07 audit finding #2). Runs before everything.
+app.use((req, res, next) => {
+  if (req.hostname === 'www.voxel-ai.ai') {
+    return res.redirect(301, 'https://voxel-ai.ai' + req.originalUrl);
+  }
+  next();
+});
+
 // Gzip text responses (HTML/JS/CSS/JSON) at the origin. Cloudflare compresses
 // at the edge, but the origin should stand on its own — SEO crawlers and any
 // direct-origin fetch see small transfers either way. New dep is justified:
@@ -110,7 +121,9 @@ app.use(helmet({
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS ||
   // :3001 = single-process prod repro (Express serves dist/ directly);
   // module <script crossorigin> sends Origin, so it must be allowed.
-  'https://voxel-ai.ai,http://localhost:5173,http://localhost:8080,http://localhost:3001')
+  // www is allowed as belt-and-suspenders for tabs opened before the
+  // www→apex 301 shipped (their cached pages still send a www Origin).
+  'https://voxel-ai.ai,https://www.voxel-ai.ai,http://localhost:5173,http://localhost:8080,http://localhost:3001')
   .split(',').map(s => s.trim()).filter(Boolean);
 app.use(cors({
   origin: (origin, cb) => {
@@ -3419,6 +3432,8 @@ app.get('/api/admin/stats', adminGate, async (req, res) => {
       credit_costs: CREDIT_COSTS,
       admin_email: ADMIN_EMAIL,
       recent_admin_logins: recent.rows,
+      // Automated Spaces backup status (null last_at = none since boot).
+      auto_backup: autoBackupStatus,
     });
   } catch (err) {
     console.error('[admin/stats] error:', err);
@@ -3795,9 +3810,68 @@ app.get('/api/health', (req, res) => {
 // In prod (DO buildpack or any single-process deploy), Express serves
 // the built dist/ for everything that isn't /api/*. Skipped if dist
 // doesn't exist (e.g. running just the api locally).
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 const DIST_DIR = path.resolve(__dirname, '../../dist');
+
+// Per-route SEO meta (2026-07 audit findings #6/#10): the SPA shell used to
+// serve the HOMEPAGE title/description/canonical on every route, so search
+// results showed identical snippets for /image, /pricing, etc. The fallback
+// below string-injects this map into the cached shell per request. Keys are
+// lowercase paths without the leading slash; routes NOT in this map get the
+// shell with HTTP 404 + noindex (fixes soft-404s, audit finding #4).
+const ROUTE_META = {
+  '': null, // homepage keeps the shell's own tags
+  'explore': { title: 'Explore AI Creations — VOXEL.AI', desc: 'Browse the VOXEL.AI community feed — AI images and videos made with Kling, Veo, Seedance, Nano Banana Pro and more.' },
+  'image': { title: 'AI Image Generator — VOXEL.AI', desc: 'Generate production-quality AI images with camera, lens and aperture control. Nano Banana Pro, GPT Image 2, Midjourney and more.' },
+  'video': { title: 'AI Video Generator — VOXEL.AI', desc: 'Create cinematic AI video from text or images with Kling 3.0, Veo 3, Sora 2, Seedance 2.0 — camera motion, duration and audio control.' },
+  'audio': { title: 'AI Audio & Voice Studio — VOXEL.AI', desc: 'Synthesize voice-overs and audio with ElevenLabs-quality AI voices in the VOXEL.AI Audio Studio.' },
+  'edit': { title: 'AI Video Editor — VOXEL.AI', desc: 'Edit and refine AI-generated video with Kling O1 and omni editing tools on VOXEL.AI.' },
+  'apps': { title: 'AI Apps & Tools — VOXEL.AI', desc: 'Face swap, relight, upscale, skin enhancer and more one-click AI apps on VOXEL.AI.' },
+  'templates': { title: 'AI Templates — VOXEL.AI', desc: 'Start from proven AI generation templates for images and video on VOXEL.AI.' },
+  'community': { title: 'Community — VOXEL.AI', desc: 'See what creators are making with VOXEL.AI and share your own AI generations.' },
+  'pricing': { title: 'Pricing & Credits — VOXEL.AI', desc: 'Simple credit pricing from $5/month. Every plan unlocks every model with the same cost per credit — no watermarks, commercial rights included.' },
+  'node': { title: 'Voxel Node Canvas — VOXEL.AI', desc: 'Chain AI models visually on the Voxel Node canvas — build repeatable image and video workflows.' },
+  'studio': { title: 'Studio — VOXEL.AI', desc: 'The VOXEL.AI studio workspace for advanced creative sessions.' },
+  'about': { title: 'About — VOXEL.AI', desc: 'VOXEL.AI is an AI-powered creative studio for images, video and audio — built for creators, marketers and studios.' },
+  'contact': { title: 'Contact — VOXEL.AI', desc: 'Contact the VOXEL.AI team — support, billing, privacy and partnership enquiries.' },
+  'terms': { title: 'Terms of Service — VOXEL.AI', desc: 'The terms that govern your use of VOXEL.AI — accounts, credits, content ownership and acceptable use.' },
+  'account': { title: 'Your Account — VOXEL.AI', desc: 'Manage your VOXEL.AI profile, subscription, credit usage, promo codes and gifts.' },
+};
+
+// Paths that USED to exist and were deliberately removed — 410 Gone tells
+// crawlers to drop them from the index instead of soft-404 limbo.
+const GONE_PATHS = new Set(['privacy']);
+
+function injectMeta(shell, { title, desc, canonical, noindex }) {
+  let html = shell;
+  if (title) {
+    html = html
+      .replace(/<title>[^<]*<\/title>/, `<title>${title}</title>`)
+      .replace(/(property="og:title" content=")[^"]*(")/, `$1${title}$2`)
+      .replace(/(name="twitter:title" content=")[^"]*(")/, `$1${title}$2`);
+  }
+  if (desc) {
+    html = html
+      .replace(/(name="description" content=")[^"]*(")/, `$1${desc}$2`)
+      .replace(/(property="og:description" content=")[^"]*(")/, `$1${desc}$2`)
+      .replace(/(name="twitter:description" content=")[^"]*(")/, `$1${desc}$2`);
+  }
+  if (canonical) {
+    html = html
+      .replace(/(rel="canonical" href=")[^"]*(")/, `$1${canonical}$2`)
+      .replace(/(property="og:url" content=")[^"]*(")/, `$1${canonical}$2`);
+  }
+  if (noindex) {
+    html = html.replace(/(name="robots" content=")[^"]*(")/, '$1noindex$2');
+  }
+  return html;
+}
+
 if (existsSync(DIST_DIR)) {
+  // Cache the shell once per boot — it only changes on deploy (which boots
+  // a fresh process anyway).
+  const SHELL = readFileSync(path.join(DIST_DIR, 'index.html'), 'utf8');
+
   app.use(express.static(DIST_DIR, { maxAge: '1y', index: false }));
   app.get(/^\/(?!api\/).*/, (req, res) => {
     // Anything with a file extension that express.static didn't match does
@@ -3807,13 +3881,31 @@ if (existsSync(DIST_DIR)) {
     if (path.extname(req.path)) {
       return res.status(404).type('text/plain').send('Not found');
     }
+
+    const route = req.path.toLowerCase().replace(/^\/+|\/+$/g, '');
+
     // HTML gets a SHORT freshness lifetime (60s), not a long one: hashed
     // asset URLs change every deploy, so stale HTML points at dead bundles.
-    // 60s is bounded and self-heals — unlike the old 1980-Last-Modified 304
-    // loop that served stale HTML forever. ETag/Last-Modified from sendFile
-    // keep revalidation after the 60s a cheap 304.
     res.set('Cache-Control', 'public, max-age=60, must-revalidate');
-    res.sendFile(path.join(DIST_DIR, 'index.html'));
+    res.type('html');
+
+    if (GONE_PATHS.has(route)) {
+      return res.status(410).send(injectMeta(SHELL, {
+        title: 'Page removed — VOXEL.AI', noindex: true,
+      }));
+    }
+    if (!(route in ROUTE_META)) {
+      // Unknown route: still render the SPA (client shows its 404 page) but
+      // with an honest 404 status + noindex so crawlers don't index junk.
+      return res.status(404).send(injectMeta(SHELL, {
+        title: 'Page not found — VOXEL.AI', noindex: true,
+      }));
+    }
+    const meta = ROUTE_META[route];
+    if (!meta) return res.send(SHELL); // homepage — shell tags are already right
+    return res.send(injectMeta(SHELL, {
+      ...meta, canonical: `https://voxel-ai.ai/${route}`,
+    }));
   });
   console.log(`[voxel-api] serving static frontend from ${DIST_DIR}`);
 } else {
@@ -3903,9 +3995,95 @@ function kieSwitchDateFor(reason) {
   return KIE_TRACKING_STARTED; // unpriced model — matches nothing
 }
 
+// ─── AUTOMATED DAILY BACKUPS → DO Spaces (2026-07 audit finding #1) ─
+// The prod DB is a dev-tier instance with NO managed backups and one prior
+// total data loss (2026-06-09). Until it moves to a production cluster,
+// this job dumps every table to a PRIVATE gzip NDJSON object in Spaces
+// daily and keeps the newest 14. Status is exposed on /api/admin/stats.
+const BACKUP_TABLES = ['users', 'credits_history', 'admin_audit_log', 'failed_logins', 'entities', 'node_spaces', 'promo_codes', 'promo_redemptions', 'gift_cards'];
+const BACKUP_KEEP = 14;
+const autoBackupStatus = { last_at: null, last_key: null, last_error: null };
+
+async function runAutomatedBackup() {
+  if (!dbReady() || !spacesReady()) return;
+  try {
+    const gz = zlib.createGzip();
+    const chunks = [];
+    gz.on('data', (c) => chunks.push(c));
+    const gzDone = new Promise((resolve, reject) => { gz.on('end', resolve); gz.on('error', reject); });
+    const write = (obj) => new Promise((resolve, reject) => {
+      gz.write(JSON.stringify(obj) + '\n', (err) => (err ? reject(err) : resolve()));
+    });
+
+    await write({ meta: { exported_at: new Date().toISOString(), tables: BACKUP_TABLES, version: 1, kind: 'auto' } });
+    const counts = {};
+    for (const table of BACKUP_TABLES) {
+      const BATCH = 1000;
+      let offset = 0;
+      for (;;) {
+        let rows;
+        try {
+          ({ rows } = await pool.query(`SELECT * FROM ${table} ORDER BY id LIMIT ${BATCH} OFFSET ${offset}`));
+        } catch (e) {
+          // Table may not exist yet on older schemas — record and move on.
+          await write({ table, error: e.message });
+          break;
+        }
+        for (const row of rows) await write({ table, row });
+        offset += rows.length;
+        if (rows.length < BATCH) break;
+      }
+      counts[table] = offset;
+    }
+    await write({ done: true, counts });
+    gz.end();
+    await gzDone;
+
+    const key = `backups/voxel-auto-${new Date().toISOString().slice(0, 10)}.ndjson.gz`;
+    await uploadPrivate(key, Buffer.concat(chunks));
+    autoBackupStatus.last_at = new Date().toISOString();
+    autoBackupStatus.last_key = key;
+    autoBackupStatus.last_error = null;
+    console.log(`[auto-backup] ✅ ${key}`, JSON.stringify(counts));
+
+    // Retention: keep the newest BACKUP_KEEP, delete the rest.
+    const all = (await listKeys('backups/')).sort((a, b) => String(b.key).localeCompare(String(a.key)));
+    for (const obj of all.slice(BACKUP_KEEP)) {
+      await deleteKey(obj.key);
+      console.log(`[auto-backup] retention: deleted ${obj.key}`);
+    }
+  } catch (err) {
+    autoBackupStatus.last_error = err.message;
+    console.error('[auto-backup] FAILED:', err.message);
+  }
+}
+
+// ─── KIE BALANCE WATCHDOG (audit finding #9) ───────────────────────
+// Generations for every user fail the moment the kie.ai balance hits zero.
+// Hourly check; loud log line when low so DO log alerts can catch it. The
+// CRM's API Usage tab shows the same number with a red state.
+const KIE_ALERT_THRESHOLD = Number(process.env.KIE_ALERT_THRESHOLD || 3000);
+async function checkKieBalance() {
+  if (!KIE_KEY) return;
+  try {
+    const credits = await kieGetCredits();
+    if (credits < KIE_ALERT_THRESHOLD) {
+      console.error(`[ALERT][kie-balance] LOW: ${credits} credits (≈$${(credits * 0.005).toFixed(2)}) — below ${KIE_ALERT_THRESHOLD}. Top up at kie.ai or generations will start failing.`);
+    }
+  } catch (e) {
+    console.error('[kie-balance] check failed:', e.message);
+  }
+}
+
 migrate()
   .then(async () => {
     await backfillProviderCosts();
+    // First backup shortly after boot (deploys restart daily-ish anyway),
+    // then every 24h; balance check hourly starting now.
+    setTimeout(runAutomatedBackup, 5 * 60 * 1000).unref?.();
+    setInterval(runAutomatedBackup, 24 * 60 * 60 * 1000).unref?.();
+    checkKieBalance();
+    setInterval(checkKieBalance, 60 * 60 * 1000).unref?.();
     startListening();
   })
   .catch((err) => {
