@@ -1,0 +1,48 @@
+{
+  "rules": [
+    {
+      "path": "**/*.{ts,tsx,js,jsx,mjs}",
+      "rule": "General review for a Node.js/TypeScript SaaS. Flag: unhandled promise rejections and missing try/catch around await; async work started without being awaited (floating promises); missing timeouts and retry limits on outbound HTTP calls to third-party AI providers; unbounded concurrency or unbounded in-memory arrays/maps that grow per request; database or HTTP connections opened without a guaranteed release path; error objects or raw provider responses returned to the client; any use of 'any' that hides a real type at a trust boundary; and console.log of tokens, keys, prompts or user emails."
+    },
+    {
+      "path": "**/{credit,credits,billing,wallet,balance,quota,usage}*/**/*.{ts,js}",
+      "rule": "Credit and billing logic is money. Verify every credit deduction happens inside a database transaction together with the work it pays for, so a failed generation cannot leave the user charged and a successful one cannot leave them uncharged. Check that the balance read and the write are not separated by an await that allows a concurrent request to double-spend (require a row lock, atomic decrement, or conditional update). Flag any deduction that can go negative, any refund path with no idempotency key, any float arithmetic on credit amounts, and any place the credit cost is taken from client input instead of computed server-side."
+    },
+    {
+      "path": "**/{payment,payments,stripe,checkout,subscription,webhook,webhooks}*/**/*.{ts,js}",
+      "rule": "Payment and webhook handlers. Require cryptographic signature verification on every inbound webhook before any side effect, using the raw request body (not a re-serialized JSON object). Require idempotency: the same event id delivered twice must not grant credits twice. Flag amounts, currencies, plan ids or entitlements read from the client rather than from the payment provider's payload. Flag handlers that do slow work before returning 200 and risk provider retries. Flag secrets read from anywhere other than environment variables."
+    },
+    {
+      "path": "**/{auth,session,middleware,guard,acl,permission}*/**/*.{ts,js}",
+      "rule": "Authentication and authorization. For every route or handler, confirm the user is authenticated AND that the specific resource being touched belongs to that user — an object id taken from params or body without an ownership check is a broken-object-level-authorization bug, report it. Flag JWTs verified without checking signature, expiry, issuer and audience; long-lived or non-rotating tokens; secrets or fallback dev credentials hardcoded in source; role checks done on the client; and any route added without the auth middleware applied."
+    },
+    {
+      "path": "**/{api,routes,controllers,handlers,pages/api,app/api,server}*/**/*.{ts,js}",
+      "rule": "HTTP endpoints. Require schema validation of body, query and params before use (zod/joi or equivalent) rather than trusting shapes. Flag missing rate limiting on endpoints that trigger paid AI generation, uploads, auth attempts, or email sending. Flag missing request size/timeout limits on upload routes, user-supplied URLs fetched server-side without host allowlisting (SSRF), path traversal in file parameters, and CORS configured with a wildcard origin alongside credentials. Check that errors return a generic message to the client while the detail is logged server-side."
+    },
+    {
+      "path": "**/{generation,generate,jobs,queue,worker,render,video,image,media}*/**/*.{ts,js}",
+      "rule": "AI generation and job pipelines. Check that long-running provider calls have an explicit timeout and cancellation path, that a job cannot be enqueued without the user's quota being checked first, and that a failed or timed-out job reliably reaches a terminal state rather than hanging in 'processing' forever. Flag retries without a cap or backoff, jobs that hold a request open instead of running async, missing dead-letter or failure handling, unbounded polling loops, and temporary files or streams that are never cleaned up."
+    },
+    {
+      "path": "**/{db,database,models,repositories,prisma,migrations,sql}*/**/*.{ts,js,sql,prisma}",
+      "rule": "Data layer. Flag raw SQL built by string concatenation or template literals containing user input (require parameterized queries). Flag queries with no LIMIT on user-facing list endpoints, N+1 query patterns inside loops, missing indexes on columns used in frequent WHERE or JOIN clauses, and multi-step writes that should be one transaction. For migrations, flag destructive or non-reversible changes (dropping or renaming a column in use) and any migration that locks a large table without a stated plan."
+    },
+    {
+      "path": "**/*.{tsx,jsx}",
+      "rule": "React/frontend. Flag dangerouslySetInnerHTML fed by user or API content, secrets or API keys referenced in client-side code or exposed via a public env prefix, useEffect hooks with missing or wrong dependencies causing repeated paid API calls, fetches with no loading/error state, and any client-side check that is the only thing standing between a user and a paid or privileged action."
+    },
+    {
+      "path": "**/{config,env,settings}*/**/*.{ts,js,json}",
+      "rule": "Configuration. Flag any hardcoded credential, API key, connection string or bucket name; environment variables read without validation or a safe default; and configuration that silently differs between local and production in a way that would only fail after deploy."
+    },
+    {
+      "path": "{Dockerfile,docker-compose*.yml,*.yaml,*.yml,.github/workflows/*.yml}",
+      "rule": "Infrastructure and CI. Flag secrets committed in plain text, containers running as root, unpinned base images or action versions, missing health checks and restart policies, and workflow steps that expose secrets to untrusted pull request code."
+    },
+    {
+      "path": "package.json",
+      "rule": "Dependencies. Flag newly added packages that duplicate an existing dependency, unpinned or wildcard version ranges on anything security-sensitive, dependencies added to 'dependencies' that are only needed at build time, and any postinstall script on a newly added package."
+    }
+  ]
+}
