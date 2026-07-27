@@ -96,7 +96,7 @@ export default function WhatWillYouCreate() {
             }}
           >
             <img
-              src="/media/what-will-you-create-bg.png"
+              src="/media/what-will-you-create-bg.jpg"
               alt=""
               aria-hidden
               className="absolute inset-0 w-full h-full object-cover"

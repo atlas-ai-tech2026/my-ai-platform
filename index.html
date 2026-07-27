@@ -34,6 +34,15 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Anton&family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600;700&family=Fraunces:opsz,wght@9..144,300;9..144,400;9..144,500;9..144,600&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&family=Oswald:wght@400;500;600;700&display=swap" rel="stylesheet" />
 
+    <style>
+      /* The static SEO shell inside #root must not flash for real users:
+         keep it invisible for the first 700ms — React normally mounts and
+         replaces it well before that. Slow connections and no-JS visitors
+         (crawlers) still get the content once the delay passes. */
+      .seo-prerender { opacity: 0; animation: seo-reveal .25s ease .7s forwards; }
+      @keyframes seo-reveal { to { opacity: 1; } }
+    </style>
+
     <script type="application/ld+json">
     {
       "@context": "https://schema.org",
@@ -54,7 +63,7 @@
          The old inline service-worker-unregister script moved to main.jsx so
          index.html has zero inline scripts (strict CSP: script-src 'self'). -->
     <div id="root">
-      <div style="font-family:Inter,system-ui,sans-serif;max-width:960px;margin:0 auto;padding:48px 24px">
+      <div class="seo-prerender" style="font-family:Inter,system-ui,sans-serif;max-width:960px;margin:0 auto;padding:48px 24px">
         <header>
           <nav aria-label="Primary">
             <a href="/" style="color:#e5e5e5">VOXEL.AI</a> ·
