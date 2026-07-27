@@ -17,6 +17,7 @@ import { persistOrFallback, persistBuffer, isReady as spacesReady, uploadPrivate
 import { configureKie, kieCreateTask, kieGetTask, kiePollUntilDone, kieUploadBuffer, kieGetCredits } from './kie.js';
 import { estimateKieCredits, backfillKieEstimate } from './kie-pricing.js';
 import { estimateFalCost, backfillFalEstimate } from './fal-pricing.js';
+import { publicReason } from './sanitize.js';
 import { verifyJwt, requireAdmin, requireNotBanned } from './middleware/auth.js';
 // Restored after the in-file getStore block was removed — DIST_DIR
 // at the bottom of this file still needs __dirname.
@@ -3013,13 +3014,18 @@ app.get('/api/me/usage', verifyJwt, async (req, res) => {
         [req.user.id, days]
       ),
     ]);
+    // Scrub internal provider tags (kie/fal) from every user-visible reason —
+    // the admin CRM keeps the raw strings, users get Voxel branding.
     res.json({
       days,
       daily: daily.rows,
-      recent: recent.rows,
-      models: models.rows,
+      recent: recent.rows.map(r => ({ ...r, reason: publicReason(r.reason) })),
+      models: models.rows.map(m => ({ ...m, model: publicReason(m.model) })),
       range: rangeTotals.rows[0],
-      lifetime: { ...lifetime.rows[0], top_model: top.rows[0] || null },
+      lifetime: {
+        ...lifetime.rows[0],
+        top_model: top.rows[0] ? { ...top.rows[0], model: publicReason(top.rows[0].model) } : null,
+      },
     });
   } catch (err) {
     console.error('[me/usage] error:', err);
