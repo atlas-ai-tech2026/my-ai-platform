@@ -18,6 +18,7 @@ import { configureKie, kieCreateTask, kieGetTask, kiePollUntilDone, kieUploadBuf
 import { estimateKieCredits, backfillKieEstimate } from './kie-pricing.js';
 import { estimateFalCost, backfillFalEstimate } from './fal-pricing.js';
 import { publicReason } from './sanitize.js';
+import { normalizeBulkEmails, generateBulkPassword } from './bulk-helpers.js';
 import { verifyJwt, requireAdmin, requireNotBanned } from './middleware/auth.js';
 // Restored after the in-file getStore block was removed — DIST_DIR
 // at the bottom of this file still needs __dirname.
@@ -763,6 +764,16 @@ function buildKieVideoSubmission(mapping, { prompt, frames, duration, aspectRati
   };
 }
 
+// Per-user model allow-list gate (CRM Bulk tab): NULL/absent = every model.
+// Checked AFTER model resolution and BEFORE charging, so restricted users
+// are never billed for a blocked attempt.
+function modelAllowedForUser(req, model) {
+  const list = req.userAccess?.allowedModels;
+  return !Array.isArray(list) || list.length === 0 || list.includes(model);
+}
+const MODEL_BLOCKED = (model) =>
+  ({ error: `Your account does not include ${model}. Contact support to enable it.` });
+
 // ─── GENERATE ENDPOINT ─────────────────────────────────────────────
 // Auth + credit gating:
 //   1. verifyJwt — must be logged in
@@ -866,6 +877,8 @@ app.post('/api/generate', verifyJwt, requireNotBanned, requireModelProviderKey, 
   if (type === 'video' && !legacyVideoId && VIDEO_DIRECT_MAP[model]?.provider !== 'kie') {
     return res.status(400).json({ error: 'Unknown video model: ' + model });
   }
+
+  if (!modelAllowedForUser(req, model)) return res.status(403).json(MODEL_BLOCKED(model));
 
   // Charge BEFORE the provider call so a user can't burn through quota by
   // spamming requests that race past the balance check.
@@ -1210,6 +1223,8 @@ app.post('/api/generate-video', verifyJwt, requireNotBanned, requireModelProvide
     console.error(`[VIDEO] Model not supported: "${model}"`);
     return res.status(400).json({ error: `Model not supported: ${model}` });
   }
+
+  if (!modelAllowedForUser(req, model)) return res.status(403).json(MODEL_BLOCKED(model));
 
   // Charge BEFORE submission so we don't enqueue a job we can't bill for.
   let chargedKind = null;
@@ -1757,6 +1772,8 @@ app.post('/api/generate-video-ref', verifyJwt, requireNotBanned, requireModelPro
   const frameField    = 'image_url';
   const endFrameField = 'end_image_url';
   const modelLabel = isFast ? 'Seedance 2.0 Fast' : isMini ? 'Seedance 2.0 Mini' : 'Seedance 2.0';
+
+  if (!modelAllowedForUser(req, modelLabel)) return res.status(403).json(MODEL_BLOCKED(modelLabel));
 
   let chargedKind = null;
   let chargedCost = null;
@@ -2853,7 +2870,7 @@ app.post('/api/auth/login', loginLimiter, requireAuthInfra, async (req, res) => 
     }
 
     const { rows } = await pool.query(
-      `SELECT id, email, password_hash, credits, credit_limit, role, banned, package, created_at
+      `SELECT id, email, password_hash, credits, credit_limit, role, banned, package, created_at, expires_at
          FROM users WHERE email = $1 LIMIT 1`,
       [email]
     );
@@ -2874,6 +2891,10 @@ app.post('/api/auth/login', loginLimiter, requireAuthInfra, async (req, res) => 
 
     if (row.banned) {
       return res.status(403).json({ error: 'Account is banned.' });
+    }
+    // Bulk-provisioned accounts can expire (CRM Bulk tab).
+    if (row.expires_at && new Date(row.expires_at) <= new Date()) {
+      return res.status(403).json({ error: 'Account has expired — contact support to renew.' });
     }
 
     // Admin tokens expire fast (30m) so a stolen admin token has a small
@@ -3678,6 +3699,84 @@ app.post('/api/redeem-code', redeemLimiter, verifyJwt, requireNotBanned, async (
     return res.status(500).json({ error: 'Redeem failed — try again.' });
   } finally {
     client.release();
+  }
+});
+
+// ─── ADMIN: MODEL CATALOG (for the Bulk tab's allow-list picker) ───
+// Server is the source of truth for model labels — the same keys the
+// generate routes resolve and the allow-list gate compares against.
+app.get('/api/admin/models', adminGate, (req, res) => {
+  res.json({
+    image: Object.keys(MODEL_CONFIG),
+    video: Object.keys(VIDEO_DIRECT_MAP),
+  });
+});
+
+// ─── ADMIN: BULK USER PROVISIONING (CRM Bulk tab) ──────────────────
+// Creates up to 200 accounts from an uploaded sheet's email list, each
+// with: a generated password (returned ONCE for the admin to distribute),
+// the chosen plan's credits (granted like an admin grant), an optional
+// model allow-list, and an optional account expiry.
+app.post('/api/admin/users/bulk', adminGate, async (req, res) => {
+  if (!dbReady()) return res.status(503).json({ error: 'Database not available.' });
+  try {
+    const { valid, invalid, dupes } = normalizeBulkEmails(req.body?.emails);
+    if (valid.length === 0) {
+      return res.status(400).json({ error: 'No valid email addresses found.', invalid, dupes });
+    }
+    if (valid.length > 200) {
+      return res.status(400).json({ error: `Too many emails (${valid.length}) — max 200 per batch.` });
+    }
+
+    const pkg = String(req.body?.package || 'Free').slice(0, 32);
+    const credits = Math.min(Math.max(Number(req.body?.credits) || 0, 0), 100000);
+    const expiresAt = req.body?.expires_at ? new Date(req.body.expires_at) : null;
+    if (expiresAt && (isNaN(expiresAt) || expiresAt <= new Date())) {
+      return res.status(400).json({ error: 'Expiry must be a future date.' });
+    }
+    // allowed_models: null/empty = unrestricted (all models).
+    const allowedModels = Array.isArray(req.body?.allowed_models) && req.body.allowed_models.length
+      ? req.body.allowed_models.map(m => String(m).slice(0, 64)).slice(0, 100)
+      : null;
+
+    // Bulk passwords are 14-char random (~68 bits entropy) — the entropy is
+    // the defense, so a lighter bcrypt cost keeps a 200-user batch fast
+    // instead of minutes at interactive-login cost.
+    const BULK_BCRYPT_ROUNDS = 8;
+    const results = [];
+    for (const email of valid) {
+      try {
+        const exists = await pool.query('SELECT 1 FROM users WHERE email = $1', [email]);
+        if (exists.rowCount > 0) {
+          results.push({ email, status: 'exists' });
+          continue;
+        }
+        const password = generateBulkPassword();
+        const hash = await bcrypt.hash(password, BULK_BCRYPT_ROUNDS);
+        const ins = await pool.query(
+          `INSERT INTO users (email, password_hash, credits, credit_limit, role, package, expires_at, allowed_models)
+           VALUES ($1, $2, $3, $3, 'user', $4, $5, $6) RETURNING id`,
+          [email, hash, credits, pkg, expiresAt, allowedModels ? JSON.stringify(allowedModels) : null]
+        );
+        if (credits > 0) {
+          await pool.query(
+            `INSERT INTO credits_history (user_id, amount, action, admin_email, reason)
+             VALUES ($1, $2, 'grant', $3, $4)`,
+            [ins.rows[0].id, credits, req.user?.email || ADMIN_EMAIL, `bulk provision: ${pkg} plan`]
+          );
+        }
+        results.push({ email, password, status: 'created' });
+      } catch (e) {
+        console.error('[admin/bulk] failed for', email, e.message);
+        results.push({ email, status: 'error' });
+      }
+    }
+    const created = results.filter(r => r.status === 'created').length;
+    console.log(`[admin/bulk] ✅ ${created}/${valid.length} created (pkg=${pkg}, credits=${credits}, models=${allowedModels ? allowedModels.length : 'all'}, expires=${expiresAt?.toISOString() || 'never'})`);
+    res.json({ results, created, skipped_existing: results.filter(r => r.status === 'exists').length, invalid, dupes });
+  } catch (err) {
+    console.error('[admin/bulk] error:', err);
+    res.status(500).json({ error: 'Bulk creation failed.' });
   }
 });
 

@@ -14,6 +14,7 @@ import LogsTab from '@/components/admin/LogsTab';
 import UsageTab from '@/components/admin/UsageTab';
 import PromoCodesTab from '@/components/admin/PromoCodesTab';
 import GiftCardsTab from '@/components/admin/GiftCardsTab';
+import BulkTab from '@/components/admin/BulkTab';
 
 const PAGE_SIZE = 50;
 
@@ -25,6 +26,7 @@ const TABS = [
   { id: 'logs',  label: 'Logs' },
   { id: 'promos', label: 'Promo Codes' },
   { id: 'gifts',  label: 'Gift Cards' },
+  { id: 'bulk',   label: 'Bulk' },
 ];
 
 export default function AdminPanel() {
@@ -192,6 +194,7 @@ export default function AdminPanel() {
         {tab === 'logs' && <LogsTab onError={handleError} />}
         {tab === 'promos' && <PromoCodesTab onError={handleError} />}
         {tab === 'gifts' && <GiftCardsTab onError={handleError} />}
+        {tab === 'bulk' && <BulkTab onError={handleError} />}
 
         {tab === 'users' && (<>
         <StatsCards stats={stats} />

@@ -80,6 +80,10 @@ export const adminApi = {
   togglePromo: (id)     => request('POST', `/api/admin/promocodes/${id}/toggle`),
   createGiftCards: (body) => request('POST', '/api/admin/giftcards', body),
   listGiftCards: (status = 'all') => request('GET', `/api/admin/giftcards?status=${status}`),
+
+  // ─── Bulk user provisioning ───────────────────────────────────────
+  listModels: () => request('GET', '/api/admin/models'),
+  bulkCreateUsers: (body) => request('POST', '/api/admin/users/bulk', body),
 };
 
 // Decode a JWT payload WITHOUT verifying its signature. Used only for

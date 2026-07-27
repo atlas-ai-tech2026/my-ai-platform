@@ -161,6 +161,14 @@ export async function migrate() {
     // profile). Optional — UI falls back to the email local-part.
     await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS display_name VARCHAR(80);`);
 
+    // Bulk-provisioned account controls (CRM Bulk tab, 2026-07):
+    //   allowed_models — JSONB array of model labels this user may run;
+    //                    NULL = unrestricted (every model, the default).
+    //   expires_at     — account hard-stop; NULL = never. Expired users
+    //                    can't log in or generate (enforced in auth).
+    await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS allowed_models JSONB;`);
+    await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ;`);
+
     // fal_cost: estimated USD the transaction cost on OUR fal.ai bill
     // (server/src/fal-pricing.js). NULL = kie-backed model, no fal price on
     // file, or pre-tracking row → UI shows "—". FAL bills in dollars, not

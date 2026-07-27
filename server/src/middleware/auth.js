@@ -54,13 +54,23 @@ export function requireAdmin(req, res, next) {
 export async function requireNotBanned(req, res, next) {
   try {
     if (!req.user?.id) return res.status(401).json({ error: 'Not authenticated.' });
-    const { rows } = await pool.query('SELECT banned FROM users WHERE id = $1', [req.user.id]);
+    const { rows } = await pool.query(
+      'SELECT banned, expires_at, allowed_models FROM users WHERE id = $1',
+      [req.user.id]
+    );
     if (!rows[0]) {
       return res.status(401).json({ error: 'Account no longer exists.' });
     }
     if (rows[0].banned) {
       return res.status(403).json({ error: 'Account is banned.' });
     }
+    // Bulk-provisioned accounts can carry a hard expiry (CRM Bulk tab).
+    if (rows[0].expires_at && new Date(rows[0].expires_at) <= new Date()) {
+      return res.status(403).json({ error: 'Account has expired — contact support to renew.' });
+    }
+    // Per-user model allow-list (NULL = unrestricted). Routes consult this
+    // via req.userAccess before charging.
+    req.userAccess = { allowedModels: rows[0].allowed_models || null };
     next();
   } catch (err) {
     console.error('[auth] requireNotBanned error:', err.message);
