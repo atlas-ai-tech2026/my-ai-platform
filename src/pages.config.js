@@ -24,6 +24,7 @@ const Pricing = lazy(() => import('./pages/Pricing'));
 const Studio = lazy(() => import('./pages/Studio'));
 const Templates = lazy(() => import('./pages/Templates'));
 const Video = lazy(() => import('./pages/Video'));
+const Account = lazy(() => import('./pages/Account'));
 const About = lazy(() => import('./pages/About'));
 const Contact = lazy(() => import('./pages/Contact'));
 const Privacy = lazy(() => import('./pages/Privacy'));
@@ -42,6 +43,7 @@ export const PAGES = {
     "Studio": Studio,
     "Templates": Templates,
     "Video": Video,
+    "Account": Account,
     "About": About,
     "Contact": Contact,
     "Privacy": Privacy,

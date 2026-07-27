@@ -15,6 +15,8 @@ const ACTION_CHIP = {
   refund: { label: 'refunded', color: '#fbbf24', bg: 'rgba(251,191,36,0.12)' },
   grant:  { label: 'grant', color: '#60a5fa', bg: 'rgba(96,165,250,0.12)' },
   revoke: { label: 'revoke', color: '#f87171', bg: 'rgba(248,113,113,0.12)' },
+  promo:  { label: 'promo', color: '#c084fc', bg: 'rgba(192,132,252,0.12)' },
+  gift:   { label: 'gift card', color: '#f472b6', bg: 'rgba(244,114,182,0.12)' },
 };
 
 export default function LogsTab({ onError }) {
@@ -99,6 +101,8 @@ export default function LogsTab({ onError }) {
           <option value="refund">refunded</option>
           <option value="grant">grant</option>
           <option value="revoke">revoke</option>
+          <option value="promo">promo</option>
+          <option value="gift">gift card</option>
         </select>
         <input placeholder="Filter by model / details…" value={q}
           onChange={e => setQ(e.target.value)} style={{ ...inputStyle, minWidth: 190 }} />

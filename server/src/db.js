@@ -143,12 +143,58 @@ export async function migrate() {
     // the admin UI renders those as "—".
     await client.query(`ALTER TABLE credits_history ADD COLUMN IF NOT EXISTS kie_credits NUMERIC(12,2);`);
 
+    // display_name: shown on the user's account page (higgsfield-style
+    // profile). Optional — UI falls back to the email local-part.
+    await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS display_name VARCHAR(80);`);
+
     // fal_cost: estimated USD the transaction cost on OUR fal.ai bill
     // (server/src/fal-pricing.js). NULL = kie-backed model, no fal price on
     // file, or pre-tracking row → UI shows "—". FAL bills in dollars, not
     // credits, hence a separate USD column rather than reusing kie_credits.
     await client.query(`ALTER TABLE credits_history ADD COLUMN IF NOT EXISTS fal_cost NUMERIC(12,4);`);
     await client.query(`CREATE INDEX IF NOT EXISTS credits_history_recent_idx ON credits_history (created_at DESC);`);
+
+    // ─── promo codes + gift cards ───────────────────────────────────
+    // Promo codes: reusable marketing codes (max_redemptions NULL =
+    // unlimited, one redemption per user enforced by promo_redemptions).
+    // Gift cards: single-use vouchers generated in batches by the admin.
+    // Both grant credits via the same mechanics as an admin grant
+    // (credits + credit_limit + credits_history row).
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS promo_codes (
+        id              SERIAL       PRIMARY KEY,
+        code            VARCHAR(64)  NOT NULL UNIQUE,
+        credits         NUMERIC(10,2) NOT NULL,
+        max_redemptions INTEGER,
+        redeemed_count  INTEGER      NOT NULL DEFAULT 0,
+        expires_at      TIMESTAMPTZ,
+        active          BOOLEAN      NOT NULL DEFAULT TRUE,
+        created_by      VARCHAR(255),
+        created_at      TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+      );
+    `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS promo_redemptions (
+        id         SERIAL      PRIMARY KEY,
+        code_id    INTEGER     NOT NULL REFERENCES promo_codes(id) ON DELETE CASCADE,
+        user_id    INTEGER     NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE (code_id, user_id)
+      );
+    `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS gift_cards (
+        id          SERIAL       PRIMARY KEY,
+        code        VARCHAR(64)  NOT NULL UNIQUE,
+        credits     NUMERIC(10,2) NOT NULL,
+        note        TEXT,
+        expires_at  TIMESTAMPTZ,
+        redeemed_by INTEGER      REFERENCES users(id) ON DELETE SET NULL,
+        redeemed_at TIMESTAMPTZ,
+        created_by  VARCHAR(255),
+        created_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+      );
+    `);
 
     // ─── admin_audit_log ────────────────────────────────────────────
     // Every admin API call is logged here. Used for "who did what / from

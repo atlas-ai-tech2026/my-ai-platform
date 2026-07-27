@@ -7,6 +7,7 @@ import multer from 'multer';
 import { fal } from '@fal-ai/client';
 import path from 'node:path';
 import zlib from 'node:zlib';
+import { randomBytes } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import dotenv from 'dotenv';
 import bcrypt from 'bcryptjs';
@@ -2902,7 +2903,7 @@ app.post('/api/auth/login', loginLimiter, requireAuthInfra, async (req, res) => 
 app.get('/api/auth/me', verifyJwt, async (req, res) => {
   try {
     const { rows } = await pool.query(
-      `SELECT id, email, credits, credit_limit, role, banned, package, created_at
+      `SELECT id, email, display_name, credits, credit_limit, role, banned, package, created_at
          FROM users WHERE id = $1`,
       [req.user.id]
     );
@@ -2911,6 +2912,61 @@ app.get('/api/auth/me', verifyJwt, async (req, res) => {
   } catch (err) {
     console.error('[auth/me] error:', err);
     res.status(500).json({ error: 'Failed to load user.' });
+  }
+});
+
+// ─── USER ACCOUNT (higgsfield-style "Manage Account") ──────────────
+// Self-service endpoints scoped to the logged-in user. Provider costs
+// (kie_credits / fal_cost) are INTERNAL accounting and are deliberately
+// never selected here.
+
+// PATCH /api/me — the only editable field today is display_name.
+app.patch('/api/me', verifyJwt, requireNotBanned, async (req, res) => {
+  try {
+    // Strip control characters — display_name renders in the navbar and
+    // account page; React escapes HTML but invisible controls are junk.
+    const name = String(req.body?.display_name ?? '')
+      .replace(/[\x00-\x1F\x7F]/g, '').trim().slice(0, 80);
+    const { rows } = await pool.query(
+      `UPDATE users SET display_name = $1 WHERE id = $2
+       RETURNING id, email, display_name, credits, credit_limit, role, banned, package, created_at`,
+      [name || null, req.user.id]
+    );
+    if (!rows[0]) return res.status(401).json({ error: 'Account no longer exists.' });
+    res.json({ user: rows[0] });
+  } catch (err) {
+    console.error('[me] update error:', err);
+    res.status(500).json({ error: 'Profile update failed.' });
+  }
+});
+
+// GET /api/me/usage — own usage history: daily spend for the chart (last
+// 30 days) + the recent ledger (spends, refunds, grants, promo/gift
+// redemptions) for the Usage / Promocode / Gifts sections.
+app.get('/api/me/usage', verifyJwt, async (req, res) => {
+  try {
+    const [daily, recent] = await Promise.all([
+      pool.query(
+        `SELECT to_char(date_trunc('day', created_at), 'YYYY-MM-DD') AS day,
+                COALESCE(SUM(-amount) FILTER (WHERE action = 'spend'), 0)::float AS credits_spent,
+                COUNT(*) FILTER (WHERE action = 'spend')::int AS generations
+           FROM credits_history
+          WHERE user_id = $1 AND created_at > NOW() - INTERVAL '30 days'
+          GROUP BY 1 ORDER BY 1`,
+        [req.user.id]
+      ),
+      pool.query(
+        `SELECT id, created_at, action, amount, reason
+           FROM credits_history
+          WHERE user_id = $1
+          ORDER BY created_at DESC LIMIT 100`,
+        [req.user.id]
+      ),
+    ]);
+    res.json({ daily: daily.rows, recent: recent.rows });
+  } catch (err) {
+    console.error('[me/usage] error:', err);
+    res.status(500).json({ error: 'Usage fetch failed.' });
   }
 });
 
@@ -3342,7 +3398,7 @@ app.get('/api/admin/logs', adminGate, async (req, res) => {
     const p = (v) => { params.push(v); return `$${params.length}`; };
 
     const action = String(req.query.action || '').toLowerCase();
-    if (['spend', 'refund', 'grant', 'revoke'].includes(action)) where.push(`ch.action = ${p(action)}`);
+    if (['spend', 'refund', 'grant', 'revoke', 'promo', 'gift', 'signup'].includes(action)) where.push(`ch.action = ${p(action)}`);
     if (req.query.q) where.push(`ch.reason ILIKE ${p('%' + String(req.query.q).slice(0, 100) + '%')}`);
     if (req.query.email) where.push(`u.email ILIKE ${p('%' + String(req.query.email).slice(0, 100) + '%')}`);
     if (req.query.from) where.push(`ch.created_at >= ${p(new Date(req.query.from))}`);
@@ -3442,6 +3498,234 @@ app.get('/api/admin/kie-balance', adminGate, async (req, res) => {
   } catch (err) {
     console.error('[admin/kie-balance] error:', err.message);
     res.status(502).json({ error: `kie.ai balance unavailable: ${err.message}` });
+  }
+});
+
+// ─── PROMO CODES + GIFT CARDS ──────────────────────────────────────
+// Admin generates them in the CRM; users redeem via POST /api/redeem-code.
+// Redemption grants credits with the SAME mechanics as an admin grant:
+// credits += value, credit_limit += value, credits_history row.
+
+// Unambiguous code alphabet (no 0/O/1/I) so codes survive being read aloud.
+const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+function randomCode(groups, groupLen = 4) {
+  const bytes = randomBytes(groups * groupLen);
+  const chars = Array.from(bytes, (b) => CODE_ALPHABET[b % CODE_ALPHABET.length]);
+  const parts = [];
+  for (let g = 0; g < groups; g++) parts.push(chars.slice(g * groupLen, (g + 1) * groupLen).join(''));
+  return parts.join('-');
+}
+const normalizeCode = (c) => String(c || '').trim().toUpperCase().replace(/\s+/g, '');
+
+// Shared grant-on-redeem: mirrors the admin grant transaction. Returns the
+// new balance. Caller owns the client + transaction.
+async function grantRedeemedCredits(client, { userId, credits, action, reason }) {
+  const cur = await client.query('SELECT credits, credit_limit FROM users WHERE id = $1 FOR UPDATE', [userId]);
+  if (cur.rowCount === 0) throw new Error('User not found');
+  const after = Number(cur.rows[0].credits) + Number(credits);
+  const limitAfter = Number(cur.rows[0].credit_limit) + Number(credits);
+  await client.query('UPDATE users SET credits = $1, credit_limit = $2 WHERE id = $3', [after, limitAfter, userId]);
+  await client.query(
+    `INSERT INTO credits_history (user_id, amount, action, reason) VALUES ($1, $2, $3, $4)`,
+    [userId, credits, action, reason]
+  );
+  return after;
+}
+
+// Redeem attempts are a code-guessing surface — throttle hard per IP.
+const redeemLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 20,
+  keyGenerator: ipKey,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many redeem attempts — try again later.' },
+});
+
+// POST /api/redeem-code { code } — one box redeems BOTH kinds: gift cards
+// (single-use) are checked first, then promo codes (per-user once, global
+// cap via max_redemptions, expiry + active flag).
+app.post('/api/redeem-code', redeemLimiter, verifyJwt, requireNotBanned, async (req, res) => {
+  const code = normalizeCode(req.body?.code);
+  if (!code || code.length < 4 || code.length > 64) {
+    return res.status(400).json({ error: 'Enter a valid code.' });
+  }
+  if (!dbReady()) return res.status(503).json({ error: 'Database not available.' });
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // Gift card: atomic claim — the UPDATE only wins for the first redeemer.
+    const gift = await client.query(
+      `UPDATE gift_cards SET redeemed_by = $1, redeemed_at = NOW()
+        WHERE code = $2 AND redeemed_by IS NULL
+          AND (expires_at IS NULL OR expires_at > NOW())
+        RETURNING credits`,
+      [req.user.id, code]
+    );
+    if (gift.rowCount === 1) {
+      const credits = Number(gift.rows[0].credits);
+      const balance = await grantRedeemedCredits(client, {
+        userId: req.user.id, credits, action: 'gift', reason: `gift card: ${code}`,
+      });
+      await client.query('COMMIT');
+      console.log(`[redeem] gift card ${code} → user ${req.user.email} (+${credits})`);
+      return res.json({ kind: 'gift', credits, balance });
+    }
+
+    // Promo code: lock the row, enforce active/expiry/global cap, then a
+    // UNIQUE(code_id,user_id) insert enforces once-per-user.
+    const promo = await client.query(
+      `SELECT id, credits, max_redemptions, redeemed_count, active, expires_at
+         FROM promo_codes WHERE code = $1 FOR UPDATE`,
+      [code]
+    );
+    const p = promo.rows[0];
+    const invalid =
+      !p || !p.active ||
+      (p.expires_at && new Date(p.expires_at) <= new Date()) ||
+      (p.max_redemptions != null && p.redeemed_count >= p.max_redemptions);
+    if (invalid) {
+      await client.query('ROLLBACK');
+      // One generic message — don't leak which codes exist vs expired.
+      return res.status(404).json({ error: 'This code is invalid, expired, or already used.' });
+    }
+    try {
+      await client.query('INSERT INTO promo_redemptions (code_id, user_id) VALUES ($1, $2)', [p.id, req.user.id]);
+    } catch (e) {
+      await client.query('ROLLBACK');
+      if (String(e.code) === '23505') {
+        return res.status(409).json({ error: 'You already redeemed this code.' });
+      }
+      throw e;
+    }
+    await client.query('UPDATE promo_codes SET redeemed_count = redeemed_count + 1 WHERE id = $1', [p.id]);
+    const credits = Number(p.credits);
+    const balance = await grantRedeemedCredits(client, {
+      userId: req.user.id, credits, action: 'promo', reason: `promo: ${code}`,
+    });
+    await client.query('COMMIT');
+    console.log(`[redeem] promo ${code} → user ${req.user.email} (+${credits})`);
+    return res.json({ kind: 'promo', credits, balance });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('[redeem] error:', err);
+    return res.status(500).json({ error: 'Redeem failed — try again.' });
+  } finally {
+    client.release();
+  }
+});
+
+// ─── ADMIN: PROMO CODE GENERATION ──────────────────────────────────
+app.post('/api/admin/promocodes', adminGate, async (req, res) => {
+  try {
+    const credits = Number(req.body?.credits);
+    if (!Number.isFinite(credits) || credits <= 0 || credits > 100000) {
+      return res.status(400).json({ error: 'Credits must be a positive number.' });
+    }
+    const code = req.body?.code ? normalizeCode(req.body.code) : `VOXEL-${randomCode(2)}`;
+    if (code.length < 4 || code.length > 64) {
+      return res.status(400).json({ error: 'Code must be 4-64 characters.' });
+    }
+    // Custom codes: letters/digits/dashes only, so what the admin prints is
+    // exactly what a user can type (normalizeCode uppercases both sides).
+    if (!/^[A-Z0-9-]+$/.test(code)) {
+      return res.status(400).json({ error: 'Codes may only contain letters, numbers, and dashes.' });
+    }
+    const maxRedemptions = req.body?.max_redemptions != null && req.body.max_redemptions !== ''
+      ? Math.max(1, parseInt(req.body.max_redemptions, 10)) : null;
+    const expiresAt = req.body?.expires_at ? new Date(req.body.expires_at) : null;
+    if (expiresAt && isNaN(expiresAt)) return res.status(400).json({ error: 'Bad expiry date.' });
+
+    const { rows } = await pool.query(
+      `INSERT INTO promo_codes (code, credits, max_redemptions, expires_at, created_by)
+       VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+      [code, credits, maxRedemptions, expiresAt, req.user?.email || ADMIN_EMAIL]
+    );
+    res.json({ promo: rows[0] });
+  } catch (err) {
+    if (String(err.code) === '23505') return res.status(409).json({ error: 'That code already exists.' });
+    console.error('[admin/promocodes] error:', err);
+    res.status(500).json({ error: 'Promo creation failed.' });
+  }
+});
+
+app.get('/api/admin/promocodes', adminGate, async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT p.*,
+              (SELECT COUNT(*)::int FROM promo_redemptions r WHERE r.code_id = p.id) AS unique_redeemers
+         FROM promo_codes p ORDER BY p.created_at DESC LIMIT 500`
+    );
+    res.json({ promos: rows });
+  } catch (err) {
+    console.error('[admin/promocodes] list error:', err);
+    res.status(500).json({ error: 'Promo list failed.' });
+  }
+});
+
+app.post('/api/admin/promocodes/:id/toggle', adminGate, async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `UPDATE promo_codes SET active = NOT active WHERE id = $1 RETURNING *`,
+      [parseInt(req.params.id, 10)]
+    );
+    if (!rows[0]) return res.status(404).json({ error: 'Promo not found.' });
+    res.json({ promo: rows[0] });
+  } catch (err) {
+    console.error('[admin/promocodes] toggle error:', err);
+    res.status(500).json({ error: 'Toggle failed.' });
+  }
+});
+
+// ─── ADMIN: GIFT CARD GENERATION ───────────────────────────────────
+// Batch-generate single-use cards. Codes are returned ONCE in full here;
+// the list endpoint shows them too (admin-only surface) so they can be
+// re-copied and exported to CSV.
+app.post('/api/admin/giftcards', adminGate, async (req, res) => {
+  try {
+    const credits = Number(req.body?.credits);
+    const count = Math.min(Math.max(parseInt(req.body?.count, 10) || 1, 1), 500);
+    if (!Number.isFinite(credits) || credits <= 0 || credits > 100000) {
+      return res.status(400).json({ error: 'Credits must be a positive number.' });
+    }
+    const note = String(req.body?.note || '').slice(0, 200) || null;
+    const expiresAt = req.body?.expires_at ? new Date(req.body.expires_at) : null;
+    if (expiresAt && isNaN(expiresAt)) return res.status(400).json({ error: 'Bad expiry date.' });
+
+    const cards = [];
+    for (let i = 0; i < count; i++) {
+      const code = `VGC-${randomCode(3)}`;
+      const { rows } = await pool.query(
+        `INSERT INTO gift_cards (code, credits, note, expires_at, created_by)
+         VALUES ($1, $2, $3, $4, $5)
+         ON CONFLICT (code) DO NOTHING RETURNING *`,
+        [code, credits, note, expiresAt, req.user?.email || ADMIN_EMAIL]
+      );
+      if (rows[0]) cards.push(rows[0]);
+      else i--; // astronomically unlikely collision — retry
+    }
+    res.json({ cards });
+  } catch (err) {
+    console.error('[admin/giftcards] error:', err);
+    res.status(500).json({ error: 'Gift card generation failed.' });
+  }
+});
+
+app.get('/api/admin/giftcards', adminGate, async (req, res) => {
+  try {
+    const status = String(req.query.status || 'all');
+    const where = status === 'unused' ? 'WHERE g.redeemed_by IS NULL'
+      : status === 'redeemed' ? 'WHERE g.redeemed_by IS NOT NULL' : '';
+    const { rows } = await pool.query(
+      `SELECT g.*, u.email AS redeemed_by_email
+         FROM gift_cards g LEFT JOIN users u ON u.id = g.redeemed_by
+         ${where} ORDER BY g.created_at DESC LIMIT 1000`
+    );
+    res.json({ cards: rows });
+  } catch (err) {
+    console.error('[admin/giftcards] list error:', err);
+    res.status(500).json({ error: 'Gift card list failed.' });
   }
 });
 

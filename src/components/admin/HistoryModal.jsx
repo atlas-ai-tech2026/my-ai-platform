@@ -90,6 +90,8 @@ function ActionPill({ action }) {
     revoke: ['#ffaa44', 'rgba(255,170,68,0.15)'],
     spend:  ['#88aaff', 'rgba(136,170,255,0.15)'],
     refund: ['#aaaaff', 'rgba(170,170,255,0.15)'],
+    promo:  ['#c084fc', 'rgba(192,132,252,0.15)'],
+    gift:   ['#f472b6', 'rgba(244,114,182,0.15)'],
     ban:    ['#ff6666', 'rgba(255,102,102,0.15)'],
     unban:  ['#88ee88', 'rgba(136,238,136,0.15)'],
     signup: ['rgba(255,255,255,0.7)', 'rgba(255,255,255,0.06)'],

@@ -12,6 +12,8 @@ import CreditsModal from '@/components/admin/CreditsModal';
 import HistoryModal from '@/components/admin/HistoryModal';
 import LogsTab from '@/components/admin/LogsTab';
 import UsageTab from '@/components/admin/UsageTab';
+import PromoCodesTab from '@/components/admin/PromoCodesTab';
+import GiftCardsTab from '@/components/admin/GiftCardsTab';
 
 const PAGE_SIZE = 50;
 
@@ -21,6 +23,8 @@ const TABS = [
   { id: 'users', label: 'Users' },
   { id: 'usage', label: 'API Usage' },
   { id: 'logs',  label: 'Logs' },
+  { id: 'promos', label: 'Promo Codes' },
+  { id: 'gifts',  label: 'Gift Cards' },
 ];
 
 export default function AdminPanel() {
@@ -186,6 +190,8 @@ export default function AdminPanel() {
 
         {tab === 'usage' && <UsageTab onError={handleError} />}
         {tab === 'logs' && <LogsTab onError={handleError} />}
+        {tab === 'promos' && <PromoCodesTab onError={handleError} />}
+        {tab === 'gifts' && <GiftCardsTab onError={handleError} />}
 
         {tab === 'users' && (<>
         <StatsCards stats={stats} />

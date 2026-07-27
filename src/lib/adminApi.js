@@ -73,6 +73,13 @@ export const adminApi = {
     return request('GET', `/api/admin/usage${qs ? '?' + qs : ''}`);
   },
   kieBalance: () => request('GET', '/api/admin/kie-balance'),
+
+  // ─── Promo codes + gift cards ─────────────────────────────────────
+  createPromo: (body)   => request('POST', '/api/admin/promocodes', body),
+  listPromos:  ()       => request('GET', '/api/admin/promocodes'),
+  togglePromo: (id)     => request('POST', `/api/admin/promocodes/${id}/toggle`),
+  createGiftCards: (body) => request('POST', '/api/admin/giftcards', body),
+  listGiftCards: (status = 'all') => request('GET', `/api/admin/giftcards?status=${status}`),
 };
 
 // Decode a JWT payload WITHOUT verifying its signature. Used only for

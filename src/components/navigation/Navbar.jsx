@@ -2,9 +2,10 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
 import VoxelLogo from '../VoxelLogo';
-import { Menu, X, LogOut } from 'lucide-react';
+import { Menu, X, LogOut, ChevronDown, User, Settings, Coins } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/lib/AuthContext';
+import Avatar from '@/components/common/Avatar';
 
 
 // ─── Credit Button ──────────────────────────────────────────────────────────
@@ -259,6 +260,78 @@ const secondaryNavItems = [
 // authenticated so signups produce visible feedback (the previous version
 // always rendered the login buttons, which made successful signups feel
 // like nothing happened).
+// ─── Account menu ───────────────────────────────────────────────────────────
+// higgsfield-style avatar dropdown: header (name + plan), credits bar,
+// Top-up credits, View profile, Manage Account, Sign Out.
+function AccountMenu({ user, onLogout }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  const displayName = user?.display_name || (user?.email || '').split('@')[0] || 'account';
+  const credits = Number(user?.credits || 0);
+  const pool = Number(user?.credit_limit || 0);
+  const pct = pool > 0 ? Math.min(100, Math.round((credits / pool) * 100)) : 0;
+
+  useEffect(() => {
+    const onDocClick = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener('mousedown', onDocClick);
+    return () => document.removeEventListener('mousedown', onDocClick);
+  }, []);
+
+  const itemCls = 'flex items-center gap-3 w-full px-4 py-2.5 text-sm text-foreground-secondary hover:text-white hover:bg-white/5 transition-colors text-left';
+
+  return (
+    <div className="relative" ref={ref}>
+      <button type="button" onClick={() => setOpen(o => !o)}
+        className="flex items-center gap-2 pl-1.5 pr-2 py-1 rounded-full border border-border bg-background-secondary hover:border-white/30 transition-colors"
+        aria-haspopup="menu" aria-expanded={open}>
+        <Avatar name={displayName} size={26} />
+        <span className="text-sm font-medium text-white truncate max-w-[120px]" title={user?.email}>
+          {displayName}
+        </span>
+        <ChevronDown size={14} className={`text-foreground-muted transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+
+      {open && (
+        <div role="menu"
+          className="absolute right-0 top-full mt-2 w-72 rounded-2xl border border-border bg-[#141417] shadow-2xl overflow-hidden z-50">
+          {/* Header — name + plan */}
+          <div className="flex items-center gap-3 px-4 pt-4 pb-3">
+            <Avatar name={displayName} size={38} />
+            <div className="min-w-0">
+              <div className="text-sm font-semibold text-white truncate">{displayName}</div>
+              <div className="text-xs text-foreground-muted">{user?.package || 'Free'} Plan</div>
+            </div>
+          </div>
+          {/* Credits bar */}
+          <div className="px-4 pb-3">
+            <div className="flex items-center justify-between text-xs mb-1.5">
+              <span className="text-foreground-muted">Credits</span>
+              <span className="text-white font-medium">{credits.toLocaleString()} left</span>
+            </div>
+            <div className="h-1.5 rounded-full bg-white/10 overflow-hidden">
+              <div className="h-full rounded-full bg-primary" style={{ width: `${pct}%` }} />
+            </div>
+          </div>
+          <div className="h-px bg-border" />
+          <Link to="/pricing" className={itemCls} onClick={() => setOpen(false)}>
+            <Coins size={16} /> Top-up credits
+          </Link>
+          <Link to="/account" className={itemCls} onClick={() => setOpen(false)}>
+            <User size={16} /> View profile
+          </Link>
+          <Link to="/account" className={itemCls} onClick={() => setOpen(false)}>
+            <Settings size={16} /> Manage Account
+          </Link>
+          <div className="h-px bg-border" />
+          <button type="button" className={itemCls} onClick={() => { setOpen(false); onLogout(); }}>
+            <LogOut size={16} /> Sign Out
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function UserPill({ email, onLogout }) {
   const localPart = (email || '').split('@')[0] || 'account';
   return (
@@ -370,7 +443,7 @@ export default function Navbar() {
           <div className="hidden lg:flex items-center gap-3">
             {isAuthenticated ? (
               <>
-                <UserPill email={user?.email} onLogout={logout} />
+                <AccountMenu user={user} onLogout={logout} />
                 <CreditButton user={user} />
               </>
             ) : (
@@ -436,6 +509,10 @@ export default function Navbar() {
             
             {isAuthenticated ? (
               <div className="flex items-center justify-between gap-2 pt-2 px-2">
+                <Link to="/account" onClick={() => setMobileOpen(false)}
+                  className="text-sm font-medium text-white px-3 py-2 rounded-lg bg-white/5">
+                  My account
+                </Link>
                 <UserPill email={user?.email} onLogout={() => { setMobileOpen(false); logout(); }} />
               </div>
             ) : (
