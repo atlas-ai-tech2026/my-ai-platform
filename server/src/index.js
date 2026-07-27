@@ -2945,7 +2945,7 @@ app.patch('/api/me', verifyJwt, requireNotBanned, async (req, res) => {
 // redemptions) for the Usage / Promocode / Gifts sections.
 app.get('/api/me/usage', verifyJwt, async (req, res) => {
   try {
-    const [daily, recent] = await Promise.all([
+    const [daily, recent, lifetime, top] = await Promise.all([
       pool.query(
         `SELECT to_char(date_trunc('day', created_at), 'YYYY-MM-DD') AS day,
                 COALESCE(SUM(-amount) FILTER (WHERE action = 'spend'), 0)::float AS credits_spent,
@@ -2962,8 +2962,28 @@ app.get('/api/me/usage', verifyJwt, async (req, res) => {
           ORDER BY created_at DESC LIMIT 100`,
         [req.user.id]
       ),
+      // Lifetime "Rewind" stats for the Subscription page.
+      pool.query(
+        `SELECT COUNT(*) FILTER (WHERE action = 'spend')::int AS generations,
+                COUNT(*) FILTER (WHERE action = 'spend' AND reason LIKE 'video:%')::int AS videos,
+                COUNT(*) FILTER (WHERE action = 'spend' AND reason LIKE 'image:%')::int AS images,
+                COALESCE(SUM(-amount) FILTER (WHERE action = 'spend'), 0)::float AS credits_spent
+           FROM credits_history WHERE user_id = $1`,
+        [req.user.id]
+      ),
+      pool.query(
+        `SELECT reason AS model, COUNT(*)::int AS generations
+           FROM credits_history
+          WHERE user_id = $1 AND action = 'spend' AND reason IS NOT NULL
+          GROUP BY reason ORDER BY generations DESC LIMIT 1`,
+        [req.user.id]
+      ),
     ]);
-    res.json({ daily: daily.rows, recent: recent.rows });
+    res.json({
+      daily: daily.rows,
+      recent: recent.rows,
+      lifetime: { ...lifetime.rows[0], top_model: top.rows[0] || null },
+    });
   } catch (err) {
     console.error('[me/usage] error:', err);
     res.status(500).json({ error: 'Usage fetch failed.' });

@@ -113,7 +113,7 @@ export default function Account() {
           {section === 'profile' && <ProfileSection user={user} usage={usage} refresh={refresh} onSeeAll={() => setSection('usage')} />}
           {section === 'gifts' && <RedeemSection kindLabel="gift card" user={user} usage={usage} refresh={refresh} loadUsage={loadUsage} action="gift"
             blurb="Have a Voxel gift card? Each card is a one-time voucher — redeem it here and the credits land instantly." />}
-          {section === 'subscription' && <SubscriptionSection user={user} />}
+          {section === 'subscription' && <SubscriptionSection user={user} usage={usage} />}
           {section === 'usage' && <UsageSection user={user} usage={usage} />}
           {section === 'promocode' && <RedeemSection kindLabel="promo code" user={user} usage={usage} refresh={refresh} loadUsage={loadUsage} action="promo"
             blurb="Got a promo code from a campaign or giveaway? Redeem it here — each code works once per account." />}
@@ -203,39 +203,158 @@ function ProfileSection({ user, usage, refresh, onSeeAll }) {
 }
 
 // ─── Subscription ────────────────────────────────────────────────────────────
-function SubscriptionSection({ user }) {
+// Full higgsfield-style Subscription page: plan card with feature checklist,
+// credits meter, auto-refill (honest "coming soon" — needs online billing),
+// model access, billing (honest empty states), and the "Your Rewind" stats.
+const MODEL_SHOWCASE = [
+  'Kling 3.0', 'Veo 3', 'Sora 2', 'Seedance 2.0',
+  'Nano Banana Pro', 'GPT Image 2', 'Midjourney', 'Wan 2.6',
+];
+
+function SubscriptionSection({ user, usage }) {
   const planName = user?.package || 'Free';
   const plan = CREDIT_PLANS.find(p => p.name.toLowerCase() === String(planName).toLowerCase());
+  const credits = Number(user?.credits || 0);
+  const pool = Number(user?.credit_limit || 0);
+  const pct = pool > 0 ? Math.min(100, Math.round((credits / pool) * 100)) : 0;
+  const life = usage?.lifetime;
+  const topModel = life?.top_model?.model?.replace(/^(image|video|audio|node video|node):\s*/, '');
+
+  const features = [
+    plan ? `${plan.creditsPerMonth.toLocaleString()} credits per month` : 'Credits granted by the team',
+    'Access to all models',
+    'No watermark on exports',
+    'Commercial usage rights',
+    'Same cost per credit on every plan',
+    'Full generation history',
+  ];
+
   return (
-    <div className="space-y-6">
-      <h1 className="text-2xl font-bold text-white">Subscription</h1>
-      <div className="rounded-2xl border border-border bg-white/[0.03] p-6 max-w-xl">
-        <div className="text-sm text-foreground-muted mb-1">Current plan</div>
-        <div className="text-3xl font-bold text-white">{planName}</div>
-        {plan ? (
-          <div className="text-foreground-muted mt-2">
-            ${plan.pricePerMonth}/month · {plan.creditsPerMonth.toLocaleString()} credits per month
+    <div className="space-y-5">
+      <div>
+        <h1 className="text-2xl font-bold text-white">Subscription</h1>
+        <p className="text-foreground-muted text-sm mt-1">Manage your plan, credits &amp; model access</p>
+      </div>
+
+      {/* Plan card — name, price, Upgrade, feature checklist */}
+      <div className="rounded-2xl border border-border bg-white/[0.03] p-6">
+        <div className="flex items-start justify-between gap-4 flex-wrap">
+          <div>
+            <div className="text-2xl font-bold text-white">{planName} Plan</div>
+            <div className="text-foreground-muted mt-1 text-sm">
+              {plan
+                ? `$${plan.pricePerMonth}/month · ${plan.creditsPerMonth.toLocaleString()} credits per month`
+                : 'Pay-as-you-go — pick a plan to get monthly credits at the best rate.'}
+            </div>
           </div>
-        ) : (
-          <div className="text-foreground-muted mt-2">
-            Pay-as-you-go — pick a plan to get monthly credits at the best rate.
-          </div>
-        )}
-        <div className="flex gap-3 mt-6">
           <Link to="/pricing"
             className="px-5 py-2 rounded-full bg-primary hover:bg-primary-hover text-white text-sm font-semibold transition-colors">
-            {plan ? 'Change plan' : 'Choose a plan'}
+            Upgrade plan
           </Link>
+        </div>
+        <div className="grid sm:grid-cols-2 gap-x-8 gap-y-2 mt-5">
+          {features.map(f => (
+            <div key={f} className="flex items-center gap-2 text-sm text-foreground-secondary">
+              <Check size={15} className="text-green-400 shrink-0" /> {f}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Credits meter — higgsfield's "Monthly credits left" card */}
+      <div className="rounded-2xl border border-border bg-white/[0.03] p-6">
+        <div className="flex items-center justify-between gap-4 flex-wrap">
+          <div>
+            <div className="text-sm text-foreground-muted mb-1">Credits left</div>
+            <div className="text-2xl font-bold text-white">
+              {credits.toLocaleString()} <span className="text-foreground-muted font-normal">/ {pool.toLocaleString()}</span>
+            </div>
+          </div>
+          <Link to="/pricing"
+            className="px-5 py-2 rounded-full bg-white text-black text-sm font-semibold hover:bg-white/90 transition-colors">
+            + Buy credits
+          </Link>
+        </div>
+        <div className="h-2 rounded-full bg-white/10 overflow-hidden mt-4">
+          <div className="h-full rounded-full bg-primary" style={{ width: `${pct}%` }} />
+        </div>
+      </div>
+
+      {/* Auto-refill — honest placeholder until online billing exists */}
+      <div className="rounded-2xl border border-border bg-white/[0.03] p-6 flex items-center justify-between gap-4 flex-wrap">
+        <div>
+          <div className="text-white font-semibold">Auto-refill</div>
+          <div className="text-sm text-foreground-muted mt-1">
+            Automatic top-ups when you run low — arrives with online billing.
+          </div>
+        </div>
+        <span className="px-4 py-1.5 rounded-full bg-white/10 text-foreground-muted text-sm font-semibold">
+          Coming soon
+        </span>
+      </div>
+
+      {/* Model access — every plan includes every model */}
+      <div className="rounded-2xl border border-border bg-white/[0.03] p-6">
+        <div className="text-white font-semibold mb-1">Model access</div>
+        <div className="text-sm text-foreground-muted mb-4">
+          Every Voxel plan unlocks every model — nothing is gated behind tiers.
+        </div>
+        <div className="divide-y divide-border/60">
+          {MODEL_SHOWCASE.map(m => (
+            <div key={m} className="flex items-center justify-between py-2.5 text-sm">
+              <span className="text-white">{m}</span>
+              <span className="px-3 py-0.5 rounded-full bg-green-400/10 text-green-400 text-xs font-semibold">Active</span>
+            </div>
+          ))}
+        </div>
+        <div className="text-xs text-foreground-muted mt-3">…and every other model in the studio.</div>
+      </div>
+
+      {/* Billing — honest empty states until online payments launch */}
+      <div className="rounded-2xl border border-border bg-white/[0.03] p-6 space-y-4">
+        <div>
+          <div className="text-white font-semibold mb-1">Invoices</div>
+          <div className="text-sm text-foreground-muted">
+            No invoices yet — your billing history appears here once online payments launch.
+          </div>
+        </div>
+        <div className="h-px bg-border/60" />
+        <div className="flex items-center justify-between gap-4 flex-wrap">
+          <div>
+            <div className="text-white font-semibold mb-1">Payment methods</div>
+            <div className="text-sm text-foreground-muted">
+              No saved payment methods — plans are currently arranged with the Voxel team.
+            </div>
+          </div>
           <Link to="/contact"
             className="px-5 py-2 rounded-full bg-white/10 hover:bg-white/15 text-white text-sm font-semibold transition-colors">
             Billing help
           </Link>
         </div>
       </div>
-      <div className="text-sm text-foreground-muted max-w-xl">
-        Plan changes take effect immediately; your credit balance always carries
-        over. For invoices or plan questions, use Billing help.
-      </div>
+
+      {/* Your Rewind — lifetime stats like higgsfield's cards */}
+      {life && life.generations > 0 && (
+        <div>
+          <div className="text-white font-semibold mb-3">Your Rewind</div>
+          <div className="grid sm:grid-cols-3 gap-4">
+            <div className="rounded-2xl border border-border bg-gradient-to-br from-cyan-500/10 to-transparent p-5">
+              <div className="text-2xl font-bold text-cyan-300">{life.generations.toLocaleString()} generations</div>
+              <div className="text-sm text-foreground-muted mt-1">so far — and you&rsquo;re just getting started</div>
+            </div>
+            <div className="rounded-2xl border border-border bg-gradient-to-br from-purple-500/10 to-transparent p-5">
+              <div className="text-2xl font-bold text-purple-300">{life.videos.toLocaleString()} videos</div>
+              <div className="text-sm text-foreground-muted mt-1">created — your story in motion</div>
+            </div>
+            <div className="rounded-2xl border border-border bg-gradient-to-br from-teal-500/10 to-transparent p-5">
+              <div className="text-2xl font-bold text-teal-300 truncate">{topModel || '—'}</div>
+              <div className="text-sm text-foreground-muted mt-1">
+                your top model · {life.top_model?.generations?.toLocaleString() || 0} generations
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
