@@ -95,6 +95,7 @@ jobs:
           llm_model: ${{ vars.OCR_LLM_MODEL }}
           llm_use_anthropic: ${{ vars.OCR_LLM_USE_ANTHROPIC }}
           language: English
+          llm_extra_body: '{}'
           # Give the reviewer the PR title as context (works for both triggers).
           background: ${{ steps.pr-context.outputs.title || github.event.pull_request.title }}
           # Keep one summary comment updated in place instead of spamming the PR.
