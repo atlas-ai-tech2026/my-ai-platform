@@ -1031,7 +1031,7 @@ app.post('/api/generate', verifyJwt, requireNotBanned, requireModelProviderKey, 
     const isKie = cfg?.provider === 'kie' || VIDEO_DIRECT_MAP[model]?.provider === 'kie';
     const estOpts = { kind: type, model, quality, resolution: req.body.resolution, duration, audio: req.body.audio };
     const charge = await chargeCredits({
-      userId: req.user.id, kind: type, ip: req.ip, cost: serverCost, note: `${type}: ${model}`,
+      userId: req.user.id, kind: type, ip: clientIp(req), cost: serverCost, note: `${type}: ${model}`,
       provider: isKie ? 'kie' : 'fal',
       kieCredits: isKie ? estimateKieCredits(estOpts) : null,
       falCost: isKie ? null : estimateFalCost(estOpts),
@@ -1173,7 +1173,7 @@ app.post('/api/generate', verifyJwt, requireNotBanned, requireModelProviderKey, 
         // (This early-return path used to skip the catch-block refund.)
         if (chargedKind) {
           refundCredits({
-            userId: req.user.id, kind: chargedKind, ip: req.ip, cost: chargedCost,
+            userId: req.user.id, kind: chargedKind, ip: clientIp(req), cost: chargedCost,
             reason: `fal_empty_result: ${reason}`.slice(0, 500),
           }).catch(() => {});
         }
@@ -1269,7 +1269,7 @@ app.post('/api/generate', verifyJwt, requireNotBanned, requireModelProviderKey, 
       refundCredits({
         userId: req.user.id,
         kind: chargedKind,
-        ip: req.ip,
+        ip: clientIp(req),
         cost: chargedCost,
         reason: `${providerTag}: ${humanReason}`.slice(0, 500),
       }).catch(() => {});
@@ -1387,7 +1387,7 @@ app.post('/api/generate-video', verifyJwt, requireNotBanned, requireModelProvide
   let chargedCost = null;
   try {
     const charge = await chargeCredits({
-      userId: req.user.id, kind: 'video', ip: req.ip, cost: serverCost, note: `video: ${model}`,
+      userId: req.user.id, kind: 'video', ip: clientIp(req), cost: serverCost, note: `video: ${model}`,
       provider: mapping.provider === 'kie' ? 'kie' : 'fal',
       kieCredits: mapping.provider === 'kie' ? estimateKieCredits({ kind: 'video', model, resolution, duration, audio }) : null,
       falCost: mapping.provider === 'kie' ? null : estimateFalCost({ kind: 'video', model, resolution, duration, audio }),
@@ -1429,7 +1429,7 @@ app.post('/api/generate-video', verifyJwt, requireNotBanned, requireModelProvide
       console.error('[KIE-VIDEO] Error:', error.message);
       if (chargedKind) {
         refundCredits({
-          userId: req.user.id, kind: chargedKind, ip: req.ip, cost: chargedCost,
+          userId: req.user.id, kind: chargedKind, ip: clientIp(req), cost: chargedCost,
           reason: `kie_video_threw: ${error.message}`.slice(0, 500),
         }).catch(() => {});
       }
@@ -1483,7 +1483,7 @@ app.post('/api/generate-video', verifyJwt, requireNotBanned, requireModelProvide
     console.error('[VIDEO] Error:', error.message);
     if (chargedKind) {
       refundCredits({
-        userId: req.user.id, kind: chargedKind, ip: req.ip, cost: chargedCost,
+        userId: req.user.id, kind: chargedKind, ip: clientIp(req), cost: chargedCost,
         reason: `fal_video_threw: ${error.message}`.slice(0, 500),
       }).catch(() => {});
     }
@@ -1522,7 +1522,7 @@ app.post('/api/edit-video-omni', verifyJwt, requireNotBanned, requireFalKey, asy
   let chargedKind = null;
   let chargedCost = null;
   try {
-    const charge = await chargeCredits({ userId: req.user.id, kind: 'video', ip: req.ip, cost: serverCost, note: `video: ${req.body?.model || 'Edit Video'}`, provider: 'fal' });
+    const charge = await chargeCredits({ userId: req.user.id, kind: 'video', ip: clientIp(req), cost: serverCost, note: `video: ${req.body?.model || 'Edit Video'}`, provider: 'fal' });
     chargedKind = 'video';
     chargedCost = charge.cost;
     res.setHeader('X-Credits-Remaining', String(charge.newBalance));
@@ -1572,7 +1572,7 @@ app.post('/api/edit-video-omni', verifyJwt, requireNotBanned, requireFalKey, asy
     console.error('[VIDEO-EDIT-OMNI] Error:', error.message);
     if (chargedKind) {
       refundCredits({
-        userId: req.user.id, kind: chargedKind, ip: req.ip, cost: chargedCost,
+        userId: req.user.id, kind: chargedKind, ip: clientIp(req), cost: chargedCost,
         reason: `fal_video_edit_omni_threw: ${error.message}`.slice(0, 500),
       }).catch(() => {});
     }
@@ -1613,7 +1613,7 @@ app.post('/api/motion-control', verifyJwt, requireNotBanned, requireFalKey, asyn
   let chargedKind = null;
   let chargedCost = null;
   try {
-    const charge = await chargeCredits({ userId: req.user.id, kind: 'video', ip: req.ip, cost: serverCost, note: `video: ${req.body?.model || 'Motion Control'}`, provider: 'fal' });
+    const charge = await chargeCredits({ userId: req.user.id, kind: 'video', ip: clientIp(req), cost: serverCost, note: `video: ${req.body?.model || 'Motion Control'}`, provider: 'fal' });
     chargedKind = 'video';
     chargedCost = charge.cost;
     res.setHeader('X-Credits-Remaining', String(charge.newBalance));
@@ -1661,7 +1661,7 @@ app.post('/api/motion-control', verifyJwt, requireNotBanned, requireFalKey, asyn
     console.error('[MOTION-CONTROL] Error:', error.message);
     if (chargedKind) {
       refundCredits({
-        userId: req.user.id, kind: chargedKind, ip: req.ip, cost: chargedCost,
+        userId: req.user.id, kind: chargedKind, ip: clientIp(req), cost: chargedCost,
         reason: `fal_motion_control_threw: ${error.message}`.slice(0, 500),
       }).catch(() => {});
     }
@@ -1712,7 +1712,7 @@ app.post('/api/tts', verifyJwt, requireNotBanned, requireFalKey, async (req, res
   let chargedCost = null;
   try {
     const charge = await chargeCredits({
-      userId: req.user.id, kind: 'audio', ip: req.ip, note: 'audio: TTS', provider: 'fal',
+      userId: req.user.id, kind: 'audio', ip: clientIp(req), note: 'audio: TTS', provider: 'fal',
       falCost: estimateFalCost({ kind: 'audio', model: 'TTS', chars: text.length }),
     });
     chargedKind = 'audio';
@@ -1767,7 +1767,7 @@ app.post('/api/tts', verifyJwt, requireNotBanned, requireFalKey, async (req, res
     console.error('[TTS] Error:', error.message);
     if (chargedKind) {
       refundCredits({
-        userId: req.user.id, kind: chargedKind, ip: req.ip, cost: chargedCost,
+        userId: req.user.id, kind: chargedKind, ip: clientIp(req), cost: chargedCost,
         reason: `fal_tts_threw: ${error.message}`.slice(0, 500),
       }).catch(() => {});
     }
@@ -1798,7 +1798,7 @@ app.post('/api/generate-music', verifyJwt, requireNotBanned, requireFalKey, asyn
   let chargedKind = null;
   let chargedCost = null;
   try {
-    const charge = await chargeCredits({ userId: req.user.id, kind: 'audio', ip: req.ip, note: 'audio: Music', provider: 'fal' });
+    const charge = await chargeCredits({ userId: req.user.id, kind: 'audio', ip: clientIp(req), note: 'audio: Music', provider: 'fal' });
     chargedKind = 'audio';
     res.setHeader('X-Credits-Remaining', String(charge.newBalance));
   } catch (e) {
@@ -1846,7 +1846,7 @@ app.post('/api/generate-music', verifyJwt, requireNotBanned, requireFalKey, asyn
     console.error('[MUSIC] Error:', error.message);
     if (chargedKind) {
       refundCredits({
-        userId: req.user.id, kind: chargedKind, ip: req.ip, cost: chargedCost,
+        userId: req.user.id, kind: chargedKind, ip: clientIp(req), cost: chargedCost,
         reason: `fal_music_threw: ${error.message}`.slice(0, 500),
       }).catch(() => {});
     }
@@ -1897,7 +1897,10 @@ app.post('/api/tts/preview', requireFalKey, async (req, res) => {
 
   // Cache miss → FAL call. Gate on per-IP rate limit so it can't
   // be abused to fill the cache from one source.
-  if (!checkPreviewRate(req.ip || 'unknown')) {
+  // clientIp(req), not req.ip: behind Cloudflare req.ip is the EDGE address,
+  // so every visitor sharing an edge shared ONE preview budget and throttled
+  // each other. clientIp resolves the real visitor (see client-ip.js, M2).
+  if (!checkPreviewRate(clientIp(req) || 'unknown')) {
     return res.status(429).json({ error: 'Too many previews. Try again in an hour.' });
   }
 
@@ -1960,7 +1963,7 @@ app.post('/api/generate-video-ref', verifyJwt, requireNotBanned, requireModelPro
   let chargedCost = null;
   try {
     const charge = await chargeCredits({
-      userId: req.user.id, kind: 'video', ip: req.ip, cost: serverCost, note: `video: ${modelLabel}`,
+      userId: req.user.id, kind: 'video', ip: clientIp(req), cost: serverCost, note: `video: ${modelLabel}`,
       provider: VIDEO_DIRECT_MAP[modelLabel]?.provider === 'kie' ? 'kie' : 'fal',
       kieCredits: VIDEO_DIRECT_MAP[modelLabel]?.provider === 'kie'
         ? estimateKieCredits({ kind: 'video', model: modelLabel, resolution, duration, audio: generate_audio }) : null,
@@ -2029,7 +2032,7 @@ app.post('/api/generate-video-ref', verifyJwt, requireNotBanned, requireModelPro
       console.error('[SEEDANCE] [KIE] Error:', error.message);
       if (chargedKind) {
         refundCredits({
-          userId: req.user.id, kind: chargedKind, ip: req.ip, cost: chargedCost,
+          userId: req.user.id, kind: chargedKind, ip: clientIp(req), cost: chargedCost,
           reason: `kie_seedance_threw: ${error.message}`.slice(0, 500),
         }).catch(() => {});
       }
@@ -2084,7 +2087,7 @@ app.post('/api/generate-video-ref', verifyJwt, requireNotBanned, requireModelPro
     console.error('[SEEDANCE] Error:', error.message);
     if (chargedKind) {
       refundCredits({
-        userId: req.user.id, kind: chargedKind, ip: req.ip, cost: chargedCost,
+        userId: req.user.id, kind: chargedKind, ip: clientIp(req), cost: chargedCost,
         reason: `seedance_threw: ${error.message}`.slice(0, 500),
       }).catch(() => {});
     }
@@ -2814,7 +2817,7 @@ app.post('/api/node/run-node', verifyJwt, requireNotBanned, requireFalKey, async
   let chargedKind = null;
   let chargedCost = null;
   try {
-    const charge = await chargeCredits({ userId: req.user.id, kind: spec.creditKind, ip: req.ip, note: `node: ${settings?.model || type}`, provider: 'fal' });
+    const charge = await chargeCredits({ userId: req.user.id, kind: spec.creditKind, ip: clientIp(req), note: `node: ${settings?.model || type}`, provider: 'fal' });
     chargedKind = spec.creditKind;
     res.setHeader('X-Credits-Remaining', String(charge.newBalance));
   } catch (e) {
@@ -2852,7 +2855,7 @@ app.post('/api/node/run-node', verifyJwt, requireNotBanned, requireFalKey, async
     } catch (error) {
       console.error('[node:run] [KIE] error:', error.message);
       if (chargedKind) {
-        refundCredits({ userId: req.user.id, kind: chargedKind, ip: req.ip, reason: `node_run_kie_threw: ${error.message}`.slice(0, 500) }).catch(() => {});
+        refundCredits({ userId: req.user.id, kind: chargedKind, ip: clientIp(req), reason: `node_run_kie_threw: ${error.message}`.slice(0, 500) }).catch(() => {});
       }
       return res.status(500).json({ error: 'Node run failed: ' + publicError(error.message) });
     }
@@ -2870,7 +2873,7 @@ app.post('/api/node/run-node', verifyJwt, requireNotBanned, requireFalKey, async
   } catch (error) {
     console.error('[node:run] FAL error:', error.message);
     if (chargedKind) {
-      refundCredits({ userId: req.user.id, kind: chargedKind, ip: req.ip, reason: `node_run_threw: ${error.message}`.slice(0, 500) }).catch(() => {});
+      refundCredits({ userId: req.user.id, kind: chargedKind, ip: clientIp(req), reason: `node_run_threw: ${error.message}`.slice(0, 500) }).catch(() => {});
     }
     if (respondIfProviderTimeout(res, error)) return;
     return res.status(500).json({ error: 'Node run failed: ' + publicError(error?.body?.detail || error.message) });
@@ -2921,7 +2924,7 @@ app.post('/api/node/run-node-async', verifyJwt, requireNotBanned, requireFalKey,
     // C1: the node client never sends a price — charge the flat per-kind
     // cost server-side. req.body.credit_cost is deliberately IGNORED here:
     // an attacker could otherwise name their own price.
-    const charge = await chargeCredits({ userId: req.user.id, kind: 'video', ip: req.ip, note: `node video: ${modelLabel || 'video-generator'}`, provider: 'fal' });
+    const charge = await chargeCredits({ userId: req.user.id, kind: 'video', ip: clientIp(req), note: `node video: ${modelLabel || 'video-generator'}`, provider: 'fal' });
     chargedKind = 'video';
     chargedCost = charge.cost;
     res.setHeader('X-Credits-Remaining', String(charge.newBalance));
@@ -2979,7 +2982,7 @@ app.post('/api/node/run-node-async', verifyJwt, requireNotBanned, requireFalKey,
     } catch (error) {
       console.error('[node:run-async] [KIE] error:', error.message);
       if (chargedKind) {
-        refundCredits({ userId: req.user.id, kind: chargedKind, ip: req.ip, cost: chargedCost, reason: `node_async_kie_threw: ${error.message}`.slice(0, 500) }).catch(() => {});
+        refundCredits({ userId: req.user.id, kind: chargedKind, ip: clientIp(req), cost: chargedCost, reason: `node_async_kie_threw: ${error.message}`.slice(0, 500) }).catch(() => {});
       }
       return res.status(500).json({ error: 'Node video failed: ' + publicError(error.message) });
     }
@@ -3006,7 +3009,7 @@ app.post('/api/node/run-node-async', verifyJwt, requireNotBanned, requireFalKey,
   } catch (error) {
     console.error('[node:run-async] submit error:', error.message);
     if (chargedKind) {
-      refundCredits({ userId: req.user.id, kind: chargedKind, ip: req.ip, reason: `node_async_threw: ${error.message}`.slice(0, 500) }).catch(() => {});
+      refundCredits({ userId: req.user.id, kind: chargedKind, ip: clientIp(req), reason: `node_async_threw: ${error.message}`.slice(0, 500) }).catch(() => {});
     }
     return res.status(500).json({ error: 'Video submit failed: ' + publicError(error?.body?.detail || error.message) });
   }
@@ -3571,7 +3574,7 @@ app.post('/api/admin/users/:id/credits', adminGate, async (req, res) => {
         `INSERT INTO credits_history
            (user_id, amount, action, admin_email, reason, ip_address)
          VALUES ($1, $2, $3, $4, $5, $6)`,
-        [targetId, delta, action, req.user.email, reason, req.ip]
+        [targetId, delta, action, req.user.email, reason, clientIp(req)]
       );
 
       await client.query('COMMIT');
@@ -3619,7 +3622,7 @@ app.post('/api/admin/users/:id/ban', adminGate, async (req, res) => {
       `INSERT INTO credits_history
          (user_id, amount, action, admin_email, reason, ip_address)
        VALUES ($1, 0, $2, $3, $4, $5)`,
-      [targetId, banned ? 'ban' : 'unban', req.user.email, reason, req.ip]
+      [targetId, banned ? 'ban' : 'unban', req.user.email, reason, clientIp(req)]
     ).catch(() => {});
 
     res.json({ user: upd.rows[0] });
@@ -3658,7 +3661,7 @@ app.post('/api/admin/users/:id/reset-password', adminGate, async (req, res) => {
       `INSERT INTO credits_history
          (user_id, amount, action, admin_email, reason, ip_address)
        VALUES ($1, 0, 'password_reset', $2, $3, $4)`,
-      [targetId, req.user.email, 'admin password reset', req.ip]
+      [targetId, req.user.email, 'admin password reset', clientIp(req)]
     ).catch(() => {});
 
     console.log(`[admin] password reset for user #${targetId} (${target.rows[0].email}) by ${req.user.email}`);
