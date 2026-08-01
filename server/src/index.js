@@ -49,6 +49,8 @@ import {
 import { validateUpload } from './upload-guard.js';
 // H3 (audit 2026-07-28): hard deadline on synchronous provider calls.
 import { withProviderDeadline, ProviderTimeoutError } from './provider-deadline.js';
+// M1 (audit 2026-07-28): keep credentials out of the admin audit log.
+import { buildAuditSummary } from './audit-redact.js';
 // H7 (audit 2026-07-28): admin session in an httpOnly cookie + CSRF.
 import {
   setAdminSessionCookies,
@@ -3367,7 +3369,12 @@ app.get('/api/me/usage', verifyJwt, async (req, res) => {
 // trace. Insert is fire-and-forget — we don't block the response on it.
 function adminAudit(req, res, next) {
   const targetId = req.params?.id ? parseInt(req.params.id, 10) : null;
-  const summary = (req.method === 'POST' && req.body) ? req.body : null;
+  const routePath = req.route?.path || req.originalUrl;
+  // M1 (audit 2026-07-28): this used to serialize the WHOLE request body,
+  // which wrote customers' new plaintext passwords into the audit table.
+  // Now: an explicit per-route field allow-list plus a /password/i-style
+  // redaction sweep. See audit-redact.js.
+  const summary = buildAuditSummary(routePath, req.method, req.body);
   pool.query(
     `INSERT INTO admin_audit_log
        (admin_id, admin_email, route, method, target_user_id, payload_summary, ip_address, user_agent)
@@ -3375,11 +3382,13 @@ function adminAudit(req, res, next) {
     [
       req.user.id,
       req.user.email,
-      req.route?.path || req.originalUrl,
+      routePath,
       req.method,
       Number.isFinite(targetId) ? targetId : null,
-      summary ? JSON.stringify(summary).slice(0, 2000) : null,
-      req.ip,
+      summary,
+      // M2: the real client IP, consistent with the rate limiters (req.ip
+      // is the proxy hop here).
+      clientIp(req) || req.ip,
       req.get('user-agent') || null,
     ]
   ).catch(err => console.error('[admin-audit] insert failed:', err.message));

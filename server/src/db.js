@@ -318,6 +318,27 @@ export async function migrate() {
     await client.query(`CREATE INDEX IF NOT EXISTS pending_video_charges_pending_idx ON pending_video_charges (status, created_at) WHERE status = 'pending';`);
     await client.query(`CREATE INDEX IF NOT EXISTS pending_video_charges_user_idx ON pending_video_charges (user_id, created_at DESC);`);
 
+    // ─── M1: scrub credentials from EXISTING audit rows ─────────────
+    // (audit 2026-07-28) adminAudit used to serialize the whole request
+    // body, so historical rows for /reset-password hold customers'
+    // plaintext passwords. Blank the payload on every row that could
+    // contain one, keeping the row itself (the audit trail — who did what,
+    // when — stays intact; only the secret value is destroyed).
+    //
+    // Idempotent: rows already scrubbed no longer match the WHERE clause.
+    // NOTE: existing database BACKUPS still contain these values. Rotating
+    // or purging those is an operator decision, flagged in the summary.
+    const scrubbed = await client.query(`
+      UPDATE admin_audit_log
+         SET payload_summary = '{"_scrubbed":"credentials removed by M1 migration"}'::jsonb::text
+       WHERE payload_summary IS NOT NULL
+         AND payload_summary ~* '(password|passwd|secret|token|api[-_]?key|totp|recovery)'
+         AND payload_summary NOT LIKE '%_scrubbed%'
+    `);
+    if (scrubbed.rowCount > 0) {
+      console.log(`[db] M1: scrubbed credentials from ${scrubbed.rowCount} historical admin_audit_log row(s)`);
+    }
+
     // ─── admin TOTP 2FA (H5, audit 2026-07-28) ──────────────────────
     //   totp_secret         base32 secret; NULL = 2FA not set up yet.
     //   totp_enabled        only TRUE after the admin confirms a code, so
