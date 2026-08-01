@@ -60,6 +60,18 @@ export function redactSensitive(value, depth = 0) {
  *          nothing safe to record.
  */
 export function buildAuditSummary(routePath, method, body) {
+  try {
+    return buildAuditSummaryInner(routePath, method, body);
+  } catch (e) {
+    // This runs in front of EVERY admin route. Audit logging must never be
+    // the reason an admin action fails — record that we couldn't summarise
+    // and let the request through.
+    console.error('[admin-audit] summary build failed:', e.message);
+    return JSON.stringify({ _summary_error: true });
+  }
+}
+
+function buildAuditSummaryInner(routePath, method, body) {
   if (String(method || '').toUpperCase() !== 'POST') return null;
   if (!body || typeof body !== 'object' || Array.isArray(body)) return null;
 

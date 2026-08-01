@@ -122,6 +122,46 @@ export function normalizeIp(ip) {
   return mapped ? mapped[1] : s;
 }
 
+// Ranges that can only appear as a peer when the request arrived through
+// our OWN infrastructure — an internet client can never present one.
+const PRIVATE_CIDRS = [
+  '10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16', '127.0.0.0/8',
+  '169.254.0.0/16', '100.64.0.0/10', '0.0.0.0/8',
+  '::1/128', 'fc00::/7', 'fe80::/10',
+];
+
+/** Is this address internal (so the request came via our own infra)? */
+export function isInternalAddress(ip) {
+  const addr = normalizeIp(ip);
+  if (!net.isIP(addr)) return false;
+  return PRIVATE_CIDRS.some((cidr) => ipInCidr(addr, cidr));
+}
+
+/** Pull the client IP out of the forwarding headers, if any is valid. */
+function readForwardedIp(req) {
+  const h = req?.headers || {};
+  const cf = normalizeIp(h['cf-connecting-ip'] || h['true-client-ip'] || '');
+  if (net.isIP(cf)) return cf;
+  const first = normalizeIp(String(h['x-forwarded-for'] || '').split(',')[0].trim());
+  return net.isIP(first) ? first : null;
+}
+
+// Warn at most once a minute — this means the deployment has a proxy hop we
+// don't model, which should be fixed (add its range to TRUSTED_PROXY_CIDRS),
+// but must not flood the logs.
+let lastProxyWarnAt = 0;
+function warnUnmodelledProxy(peer) {
+  const now = Date.now();
+  if (now - lastProxyWarnAt < 60_000) return;
+  lastProxyWarnAt = now;
+  console.warn(
+    `[client-ip] peer ${peer} is a PRIVATE address that is not in the ` +
+    `Cloudflare ranges — there is an internal proxy hop we don't model. ` +
+    `Forwarding headers are being trusted so rate limiting keeps working. ` +
+    `Fix by adding that range to TRUSTED_PROXY_CIDRS (see README-SECURITY.md).`
+  );
+}
+
 /** Is the DIRECT peer a Cloudflare edge (or a configured trusted proxy)? */
 export function isTrustedProxy(peerIp) {
   const ip = normalizeIp(peerIp);
@@ -160,6 +200,27 @@ export function resolveClientIp(req, peerIpOverride) {
   const peer = normalizeIp(
     peerIpOverride ?? req?.ip ?? req?.socket?.remoteAddress ?? ''
   );
+
+  // FAIL-SAFE for an unmodelled internal hop.
+  //
+  // If the peer is a PRIVATE address, the request reached us through our own
+  // infrastructure (a load balancer / sidecar), not from the open internet —
+  // an outside attacker cannot make the peer address private. Trusting the
+  // forwarding headers there is no weaker than the behaviour this fix
+  // replaced, and it avoids the catastrophic failure mode: treating every
+  // user as one client and collapsing all rate limiting into a single
+  // bucket, locking everyone out.
+  //
+  // The attack this finding is about — someone hitting the origin directly
+  // from the internet and forging CF-Connecting-IP — always presents a
+  // PUBLIC peer address, and is still rejected below.
+  if (!isTrustedProxy(peer) && isInternalAddress(peer)) {
+    const forwarded = readForwardedIp(req);
+    if (forwarded) {
+      warnUnmodelledProxy(peer);
+      return forwarded;
+    }
+  }
 
   if (isTrustedProxy(peer)) {
     const h = req?.headers || {};

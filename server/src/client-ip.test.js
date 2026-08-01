@@ -117,6 +117,42 @@ describe('M2 — the DO ingress hop must not break the trust anchor', () => {
   });
 });
 
+describe('M2 — fail-safe when there is an internal proxy hop we did not model', () => {
+  // The catastrophic failure this guards against: if the peer turns out NOT
+  // to be a Cloudflare address (an extra internal LB hop), a naive
+  // implementation ignores the headers and gives EVERY user the same
+  // rate-limit key — locking the whole platform out. A private peer means
+  // the request came through our own infrastructure, which an internet
+  // attacker cannot fake, so the headers are still trustworthy there.
+  it('trusts forwarding headers when the peer is a PRIVATE address', () => {
+    ['10.244.0.1', '172.17.0.1', '192.168.1.10', '127.0.0.1'].forEach((lb) => {
+      expect(resolveClientIp({ headers: { 'cf-connecting-ip': '81.2.3.4' }, ip: lb }), lb)
+        .toBe('81.2.3.4');
+    });
+  });
+
+  it('users stay in SEPARATE buckets behind an unmodelled internal hop', () => {
+    const users = ['81.2.3.4', '81.2.3.5', '90.1.1.1'];
+    const keys = users.map((u) => resolveClientIp({
+      headers: { 'cf-connecting-ip': u }, ip: '10.244.0.1',
+    }));
+    expect(new Set(keys).size).toBe(3);
+  });
+
+  it('but a PUBLIC non-Cloudflare peer is still refused (the actual attack)', () => {
+    // Reaching the origin directly from the internet always shows a public
+    // peer, so forged headers remain worthless.
+    expect(resolveClientIp({ headers: { 'cf-connecting-ip': '1.2.3.4' }, ip: RANDOM_HOST }))
+      .toBe(RANDOM_HOST);
+    expect(resolveClientIp({ headers: { 'cf-connecting-ip': '1.2.3.4' }, ip: '8.8.8.8' }))
+      .toBe('8.8.8.8');
+  });
+
+  it('a private peer with NO forwarding header falls back to the peer', () => {
+    expect(resolveClientIp({ headers: {}, ip: '10.244.0.1' })).toBe('10.244.0.1');
+  });
+});
+
 describe('M2 — Cloudflare range membership', () => {
   it('recognises addresses in every published IPv4 range', () => {
     expect(isTrustedProxy('173.245.48.1')).toBe(true);

@@ -175,10 +175,14 @@ export async function userOwnsJob(userId, jobId) {
 export async function userOwnsMediaUrl(userId, url) {
   if (!userId || !url || !dbReady()) return false;
   try {
+    // Only result_url — that is the field history rows actually store.
+    // Adding `OR data->>'url' = $2` made the planner fall back to a
+    // SEQUENTIAL SCAN of every generation ever made (verified on 20k rows),
+    // and no row uses that key. A URL not matched here still gets the host
+    // allow-list, so nothing legitimate is lost.
     const { rowCount } = await pool.query(
       `SELECT 1 FROM entities
-        WHERE user_id = $1
-          AND (data->>'result_url' = $2 OR data->>'url' = $2)
+        WHERE user_id = $1 AND data->>'result_url' = $2
         LIMIT 1`,
       [userId, String(url)]
     );
