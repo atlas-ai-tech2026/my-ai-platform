@@ -47,6 +47,8 @@ import {
 } from './download-guard.js';
 // H2 (audit 2026-07-28): /api/upload content-type policy.
 import { validateUpload } from './upload-guard.js';
+// H3 (audit 2026-07-28): hard deadline on synchronous provider calls.
+import { withProviderDeadline, ProviderTimeoutError } from './provider-deadline.js';
 
 // Load server/.env relative to THIS source file (not process.cwd()) so the
 // API works no matter which directory the harness/launch config runs it
@@ -292,6 +294,25 @@ function requireFalKey(req, res, next) {
     });
   }
   next();
+}
+
+// ─── PROVIDER DEADLINE (H3, audit 2026-07-28) ──────────────────────
+// Synchronous fal.subscribe calls had no overall timeout: a hung provider
+// held the request (and its DB connection) open forever while the user's
+// credits stayed spent. Every synchronous provider call now runs under the
+// deadline in provider-deadline.js (mirrors the 90s cap the kie path uses).
+// On timeout the call is aborted and the route's EXISTING catch block
+// refunds through the EXISTING refund path — no new refund logic.
+const falSubscribe = (model, options, label) =>
+  withProviderDeadline((signal) => fal.subscribe(model, { ...options, abortSignal: signal }), label);
+
+// A provider timeout is a 504, not a 500, and its message is already
+// user-safe. Returns true when it handled the response. The caller's
+// refund (existing path) has already run by the time this is called.
+function respondIfProviderTimeout(res, error) {
+  if (!(error instanceof ProviderTimeoutError)) return false;
+  res.status(504).json({ error: error.message });
+  return true;
 }
 
 // ─── KIE.AI CONFIG ─────────────────────────────────────────────────
@@ -1073,13 +1094,13 @@ app.post('/api/generate', verifyJwt, requireNotBanned, requireModelProviderKey, 
 
       console.log('[FAL PAYLOAD FINAL]', JSON.stringify({ model: falModelId, input }, null, 2));
 
-      const result = await fal.subscribe(falModelId, {
+      const result = await falSubscribe(falModelId, {
         input,
         logs: true,
         onQueueUpdate: (update) => {
           console.log('[FAL STATUS]', update.status, update.logs?.length ? `(${update.logs.length} logs)` : '');
         },
-      });
+      }, 'FAL-IMAGE');
 
       console.log('[FAL RESPONSE]', JSON.stringify(result?.data || result, null, 2).substring(0, 1000));
 
@@ -1210,6 +1231,7 @@ app.post('/api/generate', verifyJwt, requireNotBanned, requireModelProviderKey, 
 
     // No details in the response — raw provider payloads (which name the
     // upstream) are already logged server-side and must not reach the client.
+    if (respondIfProviderTimeout(res, error)) return;
     return res.status(500).json({ error: 'Generation failed: ' + publicError(humanReason) });
   }
 });
@@ -1672,7 +1694,7 @@ app.post('/api/tts', verifyJwt, requireNotBanned, requireFalKey, async (req, res
   console.log(`[TTS] Text: ${text.slice(0, 80)}${text.length > 80 ? '…' : ''}`);
 
   try {
-    const result = await fal.subscribe(falModel, { input, logs: false });
+    const result = await falSubscribe(falModel, { input, logs: false }, 'FAL-TTS');
     const audio = result?.data?.audio;
     const audioUrl = audio?.url;
     if (!audioUrl) {
@@ -1696,6 +1718,7 @@ app.post('/api/tts', verifyJwt, requireNotBanned, requireFalKey, async (req, res
         reason: `fal_tts_threw: ${error.message}`.slice(0, 500),
       }).catch(() => {});
     }
+    if (respondIfProviderTimeout(res, error)) return;
     return res.status(500).json({ error: 'TTS failed: ' + publicError(error.message) });
   }
 });
@@ -1750,7 +1773,7 @@ app.post('/api/generate-music', verifyJwt, requireNotBanned, requireFalKey, asyn
   if (input.negative_prompt) console.log(`[MUSIC] Negative: ${input.negative_prompt}`);
 
   try {
-    const result = await fal.subscribe('fal-ai/lyria2', { input, logs: false });
+    const result = await falSubscribe('fal-ai/lyria2', { input, logs: false }, 'FAL-MUSIC');
     const audio = result?.data?.audio;
     const audioUrl = audio?.url;
     if (!audioUrl) {
@@ -1774,6 +1797,7 @@ app.post('/api/generate-music', verifyJwt, requireNotBanned, requireFalKey, asyn
         reason: `fal_music_threw: ${error.message}`.slice(0, 500),
       }).catch(() => {});
     }
+    if (respondIfProviderTimeout(res, error)) return;
     return res.status(500).json({ error: 'Music generation failed: ' + publicError(error.message) });
   }
 });
@@ -1829,7 +1853,7 @@ app.post('/api/tts/preview', requireFalKey, async (req, res) => {
   console.log(`[TTS-PREVIEW] miss → ${voice} via ${falModel}`);
 
   try {
-    const result = await fal.subscribe(falModel, { input, logs: false });
+    const result = await falSubscribe(falModel, { input, logs: false }, 'FAL-TTS-PREVIEW');
     const audioUrl = result?.data?.audio?.url;
     if (!audioUrl) throw new Error('No audio URL in FAL response');
     voicePreviewCache.set(voice, audioUrl);
@@ -2342,14 +2366,14 @@ Add visual details: subject, setting, lighting, lens, framing, mood, color, text
 Keep the original intent. 50–90 words. One paragraph.`;
 
   try {
-    const result = await fal.subscribe('fal-ai/any-llm', {
+    const result = await falSubscribe('fal-ai/any-llm', {
       input: {
         model: 'google/gemini-flash-1.5',
         prompt: prompt.trim(),
         system_prompt: system,
       },
       logs: false,
-    });
+    }, 'FAL-ENHANCE');
     // any-llm returns the text under .output (sometimes nested in .data)
     const raw =
       result?.data?.output ??
@@ -2367,7 +2391,8 @@ Keep the original intent. 50–90 words. One paragraph.`;
     return res.json({ prompt: enhanced });
   } catch (e) {
     console.error('[ENHANCE] ❌ LLM error:', e.message);
-    return res.status(500).json({ error: 'Enhancer failed: ' + e.message });
+    if (respondIfProviderTimeout(res, e)) return;
+    return res.status(500).json({ error: 'Enhancer failed: ' + publicError(e.message) });
   }
 });
 
@@ -2763,7 +2788,7 @@ app.post('/api/node/run-node', verifyJwt, requireNotBanned, requireFalKey, async
   console.log(`[node:run] user=${req.user.id} type=${type} model="${settings?.model || '-'}" → ${falModel}`);
 
   try {
-    const result = await fal.subscribe(falModel, { input, logs: false });
+    const result = await falSubscribe(falModel, { input, logs: false }, 'FAL-NODE');
     const url = spec.extract(result?.data);
     if (!url) throw new Error('No output returned by model');
     console.log(`[node:run] ✅ ${url}`);
@@ -2773,6 +2798,7 @@ app.post('/api/node/run-node', verifyJwt, requireNotBanned, requireFalKey, async
     if (chargedKind) {
       refundCredits({ userId: req.user.id, kind: chargedKind, ip: req.ip, reason: `node_run_threw: ${error.message}`.slice(0, 500) }).catch(() => {});
     }
+    if (respondIfProviderTimeout(res, error)) return;
     return res.status(500).json({ error: 'Node run failed: ' + publicError(error?.body?.detail || error.message) });
   }
 });
