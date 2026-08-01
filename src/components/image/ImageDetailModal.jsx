@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { X, Heart, Download, RefreshCw, Maximize2, Copy, Share2, Wand2, ChevronLeft, ChevronRight, Bookmark, MoreHorizontal } from 'lucide-react';
+import { downloadViaApi } from '@/lib/downloadFile';
 
 const font = '"DM Sans", sans-serif';
 
@@ -11,18 +12,9 @@ export default function ImageDetailModal({ image, images = [], onClose, onNaviga
 
   const handleDownload = async () => {
     if (!image?.url) return;
-    try {
-      const filename = `voxel-${(image.prompt || 'image').slice(0,30).replace(/[^a-zA-Z0-9]/g,'-')}-${image.id || Date.now()}.png`;
-      const downloadUrl = `/api/download?url=${encodeURIComponent(image.url)}&filename=${encodeURIComponent(filename)}`;
-      const a = document.createElement('a');
-      a.href = downloadUrl;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-    } catch {
-      window.open(image.url, '_blank');
-    }
+    const filename = `voxel-${(image.prompt || 'image').slice(0,30).replace(/[^a-zA-Z0-9]/g,'-')}-${image.id || Date.now()}.png`;
+    const ok = await downloadViaApi(image.url, filename);
+    if (!ok) window.open(image.url, '_blank');
   };
 
   const handleToggleSave = () => {

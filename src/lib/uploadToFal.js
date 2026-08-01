@@ -10,7 +10,14 @@ async function uploadViaServer(file) {
 
   let res, data;
   try {
-    res = await fetch('/api/upload', { method: 'POST', body: formData });
+    // H2: /api/upload requires auth. Only the Authorization header is set —
+    // the browser must supply its own multipart boundary Content-Type.
+    const token = localStorage.getItem('voxel_token');
+    res = await fetch('/api/upload', {
+      method: 'POST',
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      body: formData,
+    });
   } catch (netErr) {
     throw new Error(`Network error: ${netErr.message}`);
   }

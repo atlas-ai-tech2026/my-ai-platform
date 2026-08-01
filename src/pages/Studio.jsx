@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { toast } from 'sonner';
 import { base44 } from '@/api/base44Client';
 
 import StudioTopBar from '@/components/studio/StudioTopBar';
@@ -129,18 +130,33 @@ export default function Studio() {
     await loadScenes(proj.id);
   };
 
+  // H7: these writes can now genuinely fail (the API client no longer fakes
+  // success from cache). Every one reports the failure instead of leaving
+  // the UI claiming "saved".
   const handleNewProject = async () => {
-    const proj = await base44.entities.StudioProject.create({ name: 'Untitled Project', settings_json: '{}' });
-    setProjects(prev => [proj, ...prev]);
-    setActiveProject(proj);
-    setScenes([]);
-    setActiveSceneId(null);
+    try {
+      const proj = await base44.entities.StudioProject.create({ name: 'Untitled Project', settings_json: '{}' });
+      setProjects(prev => [proj, ...prev]);
+      setActiveProject(proj);
+      setScenes([]);
+      setActiveSceneId(null);
+    } catch (err) {
+      console.error('[studio] create project failed:', err);
+      toast.error(err.message || 'Could not create the project.');
+    }
   };
 
   const handleProjectNameChange = async (name) => {
     if (!activeProject) return;
     setSaveStatus('saving');
-    await base44.entities.StudioProject.update(activeProject.id, { name });
+    try {
+      await base44.entities.StudioProject.update(activeProject.id, { name });
+    } catch (err) {
+      console.error('[studio] rename failed:', err);
+      setSaveStatus('error');
+      toast.error(err.message || 'Could not rename the project.');
+      return;
+    }
     setActiveProject(p => ({ ...p, name }));
     setProjects(prev => prev.map(p => p.id === activeProject.id ? { ...p, name } : p));
     setSaveStatus('saved');
@@ -151,8 +167,15 @@ export default function Studio() {
     const interval = setInterval(async () => {
       if (activeProject) {
         setSaveStatus('saving');
-        await base44.entities.StudioProject.update(activeProject.id, { updated_date: new Date().toISOString() });
-        setSaveStatus('saved');
+        try {
+          await base44.entities.StudioProject.update(activeProject.id, { updated_date: new Date().toISOString() });
+          setSaveStatus('saved');
+        } catch (err) {
+          // Silent-but-visible: no toast on a background tick, but the
+          // indicator must not claim the work was saved.
+          console.error('[studio] auto-save failed:', err);
+          setSaveStatus('error');
+        }
       }
     }, 30000);
     return () => clearInterval(interval);
@@ -161,18 +184,30 @@ export default function Studio() {
   const handleUpdateSettings = async (settings) => {
     if (!activeProject) return;
     setSaveStatus('saving');
-    await base44.entities.StudioProject.update(activeProject.id, { settings_json: JSON.stringify(settings) });
-    setSaveStatus('saved');
+    try {
+      await base44.entities.StudioProject.update(activeProject.id, { settings_json: JSON.stringify(settings) });
+      setSaveStatus('saved');
+    } catch (err) {
+      console.error('[studio] settings save failed:', err);
+      setSaveStatus('error');
+      toast.error(err.message || 'Could not save settings.');
+    }
   };
 
   // Scene generation
   const handleGenerateScene = async (sceneData) => {
     if (!activeProject) {
-      // Create a project first
-      const proj = await base44.entities.StudioProject.create({ name: 'My First Project', settings_json: '{}' });
-      setProjects(prev => [proj, ...prev]);
-      setActiveProject(proj);
-      generateScene(proj.id, sceneData);
+      // Create a project first — if that fails there is nothing to attach
+      // the scene to, so stop rather than generating into the void.
+      try {
+        const proj = await base44.entities.StudioProject.create({ name: 'My First Project', settings_json: '{}' });
+        setProjects(prev => [proj, ...prev]);
+        setActiveProject(proj);
+        generateScene(proj.id, sceneData);
+      } catch (err) {
+        console.error('[studio] create project failed:', err);
+        toast.error(err.message || 'Could not create the project.');
+      }
     } else {
       generateScene(activeProject.id, sceneData);
     }

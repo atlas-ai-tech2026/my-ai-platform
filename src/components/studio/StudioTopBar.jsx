@@ -70,10 +70,20 @@ export default function StudioTopBar({ project, onProjectNameChange, saveStatus,
         </button>
       )}
 
-      {/* Save status */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 5, color: saveStatus === 'saved' ? 'rgba(100,200,100,0.8)' : 'rgba(255,255,255,0.4)', fontSize: 12 }}>
+      {/* Save status — 'error' must read as a failure, not as "Unsaved" (H7) */}
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 5, fontSize: 12,
+        color: saveStatus === 'saved' ? 'rgba(100,200,100,0.8)'
+             : saveStatus === 'error' ? '#FF4444'
+             : 'rgba(255,255,255,0.4)',
+      }}>
         <Save size={12} />
-        <span>{saveStatus === 'saving' ? 'Saving...' : saveStatus === 'saved' ? 'Saved ✓' : 'Unsaved'}</span>
+        <span>
+          {saveStatus === 'saving' ? 'Saving...'
+            : saveStatus === 'saved' ? 'Saved ✓'
+            : saveStatus === 'error' ? 'Save failed'
+            : 'Unsaved'}
+        </span>
       </div>
 
       <div style={{ flex: 1 }} />

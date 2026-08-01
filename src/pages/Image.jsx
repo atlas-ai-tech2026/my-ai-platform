@@ -5,6 +5,7 @@ import ImagePromptBar from '@/components/image/ImagePromptBar';
 import { buildCompositionPrompt, detectCompositionIntent } from '@/lib/enhancePrompt';
 import { uploadAllToFal } from '@/lib/uploadToFal';
 import { getImageCredits } from '@/lib/creditPricing';
+import { downloadViaApi } from '@/lib/downloadFile';
 
 const STYLE_SUFFIXES = {
   Cinematic:    ', cinematic color grading, anamorphic lens flare, film grain, dramatic lighting, movie still',
@@ -242,9 +243,12 @@ function ImageCard({ img, index, onExpand, onLoaded, isFirst = false, modelBadge
             </div>
           )}
           <a
-            href={`/api/download?url=${encodeURIComponent(img.url)}&filename=voxel-${(img.prompt || 'image').slice(0,30).replace(/[^a-zA-Z0-9]/g,'-')}.png`}
-            download
-            onClick={e => e.stopPropagation()}
+            href="#download"
+            onClick={e => {
+              e.preventDefault();
+              e.stopPropagation();
+              downloadViaApi(img.url, `voxel-${(img.prompt || 'image').slice(0,30).replace(/[^a-zA-Z0-9]/g,'-')}.png`);
+            }}
             style={{
               width: 30, height: 30, borderRadius: 999,
               background: 'rgba(255,255,255,0.12)',
@@ -432,18 +436,28 @@ export default function Image() {
           return null;
         }
 
-        const savedRecord = await History_.create({
-          type: 'image', model: selectedModel.name, prompt,
-          result_url: url, status: 'completed',
-          ratio: aspectRatio, style, quality,
-          camera: cameraSelection?.camera?.name || null,
-          lens: cameraSelection?.lens?.name || null,
-          lens_type: cameraSelection?.lens?.type || null,
-          focal_length: cameraSelection?.focalLength || null,
-          fstop: cameraSelection?.fstop || null,
-        });
+        // The image EXISTS and has already been paid for. If persisting the
+        // history row fails we must still show it — but say so plainly
+        // rather than pretending it was saved (H7).
+        let savedRecord = null;
+        try {
+          savedRecord = await History_.create({
+            type: 'image', model: selectedModel.name, prompt,
+            result_url: url, status: 'completed',
+            ratio: aspectRatio, style, quality,
+            camera: cameraSelection?.camera?.name || null,
+            lens: cameraSelection?.lens?.name || null,
+            lens_type: cameraSelection?.lens?.type || null,
+            focal_length: cameraSelection?.focalLength || null,
+            fstop: cameraSelection?.fstop || null,
+          });
+        } catch (err) {
+          console.error('[image] history save failed:', err);
+          toast.error('Image generated, but saving it to your history failed — download it now to keep it.');
+        }
         return {
-          id: savedRecord.id,
+          id: savedRecord?.id ?? `unsaved-${crypto.randomUUID()}`,
+          unsaved: !savedRecord,
           gradient: RESULT_GRADIENTS[(images.length + index) % RESULT_GRADIENTS.length],
           prompt, model: selectedModel.name,
           aspect: aspectRatio, style, quality,
@@ -523,7 +537,15 @@ export default function Image() {
   };
 
   const handleSave = async (imgId, newSaved) => {
-    await History_.update(imgId, { saved: newSaved });
+    // H7: a failed save must LOOK failed — don't flip the heart and claim
+    // success when the server rejected the write.
+    try {
+      await History_.update(imgId, { saved: newSaved });
+    } catch (err) {
+      console.error('[image] save toggle failed:', err);
+      toast.error(err.message || 'Could not save — please try again.');
+      return;
+    }
     setImages(prev => prev.map(img => img.id === imgId ? { ...img, saved: newSaved } : img));
     if (detailImage && detailImage.id === imgId) setDetailImage(prev => ({ ...prev, saved: newSaved }));
     toast.success(newSaved ? 'Saved!' : 'Removed from saved');

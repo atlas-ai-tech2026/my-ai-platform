@@ -3,6 +3,7 @@
 // as a top-down composition: header → ruler → bars/region/playhead →
 // transport.
 import React from 'react';
+import { downloadViaApi } from '@/lib/downloadFile';
 
 const RED_HOT = '#FF2A2A';
 const RED_DEEP = '#8B0F0F';
@@ -29,9 +30,6 @@ export function TrackHeader({ trackTitle, voiceLabel, audioUrl }) {
   // Content-Disposition so the browser saves the file instead of
   // navigating to it).
   const canDownload = !!audioUrl;
-  const downloadHref = canDownload
-    ? `/api/download?url=${encodeURIComponent(audioUrl)}&filename=voxel-voice-${Date.now()}.mp3`
-    : undefined;
 
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -53,11 +51,13 @@ export function TrackHeader({ trackTitle, voiceLabel, audioUrl }) {
         }}>{voiceLabel}</div>
       </div>
       <a
-        href={downloadHref}
-        download
+        href="#download"
         title={canDownload ? 'Download the rendered MP3' : 'Synthesize first to enable Download'}
         aria-disabled={!canDownload}
-        onClick={canDownload ? undefined : (e) => e.preventDefault()}
+        onClick={(e) => {
+          e.preventDefault();
+          if (canDownload) downloadViaApi(audioUrl, `voxel-voice-${Date.now()}.mp3`);
+        }}
         style={{
           padding: '6px 14px', borderRadius: 8,
           background: 'rgba(255,255,255,0.05)',

@@ -39,6 +39,44 @@ import {
   UnpricedModelError,
   PriceMismatchError,
 } from './pricing.js';
+// H1 (audit 2026-07-28): /api/download SSRF guard.
+import {
+  assertSafeDownloadUrl,
+  sanitizeFilename,
+  DownloadRejectedError,
+} from './download-guard.js';
+// H2 (audit 2026-07-28): /api/upload content-type policy.
+import { validateUpload } from './upload-guard.js';
+// H3 (audit 2026-07-28): hard deadline on synchronous provider calls.
+import { withProviderDeadline, ProviderTimeoutError } from './provider-deadline.js';
+// H7 (audit 2026-07-28): admin session in an httpOnly cookie + CSRF.
+import {
+  setAdminSessionCookies,
+  clearAdminSessionCookies,
+  newCsrfToken,
+  checkCsrf,
+  CSRF_COOKIE,
+  CSRF_HEADER,
+} from './admin-session.js';
+// H5 (audit 2026-07-28): admin TOTP 2FA (RFC 6238 via node:crypto).
+import {
+  generateSecret,
+  verifyTotp,
+  currentStep,
+  buildOtpAuthUri,
+  generateRecoveryCodes,
+  hashRecoveryCode,
+  evaluateSecondFactor,
+} from './totp.js';
+// H4 (audit 2026-07-28): async video charges persisted so refunds survive
+// a restart (was an in-memory Map).
+import {
+  trackVideoCharge,
+  settleVideoCharge,
+  refundFailedVideo,
+  getVideoCharge,
+  reconcilePendingCharges,
+} from './video-charges.js';
 
 // Load server/.env relative to THIS source file (not process.cwd()) so the
 // API works no matter which directory the harness/launch config runs it
@@ -142,10 +180,34 @@ app.use(cors({
     if (ALLOWED_ORIGINS.includes(origin)) return cb(null, true);
     return cb(new Error(`CORS: origin ${origin} not allowed`));
   },
-  credentials: false,
+  // H7 (audit 2026-07-28): the admin session now travels in an httpOnly
+  // cookie, which the browser only sends cross-origin when credentials are
+  // allowed. The origin allow-list above (not a wildcard) is what keeps
+  // this safe — `credentials: true` with `origin: *` would be unsafe and
+  // is rejected by browsers anyway.
+  credentials: true,
 }));
 
 app.use(express.json({ limit: '50mb' }));
+
+// ─── COOKIES (H7) ──────────────────────────────────────────────────
+// Tiny parser instead of the cookie-parser dependency (CLAUDE.md: don't
+// add a dep the stdlib covers). Only reads; writing uses res.cookie-style
+// Set-Cookie built in setAdminSessionCookie below.
+app.use((req, _res, next) => {
+  const header = req.headers.cookie;
+  req.cookies = {};
+  if (header) {
+    for (const part of header.split(';')) {
+      const eq = part.indexOf('=');
+      if (eq === -1) continue;
+      const k = part.slice(0, eq).trim();
+      const v = part.slice(eq + 1).trim();
+      if (k) req.cookies[k] = decodeURIComponent(v);
+    }
+  }
+  next();
+});
 
 // Real client IP. Behind Cloudflare → DO App Platform ingress → Node, `req.ip`
 // resolves to a SHARED upstream IP, so keying rate limits on it throttles
@@ -172,11 +234,15 @@ const clientIp = (req) =>
 // IPv6-safe key for express-rate-limit v8 (normalizes /64 subnets).
 const ipKey = (req) => ipKeyGenerator(clientIp(req));
 
-// Is this login/register request for the admin account? Used to exempt the
-// admin from the brute-force throttles so an operator can ALWAYS recover CRM
-// access even after many failed attempts. NOTE: this trades brute-force
-// protection on the admin email for guaranteed recoverability — acceptable
-// short-term; revisit once a proper account-recovery flow exists.
+// Is this login request for the admin account?
+//
+// H5 (audit 2026-07-28): this used to EXEMPT the admin from every
+// brute-force throttle — the single most valuable account on the platform
+// had unlimited password guesses. The admin is now throttled too, just
+// more loosely than a normal user (see ADMIN_FAILED_LOGIN_MAX), because
+// recoverability still matters. The break-glass path is no longer "no
+// limit" but server/scripts/reset-admin-2fa.mjs, which also clears
+// lockouts — an operator with server access can always get back in.
 const isAdminAuth = (req) =>
   String(req.body?.email || '').trim().toLowerCase() === ADMIN_EMAIL;
 
@@ -194,7 +260,9 @@ const loginLimiter = rateLimit({
   // by the failed_logins (IP, email) check inside /api/auth/login.
   max: 100,
   keyGenerator: ipKey,
-  skip: isAdminAuth, // admin is never rate-limited (recoverability over brute-force hardening)
+  // H5: the admin exemption is GONE — the admin email is rate-limited like
+  // everyone else at this layer. Its looser treatment is the higher
+  // per-account failure ceiling below, not an exemption.
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many login attempts. Try again in a few minutes.' },
@@ -213,6 +281,28 @@ const adminLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many admin requests.' },
+});
+
+// H2 (audit 2026-07-28): per-USER limits for the two routes that were
+// unauthenticated. Keyed on the authenticated user id (these run after
+// verifyJwt), so users sharing an office/carrier IP get their own bucket.
+const userKey = (req) => (req.user?.id ? `u:${req.user.id}` : ipKey(req));
+const uploadLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 60, // a Seedance reference batch can be ~10 files; 60/min is roomy
+  keyGenerator: userKey,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many uploads — please wait a moment and try again.' },
+});
+// Conservative: each call is a billable provider LLM request.
+const enhanceLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 12,
+  keyGenerator: userKey,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many prompt enhancements — please wait a moment.' },
 });
 
 // CORS errors throw before any route runs; convert to a clean JSON 403.
@@ -262,6 +352,25 @@ function requireFalKey(req, res, next) {
     });
   }
   next();
+}
+
+// ─── PROVIDER DEADLINE (H3, audit 2026-07-28) ──────────────────────
+// Synchronous fal.subscribe calls had no overall timeout: a hung provider
+// held the request (and its DB connection) open forever while the user's
+// credits stayed spent. Every synchronous provider call now runs under the
+// deadline in provider-deadline.js (mirrors the 90s cap the kie path uses).
+// On timeout the call is aborted and the route's EXISTING catch block
+// refunds through the EXISTING refund path — no new refund logic.
+const falSubscribe = (model, options, label) =>
+  withProviderDeadline((signal) => fal.subscribe(model, { ...options, abortSignal: signal }), label);
+
+// A provider timeout is a 504, not a 500, and its message is already
+// user-safe. Returns true when it handled the response. The caller's
+// refund (existing path) has already run by the time this is called.
+function respondIfProviderTimeout(res, error) {
+  if (!(error instanceof ProviderTimeoutError)) return false;
+  res.status(504).json({ error: error.message });
+  return true;
 }
 
 // ─── KIE.AI CONFIG ─────────────────────────────────────────────────
@@ -587,44 +696,16 @@ function buildKieImageInput(cfg, { prompt, ratio, quality, imageUrls }) {
 
 // ─── ASYNC VIDEO CHARGE TRACKING ───────────────────────────────────
 // Async video jobs charge credits at submit time, but the generation can
-// fail MINUTES later at the provider. Without this, a late failure meant
-// the user paid for nothing. Every async submit registers its charge here;
-// /api/video-status auto-refunds (once) when a job reaches FAILED.
-// In-memory by design (single-file convention): a server restart forgets
-// in-flight jobs, so those rare failures need a manual admin refund —
-// look for '[video-refund]' gaps in the logs.
-const asyncVideoCharges = new Map(); // job_id → { userId, kind, cost, refunded }
-
-function trackVideoCharge(jobId, { userId, kind, cost, modelId = null }) {
-  if (!jobId) return;
-  // Backstop prune so the map can't grow unbounded.
-  if (asyncVideoCharges.size > 5000) {
-    asyncVideoCharges.delete(asyncVideoCharges.keys().next().value);
-  }
-  asyncVideoCharges.set(jobId, { userId, kind, cost, modelId, refunded: false });
-}
-
-// Refund a failed async job exactly once. The `refunded` flag flips
-// synchronously before the awaited refund, so concurrent pollers (two tabs,
-// rapid polls) can't double-refund. Returns true iff a refund was executed.
-async function refundFailedVideo(jobId, reason) {
-  const rec = asyncVideoCharges.get(jobId);
-  if (!rec || rec.refunded) return false;
-  rec.refunded = true;
-  try {
-    await refundCredits({
-      userId: rec.userId, kind: rec.kind, cost: rec.cost,
-      reason: `video_failed_async: ${reason}`.slice(0, 500),
-    });
-    console.log(`[video-refund] refunded job ${jobId} user=${rec.userId} (${reason})`);
-    return true;
-  } catch (e) {
-    console.error(`[video-refund] FAILED for job ${jobId} user=${rec.userId}:`, e.message);
-    return false;
-  } finally {
-    asyncVideoCharges.delete(jobId);
-  }
-}
+// fail MINUTES later at the provider. Every async submit records its charge
+// so /api/video-status can auto-refund (exactly once) when a job reaches
+// FAILED.
+//
+// H4 (audit 2026-07-28): this used to be an in-memory Map, so a deploy or
+// restart in that window erased every in-flight charge and the user was
+// never refunded. It now lives in the `pending_video_charges` table
+// (video-charges.js) and unresolved rows are reconciled with the provider
+// at boot. The exactly-once guarantee is the row's status transition —
+// same refunded-flag-before-payout shape, moved into the database.
 
 // Build the kie.ai submission for a video model: which family endpoint to
 // hit, the POST body, and the 'kie:'-prefixed model_id the status routes
@@ -1043,13 +1124,13 @@ app.post('/api/generate', verifyJwt, requireNotBanned, requireModelProviderKey, 
 
       console.log('[FAL PAYLOAD FINAL]', JSON.stringify({ model: falModelId, input }, null, 2));
 
-      const result = await fal.subscribe(falModelId, {
+      const result = await falSubscribe(falModelId, {
         input,
         logs: true,
         onQueueUpdate: (update) => {
           console.log('[FAL STATUS]', update.status, update.logs?.length ? `(${update.logs.length} logs)` : '');
         },
-      });
+      }, 'FAL-IMAGE');
 
       console.log('[FAL RESPONSE]', JSON.stringify(result?.data || result, null, 2).substring(0, 1000));
 
@@ -1107,7 +1188,7 @@ app.post('/api/generate', verifyJwt, requireNotBanned, requireModelProviderKey, 
           prompt, frames: readyUrls.slice(0, 2), duration, aspectRatio: ratio,
         });
         const taskId = await kieCreateTask(family, body, { tag: 'KIE-VIDEO' });
-        trackVideoCharge(taskId, { userId: req.user.id, kind: chargedKind, cost: chargedCost });
+        await trackVideoCharge(taskId, { userId: req.user.id, kind: chargedKind, cost: chargedCost });
         return res.json({ success: true, type: 'video', job_id: taskId, model_id: modelIdTag });
       }
 
@@ -1133,7 +1214,7 @@ app.post('/api/generate', verifyJwt, requireNotBanned, requireModelProviderKey, 
       };
 
       const submitted = await fal.queue.submit(modelId, { input });
-      trackVideoCharge(submitted.request_id, { userId: req.user.id, kind: chargedKind, cost: chargedCost });
+      await trackVideoCharge(submitted.request_id, { userId: req.user.id, kind: chargedKind, cost: chargedCost });
       return res.json({ success: true, type: 'video', job_id: submitted.request_id, model_id: modelId });
     }
 
@@ -1180,6 +1261,7 @@ app.post('/api/generate', verifyJwt, requireNotBanned, requireModelProviderKey, 
 
     // No details in the response — raw provider payloads (which name the
     // upstream) are already logged server-side and must not reach the client.
+    if (respondIfProviderTimeout(res, error)) return;
     return res.status(500).json({ error: 'Generation failed: ' + publicError(humanReason) });
   }
 });
@@ -1197,7 +1279,7 @@ app.post('/api/checkStatus', async (req, res) => {
       const family = model_id.startsWith('kie:jobs:') ? 'jobs' : 'veo';
       const t = await kieGetTask(family, job_id, { tag: 'KIE-STATUS' });
       if (t.state === 'success') {
-        asyncVideoCharges.delete(job_id); // settled — charge stands
+        await settleVideoCharge(job_id); // completed — charge stands
         const durableUrl = await persistOrFallback(t.resultUrls[0], 'video');
         return res.json({ status: 'COMPLETED', video_url: durableUrl, image_url: null });
       }
@@ -1232,7 +1314,7 @@ app.post('/api/checkStatus', async (req, res) => {
         result.data?.image?.url ||
         null;
 
-      asyncVideoCharges.delete(job_id); // settled — charge stands
+      await settleVideoCharge(job_id); // completed — charge stands
       // Re-host outputs to our own Spaces bucket so history stays durable.
       const durableVideo = await persistOrFallback(videoUrl, 'video');
       const durableImage = await persistOrFallback(imageUrl, 'image');
@@ -1318,7 +1400,7 @@ app.post('/api/generate-video', verifyJwt, requireNotBanned, requireModelProvide
       console.log('[KIE-VIDEO] payload:', JSON.stringify(body));
       const taskId = await kieCreateTask(family, body, { tag: 'KIE-VIDEO' });
       console.log(`[KIE-VIDEO] ✅ Submitted ${model} taskId: ${taskId}`);
-      trackVideoCharge(taskId, { userId: req.user.id, kind: chargedKind, cost: chargedCost });
+      await trackVideoCharge(taskId, { userId: req.user.id, kind: chargedKind, cost: chargedCost });
       return res.json({ success: true, job_id: taskId, model_id: modelIdTag, model });
     } catch (error) {
       console.error('[KIE-VIDEO] Error:', error.message);
@@ -1365,7 +1447,7 @@ app.post('/api/generate-video', verifyJwt, requireNotBanned, requireModelProvide
     const submitted = await fal.queue.submit(falModel, { input });
     const requestId = submitted.request_id;
     console.log(`[VIDEO] ✅ Submitted, request_id: ${requestId}`);
-    trackVideoCharge(requestId, { userId: req.user.id, kind: chargedKind, cost: chargedCost });
+    await trackVideoCharge(requestId, { userId: req.user.id, kind: chargedKind, cost: chargedCost });
 
     return res.json({
       success: true,
@@ -1460,7 +1542,7 @@ app.post('/api/edit-video-omni', verifyJwt, requireNotBanned, requireFalKey, asy
     const submitted = await fal.queue.submit(falModel, { input });
     const requestId = submitted.request_id;
     console.log(`[VIDEO-EDIT-OMNI] ✅ Submitted, request_id: ${requestId}`);
-    trackVideoCharge(requestId, { userId: req.user.id, kind: chargedKind, cost: chargedCost });
+    await trackVideoCharge(requestId, { userId: req.user.id, kind: chargedKind, cost: chargedCost });
 
     return res.json({ success: true, job_id: requestId, model_id: falModel, model });
   } catch (error) {
@@ -1549,7 +1631,7 @@ app.post('/api/motion-control', verifyJwt, requireNotBanned, requireFalKey, asyn
     const submitted = await fal.queue.submit(falModel, { input });
     const requestId = submitted.request_id;
     console.log(`[MOTION-CONTROL] ✅ Submitted, request_id: ${requestId}`);
-    trackVideoCharge(requestId, { userId: req.user.id, kind: chargedKind, cost: chargedCost });
+    await trackVideoCharge(requestId, { userId: req.user.id, kind: chargedKind, cost: chargedCost });
 
     return res.json({ success: true, job_id: requestId, model_id: falModel, model });
   } catch (error) {
@@ -1642,7 +1724,7 @@ app.post('/api/tts', verifyJwt, requireNotBanned, requireFalKey, async (req, res
   console.log(`[TTS] Text: ${text.slice(0, 80)}${text.length > 80 ? '…' : ''}`);
 
   try {
-    const result = await fal.subscribe(falModel, { input, logs: false });
+    const result = await falSubscribe(falModel, { input, logs: false }, 'FAL-TTS');
     const audio = result?.data?.audio;
     const audioUrl = audio?.url;
     if (!audioUrl) {
@@ -1666,6 +1748,7 @@ app.post('/api/tts', verifyJwt, requireNotBanned, requireFalKey, async (req, res
         reason: `fal_tts_threw: ${error.message}`.slice(0, 500),
       }).catch(() => {});
     }
+    if (respondIfProviderTimeout(res, error)) return;
     return res.status(500).json({ error: 'TTS failed: ' + publicError(error.message) });
   }
 });
@@ -1720,7 +1803,7 @@ app.post('/api/generate-music', verifyJwt, requireNotBanned, requireFalKey, asyn
   if (input.negative_prompt) console.log(`[MUSIC] Negative: ${input.negative_prompt}`);
 
   try {
-    const result = await fal.subscribe('fal-ai/lyria2', { input, logs: false });
+    const result = await falSubscribe('fal-ai/lyria2', { input, logs: false }, 'FAL-MUSIC');
     const audio = result?.data?.audio;
     const audioUrl = audio?.url;
     if (!audioUrl) {
@@ -1744,6 +1827,7 @@ app.post('/api/generate-music', verifyJwt, requireNotBanned, requireFalKey, asyn
         reason: `fal_music_threw: ${error.message}`.slice(0, 500),
       }).catch(() => {});
     }
+    if (respondIfProviderTimeout(res, error)) return;
     return res.status(500).json({ error: 'Music generation failed: ' + publicError(error.message) });
   }
 });
@@ -1799,7 +1883,7 @@ app.post('/api/tts/preview', requireFalKey, async (req, res) => {
   console.log(`[TTS-PREVIEW] miss → ${voice} via ${falModel}`);
 
   try {
-    const result = await fal.subscribe(falModel, { input, logs: false });
+    const result = await falSubscribe(falModel, { input, logs: false }, 'FAL-TTS-PREVIEW');
     const audioUrl = result?.data?.audio?.url;
     if (!audioUrl) throw new Error('No audio URL in FAL response');
     voicePreviewCache.set(voice, audioUrl);
@@ -1911,7 +1995,7 @@ app.post('/api/generate-video-ref', verifyJwt, requireNotBanned, requireModelPro
       console.log(`[SEEDANCE] [KIE] Variant: ${modelLabel} →`, seedanceMapping.kieModel);
       const taskId = await kieCreateTask('jobs', body, { tag: 'KIE-SEEDANCE' });
       console.log(`[SEEDANCE] [KIE] ✅ Submitted taskId: ${taskId}`);
-      trackVideoCharge(taskId, { userId: req.user.id, kind: chargedKind, cost: chargedCost });
+      await trackVideoCharge(taskId, { userId: req.user.id, kind: chargedKind, cost: chargedCost });
       return res.json({
         success: true,
         job_id: taskId,
@@ -1965,7 +2049,7 @@ app.post('/api/generate-video-ref', verifyJwt, requireNotBanned, requireModelPro
   try {
     const submitted = await fal.queue.submit(falModel, { input });
     console.log(`[SEEDANCE] ✅ Submitted, request_id: ${submitted.request_id}`);
-    trackVideoCharge(submitted.request_id, { userId: req.user.id, kind: chargedKind, cost: chargedCost });
+    await trackVideoCharge(submitted.request_id, { userId: req.user.id, kind: chargedKind, cost: chargedCost });
 
     return res.json({
       success: true,
@@ -2016,7 +2100,7 @@ app.post('/api/video-status', async (req, res) => {
       const family = model_id.startsWith('kie:jobs:') ? 'jobs' : 'veo';
       const t = await kieGetTask(family, job_id, { tag: 'KIE-VIDEO' });
       if (t.state === 'success') {
-        asyncVideoCharges.delete(job_id); // settled — charge stands
+        await settleVideoCharge(job_id); // completed — charge stands
         const durableUrl = await persistOrFallback(t.resultUrls[0], 'video');
         return res.json({ status: 'COMPLETED', video_url: durableUrl });
       }
@@ -2057,7 +2141,7 @@ app.post('/api/video-status', async (req, res) => {
         return res.json({ status: 'FAILED', error: 'No video URL in result' });
       }
 
-      asyncVideoCharges.delete(job_id); // settled — charge stands
+      await settleVideoCharge(job_id); // completed — charge stands
       // Re-host to our own Spaces bucket so history stays durable after FAL
       // purges its link.
       const durableVideo = await persistOrFallback(videoUrl, 'video');
@@ -2088,7 +2172,10 @@ app.post('/api/video-status', async (req, res) => {
 // Wrap multer manually so file-too-large + other multer errors return
 // proper JSON (default behaviour is HTML, which makes the frontend show
 // "Upload returned no URL" with no useful diagnostic).
-app.post('/api/upload', (req, res, next) => {
+// H2 (audit 2026-07-28): was unauthenticated and accepted any file type.
+// Now: JWT + not-banned + per-user rate limit + MIME/magic-byte validation.
+// Size limit (100 MB, multer) unchanged.
+app.post('/api/upload', verifyJwt, requireNotBanned, uploadLimiter, (req, res, next) => {
   upload.single('file')(req, res, (err) => {
     if (!err) return next();
     if (err.code === 'LIMIT_FILE_SIZE') {
@@ -2099,6 +2186,14 @@ app.post('/api/upload', (req, res, next) => {
   });
 }, async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No file provided' });
+
+  // Only image/video/audio, validated against the file's real magic bytes —
+  // a renamed executable with an image Content-Type is rejected here.
+  const verdict = validateUpload({ mimetype: req.file.mimetype, buffer: req.file.buffer });
+  if (!verdict.ok) {
+    console.error(`[UPLOAD] ❌ rejected for user ${req.user.id}: ${verdict.reason} (${req.file.originalname})`);
+    return res.status(415).json({ error: verdict.reason });
+  }
 
   // Validate FAL has a key configured — without this, fal.storage.upload
   // will fail with a cryptic auth error that's hard to interpret.
@@ -2179,23 +2274,84 @@ app.post('/api/upload', (req, res, next) => {
   }
 });
 
-// ─── IMAGE DOWNLOAD (proper Content-Disposition for save dialog) ───
-app.get('/api/download', async (req, res) => {
+// ─── MEDIA DOWNLOAD (proper Content-Disposition for save dialog) ───
+// H1 (audit 2026-07-28): was an unauthenticated open proxy (SSRF). Now:
+// JWT + not-banned, https-only allow-listed CDN hosts, DNS private-address
+// rejection (re-checked on every redirect), an overall deadline, and a
+// response-size cap. See download-guard.js for the validation logic.
+const DOWNLOAD_TIMEOUT_MS = Number(process.env.DOWNLOAD_TIMEOUT_MS || 60_000);
+const DOWNLOAD_MAX_BYTES = Number(process.env.DOWNLOAD_MAX_BYTES || 512 * 1024 * 1024);
+const DOWNLOAD_MAX_REDIRECTS = 3;
+
+app.get('/api/download', verifyJwt, requireNotBanned, async (req, res) => {
   const { url, filename } = req.query;
   if (!url) return res.status(400).json({ error: 'url required' });
+
+  const controller = new AbortController();
+  const deadline = setTimeout(() => controller.abort(), DOWNLOAD_TIMEOUT_MS);
   try {
-    const response = await fetch(url);
-    if (!response.ok) throw new Error('Failed to fetch image');
-    const contentType = response.headers.get('content-type') || 'image/png';
+    // Follow redirects manually so EVERY hop passes the same allow-list +
+    // DNS validation — a trusted CDN must not be able to bounce us to an
+    // internal address.
+    let target = String(url);
+    let response = null;
+    for (let hop = 0; hop <= DOWNLOAD_MAX_REDIRECTS; hop++) {
+      const safeUrl = await assertSafeDownloadUrl(target);
+      response = await fetch(safeUrl, { redirect: 'manual', signal: controller.signal });
+      if ([301, 302, 303, 307, 308].includes(response.status)) {
+        const loc = response.headers.get('location');
+        if (!loc) throw new DownloadRejectedError('Redirect without location', 502);
+        if (hop === DOWNLOAD_MAX_REDIRECTS) {
+          throw new DownloadRejectedError('Too many redirects', 502);
+        }
+        target = new URL(loc, safeUrl).toString();
+        continue;
+      }
+      break;
+    }
+    if (!response.ok) {
+      return res.status(502).json({ error: 'The file could not be fetched from storage.' });
+    }
+
+    const declared = Number(response.headers.get('content-length') || 0);
+    if (declared > DOWNLOAD_MAX_BYTES) {
+      return res.status(413).json({ error: 'File too large to download.' });
+    }
+
+    const contentType = response.headers.get('content-type') || 'application/octet-stream';
     const ext = contentType.includes('jpeg') || contentType.includes('jpg') ? 'jpg' : 'png';
-    const name = filename || `voxel-ai-${Date.now()}.${ext}`;
+    const name = sanitizeFilename(filename, `voxel-ai-${Date.now()}.${ext}`);
     res.setHeader('Content-Type', contentType);
     res.setHeader('Content-Disposition', `attachment; filename="${name}"`);
-    const buffer = Buffer.from(await response.arrayBuffer());
-    res.send(buffer);
+    if (declared) res.setHeader('Content-Length', String(declared));
+
+    // Stream with a running byte cap instead of buffering the whole file.
+    let sent = 0;
+    for await (const chunk of response.body) {
+      sent += chunk.length;
+      if (sent > DOWNLOAD_MAX_BYTES) {
+        controller.abort();
+        res.destroy();
+        return;
+      }
+      if (!res.write(chunk)) {
+        await new Promise((resolve) => res.once('drain', resolve));
+      }
+    }
+    res.end();
   } catch (error) {
+    if (res.headersSent) { res.destroy(); return; }
+    if (error instanceof DownloadRejectedError) {
+      console.error(`[download] rejected url for user ${req.user?.id}: ${error.message}`);
+      return res.status(error.status).json({ error: error.message });
+    }
+    const timedOut = error?.name === 'AbortError';
     console.error('Download proxy error:', error.message);
-    res.status(500).json({ error: 'Download failed' });
+    res.status(timedOut ? 504 : 500).json({
+      error: timedOut ? 'Download timed out — please try again.' : 'Download failed',
+    });
+  } finally {
+    clearTimeout(deadline);
   }
 });
 
@@ -2220,7 +2376,9 @@ app.post('/api/llm', async (req, res) => {
 // Takes the user's prompt, runs it through fal.ai's `any-llm` (Gemini
 // Flash for speed/cost), returns a richer cinematic rewrite. Used by the
 // red bolt button in the Image and Video prompt areas.
-app.post('/api/enhance-prompt', requireFalKey, async (req, res) => {
+// H2 (audit 2026-07-28): was unauthenticated — every call spends money on
+// a provider LLM. Now JWT + not-banned + a conservative per-user limit.
+app.post('/api/enhance-prompt', verifyJwt, requireNotBanned, enhanceLimiter, requireFalKey, async (req, res) => {
   const { prompt, type } = req.body || {};
   if (!prompt || typeof prompt !== 'string' || !prompt.trim()) {
     return res.status(400).json({ error: 'prompt required' });
@@ -2238,14 +2396,14 @@ Add visual details: subject, setting, lighting, lens, framing, mood, color, text
 Keep the original intent. 50–90 words. One paragraph.`;
 
   try {
-    const result = await fal.subscribe('fal-ai/any-llm', {
+    const result = await falSubscribe('fal-ai/any-llm', {
       input: {
         model: 'google/gemini-flash-1.5',
         prompt: prompt.trim(),
         system_prompt: system,
       },
       logs: false,
-    });
+    }, 'FAL-ENHANCE');
     // any-llm returns the text under .output (sometimes nested in .data)
     const raw =
       result?.data?.output ??
@@ -2263,7 +2421,8 @@ Keep the original intent. 50–90 words. One paragraph.`;
     return res.json({ prompt: enhanced });
   } catch (e) {
     console.error('[ENHANCE] ❌ LLM error:', e.message);
-    return res.status(500).json({ error: 'Enhancer failed: ' + e.message });
+    if (respondIfProviderTimeout(res, e)) return;
+    return res.status(500).json({ error: 'Enhancer failed: ' + publicError(e.message) });
   }
 });
 
@@ -2500,10 +2659,10 @@ const NODE_VIDEO_MODEL_NAMES = [
   'Hailuo 2.3', 'PixVerse 5', 'Sora 2', 'Luma Dream Machine',
 ];
 
-// Async node video charges are tracked in the shared asyncVideoCharges map
-// (see trackVideoCharge/refundFailedVideo) — one idempotent refund path for
-// every async video, whether it fails via /api/video-status polling or is
-// reported by the node client through /api/node/run-failed.
+// Async node video charges are tracked in the shared pending_video_charges
+// table (see video-charges.js) — one idempotent refund path for every async
+// video, whether it fails via /api/video-status polling or is reported by
+// the node client through /api/node/run-failed.
 
 // Ownership guard: returns the row if the caller owns the space, else
 // writes the right status and returns null.
@@ -2659,7 +2818,7 @@ app.post('/api/node/run-node', verifyJwt, requireNotBanned, requireFalKey, async
   console.log(`[node:run] user=${req.user.id} type=${type} model="${settings?.model || '-'}" → ${falModel}`);
 
   try {
-    const result = await fal.subscribe(falModel, { input, logs: false });
+    const result = await falSubscribe(falModel, { input, logs: false }, 'FAL-NODE');
     const url = spec.extract(result?.data);
     if (!url) throw new Error('No output returned by model');
     console.log(`[node:run] ✅ ${url}`);
@@ -2669,6 +2828,7 @@ app.post('/api/node/run-node', verifyJwt, requireNotBanned, requireFalKey, async
     if (chargedKind) {
       refundCredits({ userId: req.user.id, kind: chargedKind, ip: req.ip, reason: `node_run_threw: ${error.message}`.slice(0, 500) }).catch(() => {});
     }
+    if (respondIfProviderTimeout(res, error)) return;
     return res.status(500).json({ error: 'Node run failed: ' + publicError(error?.body?.detail || error.message) });
   }
 });
@@ -2770,7 +2930,7 @@ app.post('/api/node/run-node-async', verifyJwt, requireNotBanned, requireFalKey,
       }
       console.log(`[node:run-async] user=${req.user.id} model="${modelLabel}" → ${submission.modelIdTag}`);
       const taskId = await kieCreateTask(submission.family, submission.body, { tag: 'KIE-NODE' });
-      trackVideoCharge(taskId, { userId: req.user.id, kind: chargedKind, cost: chargedCost, modelId: submission.modelIdTag });
+      await trackVideoCharge(taskId, { userId: req.user.id, kind: chargedKind, cost: chargedCost, modelId: submission.modelIdTag });
       return res.json({ success: true, job_id: taskId, model_id: submission.modelIdTag });
     } catch (error) {
       console.error('[node:run-async] [KIE] error:', error.message);
@@ -2797,7 +2957,7 @@ app.post('/api/node/run-node-async', verifyJwt, requireNotBanned, requireFalKey,
   try {
     const submitted = await fal.queue.submit(falModel, { input });
     // Registered so /run-failed and /api/video-status can refund on failure.
-    trackVideoCharge(submitted.request_id, { userId: req.user.id, kind: chargedKind, cost: chargedCost, modelId: falModel });
+    await trackVideoCharge(submitted.request_id, { userId: req.user.id, kind: chargedKind, cost: chargedCost, modelId: falModel });
     return res.json({ success: true, job_id: submitted.request_id, model_id: falModel });
   } catch (error) {
     console.error('[node:run-async] submit error:', error.message);
@@ -2813,10 +2973,10 @@ app.post('/api/node/run-node-async', verifyJwt, requireNotBanned, requireFalKey,
 // and that the caller owns it, and refunds at most once.
 app.post('/api/node/run-failed', verifyJwt, requireNotBanned, async (req, res) => {
   const { job_id } = req.body || {};
-  const rec = job_id && asyncVideoCharges.get(job_id);
+  const rec = job_id ? await getVideoCharge(job_id) : null;
   if (!rec) return res.json({ refunded: false, reason: 'unknown_job' });
-  if (rec.userId !== req.user.id) return res.status(403).json({ error: 'Forbidden' });
-  if (rec.refunded) return res.json({ refunded: false, reason: 'already' });
+  if (String(rec.userId) !== String(req.user.id)) return res.status(403).json({ error: 'Forbidden' });
+  if (rec.status !== 'pending') return res.json({ refunded: false, reason: 'already' });
 
   try {
     // Verify the failure with the job's ACTUAL provider before refunding —
@@ -2910,6 +3070,20 @@ app.post('/api/auth/register', registerLimiter, requireAuthInfra, async (req, re
 //     account so one user's typos don't lock out others on the same IP.
 const ADMIN_JWT_EXPIRES = process.env.ADMIN_JWT_EXPIRES_IN || '30m';
 
+// H5: per-account failure ceilings in a 15-minute window. The admin's is
+// looser (not absent) — brute-force protection without risking a lockout
+// from a few mistyped passwords.
+const USER_FAILED_LOGIN_MAX = Number(process.env.FAILED_LOGIN_MAX || 10);
+const ADMIN_FAILED_LOGIN_MAX = Number(process.env.ADMIN_FAILED_LOGIN_MAX || 30);
+
+// Best-effort record of a failed attempt — never blocks the response.
+function recordFailedLogin(email, ip, ua) {
+  return pool.query(
+    `INSERT INTO failed_logins (email, ip_address, user_agent) VALUES ($1, $2, $3)`,
+    [email || null, ip, ua]
+  ).catch(() => {});
+}
+
 app.post('/api/auth/login', loginLimiter, requireAuthInfra, async (req, res) => {
   const ip = clientIp(req);
   const ua = req.get('user-agent') || null;
@@ -2918,27 +3092,32 @@ app.post('/api/auth/login', loginLimiter, requireAuthInfra, async (req, res) => 
 
   // Persistent brute-force throttle (survives restart). Fires before any
   // bcrypt work so attackers can't pin CPU even at the throttle's edge.
-  // Skipped for the admin account so CRM access is always recoverable.
-  if (!isAdminAuth(req)) {
-    try {
-      // Scope the throttle to (IP, email) — NOT IP alone. Many legitimate
-      // users share one IP (office/campus NAT, mobile carrier CGNAT); keying
-      // purely on IP let a handful of unrelated people's typos lock out
-      // EVERYONE behind that IP. Per-account keying still stops brute-forcing
-      // a single account, while the per-IP loginLimiter above covers spraying.
-      const { rows: fl } = await pool.query(
-        `SELECT count(*)::int AS c FROM failed_logins
-         WHERE ip_address = $1 AND email = $2
-           AND created_at > NOW() - INTERVAL '15 minutes'`,
-        [ip, email]
-      );
-      if (fl[0]?.c >= 10) {
-        return res.status(429).json({ error: 'Too many failed attempts for this account. Try again in 15 minutes.' });
-      }
-    } catch (e) {
-      console.error('[auth/login] failed_logins precheck error:', e.message);
-      // fall through — don't lock everyone out if the table is unreachable
+  //
+  // H5 (audit 2026-07-28): the admin used to be SKIPPED here entirely —
+  // unlimited password guesses on the most valuable account. The admin is
+  // now throttled too, just at a looser ceiling (30 vs 10 failures per 15
+  // min) so an operator mistyping a password a few times isn't locked out
+  // of the CRM. If it does lock, server/scripts/reset-admin-2fa.mjs clears
+  // it from the server.
+  try {
+    // Scope the throttle to (IP, email) — NOT IP alone. Many legitimate
+    // users share one IP (office/campus NAT, mobile carrier CGNAT); keying
+    // purely on IP let a handful of unrelated people's typos lock out
+    // EVERYONE behind that IP. Per-account keying still stops brute-forcing
+    // a single account, while the per-IP loginLimiter above covers spraying.
+    const { rows: fl } = await pool.query(
+      `SELECT count(*)::int AS c FROM failed_logins
+       WHERE ip_address = $1 AND email = $2
+         AND created_at > NOW() - INTERVAL '15 minutes'`,
+      [ip, email]
+    );
+    const ceiling = isAdminAuth(req) ? ADMIN_FAILED_LOGIN_MAX : USER_FAILED_LOGIN_MAX;
+    if (fl[0]?.c >= ceiling) {
+      return res.status(429).json({ error: 'Too many failed attempts for this account. Try again in 15 minutes.' });
     }
+  } catch (e) {
+    console.error('[auth/login] failed_logins precheck error:', e.message);
+    // fall through — don't lock everyone out if the table is unreachable
   }
 
   try {
@@ -2947,7 +3126,8 @@ app.post('/api/auth/login', loginLimiter, requireAuthInfra, async (req, res) => 
     }
 
     const { rows } = await pool.query(
-      `SELECT id, email, password_hash, credits, credit_limit, role, banned, package, created_at, expires_at
+      `SELECT id, email, password_hash, credits, credit_limit, role, banned, package, created_at, expires_at,
+              totp_secret, totp_enabled, totp_last_step, totp_recovery_codes
          FROM users WHERE email = $1 LIMIT 1`,
       [email]
     );
@@ -2959,10 +3139,7 @@ app.post('/api/auth/login', loginLimiter, requireAuthInfra, async (req, res) => 
 
     if (!row || !ok) {
       // Best-effort log — don't block the response on it.
-      pool.query(
-        `INSERT INTO failed_logins (email, ip_address, user_agent) VALUES ($1, $2, $3)`,
-        [email || null, ip, ua]
-      ).catch(() => {});
+      recordFailedLogin(email, ip, ua);
       return res.status(401).json({ error: 'Invalid email or password.' });
     }
 
@@ -2972,6 +3149,39 @@ app.post('/api/auth/login', loginLimiter, requireAuthInfra, async (req, res) => 
     // Bulk-provisioned accounts can expire (CRM Bulk tab).
     if (row.expires_at && new Date(row.expires_at) <= new Date()) {
       return res.status(403).json({ error: 'Account has expired — contact support to renew.' });
+    }
+
+    // ── H5: TOTP second factor ──────────────────────────────────────
+    // Enforced only for accounts that have COMPLETED setup (totp_enabled),
+    // so shipping this can never lock anyone out. A password-correct login
+    // without a valid code stops here — no token is issued.
+    const second = evaluateSecondFactor(row, {
+      totpCode: req.body?.totp_code,
+      recoveryCode: req.body?.recovery_code,
+    });
+
+    if (second.outcome === 'required') {
+      // Password was right but the second factor is missing. The client
+      // shows the 6-digit prompt on this signal.
+      return res.status(401).json({ error: 'Two-factor code required.', totp_required: true });
+    }
+    if (second.outcome === 'replayed') {
+      await recordFailedLogin(email, ip, ua);
+      return res.status(401).json({ error: 'That code has already been used. Wait for the next one.', totp_required: true });
+    }
+    if (second.outcome === 'invalid') {
+      await recordFailedLogin(email, ip, ua);
+      return res.status(401).json({ error: 'Invalid two-factor code.', totp_required: true });
+    }
+    if (second.outcome === 'ok') {
+      await pool.query('UPDATE users SET totp_last_step = $1 WHERE id = $2', [String(second.nextStep), row.id]);
+    }
+    if (second.outcome === 'ok_recovery') {
+      await pool.query(
+        'UPDATE users SET totp_recovery_codes = $1::jsonb WHERE id = $2',
+        [JSON.stringify(second.remainingHashes), row.id]
+      );
+      console.warn(`[auth/2fa] RECOVERY CODE used for ${row.email} from ${ip} — ${second.remainingHashes.length} left`);
     }
 
     // Admin tokens expire fast (30m) so a stolen admin token has a small
@@ -3000,12 +3210,32 @@ app.post('/api/auth/login', loginLimiter, requireAuthInfra, async (req, res) => 
       ).catch(err => console.error('[auth/login] audit insert failed:', err.message));
     }
 
-    const { password_hash, ...user } = row; // never ship the hash to the client
-    res.json({ token, user });
+    // H7: for admins, ALSO set the session as an httpOnly cookie that page
+    // JavaScript cannot read, plus the readable CSRF token. The bearer
+    // token stays in the body during the transition so an older admin tab
+    // keeps working; once the frontend is fully on cookies it can stop
+    // storing it. See the tradeoff note in docs/SESSION-NOTES.md.
+    let csrfToken = null;
+    if (isAdmin) {
+      csrfToken = newCsrfToken();
+      setAdminSessionCookies(res, { token, csrfToken, maxAgeSeconds: 30 * 60 });
+    }
+
+    const { password_hash, totp_secret, totp_recovery_codes, totp_last_step, ...user } = row;
+    res.json({ token, user, ...(csrfToken ? { csrf_token: csrfToken } : {}) });
   } catch (err) {
     console.error('[auth/login] error:', err);
     res.status(500).json({ error: 'Login failed.' });
   }
+});
+
+// ─── /api/auth/logout (H7) ─────────────────────────────────────────
+// Clears the admin session cookies server-side. The client still drops its
+// own localStorage copy; this makes sure the httpOnly cookie — which the
+// client cannot touch — is invalidated too.
+app.post('/api/auth/logout', (req, res) => {
+  clearAdminSessionCookies(res);
+  res.json({ ok: true });
 });
 
 // ─── /api/auth/me ──────────────────────────────────────────────────
@@ -3156,8 +3386,27 @@ function adminAudit(req, res, next) {
   next();
 }
 
-// One handy gate to apply to every admin route: rate limit, auth, role, audit.
-const adminGate = [adminLimiter, verifyJwt, requireAdmin, adminAudit];
+// H7: CSRF guard for cookie-authenticated admin requests. Runs after
+// verifyJwt (which sets req.usedCookieAuth) and before anything that
+// changes state. Bearer-authenticated requests pass through untouched —
+// the browser never attaches those automatically, so they can't be forged.
+function requireCsrf(req, res, next) {
+  const verdict = checkCsrf({
+    method: req.method,
+    usedCookieAuth: req.usedCookieAuth,
+    csrfCookie: req.cookies?.[CSRF_COOKIE],
+    csrfHeader: req.get(CSRF_HEADER),
+  });
+  if (!verdict.ok) {
+    console.error(`[csrf] rejected ${req.method} ${req.path} for user ${req.user?.id}: ${verdict.reason}`);
+    return res.status(403).json({ error: verdict.reason });
+  }
+  next();
+}
+
+// One handy gate to apply to every admin route: rate limit, auth, role,
+// CSRF (state-changing cookie requests only), audit.
+const adminGate = [adminLimiter, verifyJwt, requireAdmin, requireCsrf, adminAudit];
 
 // ─── ADMIN: LIST USERS (paginated) ──────────────────────────────────
 app.get('/api/admin/users', adminGate, async (req, res) => {
@@ -3779,6 +4028,114 @@ app.post('/api/redeem-code', redeemLimiter, verifyJwt, requireNotBanned, async (
   }
 });
 
+// ─── ADMIN: TWO-FACTOR AUTH (H5, audit 2026-07-28) ─────────────────
+// Three routes: status → start (returns secret + QR URI) → confirm (proves
+// the admin's phone works, and ONLY THEN enables enforcement). Enforcement
+// is deliberately opt-in-by-completion so deploying 2FA can never lock the
+// admin out of their own CRM.
+
+app.get('/api/admin/2fa/status', adminGate, async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      'SELECT totp_enabled, totp_recovery_codes FROM users WHERE id = $1',
+      [req.user.id]
+    );
+    const codes = Array.isArray(rows[0]?.totp_recovery_codes) ? rows[0].totp_recovery_codes : [];
+    res.json({ enabled: !!rows[0]?.totp_enabled, recovery_codes_remaining: codes.length });
+  } catch (err) {
+    console.error('[admin/2fa/status] error:', err.message);
+    res.status(500).json({ error: 'Could not read 2FA status.' });
+  }
+});
+
+// Start enrolment: generate a secret and hand back the otpauth:// URI for
+// the QR code. Stored but NOT enabled until /confirm succeeds.
+app.post('/api/admin/2fa/setup', adminGate, async (req, res) => {
+  try {
+    const { rows } = await pool.query('SELECT totp_enabled FROM users WHERE id = $1', [req.user.id]);
+    if (rows[0]?.totp_enabled) {
+      return res.status(409).json({ error: 'Two-factor is already enabled. Disable it first to re-enrol.' });
+    }
+    const secret = generateSecret();
+    await pool.query('UPDATE users SET totp_secret = $1, totp_enabled = FALSE WHERE id = $2', [secret, req.user.id]);
+    console.log(`[admin/2fa] enrolment started for ${req.user.email}`);
+    res.json({
+      secret,
+      otpauth_uri: buildOtpAuthUri(secret, { account: req.user.email }),
+      next: 'Scan the QR in your authenticator app, then POST the 6-digit code to /api/admin/2fa/confirm.',
+    });
+  } catch (err) {
+    console.error('[admin/2fa/setup] error:', err.message);
+    res.status(500).json({ error: '2FA setup failed.' });
+  }
+});
+
+// Confirm enrolment with a live code, then enable enforcement and return
+// the recovery codes ONCE (only their hashes are stored).
+app.post('/api/admin/2fa/confirm', adminGate, async (req, res) => {
+  try {
+    const code = String(req.body?.totp_code || '').trim();
+    const { rows } = await pool.query(
+      'SELECT totp_secret, totp_enabled FROM users WHERE id = $1', [req.user.id]
+    );
+    if (!rows[0]?.totp_secret) {
+      return res.status(400).json({ error: 'Start setup first (POST /api/admin/2fa/setup).' });
+    }
+    if (rows[0].totp_enabled) {
+      return res.status(409).json({ error: 'Two-factor is already enabled.' });
+    }
+    const offset = verifyTotp(rows[0].totp_secret, code);
+    if (offset === null) {
+      return res.status(400).json({ error: 'That code is not valid. Check your phone\'s clock and try the current code.' });
+    }
+
+    const recoveryCodes = generateRecoveryCodes(10);
+    await pool.query(
+      `UPDATE users
+          SET totp_enabled = TRUE,
+              totp_last_step = $1,
+              totp_recovery_codes = $2::jsonb
+        WHERE id = $3`,
+      [String(currentStep() + offset), JSON.stringify(recoveryCodes.map(hashRecoveryCode)), req.user.id]
+    );
+    console.warn(`[admin/2fa] ✅ ENABLED for ${req.user.email} — recovery codes issued (hashes stored)`);
+    res.json({
+      enabled: true,
+      recovery_codes: recoveryCodes,
+      warning: 'These recovery codes are shown ONCE. Store them in two safe places — they are the only way in if you lose your phone.',
+    });
+  } catch (err) {
+    console.error('[admin/2fa/confirm] error:', err.message);
+    res.status(500).json({ error: '2FA confirmation failed.' });
+  }
+});
+
+// Disable 2FA — requires a CURRENT code, so a hijacked admin session
+// cannot quietly switch the second factor off.
+app.post('/api/admin/2fa/disable', adminGate, async (req, res) => {
+  try {
+    const code = String(req.body?.totp_code || '').trim();
+    const { rows } = await pool.query(
+      'SELECT totp_secret, totp_enabled FROM users WHERE id = $1', [req.user.id]
+    );
+    if (!rows[0]?.totp_enabled) return res.status(400).json({ error: 'Two-factor is not enabled.' });
+    if (verifyTotp(rows[0].totp_secret, code) === null) {
+      return res.status(400).json({ error: 'A valid current code is required to disable two-factor.' });
+    }
+    await pool.query(
+      `UPDATE users SET totp_enabled = FALSE, totp_secret = NULL,
+              totp_recovery_codes = NULL, totp_last_step = NULL
+        WHERE id = $1`,
+      [req.user.id]
+    );
+    console.warn(`[admin/2fa] ⚠️ DISABLED for ${req.user.email}`);
+    res.json({ enabled: false });
+  } catch (err) {
+    console.error('[admin/2fa/disable] error:', err.message);
+    res.status(500).json({ error: '2FA disable failed.' });
+  }
+});
+
 // ─── ADMIN: MODEL CATALOG (for the Bulk tab's allow-list picker) ───
 // Server is the source of truth for model labels — the same keys the
 // generate routes resolve and the allow-list gate compares against.
@@ -4266,6 +4623,34 @@ async function checkKieBalance() {
   }
 }
 
+// H4 (audit 2026-07-28): ask the provider what happened to every video
+// charge left 'pending' across a restart, and refund the failed ones. This
+// is what makes the refund survive a deploy — the case the old in-memory
+// Map lost silently. Runs shortly after boot so it never delays listening,
+// and hourly after that to catch jobs abandoned mid-poll.
+async function videoJobVerdict(row) {
+  const modelId = String(row.model_id || '');
+  if (modelId.startsWith('kie:')) {
+    const family = modelId.startsWith('kie:jobs:') ? 'jobs' : 'veo';
+    const t = await kieGetTask(family, row.job_id, { tag: 'KIE-RECONCILE' });
+    if (t.state === 'fail') return 'failed';
+    if (t.state === 'success') return 'completed';
+    return 'pending';
+  }
+  if (!modelId) return 'pending'; // no provider recorded — leave it alone
+  const status = await fal.queue.status(modelId, { requestId: row.job_id, logs: false });
+  if (status.status === 'FAILED' || status.status === 'ERROR') return 'failed';
+  if (status.status === 'COMPLETED') return 'completed';
+  return 'pending';
+}
+
+function scheduleVideoChargeReconcile() {
+  const run = () => reconcilePendingCharges(videoJobVerdict).catch((e) =>
+    console.error('[video-reconcile] pass failed:', e.message));
+  setTimeout(run, 30 * 1000).unref?.();
+  setInterval(run, 60 * 60 * 1000).unref?.();
+}
+
 migrate()
   .then(async () => {
     await backfillProviderCosts();
@@ -4275,6 +4660,7 @@ migrate()
     setInterval(runAutomatedBackup, 24 * 60 * 60 * 1000).unref?.();
     checkKieBalance();
     setInterval(checkKieBalance, 60 * 60 * 1000).unref?.();
+    scheduleVideoChargeReconcile();
     startListening();
   })
   .catch((err) => {

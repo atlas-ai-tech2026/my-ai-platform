@@ -470,7 +470,18 @@ export default function ImagePromptBar({
         try {
           const formData = new FormData();
           formData.append('file', file);
-          const res = await fetch('/api/upload', { method: 'POST', body: formData });
+          // H2: /api/upload requires auth (Authorization only — the browser
+          // sets the multipart Content-Type boundary itself).
+          const token = localStorage.getItem('voxel_token');
+          const res = await fetch('/api/upload', {
+            method: 'POST',
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
+            body: formData,
+          });
+          if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.error || `Upload failed (${res.status})`);
+          }
           const data = await res.json();
           const file_url = data.url;
           setUploadedImages(prev => {

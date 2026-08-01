@@ -24,19 +24,31 @@ export function verifyJwt(req, res, next) {
   if (!JWT_SECRET) {
     return res.status(503).json({ error: 'Auth not configured on server.' });
   }
+  // H7 (audit 2026-07-28): the admin session now arrives in an httpOnly
+  // cookie that JavaScript cannot read, so XSS can't steal it. The bearer
+  // header is still accepted — regular user sessions use it, and it keeps
+  // any in-flight admin tab working across the deploy.
+  //
+  // `usedCookieAuth` is recorded because only cookie-authenticated requests
+  // need the CSRF check: a bearer header is never attached automatically by
+  // the browser, so it cannot be forged cross-site.
   const auth = req.get('authorization') || '';
-  const m = auth.match(/^Bearer\s+(.+)$/i);
-  if (!m) {
+  const bearer = auth.match(/^Bearer\s+(.+)$/i)?.[1];
+  const cookieToken = req.cookies?.voxel_admin;
+  const token = bearer || cookieToken;
+
+  if (!token) {
     return res.status(401).json({ error: 'Missing bearer token.' });
   }
   try {
-    const payload = jwt.verify(m[1], JWT_SECRET);
+    const payload = jwt.verify(token, JWT_SECRET);
     // Standard JWT field is `sub` (subject) — we put user id there at issue time.
     req.user = {
       id: payload.sub,
       email: payload.email,
       role: payload.role || 'user',
     };
+    req.usedCookieAuth = !bearer && !!cookieToken;
     next();
   } catch (err) {
     // Don't leak whether the token was malformed vs. expired vs. wrong secret.

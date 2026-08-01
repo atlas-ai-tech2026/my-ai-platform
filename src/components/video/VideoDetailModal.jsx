@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { X, Heart, Download, Share2, Copy, ChevronLeft, ChevronRight, RefreshCw, Wand2, Play, Pause, Volume2, VolumeX, Maximize, RotateCcw } from 'lucide-react';
+import { downloadViaApi } from '@/lib/downloadFile';
 
 const font = '"DM Sans", sans-serif';
 const GRADS = [
@@ -262,12 +263,7 @@ export default function VideoDetailModal({ video, videos = [], onClose, onNaviga
                   { icon:Heart, label:'Like', active:liked, onClick:()=>setLiked(v=>!v) },
                   { icon:Download, label:'Export', active:false, onClick:() => {
                     if (video.result_url) {
-                      const a = document.createElement('a');
-                      a.href = `/api/download?url=${encodeURIComponent(video.result_url)}&filename=voxel-video-${video.id || Date.now()}.mp4`;
-                      a.download = `voxel-video.mp4`;
-                      document.body.appendChild(a);
-                      a.click();
-                      document.body.removeChild(a);
+                      downloadViaApi(video.result_url, `voxel-video-${video.id || Date.now()}.mp4`);
                     }
                   }},
                   { icon:Share2, label:'Share', active:false, onClick:()=>{} },
