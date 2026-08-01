@@ -119,6 +119,11 @@ export class DownloadRejectedError extends Error {
 export async function assertSafeDownloadUrl(urlString, {
   lookup = dnsLookup,
   suffixes = buildAllowedHostSuffixes(),
+  // Set only when the caller has PROVEN the URL is in their own history.
+  // Relaxes the host allow-list and nothing else — every other check
+  // (https, no credentials, no IP literal, no private/loopback/link-local
+  // address after DNS) still runs.
+  skipHostAllowList = false,
 } = {}) {
   let u;
   try {
@@ -132,8 +137,13 @@ export async function assertSafeDownloadUrl(urlString, {
   if (u.username || u.password) {
     throw new DownloadRejectedError('Credentials in url are not allowed', 400);
   }
-  if (!isAllowedDownloadHost(u.hostname, suffixes)) {
-    throw new DownloadRejectedError('This host is not an allowed download source', 403);
+  if (!skipHostAllowList && !isAllowedDownloadHost(u.hostname, suffixes)) {
+    // Name the host. The caller supplied this URL, so echoing its hostname
+    // leaks nothing — and without it this failure is undiagnosable from the
+    // browser (production, 2026-08-01).
+    throw new DownloadRejectedError(
+      `This host is not an allowed download source: ${u.hostname}`, 403
+    );
   }
   // A literal IP can never be on the (name-based) allow-list, but be explicit.
   if (net.isIP(u.hostname.replace(/^\[|\]$/g, ''))) {

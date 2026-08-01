@@ -75,6 +75,7 @@ import {
   settleVideoCharge,
   refundFailedVideo,
   getVideoCharge,
+  userOwnsMediaUrl,
   reconcilePendingCharges,
 } from './video-charges.js';
 
@@ -2287,6 +2288,15 @@ app.get('/api/download', verifyJwt, requireNotBanned, async (req, res) => {
   const { url, filename } = req.query;
   if (!url) return res.status(400).json({ error: 'url required' });
 
+  // A URL that appears in the CALLER'S OWN history is allowed regardless of
+  // which provider hosts it. Outputs from different eras live on different
+  // hosts (FAL, kie, supabase, base44, Spaces), and a static allow-list kept
+  // refusing legitimate downloads. This is also STRICTER than the host list
+  // against SSRF — an attacker cannot plant a URL in someone else's history,
+  // so it can never be aimed at an internal address. The DNS private-address
+  // check below still runs either way.
+  const ownedByCaller = await userOwnsMediaUrl(req.user.id, url);
+
   const controller = new AbortController();
   const deadline = setTimeout(() => controller.abort(), DOWNLOAD_TIMEOUT_MS);
   try {
@@ -2296,7 +2306,13 @@ app.get('/api/download', verifyJwt, requireNotBanned, async (req, res) => {
     let target = String(url);
     let response = null;
     for (let hop = 0; hop <= DOWNLOAD_MAX_REDIRECTS; hop++) {
-      const safeUrl = await assertSafeDownloadUrl(target);
+      // `skipHostAllowList` only relaxes the HOST check, and only for the
+      // user's own media. https-only, no-credentials, no-IP-literal and the
+      // private/loopback/link-local DNS rejection all still apply — on the
+      // first hop and on every redirect.
+      const safeUrl = await assertSafeDownloadUrl(target, {
+        skipHostAllowList: ownedByCaller && hop === 0,
+      });
       response = await fetch(safeUrl, { redirect: 'manual', signal: controller.signal });
       if ([301, 302, 303, 307, 308].includes(response.status)) {
         const loc = response.headers.get('location');

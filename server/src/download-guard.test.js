@@ -121,6 +121,37 @@ describe('H1 — legitimate downloads still work', () => {
     await expect(check('https://media.base44.com/x.png')).resolves.toBeTruthy();
   });
 
+  // The durable fix for "This host is not an allowed download source": a URL
+  // proven to be in the CALLER'S OWN history bypasses the host list, because
+  // outputs from different eras live on different providers.
+  it('skipHostAllowList lets a user download their OWN media from any host', async () => {
+    const ownHistoryUrl = 'https://some-old-provider.example.com/my-image.png';
+    // Normally refused…
+    await expect(assertSafeDownloadUrl(ownHistoryUrl, {
+      lookup: async () => [{ address: '93.184.216.34' }], suffixes,
+    })).rejects.toThrow(/not an allowed download source/);
+    // …allowed once ownership is proven.
+    await expect(assertSafeDownloadUrl(ownHistoryUrl, {
+      lookup: async () => [{ address: '93.184.216.34' }], suffixes, skipHostAllowList: true,
+    })).resolves.toBeTruthy();
+  });
+
+  it('ownership NEVER bypasses the SSRF protections', async () => {
+    const opts = { lookup, suffixes, skipHostAllowList: true };
+    // Private / metadata addresses still refused even for "own" media.
+    await expect(assertSafeDownloadUrl('https://evil.fal.media/x.png', opts))
+      .rejects.toThrow(/private address/i);
+    await expect(assertSafeDownloadUrl('https://internal.fal.media/x.png', opts))
+      .rejects.toThrow(/private address/i);
+    await expect(assertSafeDownloadUrl('https://169.254.169.254/', opts)).rejects.toThrow();
+    await expect(assertSafeDownloadUrl('http://v3.fal.media/x.png', opts)).rejects.toThrow(/https/i);
+    await expect(assertSafeDownloadUrl('https://u:p@v3.fal.media/x.png', opts)).rejects.toThrow(/credentials/i);
+  });
+
+  it('the rejection message names the host so it is diagnosable', async () => {
+    await expect(check('https://attacker.com/x')).rejects.toThrow(/attacker\.com/);
+  });
+
   it('DOWNLOAD_ALLOWED_HOSTS adds a host without a code deploy', async () => {
     const withExtra = buildAllowedHostSuffixes({ ...ENV, DOWNLOAD_ALLOWED_HOSTS: 'cdn.newprovider.io' });
     expect(isAllowedDownloadHost('cdn.newprovider.io', withExtra)).toBe(true);
