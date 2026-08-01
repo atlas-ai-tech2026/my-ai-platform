@@ -34,7 +34,19 @@ export function buildAllowedHostSuffixes(env = process.env) {
   const list = [
     'fal.media',       // FAL output CDN
     'redpandaai.co',   // kie.ai file/temp hosts
+    // Historical output hosts. Generations made before outputs were
+    // re-hosted to our own Spaces bucket still point here, and a user
+    // downloading an old image from their history must keep working.
+    // (Regression found in production 2026-08-01: allow-listing only the
+    // two hosts above broke downloads for every pre-Spaces generation.)
+    'supabase.co',     // qtrypzzcjebvfcihiynt.supabase.co
+    'base44.com',      // media.base44.com
   ];
+  // Escape hatch so a new provider can be allowed without a code deploy.
+  for (const extra of String(env.DOWNLOAD_ALLOWED_HOSTS || '')
+    .split(',').map((s) => s.trim().toLowerCase()).filter(Boolean)) {
+    list.push(extra);
+  }
   const endpoint = envHost(env.SPACES_ENDPOINT);       // fra1.digitaloceanspaces.com
   const cdnBase = envHost(env.SPACES_CDN_BASE);        // voxel-media.fra1.cdn.digitaloceanspaces.com
   const bucket = (env.SPACES_BUCKET || '').trim().toLowerCase();
