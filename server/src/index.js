@@ -30,6 +30,15 @@ import {
   refundCredits,
   InsufficientCreditsError,
 } from './credits.js';
+// C1 (audit 2026-07-28): the server computes every generation price from
+// these tables — the client's credit_cost is a display hint only.
+import {
+  IMAGE_CREDITS as PRICE_IMAGE_CREDITS,
+  VIDEO_CREDITS as PRICE_VIDEO_CREDITS,
+  resolveChargeCost,
+  UnpricedModelError,
+  PriceMismatchError,
+} from './pricing.js';
 
 // Load server/.env relative to THIS source file (not process.cwd()) so the
 // API works no matter which directory the harness/launch config runs it
@@ -859,6 +868,32 @@ async function resolveReferenceUrls(rawUrls, { forKie = false, tag = 'REFS' } = 
   return out;
 }
 
+// C1: compute the authoritative server-side price for a generation request.
+// Returns the cost to charge, or null AFTER writing the error response —
+// 400 when the model has no price on file (never guess a price), 409 when
+// the client's display hint disagrees with the server table (stale UI must
+// never silently pay a different price than it showed).
+function priceOrRespond(res, opts) {
+  try {
+    return resolveChargeCost(opts);
+  } catch (e) {
+    if (e instanceof UnpricedModelError) {
+      console.error(`[pricing] no price on file for model "${opts.model}" (kind=${opts.kind}) — request rejected`);
+      res.status(400).json({ error: `This model has no price on file yet — generation rejected. Please contact support.` });
+      return null;
+    }
+    if (e instanceof PriceMismatchError) {
+      console.error(`[pricing] price mismatch for "${opts.model}": client sent ${e.clientCost}, server computed ${e.correctCost}`);
+      res.status(409).json({
+        error: `Price out of date: this generation costs ${e.correctCost} credits. Please refresh the page and try again.`,
+        correct_cost: e.correctCost,
+      });
+      return null;
+    }
+    throw e;
+  }
+}
+
 app.post('/api/generate', verifyJwt, requireNotBanned, requireModelProviderKey, async (req, res) => {
   const { model, prompt, type, duration, ratio, imageUrls, negativePrompt, quality, numImages, safetyTolerance } = req.body;
 
@@ -880,6 +915,15 @@ app.post('/api/generate', verifyJwt, requireNotBanned, requireModelProviderKey, 
 
   if (!modelAllowedForUser(req, model)) return res.status(403).json(MODEL_BLOCKED(model));
 
+  // C1: the price is computed server-side from pricing.js — the client's
+  // credit_cost is validated as a hint only, never charged.
+  const serverCost = priceOrRespond(res, {
+    kind: type, model, quality,
+    resolution: req.body.resolution, duration, audio: req.body.audio,
+    clientCost: req.body.credit_cost,
+  });
+  if (serverCost == null) return;
+
   // Charge BEFORE the provider call so a user can't burn through quota by
   // spamming requests that race past the balance check.
   let chargedKind = null;
@@ -890,7 +934,7 @@ app.post('/api/generate', verifyJwt, requireNotBanned, requireModelProviderKey, 
     const isKie = cfg?.provider === 'kie' || VIDEO_DIRECT_MAP[model]?.provider === 'kie';
     const estOpts = { kind: type, model, quality, resolution: req.body.resolution, duration, audio: req.body.audio };
     const charge = await chargeCredits({
-      userId: req.user.id, kind: type, ip: req.ip, cost: req.body.credit_cost, note: `${type}: ${model}`,
+      userId: req.user.id, kind: type, ip: req.ip, cost: serverCost, note: `${type}: ${model}`,
       provider: isKie ? 'kie' : 'fal',
       kieCredits: isKie ? estimateKieCredits(estOpts) : null,
       falCost: isKie ? null : estimateFalCost(estOpts),
@@ -1226,12 +1270,19 @@ app.post('/api/generate-video', verifyJwt, requireNotBanned, requireModelProvide
 
   if (!modelAllowedForUser(req, model)) return res.status(403).json(MODEL_BLOCKED(model));
 
+  // C1: server-computed price; client credit_cost is a hint only.
+  const serverCost = priceOrRespond(res, {
+    kind: 'video', model, resolution, duration, audio,
+    clientCost: req.body.credit_cost,
+  });
+  if (serverCost == null) return;
+
   // Charge BEFORE submission so we don't enqueue a job we can't bill for.
   let chargedKind = null;
   let chargedCost = null;
   try {
     const charge = await chargeCredits({
-      userId: req.user.id, kind: 'video', ip: req.ip, cost: req.body.credit_cost, note: `video: ${model}`,
+      userId: req.user.id, kind: 'video', ip: req.ip, cost: serverCost, note: `video: ${model}`,
       provider: mapping.provider === 'kie' ? 'kie' : 'fal',
       kieCredits: mapping.provider === 'kie' ? estimateKieCredits({ kind: 'video', model, resolution, duration, audio }) : null,
       falCost: mapping.provider === 'kie' ? null : estimateFalCost({ kind: 'video', model, resolution, duration, audio }),
@@ -1356,10 +1407,17 @@ app.post('/api/edit-video-omni', verifyJwt, requireNotBanned, requireFalKey, asy
   if (!video_url) return res.status(400).json({ error: 'video_url required' });
   if (!prompt) return res.status(400).json({ error: 'prompt required' });
 
+  // C1: server-computed price (flat per clip; resolution rides in `quality`).
+  const serverCost = priceOrRespond(res, {
+    kind: 'video', model, resolution: req.body.quality,
+    clientCost: req.body.credit_cost,
+  });
+  if (serverCost == null) return;
+
   let chargedKind = null;
   let chargedCost = null;
   try {
-    const charge = await chargeCredits({ userId: req.user.id, kind: 'video', ip: req.ip, cost: req.body.credit_cost, note: `video: ${req.body?.model || 'Edit Video'}`, provider: 'fal' });
+    const charge = await chargeCredits({ userId: req.user.id, kind: 'video', ip: req.ip, cost: serverCost, note: `video: ${req.body?.model || 'Edit Video'}`, provider: 'fal' });
     chargedKind = 'video';
     chargedCost = charge.cost;
     res.setHeader('X-Credits-Remaining', String(charge.newBalance));
@@ -1440,10 +1498,17 @@ app.post('/api/motion-control', verifyJwt, requireNotBanned, requireFalKey, asyn
   if (!image_url) return res.status(400).json({ error: 'image_url (character) required' });
   if (!video_url) return res.status(400).json({ error: 'video_url (motion reference) required' });
 
+  // C1: server-computed price (flat per clip; resolution rides in `quality`).
+  const serverCost = priceOrRespond(res, {
+    kind: 'video', model, resolution: req.body.quality,
+    clientCost: req.body.credit_cost,
+  });
+  if (serverCost == null) return;
+
   let chargedKind = null;
   let chargedCost = null;
   try {
-    const charge = await chargeCredits({ userId: req.user.id, kind: 'video', ip: req.ip, cost: req.body.credit_cost, note: `video: ${req.body?.model || 'Motion Control'}`, provider: 'fal' });
+    const charge = await chargeCredits({ userId: req.user.id, kind: 'video', ip: req.ip, cost: serverCost, note: `video: ${req.body?.model || 'Motion Control'}`, provider: 'fal' });
     chargedKind = 'video';
     chargedCost = charge.cost;
     res.setHeader('X-Credits-Remaining', String(charge.newBalance));
@@ -1775,11 +1840,20 @@ app.post('/api/generate-video-ref', verifyJwt, requireNotBanned, requireModelPro
 
   if (!modelAllowedForUser(req, modelLabel)) return res.status(403).json(MODEL_BLOCKED(modelLabel));
 
+  // C1: server-computed price; client credit_cost is a hint only. Audio
+  // defaults ON here (generate_audio !== false), matching the submission.
+  const serverCost = priceOrRespond(res, {
+    kind: 'video', model: modelLabel, resolution, duration,
+    audio: generate_audio !== false,
+    clientCost: req.body.credit_cost,
+  });
+  if (serverCost == null) return;
+
   let chargedKind = null;
   let chargedCost = null;
   try {
     const charge = await chargeCredits({
-      userId: req.user.id, kind: 'video', ip: req.ip, cost: req.body.credit_cost, note: `video: ${modelLabel}`,
+      userId: req.user.id, kind: 'video', ip: req.ip, cost: serverCost, note: `video: ${modelLabel}`,
       provider: VIDEO_DIRECT_MAP[modelLabel]?.provider === 'kie' ? 'kie' : 'fal',
       kieCredits: VIDEO_DIRECT_MAP[modelLabel]?.provider === 'kie'
         ? estimateKieCredits({ kind: 'video', model: modelLabel, resolution, duration, audio: generate_audio }) : null,
@@ -2640,7 +2714,10 @@ app.post('/api/node/run-node-async', verifyJwt, requireNotBanned, requireFalKey,
   let chargedKind = null;
   let chargedCost = null;
   try {
-    const charge = await chargeCredits({ userId: req.user.id, kind: 'video', ip: req.ip, cost: req.body.credit_cost, note: `node video: ${modelLabel || 'video-generator'}`, provider: 'fal' });
+    // C1: the node client never sends a price — charge the flat per-kind
+    // cost server-side. req.body.credit_cost is deliberately IGNORED here:
+    // an attacker could otherwise name their own price.
+    const charge = await chargeCredits({ userId: req.user.id, kind: 'video', ip: req.ip, note: `node video: ${modelLabel || 'video-generator'}`, provider: 'fal' });
     chargedKind = 'video';
     chargedCost = charge.cost;
     res.setHeader('X-Credits-Remaining', String(charge.newBalance));
@@ -3891,6 +3968,15 @@ app.get('/api/admin/giftcards', adminGate, async (req, res) => {
     console.error('[admin/giftcards] list error:', err);
     res.status(500).json({ error: 'Gift card list failed.' });
   }
+});
+
+// ─── PRICING (C1) ──────────────────────────────────────────────────
+// Public read-only mirror of the authoritative sale-price tables in
+// pricing.js. The frontend fetches this at boot so its displayed prices
+// can never drift from what the server actually charges.
+app.get('/api/pricing', (req, res) => {
+  res.setHeader('Cache-Control', 'public, max-age=300');
+  res.json({ image: PRICE_IMAGE_CREDITS, video: PRICE_VIDEO_CREDITS });
 });
 
 // ─── HEALTH CHECK ──────────────────────────────────────────────────

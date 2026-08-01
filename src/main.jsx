@@ -2,6 +2,11 @@ import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from '@/App.jsx'
 import '@/index.css'
+import { syncPricingFromServer } from '@/lib/creditPricing'
+
+// C1: pull the authoritative price tables from the server so displayed
+// prices can never drift from what the backend charges.
+syncPricingFromServer()
 
 // Belt-and-suspenders: if any stale service worker from an earlier build is
 // still registered, unregister it so it stops serving cached assets.

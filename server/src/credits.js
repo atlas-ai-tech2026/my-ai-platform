@@ -44,9 +44,10 @@ const PROVIDER_COST_SHARE_USD = 0.038;
 const KIE_USD_PER_CREDIT = 0.005;
 
 export async function chargeCredits({ userId, kind, ip, cost: costOverride, note, kieCredits, falCost, provider }) {
-  // Prefer the computed per-generation cost sent by the client (model +
-  // resolution + duration aware). Fall back to the flat per-kind cost when
-  // it's missing/invalid (e.g. a model not yet in the pricing table).
+  // `cost` MUST be a SERVER-computed value (pricing.js resolveChargeCost)
+  // or absent — never a client-supplied number (C1, audit 2026-07-28).
+  // Fall back to the flat per-kind cost when it's missing/invalid
+  // (e.g. TTS/music/node routes that bill flat per-kind rates).
   let cost = Number(costOverride);
   if (!Number.isFinite(cost) || cost <= 0) {
     cost = CREDIT_COSTS[kind];
