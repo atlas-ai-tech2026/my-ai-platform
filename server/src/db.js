@@ -291,6 +291,33 @@ export async function migrate() {
     `);
     await client.query(`CREATE INDEX IF NOT EXISTS node_spaces_owner_idx ON node_spaces (owner_id, updated_at DESC);`);
 
+    // ─── pending_video_charges (H4, audit 2026-07-28) ───────────────
+    // Async video jobs are charged at submit but can fail MINUTES later.
+    // The record of "who paid what for which job" used to live in an
+    // in-memory Map, so a deploy or restart lost every in-flight charge
+    // and those users were never refunded. It is now a table, and unresolved
+    // rows are reconciled with the provider on boot.
+    //   status: 'pending' (charged, job in flight)
+    //         | 'settled' (job completed — nothing owed)
+    //         | 'refunded' (job failed and the refund was issued)
+    // The status transition out of 'pending' is what makes the refund
+    // exactly-once, even with concurrent pollers or a restart mid-flight.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS pending_video_charges (
+        job_id      VARCHAR(255) PRIMARY KEY,
+        user_id     INTEGER      NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        kind        VARCHAR(32)  NOT NULL DEFAULT 'video',
+        amount      NUMERIC(10,2) NOT NULL,
+        model_id    VARCHAR(255),
+        model_label VARCHAR(255),
+        status      VARCHAR(16)  NOT NULL DEFAULT 'pending',
+        created_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+        settled_at  TIMESTAMPTZ
+      );
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS pending_video_charges_pending_idx ON pending_video_charges (status, created_at) WHERE status = 'pending';`);
+    await client.query(`CREATE INDEX IF NOT EXISTS pending_video_charges_user_idx ON pending_video_charges (user_id, created_at DESC);`);
+
     // ─── one-shot admin promotion ───────────────────────────────────
     const promoted = await client.query(
       `UPDATE users SET role = 'admin' WHERE email = $1 AND role <> 'admin' RETURNING id`,
