@@ -1,6 +1,16 @@
 // ============================================================================
-// VOXEL — Credit pricing (SINGLE SOURCE OF TRUTH)
+// VOXEL — Credit pricing (DISPLAY MIRROR of the server tables)
 // ----------------------------------------------------------------------------
+// C1 (security audit 2026-07-28): the AUTHORITATIVE price tables live in
+// server/src/pricing.js — the server computes and charges every generation
+// price itself. This file only drives what the UI displays. At app boot,
+// syncPricingFromServer() fetches GET /api/pricing and overwrites the
+// bundled tables below in place, so the displayed price always matches
+// what the server will charge; the bundled values are the offline/startup
+// fallback (kept in lockstep by server/src/pricing.test.js).
+// The `credit_cost` the app sends with a generation is a display hint the
+// server validates (409 on mismatch) — it can never set the charge.
+//
 // Derived from Voxel_Plans_and_Credits.xlsx (2026-07-21) — sheets "Plans",
 // "Model Credits", "Profit Check".
 //
@@ -244,6 +254,35 @@ export const VIDEO_CREDITS = {
 // Video models NOT in the pricing workbook — empty by design: the picker
 // only offers workbook-priced, kie-backed models.
 export const VIDEO_PENDING = new Set([]);
+
+// ---- server sync (C1) ------------------------------------------------------
+
+// Replace a table's contents in place so every module holding a reference
+// (getImageCredits/getVideoCredits callers) sees the fresh numbers.
+function replaceTable(target, next) {
+  if (!next || typeof next !== 'object') return;
+  for (const k of Object.keys(target)) delete target[k];
+  Object.assign(target, next);
+}
+
+/**
+ * Fetch the authoritative price tables from the server and overwrite the
+ * bundled fallbacks. Called once at app boot (src/main.jsx). Best-effort:
+ * on failure the bundled snapshot keeps driving the display, and the
+ * server's 409 price-mismatch check remains the safety net.
+ */
+export async function syncPricingFromServer() {
+  try {
+    const res = await fetch('/api/pricing');
+    if (!res.ok) return false;
+    const data = await res.json();
+    replaceTable(IMAGE_CREDITS, data?.image);
+    replaceTable(VIDEO_CREDITS, data?.video);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 // ---- helpers ---------------------------------------------------------------
 
