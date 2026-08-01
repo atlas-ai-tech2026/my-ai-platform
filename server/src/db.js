@@ -318,6 +318,20 @@ export async function migrate() {
     await client.query(`CREATE INDEX IF NOT EXISTS pending_video_charges_pending_idx ON pending_video_charges (status, created_at) WHERE status = 'pending';`);
     await client.query(`CREATE INDEX IF NOT EXISTS pending_video_charges_user_idx ON pending_video_charges (user_id, created_at DESC);`);
 
+    // ─── admin TOTP 2FA (H5, audit 2026-07-28) ──────────────────────
+    //   totp_secret         base32 secret; NULL = 2FA not set up yet.
+    //   totp_enabled        only TRUE after the admin confirms a code, so
+    //                       deploying this can never lock anyone out — the
+    //                       login gate applies to enabled accounts only.
+    //   totp_last_step      last accepted 30s step; blocks replay of the
+    //                       same code inside its own window.
+    //   totp_recovery_codes JSONB array of SHA-256 HASHES (never plaintext);
+    //                       each is deleted as it is used.
+    await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_secret         VARCHAR(64);`);
+    await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_enabled        BOOLEAN NOT NULL DEFAULT FALSE;`);
+    await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_last_step      BIGINT;`);
+    await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_recovery_codes JSONB;`);
+
     // ─── one-shot admin promotion ───────────────────────────────────
     const promoted = await client.query(
       `UPDATE users SET role = 'admin' WHERE email = $1 AND role <> 'admin' RETURNING id`,

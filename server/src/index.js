@@ -49,6 +49,16 @@ import {
 import { validateUpload } from './upload-guard.js';
 // H3 (audit 2026-07-28): hard deadline on synchronous provider calls.
 import { withProviderDeadline, ProviderTimeoutError } from './provider-deadline.js';
+// H5 (audit 2026-07-28): admin TOTP 2FA (RFC 6238 via node:crypto).
+import {
+  generateSecret,
+  verifyTotp,
+  currentStep,
+  buildOtpAuthUri,
+  generateRecoveryCodes,
+  hashRecoveryCode,
+  evaluateSecondFactor,
+} from './totp.js';
 // H4 (audit 2026-07-28): async video charges persisted so refunds survive
 // a restart (was an in-memory Map).
 import {
@@ -191,11 +201,15 @@ const clientIp = (req) =>
 // IPv6-safe key for express-rate-limit v8 (normalizes /64 subnets).
 const ipKey = (req) => ipKeyGenerator(clientIp(req));
 
-// Is this login/register request for the admin account? Used to exempt the
-// admin from the brute-force throttles so an operator can ALWAYS recover CRM
-// access even after many failed attempts. NOTE: this trades brute-force
-// protection on the admin email for guaranteed recoverability — acceptable
-// short-term; revisit once a proper account-recovery flow exists.
+// Is this login request for the admin account?
+//
+// H5 (audit 2026-07-28): this used to EXEMPT the admin from every
+// brute-force throttle — the single most valuable account on the platform
+// had unlimited password guesses. The admin is now throttled too, just
+// more loosely than a normal user (see ADMIN_FAILED_LOGIN_MAX), because
+// recoverability still matters. The break-glass path is no longer "no
+// limit" but server/scripts/reset-admin-2fa.mjs, which also clears
+// lockouts — an operator with server access can always get back in.
 const isAdminAuth = (req) =>
   String(req.body?.email || '').trim().toLowerCase() === ADMIN_EMAIL;
 
@@ -213,7 +227,9 @@ const loginLimiter = rateLimit({
   // by the failed_logins (IP, email) check inside /api/auth/login.
   max: 100,
   keyGenerator: ipKey,
-  skip: isAdminAuth, // admin is never rate-limited (recoverability over brute-force hardening)
+  // H5: the admin exemption is GONE — the admin email is rate-limited like
+  // everyone else at this layer. Its looser treatment is the higher
+  // per-account failure ceiling below, not an exemption.
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many login attempts. Try again in a few minutes.' },
@@ -3021,6 +3037,20 @@ app.post('/api/auth/register', registerLimiter, requireAuthInfra, async (req, re
 //     account so one user's typos don't lock out others on the same IP.
 const ADMIN_JWT_EXPIRES = process.env.ADMIN_JWT_EXPIRES_IN || '30m';
 
+// H5: per-account failure ceilings in a 15-minute window. The admin's is
+// looser (not absent) — brute-force protection without risking a lockout
+// from a few mistyped passwords.
+const USER_FAILED_LOGIN_MAX = Number(process.env.FAILED_LOGIN_MAX || 10);
+const ADMIN_FAILED_LOGIN_MAX = Number(process.env.ADMIN_FAILED_LOGIN_MAX || 30);
+
+// Best-effort record of a failed attempt — never blocks the response.
+function recordFailedLogin(email, ip, ua) {
+  return pool.query(
+    `INSERT INTO failed_logins (email, ip_address, user_agent) VALUES ($1, $2, $3)`,
+    [email || null, ip, ua]
+  ).catch(() => {});
+}
+
 app.post('/api/auth/login', loginLimiter, requireAuthInfra, async (req, res) => {
   const ip = clientIp(req);
   const ua = req.get('user-agent') || null;
@@ -3029,27 +3059,32 @@ app.post('/api/auth/login', loginLimiter, requireAuthInfra, async (req, res) => 
 
   // Persistent brute-force throttle (survives restart). Fires before any
   // bcrypt work so attackers can't pin CPU even at the throttle's edge.
-  // Skipped for the admin account so CRM access is always recoverable.
-  if (!isAdminAuth(req)) {
-    try {
-      // Scope the throttle to (IP, email) — NOT IP alone. Many legitimate
-      // users share one IP (office/campus NAT, mobile carrier CGNAT); keying
-      // purely on IP let a handful of unrelated people's typos lock out
-      // EVERYONE behind that IP. Per-account keying still stops brute-forcing
-      // a single account, while the per-IP loginLimiter above covers spraying.
-      const { rows: fl } = await pool.query(
-        `SELECT count(*)::int AS c FROM failed_logins
-         WHERE ip_address = $1 AND email = $2
-           AND created_at > NOW() - INTERVAL '15 minutes'`,
-        [ip, email]
-      );
-      if (fl[0]?.c >= 10) {
-        return res.status(429).json({ error: 'Too many failed attempts for this account. Try again in 15 minutes.' });
-      }
-    } catch (e) {
-      console.error('[auth/login] failed_logins precheck error:', e.message);
-      // fall through — don't lock everyone out if the table is unreachable
+  //
+  // H5 (audit 2026-07-28): the admin used to be SKIPPED here entirely —
+  // unlimited password guesses on the most valuable account. The admin is
+  // now throttled too, just at a looser ceiling (30 vs 10 failures per 15
+  // min) so an operator mistyping a password a few times isn't locked out
+  // of the CRM. If it does lock, server/scripts/reset-admin-2fa.mjs clears
+  // it from the server.
+  try {
+    // Scope the throttle to (IP, email) — NOT IP alone. Many legitimate
+    // users share one IP (office/campus NAT, mobile carrier CGNAT); keying
+    // purely on IP let a handful of unrelated people's typos lock out
+    // EVERYONE behind that IP. Per-account keying still stops brute-forcing
+    // a single account, while the per-IP loginLimiter above covers spraying.
+    const { rows: fl } = await pool.query(
+      `SELECT count(*)::int AS c FROM failed_logins
+       WHERE ip_address = $1 AND email = $2
+         AND created_at > NOW() - INTERVAL '15 minutes'`,
+      [ip, email]
+    );
+    const ceiling = isAdminAuth(req) ? ADMIN_FAILED_LOGIN_MAX : USER_FAILED_LOGIN_MAX;
+    if (fl[0]?.c >= ceiling) {
+      return res.status(429).json({ error: 'Too many failed attempts for this account. Try again in 15 minutes.' });
     }
+  } catch (e) {
+    console.error('[auth/login] failed_logins precheck error:', e.message);
+    // fall through — don't lock everyone out if the table is unreachable
   }
 
   try {
@@ -3058,7 +3093,8 @@ app.post('/api/auth/login', loginLimiter, requireAuthInfra, async (req, res) => 
     }
 
     const { rows } = await pool.query(
-      `SELECT id, email, password_hash, credits, credit_limit, role, banned, package, created_at, expires_at
+      `SELECT id, email, password_hash, credits, credit_limit, role, banned, package, created_at, expires_at,
+              totp_secret, totp_enabled, totp_last_step, totp_recovery_codes
          FROM users WHERE email = $1 LIMIT 1`,
       [email]
     );
@@ -3070,10 +3106,7 @@ app.post('/api/auth/login', loginLimiter, requireAuthInfra, async (req, res) => 
 
     if (!row || !ok) {
       // Best-effort log — don't block the response on it.
-      pool.query(
-        `INSERT INTO failed_logins (email, ip_address, user_agent) VALUES ($1, $2, $3)`,
-        [email || null, ip, ua]
-      ).catch(() => {});
+      recordFailedLogin(email, ip, ua);
       return res.status(401).json({ error: 'Invalid email or password.' });
     }
 
@@ -3083,6 +3116,39 @@ app.post('/api/auth/login', loginLimiter, requireAuthInfra, async (req, res) => 
     // Bulk-provisioned accounts can expire (CRM Bulk tab).
     if (row.expires_at && new Date(row.expires_at) <= new Date()) {
       return res.status(403).json({ error: 'Account has expired — contact support to renew.' });
+    }
+
+    // ── H5: TOTP second factor ──────────────────────────────────────
+    // Enforced only for accounts that have COMPLETED setup (totp_enabled),
+    // so shipping this can never lock anyone out. A password-correct login
+    // without a valid code stops here — no token is issued.
+    const second = evaluateSecondFactor(row, {
+      totpCode: req.body?.totp_code,
+      recoveryCode: req.body?.recovery_code,
+    });
+
+    if (second.outcome === 'required') {
+      // Password was right but the second factor is missing. The client
+      // shows the 6-digit prompt on this signal.
+      return res.status(401).json({ error: 'Two-factor code required.', totp_required: true });
+    }
+    if (second.outcome === 'replayed') {
+      await recordFailedLogin(email, ip, ua);
+      return res.status(401).json({ error: 'That code has already been used. Wait for the next one.', totp_required: true });
+    }
+    if (second.outcome === 'invalid') {
+      await recordFailedLogin(email, ip, ua);
+      return res.status(401).json({ error: 'Invalid two-factor code.', totp_required: true });
+    }
+    if (second.outcome === 'ok') {
+      await pool.query('UPDATE users SET totp_last_step = $1 WHERE id = $2', [String(second.nextStep), row.id]);
+    }
+    if (second.outcome === 'ok_recovery') {
+      await pool.query(
+        'UPDATE users SET totp_recovery_codes = $1::jsonb WHERE id = $2',
+        [JSON.stringify(second.remainingHashes), row.id]
+      );
+      console.warn(`[auth/2fa] RECOVERY CODE used for ${row.email} from ${ip} — ${second.remainingHashes.length} left`);
     }
 
     // Admin tokens expire fast (30m) so a stolen admin token has a small
@@ -3887,6 +3953,114 @@ app.post('/api/redeem-code', redeemLimiter, verifyJwt, requireNotBanned, async (
     return res.status(500).json({ error: 'Redeem failed — try again.' });
   } finally {
     client.release();
+  }
+});
+
+// ─── ADMIN: TWO-FACTOR AUTH (H5, audit 2026-07-28) ─────────────────
+// Three routes: status → start (returns secret + QR URI) → confirm (proves
+// the admin's phone works, and ONLY THEN enables enforcement). Enforcement
+// is deliberately opt-in-by-completion so deploying 2FA can never lock the
+// admin out of their own CRM.
+
+app.get('/api/admin/2fa/status', adminGate, async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      'SELECT totp_enabled, totp_recovery_codes FROM users WHERE id = $1',
+      [req.user.id]
+    );
+    const codes = Array.isArray(rows[0]?.totp_recovery_codes) ? rows[0].totp_recovery_codes : [];
+    res.json({ enabled: !!rows[0]?.totp_enabled, recovery_codes_remaining: codes.length });
+  } catch (err) {
+    console.error('[admin/2fa/status] error:', err.message);
+    res.status(500).json({ error: 'Could not read 2FA status.' });
+  }
+});
+
+// Start enrolment: generate a secret and hand back the otpauth:// URI for
+// the QR code. Stored but NOT enabled until /confirm succeeds.
+app.post('/api/admin/2fa/setup', adminGate, async (req, res) => {
+  try {
+    const { rows } = await pool.query('SELECT totp_enabled FROM users WHERE id = $1', [req.user.id]);
+    if (rows[0]?.totp_enabled) {
+      return res.status(409).json({ error: 'Two-factor is already enabled. Disable it first to re-enrol.' });
+    }
+    const secret = generateSecret();
+    await pool.query('UPDATE users SET totp_secret = $1, totp_enabled = FALSE WHERE id = $2', [secret, req.user.id]);
+    console.log(`[admin/2fa] enrolment started for ${req.user.email}`);
+    res.json({
+      secret,
+      otpauth_uri: buildOtpAuthUri(secret, { account: req.user.email }),
+      next: 'Scan the QR in your authenticator app, then POST the 6-digit code to /api/admin/2fa/confirm.',
+    });
+  } catch (err) {
+    console.error('[admin/2fa/setup] error:', err.message);
+    res.status(500).json({ error: '2FA setup failed.' });
+  }
+});
+
+// Confirm enrolment with a live code, then enable enforcement and return
+// the recovery codes ONCE (only their hashes are stored).
+app.post('/api/admin/2fa/confirm', adminGate, async (req, res) => {
+  try {
+    const code = String(req.body?.totp_code || '').trim();
+    const { rows } = await pool.query(
+      'SELECT totp_secret, totp_enabled FROM users WHERE id = $1', [req.user.id]
+    );
+    if (!rows[0]?.totp_secret) {
+      return res.status(400).json({ error: 'Start setup first (POST /api/admin/2fa/setup).' });
+    }
+    if (rows[0].totp_enabled) {
+      return res.status(409).json({ error: 'Two-factor is already enabled.' });
+    }
+    const offset = verifyTotp(rows[0].totp_secret, code);
+    if (offset === null) {
+      return res.status(400).json({ error: 'That code is not valid. Check your phone\'s clock and try the current code.' });
+    }
+
+    const recoveryCodes = generateRecoveryCodes(10);
+    await pool.query(
+      `UPDATE users
+          SET totp_enabled = TRUE,
+              totp_last_step = $1,
+              totp_recovery_codes = $2::jsonb
+        WHERE id = $3`,
+      [String(currentStep() + offset), JSON.stringify(recoveryCodes.map(hashRecoveryCode)), req.user.id]
+    );
+    console.warn(`[admin/2fa] ✅ ENABLED for ${req.user.email} — recovery codes issued (hashes stored)`);
+    res.json({
+      enabled: true,
+      recovery_codes: recoveryCodes,
+      warning: 'These recovery codes are shown ONCE. Store them in two safe places — they are the only way in if you lose your phone.',
+    });
+  } catch (err) {
+    console.error('[admin/2fa/confirm] error:', err.message);
+    res.status(500).json({ error: '2FA confirmation failed.' });
+  }
+});
+
+// Disable 2FA — requires a CURRENT code, so a hijacked admin session
+// cannot quietly switch the second factor off.
+app.post('/api/admin/2fa/disable', adminGate, async (req, res) => {
+  try {
+    const code = String(req.body?.totp_code || '').trim();
+    const { rows } = await pool.query(
+      'SELECT totp_secret, totp_enabled FROM users WHERE id = $1', [req.user.id]
+    );
+    if (!rows[0]?.totp_enabled) return res.status(400).json({ error: 'Two-factor is not enabled.' });
+    if (verifyTotp(rows[0].totp_secret, code) === null) {
+      return res.status(400).json({ error: 'A valid current code is required to disable two-factor.' });
+    }
+    await pool.query(
+      `UPDATE users SET totp_enabled = FALSE, totp_secret = NULL,
+              totp_recovery_codes = NULL, totp_last_step = NULL
+        WHERE id = $1`,
+      [req.user.id]
+    );
+    console.warn(`[admin/2fa] ⚠️ DISABLED for ${req.user.email}`);
+    res.json({ enabled: false });
+  } catch (err) {
+    console.error('[admin/2fa/disable] error:', err.message);
+    res.status(500).json({ error: '2FA disable failed.' });
   }
 });
 
