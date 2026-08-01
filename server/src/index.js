@@ -79,6 +79,7 @@ import {
   settleVideoCharge,
   refundFailedVideo,
   getVideoCharge,
+  userOwnsJob,
   reconcilePendingCharges,
 } from './video-charges.js';
 
@@ -293,6 +294,17 @@ const uploadLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many uploads — please wait a moment and try again.' },
+});
+// M5: status polling is legitimately frequent (the client polls every few
+// seconds per in-flight job, and a user can have several running), so this
+// is generous — it exists to stop enumeration, not normal polling.
+const statusLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 240,
+  keyGenerator: userKey,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many status checks — please slow down.' },
 });
 // Conservative: each call is a billable provider LLM request.
 const enhanceLimiter = rateLimit({
@@ -1266,11 +1278,18 @@ app.post('/api/generate', verifyJwt, requireNotBanned, requireModelProviderKey, 
 });
 
 // ─── CHECK STATUS ENDPOINT ─────────────────────────────────────────
-app.post('/api/checkStatus', async (req, res) => {
+// M5 (audit 2026-07-28): was unauthenticated — anyone could poll any job
+// id and read other users' generation results. Now auth + rate limit +
+// ownership (404 on mismatch, same shape as the other ownership checks).
+app.post('/api/checkStatus', verifyJwt, requireNotBanned, statusLimiter, async (req, res) => {
   const { job_id, model_id } = req.body;
 
   if (!job_id || typeof job_id !== 'string') return res.status(400).json({ error: 'Invalid job_id' });
   if (!model_id || typeof model_id !== 'string') return res.status(400).json({ error: 'Invalid model_id' });
+
+  if (!(await userOwnsJob(req.user.id, job_id))) {
+    return res.status(404).json({ error: 'Job not found.' });
+  }
 
   // kie.ai jobs — same prefix convention as /api/video-status.
   if (model_id.startsWith('kie:')) {
@@ -2087,9 +2106,15 @@ app.post('/api/check-character-eligibility', async (req, res) => {
 });
 
 // ─── VIDEO STATUS POLLING ─────────────────────────────────────────
-app.post('/api/video-status', async (req, res) => {
+// M5 (audit 2026-07-28): was unauthenticated — anyone could poll any job
+// id and read another user's video. Now auth + rate limit + ownership.
+app.post('/api/video-status', verifyJwt, requireNotBanned, statusLimiter, async (req, res) => {
   const { job_id, model_id } = req.body;
   if (!job_id || !model_id) return res.status(400).json({ error: 'job_id and model_id required' });
+
+  if (!(await userOwnsJob(req.user.id, job_id))) {
+    return res.status(404).json({ error: 'Job not found.' });
+  }
 
   // kie.ai jobs carry a 'kie:'-prefixed model_id (set at submit time);
   // 'kie:jobs:...' → unified Jobs API, plain 'kie:...' → Veo endpoints.
@@ -4185,30 +4210,44 @@ app.post('/api/admin/users/bulk', adminGate, async (req, res) => {
     const BULK_BCRYPT_ROUNDS = 8;
     const results = [];
     for (const email of valid) {
+      // M5 (audit 2026-07-28): each user is created inside its OWN
+      // transaction, so the user row and its credit-grant ledger row
+      // commit or roll back together. Previously a failure between the two
+      // INSERTs left a credited user with no ledger row — the balance and
+      // the audit trail disagreed, and the credits appeared from nowhere.
+      // Per-user (not per-batch) so one bad address doesn't discard the
+      // whole batch, which is what the admin expects from this screen.
+      const client = await pool.connect();
       try {
-        const exists = await pool.query('SELECT 1 FROM users WHERE email = $1', [email]);
+        const exists = await client.query('SELECT 1 FROM users WHERE email = $1', [email]);
         if (exists.rowCount > 0) {
           results.push({ email, status: 'exists' });
           continue;
         }
         const password = generateBulkPassword();
         const hash = await bcrypt.hash(password, BULK_BCRYPT_ROUNDS);
-        const ins = await pool.query(
+
+        await client.query('BEGIN');
+        const ins = await client.query(
           `INSERT INTO users (email, password_hash, credits, credit_limit, role, package, expires_at, allowed_models)
            VALUES ($1, $2, $3, $3, 'user', $4, $5, $6) RETURNING id`,
           [email, hash, credits, pkg, expiresAt, allowedModels ? JSON.stringify(allowedModels) : null]
         );
         if (credits > 0) {
-          await pool.query(
+          await client.query(
             `INSERT INTO credits_history (user_id, amount, action, admin_email, reason)
              VALUES ($1, $2, 'grant', $3, $4)`,
             [ins.rows[0].id, credits, req.user?.email || ADMIN_EMAIL, `bulk provision: ${pkg} plan`]
           );
         }
+        await client.query('COMMIT');
         results.push({ email, password, status: 'created' });
       } catch (e) {
+        await client.query('ROLLBACK').catch(() => {});
         console.error('[admin/bulk] failed for', email, e.message);
         results.push({ email, status: 'error' });
+      } finally {
+        client.release();
       }
     }
     const created = results.filter(r => r.status === 'created').length;

@@ -127,6 +127,40 @@ export async function getVideoCharge(jobId) {
   }
 }
 
+/**
+ * M5 (audit 2026-07-28): does this user own this job?
+ *
+ * Two sources, because not every job has a charge row (a free retry, or a
+ * job submitted before H4 shipped):
+ *   1. pending_video_charges.job_id → user_id  (written at submit time)
+ *   2. the user's own GenerationHistory entity rows, which carry job_id
+ *
+ * Returns true only on a positive match, so an unknown job id is treated
+ * as "not yours" and the route answers 404 — the same shape as the
+ * ownership filtering the audit verified as correct elsewhere.
+ */
+export async function userOwnsJob(userId, jobId) {
+  if (!userId || !jobId || !dbReady()) return false;
+  try {
+    const charge = await pool.query(
+      'SELECT 1 FROM pending_video_charges WHERE job_id = $1 AND user_id = $2 LIMIT 1',
+      [String(jobId), userId]
+    );
+    if (charge.rowCount > 0) return true;
+
+    const entity = await pool.query(
+      `SELECT 1 FROM entities
+        WHERE user_id = $1 AND data->>'job_id' = $2
+        LIMIT 1`,
+      [userId, String(jobId)]
+    );
+    return entity.rowCount > 0;
+  } catch (e) {
+    console.error(`[video-charge] ownership check failed for job ${jobId}:`, e.message);
+    return false;
+  }
+}
+
 /** Rows still 'pending' and older than `minAgeMinutes` — candidates for
  * boot reconciliation (a job submitted just before a restart). */
 export async function listUnresolvedCharges({ minAgeMinutes = 10, limit = 500 } = {}) {
