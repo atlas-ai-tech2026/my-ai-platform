@@ -1,4 +1,6 @@
 # ─── VOXEL.AI frontend (Vite build → nginx) ─────────────────────
+# NOTE: production serves the SPA from Express via the DigitalOcean Node
+# buildpack (.do/app.yaml); this image is the local/compose stack.
 
 # Stage 1: build
 FROM node:20-alpine AS build
@@ -11,9 +13,20 @@ COPY . .
 RUN npm run build
 
 # Stage 2: serve
-FROM nginx:1.27-alpine
-COPY --from=build /app/dist /usr/share/nginx/html
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+# H6 (security audit 2026-07-28): nginx-unprivileged runs as uid 101 with no
+# root master process, and already expects a >1024 port and a writable
+# /tmp for its pid + temp paths. Our config already listens on 8080, so this
+# is a drop-in swap for the root-running nginx image.
+FROM nginxinc/nginx-unprivileged:1.27-alpine
+
+# Copying as root would leave root-owned files an unprivileged worker can
+# still read (0644), but be explicit about ownership anyway.
+COPY --from=build --chown=nginx:nginx /app/dist /usr/share/nginx/html
+COPY --chown=nginx:nginx nginx.conf /etc/nginx/conf.d/default.conf
+
+# uid 101 = `nginx` in this image. Stated explicitly so a future base-image
+# change can't silently promote us back to root.
+USER 101
 
 EXPOSE 8080
 

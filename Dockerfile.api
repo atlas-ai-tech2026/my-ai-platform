@@ -1,24 +1,35 @@
 # ─── VOXEL.AI backend ────────────────────────────────────────────
+# NOTE: production runs the DigitalOcean Node buildpack (.do/app.yaml), not
+# this image. This is the local/compose stack — kept in sync so it never
+# becomes a footgun if we switch back to containers.
 FROM node:20-alpine
 
 WORKDIR /app
 
-# Install deps (cached layer — only busts when package.json changes)
-COPY server/package.json server/package-lock.json ./
-RUN npm ci --omit=dev
+# H6 (security audit 2026-07-28): run as the unprivileged `node` user that
+# ships with the base image (uid 1000) instead of root. Files are copied
+# with --chown so the app can read them; nothing needs to be writable at
+# runtime — the server holds no state on disk (Postgres + Spaces), and
+# uploads use multer's memory storage.
+COPY --chown=node:node server/package.json server/package-lock.json ./
+RUN npm ci --omit=dev && chown -R node:node /app
 
 # App source
-COPY server/src ./src
+COPY --chown=node:node server/src ./src
 
-# Persistent data dir (mounted as a volume in compose / a DO volume in prod)
-RUN mkdir -p /app/data
+# Persistent data dir — legacy from the JSON write-through store, kept for
+# the compose volume mount. Owned by `node` so the mount is usable.
+RUN mkdir -p /app/data && chown -R node:node /app/data
 VOLUME ["/app/data"]
 
 ENV NODE_ENV=production
 # DO App Platform defaults $PORT to 8080. Keep parity so the platform's own
 # port probe works even before our explicit health_check kicks in.
+# 8080 is above 1024, so an unprivileged user can bind it.
 ENV PORT=8080
 EXPOSE 8080
+
+USER node
 
 # Healthcheck hits the /api/health endpoint we added
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \

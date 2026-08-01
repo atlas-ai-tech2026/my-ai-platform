@@ -18,7 +18,7 @@ concurrency:
   group: >-
     ${{
       (
-        github.event_name == 'pull_request_target'
+        github.event_name == 'pull_request'
         || (
           github.event_name == 'issue_comment'
           && github.event.issue.pull_request
@@ -39,12 +39,24 @@ concurrency:
     }}
   cancel-in-progress: true
 
+# H6 (security audit 2026-07-28): this used to be `pull_request_target`,
+# which runs in the BASE repo context WITH access to secrets for any PR —
+# including one opened from a fork by a stranger. Combined with an action
+# pinned to a mutable branch that put the Anthropic API key one upstream
+# push away from exposure.
+#
+# `pull_request` is correct here: every PR in this repo is opened from a
+# branch of this same repo (verified across the full PR history), and
+# same-repo PRs DO receive secrets under `pull_request`. Fork PRs now run
+# without secrets — the review step simply won't run for them, which is the
+# safe failure mode.
 on:
-  pull_request_target:
+  pull_request:
     types: [opened, synchronize, reopened]
   issue_comment:
     types: [created]
 
+# Least privilege: read the code, write PR review comments. Nothing else.
 permissions:
   contents: read
   pull-requests: write
@@ -55,7 +67,7 @@ jobs:
     timeout-minutes: 30
     # Runs on PR open/update, or when a collaborator comments "/review".
     if: |
-      github.event_name == 'pull_request_target'
+      github.event_name == 'pull_request'
       || (
         github.event_name == 'issue_comment'
         && github.event.issue.pull_request
@@ -75,7 +87,8 @@ jobs:
       - name: Get PR context
         id: pr-context
         if: github.event_name == 'issue_comment'
-        uses: actions/github-script@v7
+        # Pinned to an immutable commit SHA (H6) — a tag can be moved.
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
         with:
           script: |
             const { data: pr } = await github.rest.pulls.get({
@@ -88,7 +101,11 @@ jobs:
             core.setOutput('title', pr.title);
 
       - name: Run OpenCodeReview
-        uses: alibaba/open-code-review@main
+        # H6: was `@main` — a mutable branch. ANY push to that third-party
+        # repo would have executed here with our Anthropic API key in scope.
+        # Pinned to the v1.8.4 release commit. To upgrade: check the repo's
+        # releases, then replace this SHA and the version comment together.
+        uses: alibaba/open-code-review@e78474478f168a8009bd3b12334a87a2c985819d # v1.8.4
         with:
           llm_url: ${{ secrets.OCR_LLM_URL }}
           llm_auth_token: ${{ secrets.OCR_LLM_AUTH_TOKEN }}
