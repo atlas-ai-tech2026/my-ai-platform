@@ -1,0 +1,59 @@
+# ═══════════════════════════════════════════════════════════════════
+#  LOCAL DEVELOPMENT ONLY — NOT DEPLOYED
+#
+#  Production runs the DigitalOcean Node buildpack defined in
+#  .do/app.yaml (a single service; Express serves the built SPA).
+#  Nothing in this folder is used in production. See CLAUDE.md.
+#  (M4, security audit 2026-07-28 — two contradictory blueprints.)
+# ═══════════════════════════════════════════════════════════════════
+#
+# Local reproduction of a container stack:
+#   docker compose -f local-dev/docker-compose.yml up --build
+# Web  → http://localhost:8080
+# API  → http://localhost:3001  (also reachable via web at /api/*)
+#
+# Both containers internally listen on 8080. We map host 3001 →
+# container 8080 for the api so the CLAUDE.md docs (and the Vite dev
+# proxy) keep pointing at :3001.
+#
+# Paths are relative to THIS file, so the build context is the repo
+# root (`..`) and the Dockerfiles are addressed from there.
+
+services:
+  api:
+    build:
+      context: ..
+      dockerfile: local-dev/Dockerfile.api
+    container_name: voxel-api
+    restart: unless-stopped
+    env_file:
+      # Load FAL_KEY and other secrets from server/.env.
+      # Without this, the container starts with an empty FAL_KEY and every
+      # /api/generate call fails. Keep this line — do not rely on the shell env.
+      - ../server/.env
+    environment:
+      NODE_ENV: production
+      # Container listens on 8080 (matches DO App Platform); host maps
+      # localhost:3001 → container:8080 below so the Vite dev proxy and the
+      # CLAUDE.md docs keep pointing at :3001 unchanged.
+      PORT: 8080
+      # FAL_KEY is loaded via env_file above — do not duplicate here.
+    ports:
+      - "3001:8080"
+    volumes:
+      # Persist entities.json across container rebuilds
+      - voxel-data:/app/data
+
+  web:
+    build:
+      context: ..
+      dockerfile: local-dev/Dockerfile.web
+    container_name: voxel-web
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    depends_on:
+      - api
+
+volumes:
+  voxel-data:

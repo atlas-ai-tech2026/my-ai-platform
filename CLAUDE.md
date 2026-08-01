@@ -11,15 +11,30 @@ Solo-dev AI image + video generation platform.
 - **Dev**: `npm run dev` from repo root → starts Vite (:5173) + Express (:3001) concurrently with tagged logs.
 - **Prod target**: Docker containers on DigitalOcean App Platform (Postgres migration still pending — see below).
 
+## Deployment model — `.do/app.yaml` is the ONE source of truth
+**Production = the DigitalOcean Node buildpack described in `.do/app.yaml`:
+a SINGLE service that runs `node server/src/index.js`, with Express serving
+the built SPA from `dist/`. Auto-deploys on push to `main`.**
+
+There is no nginx and no Docker in production. Everything under
+`local-dev/` (Dockerfile.api, Dockerfile.web, docker-compose.yml,
+nginx.conf) is a **local convenience stack only** — each file carries a
+"LOCAL DEVELOPMENT ONLY — NOT DEPLOYED" header.
+
+Practical consequence, and the reason this is called out (M4, security
+audit 2026-07-28): **a security header or redirect added to
+`local-dev/nginx.conf` silently does nothing in production.** Security
+headers belong in the Helmet config in `server/src/index.js`.
+
 ## Run it locally
 ```bash
 # Classic dev (hot reload, two processes tagged [web]/[api]):
 npm install
 npm run dev
 
-# Docker reproduction of prod stack:
+# Optional container stack (LOCAL ONLY — not what production runs):
 export FAL_KEY=sk-...
-docker compose up --build
+docker compose -f local-dev/docker-compose.yml up --build
 # → web: http://localhost:8080, api: http://localhost:3001
 ```
 
@@ -46,10 +61,12 @@ server/
   src/index.js           # All backend routes (generate, generate-video, entities, health, llm)
   package.json
 public/media/            # Static assets (seedance-2-hero.mp4, discover-dragon-castle.png, …)
-Dockerfile.api           # Node backend image
-Dockerfile.web           # Vite → nginx image
-nginx.conf               # SPA + /api reverse proxy
-docker-compose.yml       # Local prod reproduction
+.do/app.yaml             # ★ PRODUCTION deployment (Node buildpack, single service)
+local-dev/               # LOCAL ONLY — none of this is deployed
+  Dockerfile.api         #   Node backend image
+  Dockerfile.web         #   Vite → nginx image
+  nginx.conf             #   SPA + /api reverse proxy
+  docker-compose.yml     #   local container stack
 vite.config.js           # Dev proxy with error handler
 docs/
   PLAN.md                # Canonical deployment plan

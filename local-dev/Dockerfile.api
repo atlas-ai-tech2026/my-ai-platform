@@ -1,7 +1,11 @@
+# ═══════════════════════════════════════════════════════════════════
+#  LOCAL DEVELOPMENT ONLY — NOT DEPLOYED
+#  Production runs the DigitalOcean Node buildpack (.do/app.yaml).
+#  This image is the local/compose stack — kept working so it never
+#  becomes a footgun if we ever switch back to containers.
+#  (M4, security audit 2026-07-28.)
+# ═══════════════════════════════════════════════════════════════════
 # ─── VOXEL.AI backend ────────────────────────────────────────────
-# NOTE: production runs the DigitalOcean Node buildpack (.do/app.yaml), not
-# this image. This is the local/compose stack — kept in sync so it never
-# becomes a footgun if we switch back to containers.
 FROM node:20-alpine
 
 WORKDIR /app
