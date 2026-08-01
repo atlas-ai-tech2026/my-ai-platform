@@ -51,6 +51,8 @@ import { validateUpload } from './upload-guard.js';
 import { withProviderDeadline, ProviderTimeoutError } from './provider-deadline.js';
 // M1 (audit 2026-07-28): keep credentials out of the admin audit log.
 import { buildAuditSummary } from './audit-redact.js';
+// M2 (audit 2026-07-28): trust forwarding headers only from Cloudflare.
+import { resolveClientIp } from './client-ip.js';
 // H7 (audit 2026-07-28): admin session in an httpOnly cookie + CSRF.
 import {
   setAdminSessionCookies,
@@ -220,19 +222,14 @@ app.use((req, _res, next) => {
 //   3. req.ip — last resort (local dev / direct origin hits)
 // (Trustworthy only because the origin is Cloudflare-fronted; lock the DO
 // origin firewall to CF IP ranges so these headers can't be spoofed direct.)
-function xffFirst(req) {
-  const xff = req.headers['x-forwarded-for'];
-  if (!xff) return '';
-  return String(xff).split(',')[0].trim();
-}
-const clientIp = (req) =>
-  String(
-    req.headers['cf-connecting-ip'] ||
-    req.headers['true-client-ip'] ||
-    xffFirst(req) ||
-    req.ip ||
-    ''
-  );
+// M2 (audit 2026-07-28): these headers used to be trusted from ANY caller,
+// so anyone reaching the origin directly could send a fresh
+// `CF-Connecting-IP` per request and get an unlimited number of rate-limit
+// buckets — defeating every throttle. resolveClientIp() now trusts them
+// ONLY when the direct peer is inside Cloudflare's published ranges;
+// otherwise it uses the socket address. See client-ip.js (and the manual
+// origin-firewall task documented there).
+const clientIp = (req) => resolveClientIp(req);
 // IPv6-safe key for express-rate-limit v8 (normalizes /64 subnets).
 const ipKey = (req) => ipKeyGenerator(clientIp(req));
 
