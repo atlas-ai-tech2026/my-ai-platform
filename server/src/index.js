@@ -53,6 +53,10 @@ import { withProviderDeadline, ProviderTimeoutError } from './provider-deadline.
 import { buildAuditSummary } from './audit-redact.js';
 // M2 (audit 2026-07-28): trust forwarding headers only from Cloudflare.
 import { resolveClientIp } from './client-ip.js';
+// M3 (audit 2026-07-28): encrypted second backup destination.
+import {
+  encryptBackup, offsiteConfigured, uploadOffsite, missingOffsiteVars,
+} from './backup-offsite.js';
 // H7 (audit 2026-07-28): admin session in an httpOnly cookie + CSRF.
 import {
   setAdminSessionCookies,
@@ -4595,7 +4599,12 @@ function kieSwitchDateFor(reason) {
 // daily and keeps the newest 14. Status is exposed on /api/admin/stats.
 const BACKUP_TABLES = ['users', 'credits_history', 'admin_audit_log', 'failed_logins', 'entities', 'node_spaces', 'promo_codes', 'promo_redemptions', 'gift_cards'];
 const BACKUP_KEEP = 14;
-const autoBackupStatus = { last_at: null, last_key: null, last_error: null };
+const autoBackupStatus = {
+  last_at: null, last_key: null, last_error: null,
+  // M3: surfaced on /api/admin/stats so the CRM can show whether the
+  // second copy and the encryption are actually in place.
+  encrypted: false, offsite_key: null, offsite_error: null,
+};
 
 async function runAutomatedBackup() {
   if (!dbReady() || !spacesReady()) return;
@@ -4632,12 +4641,67 @@ async function runAutomatedBackup() {
     gz.end();
     await gzDone;
 
-    const key = `backups/voxel-auto-${new Date().toISOString().slice(0, 10)}.ndjson.gz`;
-    await uploadPrivate(key, Buffer.concat(chunks));
+    const archive = Buffer.concat(chunks);
+    const stamp = new Date().toISOString().slice(0, 10);
+
+    // ── M3: encrypt before anything leaves the process ──────────────
+    // Neither storage provider should ever hold readable customer data.
+    // Without a passphrase we keep making the (unencrypted) primary copy
+    // rather than stopping backups altogether — but say so loudly.
+    const passphrase = (process.env.BACKUP_ENCRYPTION_PASSPHRASE || '').trim();
+    const encrypted = passphrase ? encryptBackup(archive, passphrase) : null;
+    if (!passphrase) {
+      console.error('[auto-backup] ⚠️ BACKUP_ENCRYPTION_PASSPHRASE is not set — ' +
+        'backups are being stored UNENCRYPTED. See RESTORE.md.');
+    }
+
+    const key = passphrase
+      ? `backups/voxel-auto-${stamp}.ndjson.gz.enc`
+      : `backups/voxel-auto-${stamp}.ndjson.gz`;
+
+    // ── Destination 1: DO Spaces (unchanged, still the first copy) ──
+    await uploadPrivate(key, encrypted || archive);
+    console.log(`[auto-backup] ✅ primary (DO Spaces): ${key}`);
+
+    // ── Destination 2: a DIFFERENT provider/account ─────────────────
+    // The whole point of M3: losing the DO account must not lose the
+    // backups too. Only encrypted archives are sent offsite.
+    let offsiteKey = null;
+    let offsiteError = null;
+    if (offsiteConfigured()) {
+      if (!passphrase) {
+        offsiteError = 'refused to send an UNENCRYPTED archive offsite — set BACKUP_ENCRYPTION_PASSPHRASE';
+        console.error(`[auto-backup] ❌ offsite: ${offsiteError}`);
+      } else {
+        try {
+          offsiteKey = await uploadOffsite(key, encrypted);
+          console.log(`[auto-backup] ✅ offsite: ${offsiteKey}`);
+        } catch (e) {
+          offsiteError = e.message;
+          console.error('[auto-backup] ❌ offsite upload FAILED:', e.message);
+        }
+      }
+    } else {
+      offsiteError = `offsite backup not configured — missing: ${missingOffsiteVars().join(', ')}`;
+      console.error(`[auto-backup] ⚠️ ${offsiteError}`);
+    }
+
     autoBackupStatus.last_at = new Date().toISOString();
     autoBackupStatus.last_key = key;
+    autoBackupStatus.encrypted = !!passphrase;
+    autoBackupStatus.offsite_key = offsiteKey;
+    autoBackupStatus.offsite_error = offsiteError;
     autoBackupStatus.last_error = null;
-    console.log(`[auto-backup] ✅ ${key}`, JSON.stringify(counts));
+    console.log(`[auto-backup] counts`, JSON.stringify(counts));
+
+    // Fail LOUDLY when only one copy exists. Silently succeeding on one
+    // destination is exactly how people end up believing they have
+    // backups they don't have.
+    if (offsiteError) {
+      autoBackupStatus.last_error = `only ONE copy exists: ${offsiteError}`;
+      console.error('[auto-backup] ❌ INCOMPLETE — only one copy of this backup exists.');
+      throw new Error(`Backup incomplete — offsite copy failed: ${offsiteError}`);
+    }
 
     // Retention: keep the newest BACKUP_KEEP, delete the rest.
     const all = (await listKeys('backups/')).sort((a, b) => String(b.key).localeCompare(String(a.key)));
