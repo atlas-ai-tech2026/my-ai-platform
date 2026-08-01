@@ -15,6 +15,13 @@ server/data/
 *.pdf
 digitalocean-support-ticket.md
 
+# C2 (security audit 2026-07-28): customer-data spreadsheets must NEVER
+# reach this PUBLIC repo. Export scripts write into reports/ (ignored).
+*.xlsx
+*.xls
+*.csv
+reports/
+
 # Local-only assets / generated media and admin recovery scripts.
 cameras voxel/
 images/
