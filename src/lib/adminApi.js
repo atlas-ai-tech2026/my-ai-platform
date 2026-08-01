@@ -6,14 +6,20 @@
 //   3. Throws a typed `ApiError` with `status` and `body` so callers can
 //      branch on 401/403/402/etc.
 //
-// Storing JWT in localStorage is the standard tradeoff for SPA admin panels:
-// CSRF-immune (Bearer header is opt-in JS, not a cookie) but vulnerable to
-// XSS. Helmet on the server gives us reasonable XSS defaults — combined
-// with React's auto-escaping and the fact that this panel only displays
-// strings we control (admin-typed reasons are escaped on render), the XSS
-// surface is minimal.
+// H7 (security audit 2026-07-28): the admin session is now ALSO issued as an
+// httpOnly, Secure, SameSite=Strict cookie that page JavaScript cannot read,
+// so an XSS bug can no longer exfiltrate the admin token. Because a cookie
+// IS sent automatically by the browser, state-changing admin requests carry
+// the double-submit CSRF token (readable `voxel_csrf` cookie echoed in the
+// X-CSRF-Token header); the server rejects a cookie-authenticated write
+// without it.
+//
+// The bearer header is still sent during the transition so an admin tab
+// opened before this deploy keeps working. Once every admin client is on
+// cookies, VOXEL_TOKEN_KEY can stop holding the admin token entirely.
 
 export const VOXEL_TOKEN_KEY = 'voxel_token';
+export const CSRF_COOKIE = 'voxel_csrf';
 
 export class ApiError extends Error {
   constructor(status, body, message) {
@@ -28,12 +34,26 @@ function authHeader() {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
+/** Read the readable half of the double-submit pair. */
+export function readCsrfCookie() {
+  const match = document.cookie.match(new RegExp(`(?:^|;\\s*)${CSRF_COOKIE}=([^;]*)`));
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
+function csrfHeader() {
+  const token = readCsrfCookie();
+  return token ? { 'X-CSRF-Token': token } : {};
+}
+
 async function request(method, path, body) {
   const res = await fetch(path, {
     method,
+    // Send the httpOnly admin session cookie.
+    credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
       ...authHeader(),
+      ...csrfHeader(),
     },
     body: body == null ? undefined : JSON.stringify(body),
   });

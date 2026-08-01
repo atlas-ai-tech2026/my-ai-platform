@@ -49,6 +49,15 @@ import {
 import { validateUpload } from './upload-guard.js';
 // H3 (audit 2026-07-28): hard deadline on synchronous provider calls.
 import { withProviderDeadline, ProviderTimeoutError } from './provider-deadline.js';
+// H7 (audit 2026-07-28): admin session in an httpOnly cookie + CSRF.
+import {
+  setAdminSessionCookies,
+  clearAdminSessionCookies,
+  newCsrfToken,
+  checkCsrf,
+  CSRF_COOKIE,
+  CSRF_HEADER,
+} from './admin-session.js';
 // H5 (audit 2026-07-28): admin TOTP 2FA (RFC 6238 via node:crypto).
 import {
   generateSecret,
@@ -171,10 +180,34 @@ app.use(cors({
     if (ALLOWED_ORIGINS.includes(origin)) return cb(null, true);
     return cb(new Error(`CORS: origin ${origin} not allowed`));
   },
-  credentials: false,
+  // H7 (audit 2026-07-28): the admin session now travels in an httpOnly
+  // cookie, which the browser only sends cross-origin when credentials are
+  // allowed. The origin allow-list above (not a wildcard) is what keeps
+  // this safe — `credentials: true` with `origin: *` would be unsafe and
+  // is rejected by browsers anyway.
+  credentials: true,
 }));
 
 app.use(express.json({ limit: '50mb' }));
+
+// ─── COOKIES (H7) ──────────────────────────────────────────────────
+// Tiny parser instead of the cookie-parser dependency (CLAUDE.md: don't
+// add a dep the stdlib covers). Only reads; writing uses res.cookie-style
+// Set-Cookie built in setAdminSessionCookie below.
+app.use((req, _res, next) => {
+  const header = req.headers.cookie;
+  req.cookies = {};
+  if (header) {
+    for (const part of header.split(';')) {
+      const eq = part.indexOf('=');
+      if (eq === -1) continue;
+      const k = part.slice(0, eq).trim();
+      const v = part.slice(eq + 1).trim();
+      if (k) req.cookies[k] = decodeURIComponent(v);
+    }
+  }
+  next();
+});
 
 // Real client IP. Behind Cloudflare → DO App Platform ingress → Node, `req.ip`
 // resolves to a SHARED upstream IP, so keying rate limits on it throttles
@@ -3177,12 +3210,32 @@ app.post('/api/auth/login', loginLimiter, requireAuthInfra, async (req, res) => 
       ).catch(err => console.error('[auth/login] audit insert failed:', err.message));
     }
 
-    const { password_hash, ...user } = row; // never ship the hash to the client
-    res.json({ token, user });
+    // H7: for admins, ALSO set the session as an httpOnly cookie that page
+    // JavaScript cannot read, plus the readable CSRF token. The bearer
+    // token stays in the body during the transition so an older admin tab
+    // keeps working; once the frontend is fully on cookies it can stop
+    // storing it. See the tradeoff note in docs/SESSION-NOTES.md.
+    let csrfToken = null;
+    if (isAdmin) {
+      csrfToken = newCsrfToken();
+      setAdminSessionCookies(res, { token, csrfToken, maxAgeSeconds: 30 * 60 });
+    }
+
+    const { password_hash, totp_secret, totp_recovery_codes, totp_last_step, ...user } = row;
+    res.json({ token, user, ...(csrfToken ? { csrf_token: csrfToken } : {}) });
   } catch (err) {
     console.error('[auth/login] error:', err);
     res.status(500).json({ error: 'Login failed.' });
   }
+});
+
+// ─── /api/auth/logout (H7) ─────────────────────────────────────────
+// Clears the admin session cookies server-side. The client still drops its
+// own localStorage copy; this makes sure the httpOnly cookie — which the
+// client cannot touch — is invalidated too.
+app.post('/api/auth/logout', (req, res) => {
+  clearAdminSessionCookies(res);
+  res.json({ ok: true });
 });
 
 // ─── /api/auth/me ──────────────────────────────────────────────────
@@ -3333,8 +3386,27 @@ function adminAudit(req, res, next) {
   next();
 }
 
-// One handy gate to apply to every admin route: rate limit, auth, role, audit.
-const adminGate = [adminLimiter, verifyJwt, requireAdmin, adminAudit];
+// H7: CSRF guard for cookie-authenticated admin requests. Runs after
+// verifyJwt (which sets req.usedCookieAuth) and before anything that
+// changes state. Bearer-authenticated requests pass through untouched —
+// the browser never attaches those automatically, so they can't be forged.
+function requireCsrf(req, res, next) {
+  const verdict = checkCsrf({
+    method: req.method,
+    usedCookieAuth: req.usedCookieAuth,
+    csrfCookie: req.cookies?.[CSRF_COOKIE],
+    csrfHeader: req.get(CSRF_HEADER),
+  });
+  if (!verdict.ok) {
+    console.error(`[csrf] rejected ${req.method} ${req.path} for user ${req.user?.id}: ${verdict.reason}`);
+    return res.status(403).json({ error: verdict.reason });
+  }
+  next();
+}
+
+// One handy gate to apply to every admin route: rate limit, auth, role,
+// CSRF (state-changing cookie requests only), audit.
+const adminGate = [adminLimiter, verifyJwt, requireAdmin, requireCsrf, adminAudit];
 
 // ─── ADMIN: LIST USERS (paginated) ──────────────────────────────────
 app.get('/api/admin/users', adminGate, async (req, res) => {

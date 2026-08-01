@@ -18,6 +18,49 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
+// ─── H7 (security audit 2026-07-28): honest failures ────────────────────────
+// Every call below used to `catch {}` and quietly return localStorage data,
+// so a 500 (or a 401, or a rejected save) was indistinguishable from success:
+// `create` fabricated a row the server never saw and handed it back as if it
+// had been persisted. Users lost work and the UI showed no error.
+//
+// The rule now:
+//   • the SERVER answered with an error  → always throw. Never fake success.
+//   • the NETWORK is genuinely unreachable → reads may serve the cache
+//     (clearly a read-only convenience); writes still throw, because a write
+//     that didn't reach the server did not happen.
+
+export class ApiError extends Error {
+  constructor(message, { status = null, offline = false, cause } = {}) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+    this.offline = offline;
+    this.cause = cause;
+  }
+}
+
+/** True only when no response came back at all (DNS failure, dropped
+ * connection, timeout) — NOT when the server replied with an error code. */
+export function isOffline(error) {
+  return !error?.response;
+}
+
+function toApiError(error, action) {
+  const status = error?.response?.status ?? null;
+  const serverMessage =
+    error?.response?.data?.error ||
+    error?.response?.data?.message ||
+    null;
+  if (status) {
+    return new ApiError(serverMessage || `${action} failed (${status})`, { status, cause: error });
+  }
+  return new ApiError(
+    `${action} failed — you appear to be offline. Check your connection and try again.`,
+    { offline: true, cause: error }
+  );
+}
+
 function createEntityProxy(entityName) {
   const storageKey = `voxel_${entityName}`;
 
@@ -29,11 +72,15 @@ function createEntityProxy(entityName) {
   }
 
   return {
+    // READS — a server error propagates. Only a genuine network failure
+    // falls back to the cache, so "we're offline" never masquerades as
+    // "the server said no".
     async list(sort, limit, offset) {
       try {
         const res = await api.get(`/api/entities/${entityName}`, { params: { sort, limit, offset } });
         return res.data;
-      } catch {
+      } catch (error) {
+        if (!isOffline(error)) throw toApiError(error, `Loading ${entityName}`);
         const items = getAll();
         if (sort && sort.startsWith('-')) {
           const field = sort.slice(1);
@@ -47,7 +94,8 @@ function createEntityProxy(entityName) {
       try {
         const res = await api.post(`/api/entities/${entityName}/filter`, { query, sort, limit, offset });
         return res.data;
-      } catch {
+      } catch (error) {
+        if (!isOffline(error)) throw toApiError(error, `Loading ${entityName}`);
         let items = getAll();
         if (query) {
           items = items.filter((item) =>
@@ -64,21 +112,14 @@ function createEntityProxy(entityName) {
       }
     },
 
+    // WRITES — never faked. A write that did not reach the server did not
+    // happen, so the caller (and the user) must see the failure.
     async create(data) {
       try {
         const res = await api.post(`/api/entities/${entityName}`, data);
         return res.data;
-      } catch {
-        const items = getAll();
-        const newItem = {
-          ...data,
-          id: crypto.randomUUID(),
-          created_date: new Date().toISOString(),
-          updated_date: new Date().toISOString(),
-        };
-        items.push(newItem);
-        saveAll(items);
-        return newItem;
+      } catch (error) {
+        throw toApiError(error, `Saving ${entityName}`);
       }
     },
 
@@ -86,24 +127,16 @@ function createEntityProxy(entityName) {
       try {
         const res = await api.put(`/api/entities/${entityName}/${id}`, data);
         return res.data;
-      } catch {
-        const items = getAll();
-        const idx = items.findIndex((i) => i.id === id);
-        if (idx !== -1) {
-          items[idx] = { ...items[idx], ...data, updated_date: new Date().toISOString() };
-          saveAll(items);
-          return items[idx];
-        }
-        return null;
+      } catch (error) {
+        throw toApiError(error, `Updating ${entityName}`);
       }
     },
 
     async delete(id) {
       try {
         await api.delete(`/api/entities/${entityName}/${id}`);
-      } catch {
-        const items = getAll().filter((i) => i.id !== id);
-        saveAll(items);
+      } catch (error) {
+        throw toApiError(error, `Deleting ${entityName}`);
       }
     },
 
@@ -111,7 +144,8 @@ function createEntityProxy(entityName) {
       try {
         const res = await api.get(`/api/entities/${entityName}/${id}`);
         return res.data;
-      } catch {
+      } catch (error) {
+        if (!isOffline(error)) throw toApiError(error, `Loading ${entityName}`);
         return getAll().find((i) => i.id === id) || null;
       }
     },
@@ -124,9 +158,12 @@ export const base44 = {
       try {
         const res = await api.get('/api/auth/me');
         return res.data;
-      } catch {
-        const user = JSON.parse(localStorage.getItem('voxel_user') || 'null');
-        return user;
+      } catch (error) {
+        // A 401/403 means the session is GONE — returning the cached user
+        // here used to defeat server-side session invalidation entirely
+        // (a banned or logged-out user still looked signed in).
+        if (!isOffline(error)) throw toApiError(error, 'Loading your account');
+        return JSON.parse(localStorage.getItem('voxel_user') || 'null');
       }
     },
     redirectToLogin(returnUrl, opts) {
@@ -161,8 +198,10 @@ export const base44 = {
           headers: { 'Content-Type': 'multipart/form-data' },
         });
         return res.data;
-      } catch {
-        return { url: URL.createObjectURL(file) };
+      } catch (error) {
+        // Used to return a blob: URL the server has never seen — the caller
+        // then "saved" a reference no backend could ever resolve.
+        throw toApiError(error, 'Uploading the file');
       }
     },
   },
