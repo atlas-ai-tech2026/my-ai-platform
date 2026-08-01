@@ -45,6 +45,8 @@ import {
   sanitizeFilename,
   DownloadRejectedError,
 } from './download-guard.js';
+// H2 (audit 2026-07-28): /api/upload content-type policy.
+import { validateUpload } from './upload-guard.js';
 
 // Load server/.env relative to THIS source file (not process.cwd()) so the
 // API works no matter which directory the harness/launch config runs it
@@ -219,6 +221,28 @@ const adminLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many admin requests.' },
+});
+
+// H2 (audit 2026-07-28): per-USER limits for the two routes that were
+// unauthenticated. Keyed on the authenticated user id (these run after
+// verifyJwt), so users sharing an office/carrier IP get their own bucket.
+const userKey = (req) => (req.user?.id ? `u:${req.user.id}` : ipKey(req));
+const uploadLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 60, // a Seedance reference batch can be ~10 files; 60/min is roomy
+  keyGenerator: userKey,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many uploads — please wait a moment and try again.' },
+});
+// Conservative: each call is a billable provider LLM request.
+const enhanceLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 12,
+  keyGenerator: userKey,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many prompt enhancements — please wait a moment.' },
 });
 
 // CORS errors throw before any route runs; convert to a clean JSON 403.
@@ -2094,7 +2118,10 @@ app.post('/api/video-status', async (req, res) => {
 // Wrap multer manually so file-too-large + other multer errors return
 // proper JSON (default behaviour is HTML, which makes the frontend show
 // "Upload returned no URL" with no useful diagnostic).
-app.post('/api/upload', (req, res, next) => {
+// H2 (audit 2026-07-28): was unauthenticated and accepted any file type.
+// Now: JWT + not-banned + per-user rate limit + MIME/magic-byte validation.
+// Size limit (100 MB, multer) unchanged.
+app.post('/api/upload', verifyJwt, requireNotBanned, uploadLimiter, (req, res, next) => {
   upload.single('file')(req, res, (err) => {
     if (!err) return next();
     if (err.code === 'LIMIT_FILE_SIZE') {
@@ -2105,6 +2132,14 @@ app.post('/api/upload', (req, res, next) => {
   });
 }, async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No file provided' });
+
+  // Only image/video/audio, validated against the file's real magic bytes —
+  // a renamed executable with an image Content-Type is rejected here.
+  const verdict = validateUpload({ mimetype: req.file.mimetype, buffer: req.file.buffer });
+  if (!verdict.ok) {
+    console.error(`[UPLOAD] ❌ rejected for user ${req.user.id}: ${verdict.reason} (${req.file.originalname})`);
+    return res.status(415).json({ error: verdict.reason });
+  }
 
   // Validate FAL has a key configured — without this, fal.storage.upload
   // will fail with a cryptic auth error that's hard to interpret.
@@ -2287,7 +2322,9 @@ app.post('/api/llm', async (req, res) => {
 // Takes the user's prompt, runs it through fal.ai's `any-llm` (Gemini
 // Flash for speed/cost), returns a richer cinematic rewrite. Used by the
 // red bolt button in the Image and Video prompt areas.
-app.post('/api/enhance-prompt', requireFalKey, async (req, res) => {
+// H2 (audit 2026-07-28): was unauthenticated — every call spends money on
+// a provider LLM. Now JWT + not-banned + a conservative per-user limit.
+app.post('/api/enhance-prompt', verifyJwt, requireNotBanned, enhanceLimiter, requireFalKey, async (req, res) => {
   const { prompt, type } = req.body || {};
   if (!prompt || typeof prompt !== 'string' || !prompt.trim()) {
     return res.status(400).json({ error: 'prompt required' });
