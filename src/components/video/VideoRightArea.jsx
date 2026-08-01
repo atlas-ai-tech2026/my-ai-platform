@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { ChevronDown, Star, Filter, Grid, Search, SlidersHorizontal, MessageSquare, Video, Music, Sparkles, Download } from 'lucide-react';
 import { toast } from 'sonner';
+import { downloadViaApi } from '@/lib/downloadFile';
 
 const font = '"DM Sans", sans-serif';
 
@@ -172,16 +173,11 @@ export default function VideoRightArea({ videos = [], isGenerating = false, dura
             const isFailed = v.status === 'failed';
             const isReady = v.status === 'completed' && v.result_url;
 
-            const handleDownload = (e) => {
+            const handleDownload = async (e) => {
               e.stopPropagation();
               if (!v.result_url) return;
-              const a = document.createElement('a');
-              a.href = `/api/download?url=${encodeURIComponent(v.result_url)}&filename=voxel-video-${v.id || Date.now()}.mp4`;
-              a.download = `voxel-video.mp4`;
-              document.body.appendChild(a);
-              a.click();
-              document.body.removeChild(a);
-              toast.success('Video downloading — check your Downloads folder');
+              const ok = await downloadViaApi(v.result_url, `voxel-video-${v.id || Date.now()}.mp4`);
+              if (ok) toast.success('Video downloading — check your Downloads folder');
             };
 
             return (

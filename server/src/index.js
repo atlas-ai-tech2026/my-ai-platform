@@ -39,6 +39,12 @@ import {
   UnpricedModelError,
   PriceMismatchError,
 } from './pricing.js';
+// H1 (audit 2026-07-28): /api/download SSRF guard.
+import {
+  assertSafeDownloadUrl,
+  sanitizeFilename,
+  DownloadRejectedError,
+} from './download-guard.js';
 
 // Load server/.env relative to THIS source file (not process.cwd()) so the
 // API works no matter which directory the harness/launch config runs it
@@ -2179,23 +2185,84 @@ app.post('/api/upload', (req, res, next) => {
   }
 });
 
-// ─── IMAGE DOWNLOAD (proper Content-Disposition for save dialog) ───
-app.get('/api/download', async (req, res) => {
+// ─── MEDIA DOWNLOAD (proper Content-Disposition for save dialog) ───
+// H1 (audit 2026-07-28): was an unauthenticated open proxy (SSRF). Now:
+// JWT + not-banned, https-only allow-listed CDN hosts, DNS private-address
+// rejection (re-checked on every redirect), an overall deadline, and a
+// response-size cap. See download-guard.js for the validation logic.
+const DOWNLOAD_TIMEOUT_MS = Number(process.env.DOWNLOAD_TIMEOUT_MS || 60_000);
+const DOWNLOAD_MAX_BYTES = Number(process.env.DOWNLOAD_MAX_BYTES || 512 * 1024 * 1024);
+const DOWNLOAD_MAX_REDIRECTS = 3;
+
+app.get('/api/download', verifyJwt, requireNotBanned, async (req, res) => {
   const { url, filename } = req.query;
   if (!url) return res.status(400).json({ error: 'url required' });
+
+  const controller = new AbortController();
+  const deadline = setTimeout(() => controller.abort(), DOWNLOAD_TIMEOUT_MS);
   try {
-    const response = await fetch(url);
-    if (!response.ok) throw new Error('Failed to fetch image');
-    const contentType = response.headers.get('content-type') || 'image/png';
+    // Follow redirects manually so EVERY hop passes the same allow-list +
+    // DNS validation — a trusted CDN must not be able to bounce us to an
+    // internal address.
+    let target = String(url);
+    let response = null;
+    for (let hop = 0; hop <= DOWNLOAD_MAX_REDIRECTS; hop++) {
+      const safeUrl = await assertSafeDownloadUrl(target);
+      response = await fetch(safeUrl, { redirect: 'manual', signal: controller.signal });
+      if ([301, 302, 303, 307, 308].includes(response.status)) {
+        const loc = response.headers.get('location');
+        if (!loc) throw new DownloadRejectedError('Redirect without location', 502);
+        if (hop === DOWNLOAD_MAX_REDIRECTS) {
+          throw new DownloadRejectedError('Too many redirects', 502);
+        }
+        target = new URL(loc, safeUrl).toString();
+        continue;
+      }
+      break;
+    }
+    if (!response.ok) {
+      return res.status(502).json({ error: 'The file could not be fetched from storage.' });
+    }
+
+    const declared = Number(response.headers.get('content-length') || 0);
+    if (declared > DOWNLOAD_MAX_BYTES) {
+      return res.status(413).json({ error: 'File too large to download.' });
+    }
+
+    const contentType = response.headers.get('content-type') || 'application/octet-stream';
     const ext = contentType.includes('jpeg') || contentType.includes('jpg') ? 'jpg' : 'png';
-    const name = filename || `voxel-ai-${Date.now()}.${ext}`;
+    const name = sanitizeFilename(filename, `voxel-ai-${Date.now()}.${ext}`);
     res.setHeader('Content-Type', contentType);
     res.setHeader('Content-Disposition', `attachment; filename="${name}"`);
-    const buffer = Buffer.from(await response.arrayBuffer());
-    res.send(buffer);
+    if (declared) res.setHeader('Content-Length', String(declared));
+
+    // Stream with a running byte cap instead of buffering the whole file.
+    let sent = 0;
+    for await (const chunk of response.body) {
+      sent += chunk.length;
+      if (sent > DOWNLOAD_MAX_BYTES) {
+        controller.abort();
+        res.destroy();
+        return;
+      }
+      if (!res.write(chunk)) {
+        await new Promise((resolve) => res.once('drain', resolve));
+      }
+    }
+    res.end();
   } catch (error) {
+    if (res.headersSent) { res.destroy(); return; }
+    if (error instanceof DownloadRejectedError) {
+      console.error(`[download] rejected url for user ${req.user?.id}: ${error.message}`);
+      return res.status(error.status).json({ error: error.message });
+    }
+    const timedOut = error?.name === 'AbortError';
     console.error('Download proxy error:', error.message);
-    res.status(500).json({ error: 'Download failed' });
+    res.status(timedOut ? 504 : 500).json({
+      error: timedOut ? 'Download timed out — please try again.' : 'Download failed',
+    });
+  } finally {
+    clearTimeout(deadline);
   }
 });
 

@@ -5,6 +5,7 @@ import ImagePromptBar from '@/components/image/ImagePromptBar';
 import { buildCompositionPrompt, detectCompositionIntent } from '@/lib/enhancePrompt';
 import { uploadAllToFal } from '@/lib/uploadToFal';
 import { getImageCredits } from '@/lib/creditPricing';
+import { downloadViaApi } from '@/lib/downloadFile';
 
 const STYLE_SUFFIXES = {
   Cinematic:    ', cinematic color grading, anamorphic lens flare, film grain, dramatic lighting, movie still',
@@ -242,9 +243,12 @@ function ImageCard({ img, index, onExpand, onLoaded, isFirst = false, modelBadge
             </div>
           )}
           <a
-            href={`/api/download?url=${encodeURIComponent(img.url)}&filename=voxel-${(img.prompt || 'image').slice(0,30).replace(/[^a-zA-Z0-9]/g,'-')}.png`}
-            download
-            onClick={e => e.stopPropagation()}
+            href="#download"
+            onClick={e => {
+              e.preventDefault();
+              e.stopPropagation();
+              downloadViaApi(img.url, `voxel-${(img.prompt || 'image').slice(0,30).replace(/[^a-zA-Z0-9]/g,'-')}.png`);
+            }}
             style={{
               width: 30, height: 30, borderRadius: 999,
               background: 'rgba(255,255,255,0.12)',
