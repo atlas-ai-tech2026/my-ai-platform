@@ -1,3 +1,51 @@
+// File extension matching a MIME type. Only used for a human-friendly
+// filename — the server validates the real bytes, not the extension.
+export function extForMime(mime) {
+  const m = String(mime || '').toLowerCase();
+  if (m.includes('jpeg') || m.includes('jpg')) return 'jpg';
+  if (m.includes('webp')) return 'webp';
+  if (m.includes('gif')) return 'gif';
+  if (m.includes('avif')) return 'avif';
+  if (m.includes('heic') || m.includes('heif')) return 'heic';
+  if (m.includes('mp4')) return 'mp4';
+  if (m.includes('quicktime')) return 'mov';
+  if (m.includes('webm')) return 'webm';
+  if (m.includes('mpeg') && m.startsWith('audio')) return 'mp3';
+  if (m.includes('wav')) return 'wav';
+  return 'png';
+}
+
+/**
+ * Turn a `data:` URI into a File WITHOUT fetch().
+ *
+ * fetch('data:…') is blocked by our CSP (connect-src is "'self' blob:
+ * https:"), which surfaced as an opaque "Failed to fetch" and made pasted
+ * / base64 images impossible to upload. Decoding with atob needs no network
+ * request, so it is immune to CSP — and avoids a pointless round trip.
+ *
+ * The declared MIME type is taken FROM THE URI rather than hardcoded, so it
+ * always matches the real bytes; the server rejects a mismatch with 415.
+ */
+export function dataUriToFile(dataUri, baseName = 'image') {
+  const comma = dataUri.indexOf(',');
+  if (comma === -1) throw new Error('Malformed data URI');
+  const header = dataUri.slice(5, comma);          // strip leading "data:"
+  const payload = dataUri.slice(comma + 1);
+  const mime = (header.split(';')[0] || 'image/png').trim() || 'image/png';
+  const isBase64 = /;base64/i.test(header);
+
+  let bytes;
+  if (isBase64) {
+    const binary = atob(payload);
+    bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  } else {
+    // Percent-encoded (e.g. data:image/svg+xml,<svg …>)
+    bytes = new TextEncoder().encode(decodeURIComponent(payload));
+  }
+  return new File([bytes], `${baseName}.${extForMime(mime)}`, { type: mime });
+}
+
 async function uploadViaServer(file) {
   // Pre-check: warn locally before the request even goes out
   const MAX_BYTES = 100 * 1024 * 1024; // backend multer limit
@@ -59,7 +107,11 @@ export async function prepareImageForFal(imageSource, index) {
       console.log(`[FAL UPLOAD] Converting blob URL for image ${index + 1}`);
       const response = await fetch(imageSource);
       const blob = await response.blob();
-      const file = new File([blob], `image_${index}_${Date.now()}.png`, { type: 'image/png' });
+      // Keep the blob's REAL type. Hardcoding image/png here would make the
+      // declared type disagree with the actual bytes, which the server's
+      // content-type check (H2) correctly rejects with a 415.
+      const type = blob.type || 'image/png';
+      const file = new File([blob], `image_${index}_${Date.now()}.${extForMime(type)}`, { type });
       const uploadedUrl = await uploadViaServer(file);
       console.log(`[FAL UPLOAD] ✅ Image ${index + 1} uploaded:`, uploadedUrl);
       return uploadedUrl;
@@ -68,9 +120,12 @@ export async function prepareImageForFal(imageSource, index) {
     // Base64 data URI
     if (typeof imageSource === 'string' && imageSource.startsWith('data:')) {
       console.log(`[FAL UPLOAD] Converting base64 for image ${index + 1}`);
-      const response = await fetch(imageSource);
-      const blob = await response.blob();
-      const file = new File([blob], `image_${index}_${Date.now()}.png`, { type: 'image/png' });
+      // Decoded in JS rather than via fetch(dataUri): the CSP's connect-src
+      // is "'self' blob: https:", so fetching a data: URI is BLOCKED and
+      // surfaced as an opaque "Failed to fetch". Decoding locally needs no
+      // network request at all, so it works regardless of CSP — and is
+      // faster. (Production bug, 2026-08-01.)
+      const file = dataUriToFile(imageSource, `image_${index}_${Date.now()}`);
       const uploadedUrl = await uploadViaServer(file);
       console.log(`[FAL UPLOAD] ✅ Image ${index + 1} uploaded:`, uploadedUrl);
       return uploadedUrl;

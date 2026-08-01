@@ -19,6 +19,9 @@ const FAKE_DNS = {
   'v3.fal.media': '151.101.1.140',
   'fal.media': '151.101.1.140',
   'tempfile.redpandaai.co': '104.18.2.7',
+  // Historical output hosts — real user history points at these.
+  'qtrypzzcjebvfcihiynt.supabase.co': '104.18.38.10',
+  'media.base44.com': '104.18.39.11',
   'voxel-media.fra1.digitaloceanspaces.com': '162.243.189.2',
   'voxel-media.fra1.cdn.digitaloceanspaces.com': '162.243.189.3',
   // An allow-listed name that (maliciously or by misconfiguration) points inside
@@ -106,6 +109,54 @@ describe('H1 — legitimate downloads still work', () => {
   it('our DO Spaces bucket and CDN hosts are allowed', async () => {
     await expect(check('https://voxel-media.fra1.digitaloceanspaces.com/a.png')).resolves.toBeTruthy();
     await expect(check('https://voxel-media.fra1.cdn.digitaloceanspaces.com/a.png')).resolves.toBeTruthy();
+  });
+
+  // Regression: production 2026-08-01. Allow-listing only fal.media and
+  // redpandaai.co broke downloading ANY image generated before outputs were
+  // re-hosted to Spaces — those history rows still point at supabase /
+  // base44, and users saw "This host is not an allowed download source".
+  it('HISTORICAL output hosts still download (supabase, base44)', async () => {
+    await expect(check('https://qtrypzzcjebvfcihiynt.supabase.co/storage/v1/object/public/x.png'))
+      .resolves.toBeTruthy();
+    await expect(check('https://media.base44.com/x.png')).resolves.toBeTruthy();
+  });
+
+  // The durable fix for "This host is not an allowed download source": a URL
+  // proven to be in the CALLER'S OWN history bypasses the host list, because
+  // outputs from different eras live on different providers.
+  it('skipHostAllowList lets a user download their OWN media from any host', async () => {
+    const ownHistoryUrl = 'https://some-old-provider.example.com/my-image.png';
+    // Normally refused…
+    await expect(assertSafeDownloadUrl(ownHistoryUrl, {
+      lookup: async () => [{ address: '93.184.216.34' }], suffixes,
+    })).rejects.toThrow(/not an allowed download source/);
+    // …allowed once ownership is proven.
+    await expect(assertSafeDownloadUrl(ownHistoryUrl, {
+      lookup: async () => [{ address: '93.184.216.34' }], suffixes, skipHostAllowList: true,
+    })).resolves.toBeTruthy();
+  });
+
+  it('ownership NEVER bypasses the SSRF protections', async () => {
+    const opts = { lookup, suffixes, skipHostAllowList: true };
+    // Private / metadata addresses still refused even for "own" media.
+    await expect(assertSafeDownloadUrl('https://evil.fal.media/x.png', opts))
+      .rejects.toThrow(/private address/i);
+    await expect(assertSafeDownloadUrl('https://internal.fal.media/x.png', opts))
+      .rejects.toThrow(/private address/i);
+    await expect(assertSafeDownloadUrl('https://169.254.169.254/', opts)).rejects.toThrow();
+    await expect(assertSafeDownloadUrl('http://v3.fal.media/x.png', opts)).rejects.toThrow(/https/i);
+    await expect(assertSafeDownloadUrl('https://u:p@v3.fal.media/x.png', opts)).rejects.toThrow(/credentials/i);
+  });
+
+  it('the rejection message names the host so it is diagnosable', async () => {
+    await expect(check('https://attacker.com/x')).rejects.toThrow(/attacker\.com/);
+  });
+
+  it('DOWNLOAD_ALLOWED_HOSTS adds a host without a code deploy', async () => {
+    const withExtra = buildAllowedHostSuffixes({ ...ENV, DOWNLOAD_ALLOWED_HOSTS: 'cdn.newprovider.io' });
+    expect(isAllowedDownloadHost('cdn.newprovider.io', withExtra)).toBe(true);
+    // …and it does not weaken the rest of the list.
+    expect(isAllowedDownloadHost('attacker.com', withExtra)).toBe(false);
   });
 });
 

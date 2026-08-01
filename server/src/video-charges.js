@@ -161,6 +161,34 @@ export async function userOwnsJob(userId, jobId) {
   }
 }
 
+/**
+ * Does this URL appear in the user's OWN generation history?
+ *
+ * Used by /api/download (H1). A host allow-list alone kept refusing
+ * legitimate downloads, because outputs from different eras live on
+ * different providers (FAL, kie, supabase, base44, Spaces…). Ownership is
+ * both more permissive for real users AND stricter against SSRF: an
+ * attacker cannot put an arbitrary URL into someone else's history, so
+ * this can never be pointed at an internal address the user didn't
+ * legitimately generate.
+ */
+export async function userOwnsMediaUrl(userId, url) {
+  if (!userId || !url || !dbReady()) return false;
+  try {
+    const { rowCount } = await pool.query(
+      `SELECT 1 FROM entities
+        WHERE user_id = $1
+          AND (data->>'result_url' = $2 OR data->>'url' = $2)
+        LIMIT 1`,
+      [userId, String(url)]
+    );
+    return rowCount > 0;
+  } catch (e) {
+    console.error('[download] history ownership check failed:', e.message);
+    return false;
+  }
+}
+
 /** Rows still 'pending' and older than `minAgeMinutes` — candidates for
  * boot reconciliation (a job submitted just before a restart). */
 export async function listUnresolvedCharges({ minAgeMinutes = 10, limit = 500 } = {}) {

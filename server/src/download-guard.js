@@ -34,7 +34,19 @@ export function buildAllowedHostSuffixes(env = process.env) {
   const list = [
     'fal.media',       // FAL output CDN
     'redpandaai.co',   // kie.ai file/temp hosts
+    // Historical output hosts. Generations made before outputs were
+    // re-hosted to our own Spaces bucket still point here, and a user
+    // downloading an old image from their history must keep working.
+    // (Regression found in production 2026-08-01: allow-listing only the
+    // two hosts above broke downloads for every pre-Spaces generation.)
+    'supabase.co',     // qtrypzzcjebvfcihiynt.supabase.co
+    'base44.com',      // media.base44.com
   ];
+  // Escape hatch so a new provider can be allowed without a code deploy.
+  for (const extra of String(env.DOWNLOAD_ALLOWED_HOSTS || '')
+    .split(',').map((s) => s.trim().toLowerCase()).filter(Boolean)) {
+    list.push(extra);
+  }
   const endpoint = envHost(env.SPACES_ENDPOINT);       // fra1.digitaloceanspaces.com
   const cdnBase = envHost(env.SPACES_CDN_BASE);        // voxel-media.fra1.cdn.digitaloceanspaces.com
   const bucket = (env.SPACES_BUCKET || '').trim().toLowerCase();
@@ -107,6 +119,11 @@ export class DownloadRejectedError extends Error {
 export async function assertSafeDownloadUrl(urlString, {
   lookup = dnsLookup,
   suffixes = buildAllowedHostSuffixes(),
+  // Set only when the caller has PROVEN the URL is in their own history.
+  // Relaxes the host allow-list and nothing else — every other check
+  // (https, no credentials, no IP literal, no private/loopback/link-local
+  // address after DNS) still runs.
+  skipHostAllowList = false,
 } = {}) {
   let u;
   try {
@@ -120,8 +137,13 @@ export async function assertSafeDownloadUrl(urlString, {
   if (u.username || u.password) {
     throw new DownloadRejectedError('Credentials in url are not allowed', 400);
   }
-  if (!isAllowedDownloadHost(u.hostname, suffixes)) {
-    throw new DownloadRejectedError('This host is not an allowed download source', 403);
+  if (!skipHostAllowList && !isAllowedDownloadHost(u.hostname, suffixes)) {
+    // Name the host. The caller supplied this URL, so echoing its hostname
+    // leaks nothing — and without it this failure is undiagnosable from the
+    // browser (production, 2026-08-01).
+    throw new DownloadRejectedError(
+      `This host is not an allowed download source: ${u.hostname}`, 403
+    );
   }
   // A literal IP can never be on the (name-based) allow-list, but be explicit.
   if (net.isIP(u.hostname.replace(/^\[|\]$/g, ''))) {
