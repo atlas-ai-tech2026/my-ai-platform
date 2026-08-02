@@ -53,16 +53,18 @@ export const VIDEO_CREDITS = {
   //   720p  $0.070/s no-audio · $0.100/s with audio
   //   1080p $0.090/s no-audio · $0.135/s with audio
   //   4K    $0.335/s (same with or without audio)
-  // BUT the basis is MAX(kie, fal), and FAL's Kling 3.0 rate ($0.084/s
-  // no-audio, $0.112/s with audio) is HIGHER than kie's at 720p. So 720p
-  // no-audio stays at 2.5 (46.9% vs basis, 55.8% vs the kie backend we
-  // actually use); only the with-audio rate drops, 4 → 3. Note the
-  // dispatcher must send mode 'std' for 720p — charging a 720p rate while
-  // sending 'pro' would deliver, and pay for, 1080p.
+  // Priced against KIE, the supplier these actually run on (owner's
+  // decision 2026-08-02, from kie's own price table). FAL's rate is higher
+  // at 720p ($0.084/s), so this trades the workbook's "safe vs both
+  // suppliers" guarantee for pricing that matches real cost: 720p no-audio
+  // is 2 cr/s = 44.7% vs kie. If Kling 3.0 ever moves to FAL, that tier
+  // drops to 33.7% and must be repriced.
+  // The dispatcher must also send mode 'std' for 720p — charging a 720p
+  // rate while sending 'pro' would deliver, and pay for, 1080p.
   'kling-3': {
     type: 'per-sec', defaultRes: '1080p',
     byRes: {
-      '720p':  { off: 2.5, on: 3 },
+      '720p':  { off: 2,   on: 3 },
       '1080p': { off: 2.5, on: 4 },
       '4K':    { off: 9,   on: 9 },
     },
