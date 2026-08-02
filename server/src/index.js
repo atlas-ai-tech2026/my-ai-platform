@@ -770,7 +770,13 @@ function buildKieVideoSubmission(mapping, { prompt, frames, duration, aspectRati
     // [start] or [start, end] frames. multi_shots=true (user's Multi Shot
     // toggle) → Kling splits into shots; only the FIRST frame is supported.
     const dur = Math.min(15, Math.max(3, parseInt(duration, 10) || 5));
-    const mode = String(resolution).toUpperCase() === '4K' ? '4K' : 'pro';
+    // std = 720p, pro = 1080p, 4K. This USED to send 'pro' for every
+    // non-4K request, so a user who picked 720p silently received (and we
+    // paid for) 1080p. Now that 720p is priced at its own cheaper rate,
+    // sending 'pro' would mean charging the 720p price while paying the
+    // 1080p cost — so the mapping has to be honest.
+    const resU = String(resolution).toUpperCase();
+    const mode = resU === '4K' ? '4K' : (resU === '720P' ? 'std' : 'pro');
     const ms = !!multiShots;
     return {
       family: 'jobs',

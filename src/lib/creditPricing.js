@@ -100,10 +100,13 @@ export const VIDEO_CREDITS = {
   // Kling 3.0 — per second (workbook: 1080p 2.5 no-audio / 4 with audio;
   // 4K 9 with audio). 720p reuses the 1080p rate (kie "std/pro" mode covers
   // both; the sheet's 720p tier is Kling 3.0 Turbo, not offered yet).
+  // Kling 3.0 — kie charges DISTINCT rates per resolution (verified against
+  // kie's price table 2026-08-02): 720p $0.070/$0.100, 1080p $0.090/$0.135,
+  // 4K $0.335 either way. 720p previously reused the 1080p price.
   'kling-3': {
     type: 'per-sec', defaultRes: '1080p',
     byRes: {
-      '720p':  { off: 2.5, on: 4 },
+      '720p':  { off: 2,   on: 3 },
       '1080p': { off: 2.5, on: 4 },
       '4K':    { off: 9,   on: 9 },
     },
@@ -125,12 +128,15 @@ export const VIDEO_CREDITS = {
   // Gemini Omni — priced PER SECOND (the workbook lists only the 6s clip,
   // but kie allows 4/6/8/10s and a flat price would fall to 3.9% margin at
   // 10s). $0.070/s and $0.140/s → 2 and 4 cr/s, 44.7% at every duration.
+  // Gemini Omni — kie bills PER WHOLE VIDEO at a rate that is NOT linear in
+  // duration (fixed base + per-second part), so it is priced per
+  // (resolution, duration). 720p and 1080p cost the same.
   'gemini-omni': {
-    type: 'per-sec', defaultRes: '720p',
-    byRes: {
-      '720p':  { off: 2, on: 2 },
-      '1080p': { off: 2, on: 2 },
-      '4K':    { off: 4, on: 4 },
+    type: 'per-gen', defaultRes: '720p',
+    byResDuration: {
+      '720p':  { 4: 8.5,  6: 11.5, 8: 14, 10: 17 },
+      '1080p': { 4: 8.5,  6: 11.5, 8: 14, 10: 17 },
+      '4K':    { 4: 19.5, 6: 22.5, 8: 25, 10: 28 },
     },
   },
   'kling-2-6': {

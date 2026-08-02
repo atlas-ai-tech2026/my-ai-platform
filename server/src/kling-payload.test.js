@@ -37,7 +37,9 @@ const base = { prompt: 'a cat', duration: 5, aspectRatio: '16:9', resolution: '7
 
 describe('Kling 3.0 (kling-3.0/video)', () => {
   it('text-to-video uses mode + sound + multi_shots, and no image_urls', () => {
-    const { body, modelIdTag } = build(KLING3, { ...base, frames: [], audio: true, multiShots: false });
+    const { body, modelIdTag } = build(KLING3, {
+      ...base, resolution: '1080p', frames: [], audio: true, multiShots: false,
+    });
     expect(body.model).toBe('kling-3.0/video');
     expect(body.input.mode).toBe('pro');
     expect(body.input.sound).toBe(true);
@@ -61,8 +63,22 @@ describe('Kling 3.0 (kling-3.0/video)', () => {
     expect(body.input.image_urls).toEqual(['https://cdn/a.png']);
   });
 
-  it('4K maps to the 4K mode', () => {
-    expect(build(KLING3, { ...base, frames: [], resolution: '4K' }).body.input.mode).toBe('4K');
+  // The resolution the user picks must reach kie, because each tier has a
+  // DIFFERENT price. This previously sent 'pro' for everything except 4K, so
+  // a 720p request silently received — and was billed to us as — 1080p.
+  // Now that 720p is charged at its own cheaper rate, that mismatch would
+  // mean charging the 720p price while paying the 1080p cost.
+  it('each resolution maps to its OWN kie mode', () => {
+    const modeFor = (r) => build(KLING3, { ...base, frames: [], resolution: r }).body.input.mode;
+    expect(modeFor('720p')).toBe('std');    // NOT 'pro'
+    expect(modeFor('1080p')).toBe('pro');
+    expect(modeFor('4K')).toBe('4K');
+    expect(modeFor('720P')).toBe('std');    // case-insensitive
+  });
+
+  it('an unrecognised resolution falls back to pro, never to a cheaper tier', () => {
+    // Falling back DOWN would mean charging 1080p and delivering 720p.
+    expect(build(KLING3, { ...base, frames: [], resolution: 'weird' }).body.input.mode).toBe('pro');
   });
 });
 

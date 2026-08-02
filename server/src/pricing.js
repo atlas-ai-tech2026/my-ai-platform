@@ -48,10 +48,18 @@ export const IMAGE_CREDITS = {
 //   type 'per-sec' → credits = byRes[res].(on|off) × seconds
 //   type 'flat'    → credits = byRes[res] (duration-independent) ------------
 export const VIDEO_CREDITS = {
+  // Kling 3.0 — kie charges DISTINCT rates per resolution (verified against
+  // kie's own price table, 2026-08-02):
+  //   720p  $0.070/s no-audio · $0.100/s with audio
+  //   1080p $0.090/s no-audio · $0.135/s with audio
+  //   4K    $0.335/s (same with or without audio)
+  // 720p used to reuse the 1080p price, overcharging by 0.5–1 cr/s. Note the
+  // dispatcher must send mode 'std' for 720p — charging the 720p rate while
+  // sending 'pro' would deliver (and pay for) 1080p.
   'kling-3': {
     type: 'per-sec', defaultRes: '1080p',
     byRes: {
-      '720p':  { off: 2.5, on: 4 },
+      '720p':  { off: 2,   on: 3 },
       '1080p': { off: 2.5, on: 4 },
       '4K':    { off: 9,   on: 9 },
     },
@@ -73,12 +81,19 @@ export const VIDEO_CREDITS = {
   // fall to 3.9% margin on a 10s clip, so this is priced PER SECOND from the
   // same basis: $0.0700/s and $0.1400/s → 2 and 4 cr/s, 44.7% at every
   // duration. No audio parameter, so on === off.
+  // Gemini Omni — kie bills PER WHOLE VIDEO, and the cost is NOT linear in
+  // duration: it is a fixed base plus a per-second component
+  // ($0.105 + $0.0525/s at 720p/1080p; $0.525 + $0.0525/s at 4K). A
+  // per-second price therefore cannot fit it — it undercharged short clips
+  // (4s at 4K gave only 27.5% margin) and overcharged long ones. Priced per
+  // (resolution, duration) against kie's published table instead. 720p and
+  // 1080p cost the same. Verified 2026-08-02.
   'gemini-omni': {
-    type: 'per-sec', defaultRes: '720p',
-    byRes: {
-      '720p':  { off: 2, on: 2 },
-      '1080p': { off: 2, on: 2 },
-      '4K':    { off: 4, on: 4 },
+    type: 'per-gen', defaultRes: '720p',
+    byResDuration: {
+      '720p':  { 4: 8.5,  6: 11.5, 8: 14, 10: 17 },
+      '1080p': { 4: 8.5,  6: 11.5, 8: 14, 10: 17 },
+      '4K':    { 4: 19.5, 6: 22.5, 8: 25, 10: 28 },
     },
   },
   'kling-2-6': {
@@ -294,6 +309,21 @@ function toSeconds(duration) {
   return m ? parseInt(m[0], 10) : 0;
 }
 
+// Snap a requested duration to the nearest duration the provider actually
+// prices. Ties resolve UPWARD, so we never charge the cheaper tier for a
+// clip that sits exactly between two. Must stay identical to the copy in
+// src/lib/creditPricing.js — the parity test compares their outputs.
+function snapDuration(seconds, keys) {
+  const opts = keys.map(Number).sort((a, b) => a - b);
+  let best = opts[0];
+  let bestDelta = Infinity;
+  for (const k of opts) {
+    const d = Math.abs(k - seconds);
+    if (d < bestDelta || (d === bestDelta && k > best)) { best = k; bestDelta = d; }
+  }
+  return best;
+}
+
 /**
  * Credits for one generated image. Returns a number or null when the model
  * has no price on file (caller must reject the request — never guess).
@@ -322,6 +352,14 @@ export function getVideoCredits(model, { resolution, duration = 5, audio = false
     if (!r) return null;
     const rate = audio ? r.on : r.off;
     return Math.round(rate * seconds * 100) / 100;
+  }
+  // per-gen — the provider bills per WHOLE video at a rate that is not
+  // linear in duration (a fixed base plus a per-second part), so the price
+  // is looked up per (resolution, duration).
+  if (cfg.type === 'per-gen') {
+    const table = cfg.byResDuration[resolution] || cfg.byResDuration[cfg.defaultRes];
+    if (!table) return null;
+    return table[snapDuration(seconds, Object.keys(table))] ?? null;
   }
   // flat — duration-independent
   const flat = cfg.byRes[resolution] ?? cfg.byRes[cfg.defaultRes];
