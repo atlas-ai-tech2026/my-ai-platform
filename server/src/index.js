@@ -54,6 +54,7 @@ import { withProviderDeadline, ProviderTimeoutError } from './provider-deadline.
 import { buildAuditSummary } from './audit-redact.js';
 // M2 (audit 2026-07-28): trust forwarding headers only from Cloudflare.
 import { resolveClientIp } from './client-ip.js';
+import { loginThrottleVerdict } from './login-throttle.js';
 // M3 (audit 2026-07-28): encrypted second backup destination.
 import {
   encryptBackup, offsiteConfigured, uploadOffsite, missingOffsiteVars,
@@ -3307,6 +3308,20 @@ const ADMIN_JWT_EXPIRES = process.env.ADMIN_JWT_EXPIRES_IN || '30m';
 const USER_FAILED_LOGIN_MAX = Number(process.env.FAILED_LOGIN_MAX || 10);
 const ADMIN_FAILED_LOGIN_MAX = Number(process.env.ADMIN_FAILED_LOGIN_MAX || 30);
 
+// N2 (recheck 2026-08-03): the ceilings above are scoped to (IP, email), so
+// an attacker with a proxy pool got a FRESH allowance per address — 30 admin
+// guesses per IP, unlimited IPs, no lockout. These are the account-wide
+// ceilings: every failure for one email inside the window counts, whatever
+// address it came from. Deliberately well above the per-IP ceiling so a real
+// user's typos (or a household on several addresses) never trip them.
+//
+// Trade-off, accepted knowingly: an attacker who knows an email can now hold
+// that ACCOUNT locked for 15 minutes at a time. That is strictly better than
+// unlimited distributed guessing, the window self-heals with no operator
+// action, and for the admin server/scripts/reset-admin-2fa.mjs clears it.
+const USER_ACCOUNT_FAILED_LOGIN_MAX = Number(process.env.ACCOUNT_FAILED_LOGIN_MAX || 25);
+const ADMIN_ACCOUNT_FAILED_LOGIN_MAX = Number(process.env.ADMIN_ACCOUNT_FAILED_LOGIN_MAX || 50);
+
 // Best-effort record of a failed attempt — never blocks the response.
 function recordFailedLogin(email, ip, ua) {
   return pool.query(
@@ -3336,14 +3351,33 @@ app.post('/api/auth/login', loginLimiter, requireAuthInfra, async (req, res) => 
     // purely on IP let a handful of unrelated people's typos lock out
     // EVERYONE behind that IP. Per-account keying still stops brute-forcing
     // a single account, while the per-IP loginLimiter above covers spraying.
+    // One query, two counters (N2): failures from THIS address, and failures
+    // for this account from ANY address. Served by failed_logins_email_recent_idx.
     const { rows: fl } = await pool.query(
-      `SELECT count(*)::int AS c FROM failed_logins
-       WHERE ip_address = $1 AND email = $2
-         AND created_at > NOW() - INTERVAL '15 minutes'`,
+      `SELECT count(*) FILTER (WHERE ip_address = $1)::int AS from_ip,
+              count(*)::int                                AS from_anywhere
+         FROM failed_logins
+        WHERE email = $2
+          AND created_at > NOW() - INTERVAL '15 minutes'`,
       [ip, email]
     );
-    const ceiling = isAdminAuth(req) ? ADMIN_FAILED_LOGIN_MAX : USER_FAILED_LOGIN_MAX;
-    if (fl[0]?.c >= ceiling) {
+    const isAdmin = isAdminAuth(req);
+    const verdict = loginThrottleVerdict({
+      fromIp: fl[0]?.from_ip ?? 0,
+      fromAnywhere: fl[0]?.from_anywhere ?? 0,
+      isAdmin,
+      ceilings: {
+        user:  { perIp: USER_FAILED_LOGIN_MAX,  perAccount: USER_ACCOUNT_FAILED_LOGIN_MAX },
+        admin: { perIp: ADMIN_FAILED_LOGIN_MAX, perAccount: ADMIN_ACCOUNT_FAILED_LOGIN_MAX },
+      },
+    });
+    if (verdict.blocked) {
+      // The response is identical for both scopes on purpose: saying which
+      // ceiling tripped would tell an attacker whether IP rotation is working.
+      if (verdict.scope === 'account') {
+        console.warn(`[auth/login] ACCOUNT-WIDE lockout for ${email}: ` +
+          `${fl[0].from_anywhere} failures from multiple addresses in 15 min`);
+      }
       return res.status(429).json({ error: 'Too many failed attempts for this account. Try again in 15 minutes.' });
     }
   } catch (e) {

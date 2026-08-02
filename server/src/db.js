@@ -249,6 +249,11 @@ export async function migrate() {
       );
     `);
     await client.query(`CREATE INDEX IF NOT EXISTS failed_logins_ip_recent_idx ON failed_logins (ip_address, created_at DESC);`);
+    // N2 (recheck 2026-08-03): the account-wide lockout counts every failure
+    // for one email inside the window regardless of source address. Without
+    // this index that count is a sequential scan of the whole table on every
+    // single login attempt.
+    await client.query(`CREATE INDEX IF NOT EXISTS failed_logins_email_recent_idx ON failed_logins (email, created_at DESC);`);
 
     // ─── entities (generation history + any other per-user docs) ─────
     // Replaces the previous server/data/entities.json write-through file
