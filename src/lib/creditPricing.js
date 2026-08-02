@@ -77,6 +77,12 @@ export const IMAGE_CREDITS = {
   'skin-enhancer':    { Draft: 1.5, '1K': 1.5, '2K': 1.5, '4K': 1.5 }, // aura-sr, FAL (basis ≤.05)
   'face-swap':        { Draft: 1.5, '1K': 1.5, '2K': 1.5, '4K': 1.5 }, // FAL (basis ≤.04)
   'relight':          { Draft: 1.5, '1K': 1.5, '2K': 1.5, '4K': 1.5 }, // ic-light, FAL (basis ≤.04)
+  // ── added 2026-08-02 from the workbook. Must stay identical to
+  //    server/src/pricing.js — enforced by the parity test. ──
+  'imagen-4-fast':    { Draft: 1.5, '1K': 1.5, '2K': 1.5, '4K': 1.5 }, // basis $0.040 → 57.9%
+  'imagen-4':         { Draft: 1.5, '1K': 1.5, '2K': 1.5, '4K': 1.5 }, // basis $0.050 → 47.4%
+  'imagen-4-ultra':   { Draft: 2,   '1K': 2,   '2K': 2,   '4K': 2   }, // basis $0.060 → 52.6%
+  'seedream-5-pro':   { Draft: 1,   '1K': 1,   '2K': 2,   '4K': 2   }, // tops out at 2K
 };
 
 // Image models NOT in the pricing workbook — fall back to model-list `credits`.
@@ -94,10 +100,13 @@ export const VIDEO_CREDITS = {
   // Kling 3.0 — per second (workbook: 1080p 2.5 no-audio / 4 with audio;
   // 4K 9 with audio). 720p reuses the 1080p rate (kie "std/pro" mode covers
   // both; the sheet's 720p tier is Kling 3.0 Turbo, not offered yet).
+  // Kling 3.0 — kie charges DISTINCT rates per resolution (verified against
+  // kie's price table 2026-08-02): 720p $0.070/$0.100, 1080p $0.090/$0.135,
+  // 4K $0.335 either way. 720p previously reused the 1080p price.
   'kling-3': {
     type: 'per-sec', defaultRes: '1080p',
     byRes: {
-      '720p':  { off: 2.5, on: 4 },
+      '720p':  { off: 2,   on: 3 },
       '1080p': { off: 2.5, on: 4 },
       '4K':    { off: 9,   on: 9 },
     },
@@ -105,6 +114,31 @@ export const VIDEO_CREDITS = {
   // Kling 2.6 — workbook prices per 5s clip (7.5 no-audio / 14.5 audio)
   // → 1.5 / 2.9 per second; kie durations are 5s or 10s so this lands
   // exactly on the sheet numbers (and 2× for 10s).
+  // Kling 3.0 Turbo — added 2026-08-02. basis = kie cost (720p $0.09/s,
+  // 1080p $0.1125/s) → sale = basis / (1 − 40%) → CEILING(…, 0.5) = 2.5 and
+  // 3 cr/s (43.2% / 40.8% margin). Turbo has no audio param, so on === off.
+  // Must stay identical to server/src/pricing.js — enforced by a parity test.
+  'kling-3-turbo': {
+    type: 'per-sec', defaultRes: '720p',
+    byRes: {
+      '720p':  { off: 2.5, on: 2.5 },
+      '1080p': { off: 3,   on: 3   },
+    },
+  },
+  // Gemini Omni — priced PER SECOND (the workbook lists only the 6s clip,
+  // but kie allows 4/6/8/10s and a flat price would fall to 3.9% margin at
+  // 10s). $0.070/s and $0.140/s → 2 and 4 cr/s, 44.7% at every duration.
+  // Gemini Omni — kie bills PER WHOLE VIDEO at a rate that is NOT linear in
+  // duration (fixed base + per-second part), so it is priced per
+  // (resolution, duration). 720p and 1080p cost the same.
+  'gemini-omni': {
+    type: 'per-gen', defaultRes: '720p',
+    byResDuration: {
+      '720p':  { 4: 8.5,  6: 11.5, 8: 14, 10: 17 },
+      '1080p': { 4: 8.5,  6: 11.5, 8: 14, 10: 17 },
+      '4K':    { 4: 19.5, 6: 22.5, 8: 25, 10: 28 },
+    },
+  },
   'kling-2-6': {
     type: 'per-sec', defaultRes: '1080p',
     byRes: { '1080p': { off: 1.5, on: 2.9 } },
