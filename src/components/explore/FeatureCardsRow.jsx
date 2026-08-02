@@ -143,6 +143,7 @@ export default function FeatureCardsRow() {
   const updatePage = () => {
     const el = scrollerRef.current;
     if (!el) return;
+    if (!el.clientWidth) return; // hidden or zero-width: a division here yields Infinity/NaN
     const pages = Math.max(1, Math.ceil(el.scrollWidth / el.clientWidth));
     const current = Math.round(el.scrollLeft / el.clientWidth);
     setPageCount(pages);
