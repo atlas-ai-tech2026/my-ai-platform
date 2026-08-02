@@ -318,6 +318,58 @@ export async function migrate() {
     await client.query(`CREATE INDEX IF NOT EXISTS pending_video_charges_pending_idx ON pending_video_charges (status, created_at) WHERE status = 'pending';`);
     await client.query(`CREATE INDEX IF NOT EXISTS pending_video_charges_user_idx ON pending_video_charges (user_id, created_at DESC);`);
 
+    // ─── ownership-lookup indexes (M5 + download guard) ─────────────
+    // Both /api/video-status (M5) and /api/download verify that a job id /
+    // media URL belongs to the caller by querying the entities table. The
+    // existing gin index serves containment (@>), NOT the `data->>'x' = $1`
+    // equality these use — without these expression indexes each check is a
+    // SEQUENTIAL SCAN of every generation ever made, and status polling runs
+    // every few seconds per in-flight job.
+    // Composite (user_id, expression) so the planner can serve the whole
+    // WHERE clause from the index. A PARTIAL index (… WHERE data ? 'job_id')
+    // is NOT usable here: the planner cannot prove the predicate holds from
+    // the query, so it falls back to a sequential scan — verified against a
+    // real Postgres with 20k rows.
+    await client.query(`CREATE INDEX IF NOT EXISTS entities_user_job_idx ON entities (user_id, (data->>'job_id'));`);
+    await client.query(`CREATE INDEX IF NOT EXISTS entities_user_result_url_idx ON entities (user_id, (data->>'result_url'));`);
+
+    // ─── M1: scrub credentials from EXISTING audit rows ─────────────
+    // (audit 2026-07-28) adminAudit used to serialize the whole request
+    // body, so historical rows for /reset-password hold customers'
+    // plaintext passwords. Blank the payload on every row that could
+    // contain one, keeping the row itself (the audit trail — who did what,
+    // when — stays intact; only the secret value is destroyed).
+    //
+    // Idempotent: rows already scrubbed no longer match the WHERE clause.
+    // NOTE: existing database BACKUPS still contain these values. Rotating
+    // or purging those is an operator decision, flagged in the summary.
+    // BOUNDED so it can never stall startup: this is a regex scan with no
+    // supporting index, and it runs inside the boot transaction. Capping the
+    // batch keeps boot fast on a large table; any remainder is picked up on
+    // the next boot (deploys restart the app regularly), and the log line
+    // says when more is left.
+    const M1_SCRUB_BATCH = 5000;
+    // payload_summary is JSONB, and ~* / LIKE are TEXT operators — comparing
+    // them directly raises "operator does not exist: jsonb ~* unknown",
+    // which would abort this whole migration transaction. Cast to text.
+    const scrubbed = await client.query(`
+      UPDATE admin_audit_log
+         SET payload_summary = '{"_scrubbed":"credentials removed by M1 migration"}'::jsonb
+       WHERE id IN (
+         SELECT id FROM admin_audit_log
+          WHERE payload_summary IS NOT NULL
+            AND payload_summary::text ~* '(password|passwd|secret|token|api[-_]?key|totp|recovery)'
+            AND payload_summary::text NOT LIKE '%_scrubbed%'
+          LIMIT ${M1_SCRUB_BATCH}
+       )
+    `);
+    if (scrubbed.rowCount > 0) {
+      console.log(`[db] M1: scrubbed credentials from ${scrubbed.rowCount} historical admin_audit_log row(s)`);
+      if (scrubbed.rowCount === M1_SCRUB_BATCH) {
+        console.warn('[db] M1: batch limit hit — more rows remain, they will be scrubbed on the next boot.');
+      }
+    }
+
     // ─── admin TOTP 2FA (H5, audit 2026-07-28) ──────────────────────
     //   totp_secret         base32 secret; NULL = 2FA not set up yet.
     //   totp_enabled        only TRUE after the admin confirms a code, so

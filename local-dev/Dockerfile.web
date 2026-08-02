@@ -1,6 +1,12 @@
+# ═══════════════════════════════════════════════════════════════════
+#  LOCAL DEVELOPMENT ONLY — NOT DEPLOYED
+#  Production serves the SPA from Express via the DigitalOcean Node
+#  buildpack (.do/app.yaml). nginx never runs in production, so any
+#  header set in nginx.conf would NOT apply there — put security
+#  headers in the Helmet config in server/src/index.js instead.
+#  (M4, security audit 2026-07-28.)
+# ═══════════════════════════════════════════════════════════════════
 # ─── VOXEL.AI frontend (Vite build → nginx) ─────────────────────
-# NOTE: production serves the SPA from Express via the DigitalOcean Node
-# buildpack (.do/app.yaml); this image is the local/compose stack.
 
 # Stage 1: build
 FROM node:20-alpine AS build
@@ -22,7 +28,8 @@ FROM nginxinc/nginx-unprivileged:1.27-alpine
 # Copying as root would leave root-owned files an unprivileged worker can
 # still read (0644), but be explicit about ownership anyway.
 COPY --from=build --chown=nginx:nginx /app/dist /usr/share/nginx/html
-COPY --chown=nginx:nginx nginx.conf /etc/nginx/conf.d/default.conf
+# Build context is the repo root, so this file is addressed from there.
+COPY --chown=nginx:nginx local-dev/nginx.conf /etc/nginx/conf.d/default.conf
 
 # uid 101 = `nginx` in this image. Stated explicitly so a future base-image
 # change can't silently promote us back to root.

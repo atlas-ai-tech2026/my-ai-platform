@@ -50,6 +50,14 @@ import {
 import { validateUpload } from './upload-guard.js';
 // H3 (audit 2026-07-28): hard deadline on synchronous provider calls.
 import { withProviderDeadline, ProviderTimeoutError } from './provider-deadline.js';
+// M1 (audit 2026-07-28): keep credentials out of the admin audit log.
+import { buildAuditSummary } from './audit-redact.js';
+// M2 (audit 2026-07-28): trust forwarding headers only from Cloudflare.
+import { resolveClientIp } from './client-ip.js';
+// M3 (audit 2026-07-28): encrypted second backup destination.
+import {
+  encryptBackup, offsiteConfigured, uploadOffsite, missingOffsiteVars,
+} from './backup-offsite.js';
 // H7 (audit 2026-07-28): admin session in an httpOnly cookie + CSRF.
 import {
   setAdminSessionCookies,
@@ -76,6 +84,7 @@ import {
   settleVideoCharge,
   refundFailedVideo,
   getVideoCharge,
+  userOwnsJob,
   userOwnsMediaUrl,
   reconcilePendingCharges,
 } from './video-charges.js';
@@ -220,19 +229,14 @@ app.use((req, _res, next) => {
 //   3. req.ip — last resort (local dev / direct origin hits)
 // (Trustworthy only because the origin is Cloudflare-fronted; lock the DO
 // origin firewall to CF IP ranges so these headers can't be spoofed direct.)
-function xffFirst(req) {
-  const xff = req.headers['x-forwarded-for'];
-  if (!xff) return '';
-  return String(xff).split(',')[0].trim();
-}
-const clientIp = (req) =>
-  String(
-    req.headers['cf-connecting-ip'] ||
-    req.headers['true-client-ip'] ||
-    xffFirst(req) ||
-    req.ip ||
-    ''
-  );
+// M2 (audit 2026-07-28): these headers used to be trusted from ANY caller,
+// so anyone reaching the origin directly could send a fresh
+// `CF-Connecting-IP` per request and get an unlimited number of rate-limit
+// buckets — defeating every throttle. resolveClientIp() now trusts them
+// ONLY when the direct peer is inside Cloudflare's published ranges;
+// otherwise it uses the socket address. See client-ip.js (and the manual
+// origin-firewall task documented there).
+const clientIp = (req) => resolveClientIp(req);
 // IPv6-safe key for express-rate-limit v8 (normalizes /64 subnets).
 const ipKey = (req) => ipKeyGenerator(clientIp(req));
 
@@ -296,6 +300,17 @@ const uploadLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many uploads — please wait a moment and try again.' },
+});
+// M5: status polling is legitimately frequent (the client polls every few
+// seconds per in-flight job, and a user can have several running), so this
+// is generous — it exists to stop enumeration, not normal polling.
+const statusLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 240,
+  keyGenerator: userKey,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many status checks — please slow down.' },
 });
 // Conservative: each call is a billable provider LLM request.
 const enhanceLimiter = rateLimit({
@@ -1126,7 +1141,7 @@ app.post('/api/generate', verifyJwt, requireNotBanned, requireModelProviderKey, 
     const isKie = cfg?.provider === 'kie' || VIDEO_DIRECT_MAP[model]?.provider === 'kie';
     const estOpts = { kind: type, model, quality, resolution: req.body.resolution, duration, audio: req.body.audio };
     const charge = await chargeCredits({
-      userId: req.user.id, kind: type, ip: req.ip, cost: serverCost, note: `${type}: ${model}`,
+      userId: req.user.id, kind: type, ip: clientIp(req), cost: serverCost, note: `${type}: ${model}`,
       provider: isKie ? 'kie' : 'fal',
       kieCredits: isKie ? estimateKieCredits(estOpts) : null,
       falCost: isKie ? null : estimateFalCost(estOpts),
@@ -1268,7 +1283,7 @@ app.post('/api/generate', verifyJwt, requireNotBanned, requireModelProviderKey, 
         // (This early-return path used to skip the catch-block refund.)
         if (chargedKind) {
           refundCredits({
-            userId: req.user.id, kind: chargedKind, ip: req.ip, cost: chargedCost,
+            userId: req.user.id, kind: chargedKind, ip: clientIp(req), cost: chargedCost,
             reason: `fal_empty_result: ${reason}`.slice(0, 500),
           }).catch(() => {});
         }
@@ -1364,7 +1379,7 @@ app.post('/api/generate', verifyJwt, requireNotBanned, requireModelProviderKey, 
       refundCredits({
         userId: req.user.id,
         kind: chargedKind,
-        ip: req.ip,
+        ip: clientIp(req),
         cost: chargedCost,
         reason: `${providerTag}: ${humanReason}`.slice(0, 500),
       }).catch(() => {});
@@ -1378,11 +1393,18 @@ app.post('/api/generate', verifyJwt, requireNotBanned, requireModelProviderKey, 
 });
 
 // ─── CHECK STATUS ENDPOINT ─────────────────────────────────────────
-app.post('/api/checkStatus', async (req, res) => {
+// M5 (audit 2026-07-28): was unauthenticated — anyone could poll any job
+// id and read other users' generation results. Now auth + rate limit +
+// ownership (404 on mismatch, same shape as the other ownership checks).
+app.post('/api/checkStatus', verifyJwt, requireNotBanned, statusLimiter, async (req, res) => {
   const { job_id, model_id } = req.body;
 
   if (!job_id || typeof job_id !== 'string') return res.status(400).json({ error: 'Invalid job_id' });
   if (!model_id || typeof model_id !== 'string') return res.status(400).json({ error: 'Invalid model_id' });
+
+  if (!(await userOwnsJob(req.user.id, job_id))) {
+    return res.status(404).json({ error: 'Job not found.' });
+  }
 
   // kie.ai jobs — same prefix convention as /api/video-status.
   if (model_id.startsWith('kie:')) {
@@ -1475,7 +1497,7 @@ app.post('/api/generate-video', verifyJwt, requireNotBanned, requireModelProvide
   let chargedCost = null;
   try {
     const charge = await chargeCredits({
-      userId: req.user.id, kind: 'video', ip: req.ip, cost: serverCost, note: `video: ${model}`,
+      userId: req.user.id, kind: 'video', ip: clientIp(req), cost: serverCost, note: `video: ${model}`,
       provider: mapping.provider === 'kie' ? 'kie' : 'fal',
       kieCredits: mapping.provider === 'kie' ? estimateKieCredits({ kind: 'video', model, resolution, duration, audio }) : null,
       falCost: mapping.provider === 'kie' ? null : estimateFalCost({ kind: 'video', model, resolution, duration, audio }),
@@ -1525,7 +1547,7 @@ app.post('/api/generate-video', verifyJwt, requireNotBanned, requireModelProvide
       console.error('[KIE-VIDEO] Error:', error.message);
       if (chargedKind) {
         refundCredits({
-          userId: req.user.id, kind: chargedKind, ip: req.ip, cost: chargedCost,
+          userId: req.user.id, kind: chargedKind, ip: clientIp(req), cost: chargedCost,
           reason: `kie_video_threw: ${error.message}`.slice(0, 500),
         }).catch(() => {});
       }
@@ -1602,7 +1624,7 @@ app.post('/api/generate-video', verifyJwt, requireNotBanned, requireModelProvide
     console.error('[VIDEO] Error:', error.message);
     if (chargedKind) {
       refundCredits({
-        userId: req.user.id, kind: chargedKind, ip: req.ip, cost: chargedCost,
+        userId: req.user.id, kind: chargedKind, ip: clientIp(req), cost: chargedCost,
         reason: `fal_video_threw: ${error.message}`.slice(0, 500),
       }).catch(() => {});
     }
@@ -1641,7 +1663,7 @@ app.post('/api/edit-video-omni', verifyJwt, requireNotBanned, requireFalKey, asy
   let chargedKind = null;
   let chargedCost = null;
   try {
-    const charge = await chargeCredits({ userId: req.user.id, kind: 'video', ip: req.ip, cost: serverCost, note: `video: ${req.body?.model || 'Edit Video'}`, provider: 'fal' });
+    const charge = await chargeCredits({ userId: req.user.id, kind: 'video', ip: clientIp(req), cost: serverCost, note: `video: ${req.body?.model || 'Edit Video'}`, provider: 'fal' });
     chargedKind = 'video';
     chargedCost = charge.cost;
     res.setHeader('X-Credits-Remaining', String(charge.newBalance));
@@ -1691,7 +1713,7 @@ app.post('/api/edit-video-omni', verifyJwt, requireNotBanned, requireFalKey, asy
     console.error('[VIDEO-EDIT-OMNI] Error:', error.message);
     if (chargedKind) {
       refundCredits({
-        userId: req.user.id, kind: chargedKind, ip: req.ip, cost: chargedCost,
+        userId: req.user.id, kind: chargedKind, ip: clientIp(req), cost: chargedCost,
         reason: `fal_video_edit_omni_threw: ${error.message}`.slice(0, 500),
       }).catch(() => {});
     }
@@ -1732,7 +1754,7 @@ app.post('/api/motion-control', verifyJwt, requireNotBanned, requireFalKey, asyn
   let chargedKind = null;
   let chargedCost = null;
   try {
-    const charge = await chargeCredits({ userId: req.user.id, kind: 'video', ip: req.ip, cost: serverCost, note: `video: ${req.body?.model || 'Motion Control'}`, provider: 'fal' });
+    const charge = await chargeCredits({ userId: req.user.id, kind: 'video', ip: clientIp(req), cost: serverCost, note: `video: ${req.body?.model || 'Motion Control'}`, provider: 'fal' });
     chargedKind = 'video';
     chargedCost = charge.cost;
     res.setHeader('X-Credits-Remaining', String(charge.newBalance));
@@ -1780,7 +1802,7 @@ app.post('/api/motion-control', verifyJwt, requireNotBanned, requireFalKey, asyn
     console.error('[MOTION-CONTROL] Error:', error.message);
     if (chargedKind) {
       refundCredits({
-        userId: req.user.id, kind: chargedKind, ip: req.ip, cost: chargedCost,
+        userId: req.user.id, kind: chargedKind, ip: clientIp(req), cost: chargedCost,
         reason: `fal_motion_control_threw: ${error.message}`.slice(0, 500),
       }).catch(() => {});
     }
@@ -1838,7 +1860,7 @@ app.post('/api/tts', verifyJwt, requireNotBanned, requireFalKey, async (req, res
   let chargedCost = null;
   try {
     const charge = await chargeCredits({
-      userId: req.user.id, kind: 'audio', ip: req.ip, cost: voiceCost,
+      userId: req.user.id, kind: 'audio', ip: clientIp(req), cost: voiceCost,
       note: `audio: TTS (${Math.ceil(text.length / 1000)}k chars)`, provider: 'fal',
       falCost: estimateFalCost({ kind: 'audio', model: 'TTS', chars: text.length }),
     });
@@ -1895,7 +1917,7 @@ app.post('/api/tts', verifyJwt, requireNotBanned, requireFalKey, async (req, res
     console.error('[TTS] Error:', error.message);
     if (chargedKind) {
       refundCredits({
-        userId: req.user.id, kind: chargedKind, ip: req.ip, cost: chargedCost,
+        userId: req.user.id, kind: chargedKind, ip: clientIp(req), cost: chargedCost,
         reason: `fal_tts_threw: ${error.message}`.slice(0, 500),
       }).catch(() => {});
     }
@@ -1926,7 +1948,7 @@ app.post('/api/generate-music', verifyJwt, requireNotBanned, requireFalKey, asyn
   let chargedKind = null;
   let chargedCost = null;
   try {
-    const charge = await chargeCredits({ userId: req.user.id, kind: 'audio', ip: req.ip, note: 'audio: Music', provider: 'fal' });
+    const charge = await chargeCredits({ userId: req.user.id, kind: 'audio', ip: clientIp(req), note: 'audio: Music', provider: 'fal' });
     chargedKind = 'audio';
     res.setHeader('X-Credits-Remaining', String(charge.newBalance));
   } catch (e) {
@@ -1974,7 +1996,7 @@ app.post('/api/generate-music', verifyJwt, requireNotBanned, requireFalKey, asyn
     console.error('[MUSIC] Error:', error.message);
     if (chargedKind) {
       refundCredits({
-        userId: req.user.id, kind: chargedKind, ip: req.ip, cost: chargedCost,
+        userId: req.user.id, kind: chargedKind, ip: clientIp(req), cost: chargedCost,
         reason: `fal_music_threw: ${error.message}`.slice(0, 500),
       }).catch(() => {});
     }
@@ -2025,7 +2047,10 @@ app.post('/api/tts/preview', requireFalKey, async (req, res) => {
 
   // Cache miss → FAL call. Gate on per-IP rate limit so it can't
   // be abused to fill the cache from one source.
-  if (!checkPreviewRate(req.ip || 'unknown')) {
+  // clientIp(req), not req.ip: behind Cloudflare req.ip is the EDGE address,
+  // so every visitor sharing an edge shared ONE preview budget and throttled
+  // each other. clientIp resolves the real visitor (see client-ip.js, M2).
+  if (!checkPreviewRate(clientIp(req) || 'unknown')) {
     return res.status(429).json({ error: 'Too many previews. Try again in an hour.' });
   }
 
@@ -2088,7 +2113,7 @@ app.post('/api/generate-video-ref', verifyJwt, requireNotBanned, requireModelPro
   let chargedCost = null;
   try {
     const charge = await chargeCredits({
-      userId: req.user.id, kind: 'video', ip: req.ip, cost: serverCost, note: `video: ${modelLabel}`,
+      userId: req.user.id, kind: 'video', ip: clientIp(req), cost: serverCost, note: `video: ${modelLabel}`,
       provider: VIDEO_DIRECT_MAP[modelLabel]?.provider === 'kie' ? 'kie' : 'fal',
       kieCredits: VIDEO_DIRECT_MAP[modelLabel]?.provider === 'kie'
         ? estimateKieCredits({ kind: 'video', model: modelLabel, resolution, duration, audio: generate_audio }) : null,
@@ -2181,7 +2206,7 @@ app.post('/api/generate-video-ref', verifyJwt, requireNotBanned, requireModelPro
       console.error('[SEEDANCE] [KIE] Error:', error.message);
       if (chargedKind) {
         refundCredits({
-          userId: req.user.id, kind: chargedKind, ip: req.ip, cost: chargedCost,
+          userId: req.user.id, kind: chargedKind, ip: clientIp(req), cost: chargedCost,
           reason: `kie_seedance_threw: ${error.message}`.slice(0, 500),
         }).catch(() => {});
       }
@@ -2236,7 +2261,7 @@ app.post('/api/generate-video-ref', verifyJwt, requireNotBanned, requireModelPro
     console.error('[SEEDANCE] Error:', error.message);
     if (chargedKind) {
       refundCredits({
-        userId: req.user.id, kind: chargedKind, ip: req.ip, cost: chargedCost,
+        userId: req.user.id, kind: chargedKind, ip: clientIp(req), cost: chargedCost,
         reason: `seedance_threw: ${error.message}`.slice(0, 500),
       }).catch(() => {});
     }
@@ -2263,9 +2288,15 @@ app.post('/api/check-character-eligibility', async (req, res) => {
 });
 
 // ─── VIDEO STATUS POLLING ─────────────────────────────────────────
-app.post('/api/video-status', async (req, res) => {
+// M5 (audit 2026-07-28): was unauthenticated — anyone could poll any job
+// id and read another user's video. Now auth + rate limit + ownership.
+app.post('/api/video-status', verifyJwt, requireNotBanned, statusLimiter, async (req, res) => {
   const { job_id, model_id } = req.body;
   if (!job_id || !model_id) return res.status(400).json({ error: 'job_id and model_id required' });
+
+  if (!(await userOwnsJob(req.user.id, job_id))) {
+    return res.status(404).json({ error: 'Job not found.' });
+  }
 
   // kie.ai jobs carry a 'kie:'-prefixed model_id (set at submit time);
   // 'kie:jobs:...' → unified Jobs API, plain 'kie:...' → Veo endpoints.
@@ -2960,7 +2991,7 @@ app.post('/api/node/run-node', verifyJwt, requireNotBanned, requireFalKey, async
   let chargedKind = null;
   let chargedCost = null;
   try {
-    const charge = await chargeCredits({ userId: req.user.id, kind: spec.creditKind, ip: req.ip, note: `node: ${settings?.model || type}`, provider: 'fal' });
+    const charge = await chargeCredits({ userId: req.user.id, kind: spec.creditKind, ip: clientIp(req), note: `node: ${settings?.model || type}`, provider: 'fal' });
     chargedKind = spec.creditKind;
     res.setHeader('X-Credits-Remaining', String(charge.newBalance));
   } catch (e) {
@@ -2998,7 +3029,7 @@ app.post('/api/node/run-node', verifyJwt, requireNotBanned, requireFalKey, async
     } catch (error) {
       console.error('[node:run] [KIE] error:', error.message);
       if (chargedKind) {
-        refundCredits({ userId: req.user.id, kind: chargedKind, ip: req.ip, reason: `node_run_kie_threw: ${error.message}`.slice(0, 500) }).catch(() => {});
+        refundCredits({ userId: req.user.id, kind: chargedKind, ip: clientIp(req), reason: `node_run_kie_threw: ${error.message}`.slice(0, 500) }).catch(() => {});
       }
       return res.status(500).json({ error: 'Node run failed: ' + publicError(error.message) });
     }
@@ -3016,7 +3047,7 @@ app.post('/api/node/run-node', verifyJwt, requireNotBanned, requireFalKey, async
   } catch (error) {
     console.error('[node:run] FAL error:', error.message);
     if (chargedKind) {
-      refundCredits({ userId: req.user.id, kind: chargedKind, ip: req.ip, reason: `node_run_threw: ${error.message}`.slice(0, 500) }).catch(() => {});
+      refundCredits({ userId: req.user.id, kind: chargedKind, ip: clientIp(req), reason: `node_run_threw: ${error.message}`.slice(0, 500) }).catch(() => {});
     }
     if (respondIfProviderTimeout(res, error)) return;
     return res.status(500).json({ error: 'Node run failed: ' + publicError(error?.body?.detail || error.message) });
@@ -3067,7 +3098,7 @@ app.post('/api/node/run-node-async', verifyJwt, requireNotBanned, requireFalKey,
     // C1: the node client never sends a price — charge the flat per-kind
     // cost server-side. req.body.credit_cost is deliberately IGNORED here:
     // an attacker could otherwise name their own price.
-    const charge = await chargeCredits({ userId: req.user.id, kind: 'video', ip: req.ip, note: `node video: ${modelLabel || 'video-generator'}`, provider: 'fal' });
+    const charge = await chargeCredits({ userId: req.user.id, kind: 'video', ip: clientIp(req), note: `node video: ${modelLabel || 'video-generator'}`, provider: 'fal' });
     chargedKind = 'video';
     chargedCost = charge.cost;
     res.setHeader('X-Credits-Remaining', String(charge.newBalance));
@@ -3125,7 +3156,7 @@ app.post('/api/node/run-node-async', verifyJwt, requireNotBanned, requireFalKey,
     } catch (error) {
       console.error('[node:run-async] [KIE] error:', error.message);
       if (chargedKind) {
-        refundCredits({ userId: req.user.id, kind: chargedKind, ip: req.ip, cost: chargedCost, reason: `node_async_kie_threw: ${error.message}`.slice(0, 500) }).catch(() => {});
+        refundCredits({ userId: req.user.id, kind: chargedKind, ip: clientIp(req), cost: chargedCost, reason: `node_async_kie_threw: ${error.message}`.slice(0, 500) }).catch(() => {});
       }
       return res.status(500).json({ error: 'Node video failed: ' + publicError(error.message) });
     }
@@ -3152,7 +3183,7 @@ app.post('/api/node/run-node-async', verifyJwt, requireNotBanned, requireFalKey,
   } catch (error) {
     console.error('[node:run-async] submit error:', error.message);
     if (chargedKind) {
-      refundCredits({ userId: req.user.id, kind: chargedKind, ip: req.ip, reason: `node_async_threw: ${error.message}`.slice(0, 500) }).catch(() => {});
+      refundCredits({ userId: req.user.id, kind: chargedKind, ip: clientIp(req), reason: `node_async_threw: ${error.message}`.slice(0, 500) }).catch(() => {});
     }
     return res.status(500).json({ error: 'Video submit failed: ' + publicError(error?.body?.detail || error.message) });
   }
@@ -3557,7 +3588,12 @@ app.get('/api/me/usage', verifyJwt, async (req, res) => {
 // trace. Insert is fire-and-forget — we don't block the response on it.
 function adminAudit(req, res, next) {
   const targetId = req.params?.id ? parseInt(req.params.id, 10) : null;
-  const summary = (req.method === 'POST' && req.body) ? req.body : null;
+  const routePath = req.route?.path || req.originalUrl;
+  // M1 (audit 2026-07-28): this used to serialize the WHOLE request body,
+  // which wrote customers' new plaintext passwords into the audit table.
+  // Now: an explicit per-route field allow-list plus a /password/i-style
+  // redaction sweep. See audit-redact.js.
+  const summary = buildAuditSummary(routePath, req.method, req.body);
   pool.query(
     `INSERT INTO admin_audit_log
        (admin_id, admin_email, route, method, target_user_id, payload_summary, ip_address, user_agent)
@@ -3565,11 +3601,13 @@ function adminAudit(req, res, next) {
     [
       req.user.id,
       req.user.email,
-      req.route?.path || req.originalUrl,
+      routePath,
       req.method,
       Number.isFinite(targetId) ? targetId : null,
-      summary ? JSON.stringify(summary).slice(0, 2000) : null,
-      req.ip,
+      summary,
+      // M2: the real client IP, consistent with the rate limiters (req.ip
+      // is the proxy hop here).
+      clientIp(req) || req.ip,
       req.get('user-agent') || null,
     ]
   ).catch(err => console.error('[admin-audit] insert failed:', err.message));
@@ -3710,7 +3748,7 @@ app.post('/api/admin/users/:id/credits', adminGate, async (req, res) => {
         `INSERT INTO credits_history
            (user_id, amount, action, admin_email, reason, ip_address)
          VALUES ($1, $2, $3, $4, $5, $6)`,
-        [targetId, delta, action, req.user.email, reason, req.ip]
+        [targetId, delta, action, req.user.email, reason, clientIp(req)]
       );
 
       await client.query('COMMIT');
@@ -3758,7 +3796,7 @@ app.post('/api/admin/users/:id/ban', adminGate, async (req, res) => {
       `INSERT INTO credits_history
          (user_id, amount, action, admin_email, reason, ip_address)
        VALUES ($1, 0, $2, $3, $4, $5)`,
-      [targetId, banned ? 'ban' : 'unban', req.user.email, reason, req.ip]
+      [targetId, banned ? 'ban' : 'unban', req.user.email, reason, clientIp(req)]
     ).catch(() => {});
 
     res.json({ user: upd.rows[0] });
@@ -3797,7 +3835,7 @@ app.post('/api/admin/users/:id/reset-password', adminGate, async (req, res) => {
       `INSERT INTO credits_history
          (user_id, amount, action, admin_email, reason, ip_address)
        VALUES ($1, 0, 'password_reset', $2, $3, $4)`,
-      [targetId, req.user.email, 'admin password reset', req.ip]
+      [targetId, req.user.email, 'admin password reset', clientIp(req)]
     ).catch(() => {});
 
     console.log(`[admin] password reset for user #${targetId} (${target.rows[0].email}) by ${req.user.email}`);
@@ -4369,30 +4407,44 @@ app.post('/api/admin/users/bulk', adminGate, async (req, res) => {
     const BULK_BCRYPT_ROUNDS = 8;
     const results = [];
     for (const email of valid) {
+      // M5 (audit 2026-07-28): each user is created inside its OWN
+      // transaction, so the user row and its credit-grant ledger row
+      // commit or roll back together. Previously a failure between the two
+      // INSERTs left a credited user with no ledger row — the balance and
+      // the audit trail disagreed, and the credits appeared from nowhere.
+      // Per-user (not per-batch) so one bad address doesn't discard the
+      // whole batch, which is what the admin expects from this screen.
+      const client = await pool.connect();
       try {
-        const exists = await pool.query('SELECT 1 FROM users WHERE email = $1', [email]);
+        const exists = await client.query('SELECT 1 FROM users WHERE email = $1', [email]);
         if (exists.rowCount > 0) {
           results.push({ email, status: 'exists' });
           continue;
         }
         const password = generateBulkPassword();
         const hash = await bcrypt.hash(password, BULK_BCRYPT_ROUNDS);
-        const ins = await pool.query(
+
+        await client.query('BEGIN');
+        const ins = await client.query(
           `INSERT INTO users (email, password_hash, credits, credit_limit, role, package, expires_at, allowed_models)
            VALUES ($1, $2, $3, $3, 'user', $4, $5, $6) RETURNING id`,
           [email, hash, credits, pkg, expiresAt, allowedModels ? JSON.stringify(allowedModels) : null]
         );
         if (credits > 0) {
-          await pool.query(
+          await client.query(
             `INSERT INTO credits_history (user_id, amount, action, admin_email, reason)
              VALUES ($1, $2, 'grant', $3, $4)`,
             [ins.rows[0].id, credits, req.user?.email || ADMIN_EMAIL, `bulk provision: ${pkg} plan`]
           );
         }
+        await client.query('COMMIT');
         results.push({ email, password, status: 'created' });
       } catch (e) {
+        await client.query('ROLLBACK').catch(() => {});
         console.error('[admin/bulk] failed for', email, e.message);
         results.push({ email, status: 'error' });
+      } finally {
+        client.release();
       }
     }
     const created = results.filter(r => r.status === 'created').length;
@@ -4740,7 +4792,12 @@ function kieSwitchDateFor(reason) {
 // daily and keeps the newest 14. Status is exposed on /api/admin/stats.
 const BACKUP_TABLES = ['users', 'credits_history', 'admin_audit_log', 'failed_logins', 'entities', 'node_spaces', 'promo_codes', 'promo_redemptions', 'gift_cards'];
 const BACKUP_KEEP = 14;
-const autoBackupStatus = { last_at: null, last_key: null, last_error: null };
+const autoBackupStatus = {
+  last_at: null, last_key: null, last_error: null,
+  // M3: surfaced on /api/admin/stats so the CRM can show whether the
+  // second copy and the encryption are actually in place.
+  encrypted: false, offsite_key: null, offsite_error: null,
+};
 
 async function runAutomatedBackup() {
   if (!dbReady() || !spacesReady()) return;
@@ -4777,12 +4834,67 @@ async function runAutomatedBackup() {
     gz.end();
     await gzDone;
 
-    const key = `backups/voxel-auto-${new Date().toISOString().slice(0, 10)}.ndjson.gz`;
-    await uploadPrivate(key, Buffer.concat(chunks));
+    const archive = Buffer.concat(chunks);
+    const stamp = new Date().toISOString().slice(0, 10);
+
+    // ── M3: encrypt before anything leaves the process ──────────────
+    // Neither storage provider should ever hold readable customer data.
+    // Without a passphrase we keep making the (unencrypted) primary copy
+    // rather than stopping backups altogether — but say so loudly.
+    const passphrase = (process.env.BACKUP_ENCRYPTION_PASSPHRASE || '').trim();
+    const encrypted = passphrase ? encryptBackup(archive, passphrase) : null;
+    if (!passphrase) {
+      console.error('[auto-backup] ⚠️ BACKUP_ENCRYPTION_PASSPHRASE is not set — ' +
+        'backups are being stored UNENCRYPTED. See RESTORE.md.');
+    }
+
+    const key = passphrase
+      ? `backups/voxel-auto-${stamp}.ndjson.gz.enc`
+      : `backups/voxel-auto-${stamp}.ndjson.gz`;
+
+    // ── Destination 1: DO Spaces (unchanged, still the first copy) ──
+    await uploadPrivate(key, encrypted || archive);
+    console.log(`[auto-backup] ✅ primary (DO Spaces): ${key}`);
+
+    // ── Destination 2: a DIFFERENT provider/account ─────────────────
+    // The whole point of M3: losing the DO account must not lose the
+    // backups too. Only encrypted archives are sent offsite.
+    let offsiteKey = null;
+    let offsiteError = null;
+    if (offsiteConfigured()) {
+      if (!passphrase) {
+        offsiteError = 'refused to send an UNENCRYPTED archive offsite — set BACKUP_ENCRYPTION_PASSPHRASE';
+        console.error(`[auto-backup] ❌ offsite: ${offsiteError}`);
+      } else {
+        try {
+          offsiteKey = await uploadOffsite(key, encrypted);
+          console.log(`[auto-backup] ✅ offsite: ${offsiteKey}`);
+        } catch (e) {
+          offsiteError = e.message;
+          console.error('[auto-backup] ❌ offsite upload FAILED:', e.message);
+        }
+      }
+    } else {
+      offsiteError = `offsite backup not configured — missing: ${missingOffsiteVars().join(', ')}`;
+      console.error(`[auto-backup] ⚠️ ${offsiteError}`);
+    }
+
     autoBackupStatus.last_at = new Date().toISOString();
     autoBackupStatus.last_key = key;
+    autoBackupStatus.encrypted = !!passphrase;
+    autoBackupStatus.offsite_key = offsiteKey;
+    autoBackupStatus.offsite_error = offsiteError;
     autoBackupStatus.last_error = null;
-    console.log(`[auto-backup] ✅ ${key}`, JSON.stringify(counts));
+    console.log(`[auto-backup] counts`, JSON.stringify(counts));
+
+    // Fail LOUDLY when only one copy exists. Silently succeeding on one
+    // destination is exactly how people end up believing they have
+    // backups they don't have.
+    if (offsiteError) {
+      autoBackupStatus.last_error = `only ONE copy exists: ${offsiteError}`;
+      console.error('[auto-backup] ❌ INCOMPLETE — only one copy of this backup exists.');
+      throw new Error(`Backup incomplete — offsite copy failed: ${offsiteError}`);
+    }
 
     // Retention: keep the newest BACKUP_KEEP, delete the rest.
     const all = (await listKeys('backups/')).sort((a, b) => String(b.key).localeCompare(String(a.key)));

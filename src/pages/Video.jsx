@@ -168,9 +168,10 @@ export default function Video() {
       }
 
       try {
+        // M5: /api/video-status now requires auth + job ownership.
         const res = await fetch('/api/video-status', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: authJsonHeaders(),
           body: JSON.stringify({ job_id: jobId, model_id: modelId }),
         });
         const d = await res.json();

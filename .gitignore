@@ -22,6 +22,13 @@ digitalocean-support-ticket.md
 *.csv
 reports/
 
+# Source/code archives (e.g. _audit_code.tar.gz — a full snapshot of the
+# repo made for the security audit). Never belongs in a PUBLIC repo: it is
+# redundant with git itself and one `git add .` from being published.
+*.tar.gz
+*.tgz
+*.zip
+
 # Local-only assets / generated media and admin recovery scripts.
 cameras voxel/
 images/

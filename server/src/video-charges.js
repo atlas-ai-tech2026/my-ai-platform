@@ -128,6 +128,40 @@ export async function getVideoCharge(jobId) {
 }
 
 /**
+ * M5 (audit 2026-07-28): does this user own this job?
+ *
+ * Two sources, because not every job has a charge row (a free retry, or a
+ * job submitted before H4 shipped):
+ *   1. pending_video_charges.job_id → user_id  (written at submit time)
+ *   2. the user's own GenerationHistory entity rows, which carry job_id
+ *
+ * Returns true only on a positive match, so an unknown job id is treated
+ * as "not yours" and the route answers 404 — the same shape as the
+ * ownership filtering the audit verified as correct elsewhere.
+ */
+export async function userOwnsJob(userId, jobId) {
+  if (!userId || !jobId || !dbReady()) return false;
+  try {
+    const charge = await pool.query(
+      'SELECT 1 FROM pending_video_charges WHERE job_id = $1 AND user_id = $2 LIMIT 1',
+      [String(jobId), userId]
+    );
+    if (charge.rowCount > 0) return true;
+
+    const entity = await pool.query(
+      `SELECT 1 FROM entities
+        WHERE user_id = $1 AND data->>'job_id' = $2
+        LIMIT 1`,
+      [userId, String(jobId)]
+    );
+    return entity.rowCount > 0;
+  } catch (e) {
+    console.error(`[video-charge] ownership check failed for job ${jobId}:`, e.message);
+    return false;
+  }
+}
+
+/**
  * Does this URL appear in the user's OWN generation history?
  *
  * Used by /api/download (H1). A host allow-list alone kept refusing
@@ -141,10 +175,14 @@ export async function getVideoCharge(jobId) {
 export async function userOwnsMediaUrl(userId, url) {
   if (!userId || !url || !dbReady()) return false;
   try {
+    // Only result_url — that is the field history rows actually store.
+    // Adding `OR data->>'url' = $2` made the planner fall back to a
+    // SEQUENTIAL SCAN of every generation ever made (verified on 20k rows),
+    // and no row uses that key. A URL not matched here still gets the host
+    // allow-list, so nothing legitimate is lost.
     const { rowCount } = await pool.query(
       `SELECT 1 FROM entities
-        WHERE user_id = $1
-          AND (data->>'result_url' = $2 OR data->>'url' = $2)
+        WHERE user_id = $1 AND data->>'result_url' = $2
         LIMIT 1`,
       [userId, String(url)]
     );
