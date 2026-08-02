@@ -1,52 +1,68 @@
-name: voxel-ai-dev
+name: voxel-app-dev
 region: nyc
 
-# DEV twin of .do/app.yaml. Differences from prod, and nothing else:
-#   - name: voxel-ai-dev
+# DEV twin of the REAL production app "voxel-app" (spec pulled live via
+# `doctl apps spec get` on 2026-08-02 — note: prod's live spec differs from
+# .do/app.yaml, which predates the dashboard-managed changes).
+#
+# Differences from prod, and nothing else:
+#   - name: voxel-app-dev
 #   - deploys from the `dev` branch (prod deploys from `main`)
-# Keep the two specs in sync when the service definition changes.
+#   - instance_count: 1 (prod runs 2)
+#   - its own embedded dev database `dev-db` (prod uses dev-db-347887)
+#   - no custom domain (uses the default ondigitalocean.app URL)
 #
-# Secrets are NOT declared here for the same reason as prod (component-level
-# SECRET slots shadow app-level values). After creating the app, set these in
-# DO Dashboard → voxel-ai-dev → Settings → App-Level Environment Variables:
-#
-#   FAL_KEY        (Encrypted)  scope=Run Time
-#   KIE_KEY        (Encrypted)  scope=Run Time
-#   JWT_SECRET     (Encrypted)  scope=Run Time — use a DIFFERENT secret than
-#                  prod, so dev tokens can never be replayed against prod
-#   DATABASE_URL   → the DEV database, never the prod one
-#   SPACES_*       (the six storage/backup vars per RESTORE.md)
+# Secrets (FAL_KEY, KIE_KEY, JWT_SECRET) are NOT declared here — empty SECRET
+# slots in a spec shadow dashboard-set values. Set them in DO Dashboard →
+# voxel-app-dev → Settings → App-Level Environment Variables:
+#   FAL_KEY     (Encrypt)  — from fal.ai dashboard
+#   KIE_KEY     (Encrypt)  — from kie.ai dashboard
+#   JWT_SECRET  (Encrypt)  — a NEW random value, NEVER prod's, so dev tokens
+#                            can never be replayed against production
+# DATABASE_URL is auto-injected from the attached dev-db component below.
+
+features:
+- buildpack-stack=ubuntu-22
+
+alerts:
+- rule: DEPLOYMENT_FAILED
+
+databases:
+- engine: PG
+  name: dev-db
+  version: "17"
+
+ingress:
+  rules:
+  - component:
+      name: my-ai-platform
+    match:
+      path:
+        prefix: /
 
 services:
-  - name: web
-    github:
-      repo: atlas-ai-tech2026/my-ai-platform
-      branch: dev
-      deploy_on_push: true
-    environment_slug: node-js
-    build_command: npm ci && npm run build && npm --prefix server ci --omit=dev
-    run_command: node server/src/index.js
-    http_port: 8080
-    instance_count: 1
-    instance_size_slug: basic-xxs
-    routes:
-      - path: /
-    health_check:
-      http_path: /api/health
-      initial_delay_seconds: 30
-      period_seconds: 10
-      timeout_seconds: 5
-      success_threshold: 1
-      failure_threshold: 6
-    envs:
-      # NODE_ENV must NOT be set at BUILD_TIME — npm ci skips devDependencies
-      # when it sees NODE_ENV=production, which would break the Vite build.
-      - key: NODE_ENV
-        value: production
-        scope: RUN_TIME
-      - key: NPM_CONFIG_PRODUCTION
-        value: "false"
-        scope: BUILD_TIME
-      - key: PORT
-        value: "8080"
-        scope: RUN_TIME
+- name: my-ai-platform
+  github:
+    repo: atlas-ai-tech2026/my-ai-platform
+    branch: dev
+    deploy_on_push: true
+  environment_slug: node-js
+  build_command: npm ci && npm run build && npm --prefix server ci --omit=dev
+  run_command: node server/src/index.js
+  http_port: 8080
+  instance_count: 1
+  instance_size_slug: apps-s-1vcpu-1gb
+  source_dir: /
+  envs:
+  - key: NODE_ENV
+    scope: RUN_AND_BUILD_TIME
+    value: production
+  - key: PORT
+    scope: RUN_AND_BUILD_TIME
+    value: "8080"
+  - key: NPM_CONFIG_PRODUCTION
+    scope: RUN_AND_BUILD_TIME
+    value: "false"
+  - key: DATABASE_URL
+    scope: RUN_TIME
+    value: ${dev-db.DATABASE_URL}
