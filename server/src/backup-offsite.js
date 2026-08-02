@@ -113,8 +113,12 @@ function offsiteClient(env = process.env) {
       secretAccessKey: env.OFFSITE_S3_SECRET.trim(),
     },
     forcePathStyle: true, // widest compatibility (B2, R2, MinIO…)
-    // SDK ≥3.729 sends aws-chunked bodies with trailing CRC checksums by
-    // default; B2 rejects them with "The request body was too small".
+    // SDK ≥3.729 defaults to flexible checksums (aws-chunked bodies with
+    // trailing CRC), which some S3-compatible providers reject. B2 accepts
+    // them today (verified 2026-08-02), but plain signed bodies are the
+    // compatibility-safe choice. NB: with a WRONG applicationKey, B2 fails
+    // PUTs with the misleading "The request body was too small" instead of
+    // SignatureDoesNotMatch — check credentials before blaming the body.
     requestChecksumCalculation: 'WHEN_REQUIRED',
     responseChecksumValidation: 'WHEN_REQUIRED',
   });
