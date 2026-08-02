@@ -33,6 +33,7 @@
 
 import crypto from 'node:crypto';
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
 // ---- encryption ----------------------------------------------------------
 
@@ -120,16 +121,34 @@ function offsiteClient(env = process.env) {
   return cachedClient;
 }
 
-/** Upload an already-encrypted archive to the offsite bucket. */
+/** Upload an already-encrypted archive to the offsite bucket.
+ *
+ * Deliberately NOT `client.send(new PutObjectCommand({Body}))`: the SDK's
+ * middleware wraps bodies in aws-chunked encoding with trailing checksums,
+ * which B2's S3 layer rejects ("The request body was too small") — and it
+ * kept doing so even with requestChecksumCalculation: 'WHEN_REQUIRED'.
+ * A presigned URL + plain PUT sends the exact bytes with a Content-Length,
+ * which every S3-compatible provider accepts. */
 export async function uploadOffsite(key, body, env = process.env) {
   const prefix = (env.OFFSITE_S3_PREFIX || 'backups/').replace(/^\/+/, '');
   const fullKey = key.startsWith(prefix) ? key : prefix + key.replace(/^backups\//, '');
-  await offsiteClient(env).send(new PutObjectCommand({
+  const url = await getSignedUrl(offsiteClient(env), new PutObjectCommand({
     Bucket: env.OFFSITE_S3_BUCKET.trim(),
     Key: fullKey,
-    Body: body,
     ContentType: 'application/octet-stream',
-  }));
+  }), { expiresIn: 300 });
+  const res = await fetch(url, {
+    method: 'PUT',
+    body,
+    headers: {
+      'Content-Type': 'application/octet-stream',
+      'Content-Length': String(body.length),
+    },
+  });
+  if (!res.ok) {
+    const detail = (await res.text().catch(() => '')).slice(0, 300);
+    throw new Error(`offsite PUT ${res.status}: ${detail || res.statusText}`);
+  }
   return fullKey;
 }
 
