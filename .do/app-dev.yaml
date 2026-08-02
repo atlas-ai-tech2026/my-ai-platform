@@ -1,0 +1,52 @@
+name: voxel-ai-dev
+region: nyc
+
+# DEV twin of .do/app.yaml. Differences from prod, and nothing else:
+#   - name: voxel-ai-dev
+#   - deploys from the `dev` branch (prod deploys from `main`)
+# Keep the two specs in sync when the service definition changes.
+#
+# Secrets are NOT declared here for the same reason as prod (component-level
+# SECRET slots shadow app-level values). After creating the app, set these in
+# DO Dashboard → voxel-ai-dev → Settings → App-Level Environment Variables:
+#
+#   FAL_KEY        (Encrypted)  scope=Run Time
+#   KIE_KEY        (Encrypted)  scope=Run Time
+#   JWT_SECRET     (Encrypted)  scope=Run Time — use a DIFFERENT secret than
+#                  prod, so dev tokens can never be replayed against prod
+#   DATABASE_URL   → the DEV database, never the prod one
+#   SPACES_*       (the six storage/backup vars per RESTORE.md)
+
+services:
+  - name: web
+    github:
+      repo: atlas-ai-tech2026/my-ai-platform
+      branch: dev
+      deploy_on_push: true
+    environment_slug: node-js
+    build_command: npm ci && npm run build && npm --prefix server ci --omit=dev
+    run_command: node server/src/index.js
+    http_port: 8080
+    instance_count: 1
+    instance_size_slug: basic-xxs
+    routes:
+      - path: /
+    health_check:
+      http_path: /api/health
+      initial_delay_seconds: 30
+      period_seconds: 10
+      timeout_seconds: 5
+      success_threshold: 1
+      failure_threshold: 6
+    envs:
+      # NODE_ENV must NOT be set at BUILD_TIME — npm ci skips devDependencies
+      # when it sees NODE_ENV=production, which would break the Vite build.
+      - key: NODE_ENV
+        value: production
+        scope: RUN_TIME
+      - key: NPM_CONFIG_PRODUCTION
+        value: "false"
+        scope: BUILD_TIME
+      - key: PORT
+        value: "8080"
+        scope: RUN_TIME
