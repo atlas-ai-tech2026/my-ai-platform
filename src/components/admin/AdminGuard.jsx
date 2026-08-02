@@ -11,17 +11,25 @@
 
 import React, { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { adminApi, getStoredUser, VOXEL_TOKEN_KEY, ApiError } from '@/lib/adminApi';
+import { adminApi, ApiError } from '@/lib/adminApi';
 
 const IDLE_MS = 15 * 60 * 1000;
 
 export default function AdminGuard({ children }) {
   const navigate = useNavigate();
-  const [user, setUser] = useState(() => getStoredUser());
+  // N3: the session is an httpOnly cookie this code cannot read, so identity
+  // comes from the server rather than from decoding a localStorage token.
+  // `undefined` = still asking, `null` = signed out, object = signed in.
+  const [user, setUser] = useState(undefined);
   const [checking, setChecking] = useState(false);
 
-  // Re-decode the stored token on mount in case it expired.
-  useEffect(() => { setUser(getStoredUser()); }, []);
+  useEffect(() => {
+    let cancelled = false;
+    adminApi.me()
+      .then(r => { if (!cancelled) setUser(r?.user ?? r ?? null); })
+      .catch(() => { if (!cancelled) setUser(null); });
+    return () => { cancelled = true; };
+  }, []);
 
   // Logged in as a non-admin → bounce to home so they don't even see the URL exists.
   useEffect(() => {
@@ -30,9 +38,16 @@ export default function AdminGuard({ children }) {
     }
   }, [user, navigate]);
 
+  // Still asking the server who we are — render nothing rather than flashing
+  // the sign-in form at an already-signed-in admin.
+  if (user === undefined) return null;
+
   // Idle redirect (frontend-only; not a security boundary).
   const logout = useCallback(() => {
-    localStorage.removeItem(VOXEL_TOKEN_KEY);
+    // N17: the UI used to drop only its own copy, leaving the httpOnly admin
+    // cookie valid for up to 30 minutes — on a shared machine the next person
+    // inherited a live session. Clear it server-side, then leave.
+    adminApi.logout().catch(() => {});
     setUser(null);
     navigate('/', { replace: true });
   }, [navigate]);
@@ -95,17 +110,17 @@ function InlineLogin({ checking, setChecking, onLogin }) {
       const r = await adminApi.login(email.trim().toLowerCase(), password,
         !needsCode || !trimmed ? {}
           : useRecovery ? { recoveryCode: trimmed } : { totpCode: trimmed });
-      localStorage.setItem(VOXEL_TOKEN_KEY, r.token);
-      const decoded = getStoredUser();
-      if (!decoded || decoded.role !== 'admin') {
-        // Successful login but not an admin → drop the token and tell them
-        // generically that they don't have access. Don't leak whether the
-        // role check vs the credentials failed.
-        localStorage.removeItem(VOXEL_TOKEN_KEY);
+      // N3: the token in this response is deliberately NOT stored. For an
+      // admin the server also set the httpOnly session cookie, which is what
+      // authenticates every later call — nothing readable by page JavaScript.
+      if (r?.user?.role !== 'admin') {
+        // Signed in but not an admin. Say so generically: don't reveal
+        // whether it was the credentials or the role that failed.
+        await adminApi.logout().catch(() => {});
         setErr('Sign-in successful but this account does not have access.');
         return;
       }
-      onLogin(decoded);
+      onLogin(r.user);
     } catch (e) {
       // N1: a 401 carrying totp_required means the password was accepted and
       // only the second factor is missing or wrong. Showing "Invalid email or

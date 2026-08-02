@@ -5,7 +5,7 @@
 
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { Toaster, toast } from 'sonner';
-import { adminApi, ApiError, VOXEL_TOKEN_KEY, getStoredUser } from '@/lib/adminApi';
+import { adminApi, ApiError, readCsrfCookie } from '@/lib/adminApi';
 import StatsCards from '@/components/admin/StatsCards';
 import UserTable from '@/components/admin/UserTable';
 import CreditsModal from '@/components/admin/CreditsModal';
@@ -55,9 +55,12 @@ export default function AdminPanel() {
   const downloadBackup = useCallback(async () => {
     setBackingUp(true);
     try {
-      const token = localStorage.getItem(VOXEL_TOKEN_KEY);
+      // N3: cookie session, not a bearer token. Plain fetch (not adminApi)
+      // only because the response is a gzip stream rather than JSON.
+      const csrf = readCsrfCookie();
       const res = await fetch('/api/admin/backup', {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        credentials: 'include',
+        headers: csrf ? { 'X-CSRF-Token': csrf } : {},
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
@@ -174,7 +177,7 @@ export default function AdminPanel() {
           Control Panel
         </h1>
         <div style={{ color: 'rgba(255,255,255,0.4)', fontSize: 13, marginBottom: 24, fontFamily: '"DM Sans", sans-serif' }}>
-          Signed in as {stats?.admin_email || getStoredUser()?.email || '—'}.
+          Signed in as {stats?.admin_email || '—'}.
         </div>
 
         {/* Tab bar — kie.ai dashboard style */}
@@ -280,11 +283,9 @@ export default function AdminPanel() {
 function handleError(e, fallback) {
   if (e instanceof ApiError) {
     if (e.status === 401) {
-      // Clear the stale/expired token BEFORE reloading. Without this, the
-      // reloaded page still has the bad token in localStorage, AdminGuard
-      // still thinks we're logged in, and the panel re-fires the same
-      // calls → another 401 → another reload → loop until rate-limited.
-      localStorage.removeItem(VOXEL_TOKEN_KEY);
+      // N3: nothing to clear locally any more — the session lives in an
+      // httpOnly cookie. The reload lands on AdminGuard, which asks the
+      // server who we are, gets 401, and shows the sign-in form. No loop.
       toast.error('Session expired. Please sign in again.');
       setTimeout(() => window.location.reload(), 800);
       return;

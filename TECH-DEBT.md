@@ -98,3 +98,21 @@ several more modules around it (`pricing.js`, `download-guard.js`,
 The natural next split is by concern: routes for generation, admin, and
 auth. Not urgent, but the file is now hard to navigate and every audit
 finding referenced line numbers that had already shifted.
+
+## The main-app user session is still a localStorage bearer token (N3, partial)
+
+N3 (recheck 2026-08-03) moved the **admin** session fully onto the httpOnly
+cookie and made `/api/admin/*` refuse bearer auth. The **normal user** session
+was deliberately left alone: `LoginModal.jsx`, `AuthContext.jsx`,
+`audioUtils.js`, `Video.jsx` and `Account.jsx` still read `voxel_token` from
+localStorage and send it as a bearer to the non-admin API.
+
+Why that is acceptable for now: with `/api/admin/*` cookie-only, a token read
+out of localStorage — including an admin's own token from signing into the
+main site — can no longer reach any admin route. The residual exposure is
+user-level (that one account's history and credits), not platform-level.
+
+What it would take to finish: issue the same httpOnly cookie for normal logins,
+switch `base44Client` to `credentials: 'include'` + CSRF, and delete
+`VOXEL_TOKEN_KEY`. Roughly half a day, touching every authenticated call in the
+app, so it is its own change rather than a rider on a security fix.
