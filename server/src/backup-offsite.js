@@ -112,6 +112,10 @@ function offsiteClient(env = process.env) {
       secretAccessKey: env.OFFSITE_S3_SECRET.trim(),
     },
     forcePathStyle: true, // widest compatibility (B2, R2, MinIO…)
+    // SDK ≥3.729 sends aws-chunked bodies with trailing CRC checksums by
+    // default; B2 rejects them with "The request body was too small".
+    requestChecksumCalculation: 'WHEN_REQUIRED',
+    responseChecksumValidation: 'WHEN_REQUIRED',
   });
   return cachedClient;
 }
