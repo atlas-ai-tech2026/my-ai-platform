@@ -281,9 +281,19 @@ const registerLimiter = rateLimit({
   legacyHeaders: false,
   message: { error: 'Too many sign-up attempts. Try again in a few minutes.' },
 });
+// N8 (recheck 2026-08-03): this was the ONE limiter with no keyGenerator, so
+// it fell back to req.ip — the Cloudflare EDGE address behind `trust proxy`.
+// Because adminGate runs it BEFORE verifyJwt, any unauthenticated stranger
+// sharing that edge could spend the 60/min bucket and lock the real admin out
+// of the control panel. Keyed on the resolved client IP now, like every other
+// limiter. Authenticated admins additionally get their own per-user bucket
+// (adminUserKey below), so one admin's burst of reads can never throttle
+// another.
+const adminUserKey = (req) => (req.user?.id ? `admin:${req.user.id}` : ipKey(req));
 const adminLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 60,
+  keyGenerator: adminUserKey,
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many admin requests.' },
