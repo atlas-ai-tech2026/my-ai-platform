@@ -33,3 +33,10 @@ reports/
 cameras voxel/
 images/
 server/scripts/
+
+# N16 (recheck 2026-08-03): internal unit-economics workbooks and one-off
+# report tooling. Voxel_Credit_Calculator.html carries per-supplier costs
+# and margin formulas — untracked but, until now, not ignored, so a single
+# `git add .` would have published it from this PUBLIC repo.
+Voxel_Credit_Calculator.html
+SPA_REPORT_README.md
