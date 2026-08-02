@@ -67,8 +67,24 @@ async function request(method, path, body) {
 
 // ─── Auth ────────────────────────────────────────────────────────────────
 export const adminApi = {
-  login:    (email, password) => request('POST', '/api/auth/login', { email, password }),
+  // N1 (recheck 2026-08-03): `second` carries the TOTP or recovery code.
+  // H5 shipped working 2FA on the server, but no client could ever send a
+  // code — so enabling it locked the admin out and it stayed off. The server
+  // answers a missing/blank code with 401 {totp_required:true}; the caller
+  // re-submits the same credentials plus one of these fields.
+  login: (email, password, second = {}) => request('POST', '/api/auth/login', {
+    email,
+    password,
+    ...(second.totpCode     ? { totp_code: second.totpCode }         : {}),
+    ...(second.recoveryCode ? { recovery_code: second.recoveryCode } : {}),
+  }),
   register: (email, password) => request('POST', '/api/auth/register', { email, password }),
+
+  // ─── Two-factor enrolment (N1) ────────────────────────────────────
+  twoFactorStatus:  ()     => request('GET',  '/api/admin/2fa/status'),
+  twoFactorSetup:   ()     => request('POST', '/api/admin/2fa/setup'),
+  twoFactorConfirm: (code) => request('POST', '/api/admin/2fa/confirm', { totp_code: code }),
+  twoFactorDisable: (code) => request('POST', '/api/admin/2fa/disable', { totp_code: code }),
 
   // ─── Admin endpoints (require role='admin' on server) ─────────────
   listUsers:   (page = 1, limit = 50) => request('GET', `/api/admin/users?page=${page}&limit=${limit}`),

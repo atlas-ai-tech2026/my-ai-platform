@@ -15,6 +15,7 @@ import UsageTab from '@/components/admin/UsageTab';
 import PromoCodesTab from '@/components/admin/PromoCodesTab';
 import GiftCardsTab from '@/components/admin/GiftCardsTab';
 import BulkTab from '@/components/admin/BulkTab';
+import SecurityTab from '@/components/admin/SecurityTab';
 
 const PAGE_SIZE = 50;
 
@@ -27,6 +28,8 @@ const TABS = [
   { id: 'promos', label: 'Promo Codes' },
   { id: 'gifts',  label: 'Gift Cards' },
   { id: 'bulk',   label: 'Bulk' },
+  // N1: 2FA enrolment had no screen anywhere — the server side shipped with H5.
+  { id: 'security', label: 'Security' },
 ];
 
 export default function AdminPanel() {
@@ -195,6 +198,7 @@ export default function AdminPanel() {
         {tab === 'promos' && <PromoCodesTab onError={handleError} />}
         {tab === 'gifts' && <GiftCardsTab onError={handleError} />}
         {tab === 'bulk' && <BulkTab onError={handleError} />}
+        {tab === 'security' && <SecurityTab onError={handleError} />}
 
         {tab === 'users' && (<>
         <StatsCards stats={stats} />
