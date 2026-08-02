@@ -287,9 +287,11 @@ const registerLimiter = rateLimit({
 // Because adminGate runs it BEFORE verifyJwt, any unauthenticated stranger
 // sharing that edge could spend the 60/min bucket and lock the real admin out
 // of the control panel. Keyed on the resolved client IP now, like every other
-// limiter. Authenticated admins additionally get their own per-user bucket
-// (adminUserKey below), so one admin's burst of reads can never throttle
-// another.
+// limiter, so a stranger can only ever exhaust their OWN bucket.
+//
+// It stays ahead of verifyJwt deliberately: an unauthenticated flood should be
+// cheap to shed. That means req.user does not exist yet, so this is per-IP and
+// not per-admin — adminUserKey degrades to ipKey here by design.
 const adminUserKey = (req) => (req.user?.id ? `admin:${req.user.id}` : ipKey(req));
 const adminLimiter = rateLimit({
   windowMs: 60 * 1000,
@@ -3684,7 +3686,31 @@ function requireCsrf(req, res, next) {
 
 // One handy gate to apply to every admin route: rate limit, auth, role,
 // CSRF (state-changing cookie requests only), audit.
-const adminGate = [adminLimiter, verifyJwt, requireAdmin, requireCsrf, adminAudit];
+// N3 (recheck 2026-08-03): admin routes accept the httpOnly cookie ONLY.
+//
+// H7 moved the admin session into a cookie page JavaScript cannot read, but
+// left bearer auth accepted "during the transition" — and the transition never
+// finished. Two protections were bypassed at once: the admin JWT stayed in
+// localStorage where any XSS could read it, and a bearer-authenticated request
+// skips CSRF entirely (admin-session.js: `if (!usedCookieAuth) return ok`).
+//
+// Refusing bearer here closes both. A stolen token is no longer usable against
+// /api/admin/* even if something does manage to read localStorage, and every
+// admin write is forced back through the double-submit CSRF check.
+//
+// Expected fallout, once: an admin tab opened before this deploy sends a bearer
+// and gets 401 → the panel drops to its sign-in form. Signing in again fixes it.
+function requireCookieAuth(req, res, next) {
+  if (!req.usedCookieAuth) {
+    return res.status(401).json({
+      error: 'Admin session required. Please sign in again.',
+      reauth: true,
+    });
+  }
+  next();
+}
+
+const adminGate = [adminLimiter, verifyJwt, requireCookieAuth, requireAdmin, requireCsrf, adminAudit];
 
 // ─── ADMIN: LIST USERS (paginated) ──────────────────────────────────
 app.get('/api/admin/users', adminGate, async (req, res) => {

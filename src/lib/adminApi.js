@@ -1,22 +1,21 @@
 // ─── Admin API client ───────────────────────────────────────────────────────
 //
 // Thin fetch wrapper that:
-//   1. Reads the JWT from localStorage under VOXEL_TOKEN_KEY
-//   2. Attaches `Authorization: Bearer ...` to every request
+//   1. Authenticates with the httpOnly admin session COOKIE (credentials:
+//      'include') — never a token this code can read
+//   2. Echoes the readable half of the double-submit CSRF pair
 //   3. Throws a typed `ApiError` with `status` and `body` so callers can
 //      branch on 401/403/402/etc.
 //
-// H7 (security audit 2026-07-28): the admin session is now ALSO issued as an
-// httpOnly, Secure, SameSite=Strict cookie that page JavaScript cannot read,
-// so an XSS bug can no longer exfiltrate the admin token. Because a cookie
-// IS sent automatically by the browser, state-changing admin requests carry
-// the double-submit CSRF token (readable `voxel_csrf` cookie echoed in the
-// X-CSRF-Token header); the server rejects a cookie-authenticated write
-// without it.
+// H7 (security audit 2026-07-28) introduced the httpOnly, Secure,
+// SameSite=Strict cookie so an XSS bug could not exfiltrate the admin token.
 //
-// The bearer header is still sent during the transition so an admin tab
-// opened before this deploy keeps working. Once every admin client is on
-// cookies, VOXEL_TOKEN_KEY can stop holding the admin token entirely.
+// N3 (recheck 2026-08-03) finished the job. H7 left the bearer header being
+// sent "during the transition", and the transition never ended — so the admin
+// JWT still sat in localStorage for any XSS to read, AND bearer-authenticated
+// requests skip CSRF entirely (admin-session.js: `if (!usedCookieAuth) return
+// ok`). Both of H7's protections were inert. This client no longer reads or
+// sends a token at all, and the server now refuses bearer auth on /api/admin/*.
 
 export const VOXEL_TOKEN_KEY = 'voxel_token';
 export const CSRF_COOKIE = 'voxel_csrf';
@@ -29,10 +28,8 @@ export class ApiError extends Error {
   }
 }
 
-function authHeader() {
-  const token = localStorage.getItem(VOXEL_TOKEN_KEY);
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
+// N3: intentionally NO Authorization header. The admin session travels as an
+// httpOnly cookie that this code cannot read — which is the entire point.
 
 /** Read the readable half of the double-submit pair. */
 export function readCsrfCookie() {
@@ -52,7 +49,6 @@ async function request(method, path, body) {
     credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
-      ...authHeader(),
       ...csrfHeader(),
     },
     body: body == null ? undefined : JSON.stringify(body),
@@ -79,6 +75,11 @@ export const adminApi = {
     ...(second.recoveryCode ? { recovery_code: second.recoveryCode } : {}),
   }),
   register: (email, password) => request('POST', '/api/auth/register', { email, password }),
+
+  // Server-authoritative identity (N3). Replaces decoding a localStorage
+  // token: the cookie is the session, and only the server can read it.
+  me:     () => request('GET',  '/api/auth/me'),
+  logout: () => request('POST', '/api/auth/logout'),
 
   // ─── Two-factor enrolment (N1) ────────────────────────────────────
   twoFactorStatus:  ()     => request('GET',  '/api/admin/2fa/status'),
@@ -137,14 +138,8 @@ export function decodeJwt(token) {
   }
 }
 
-export function getStoredUser() {
-  const token = localStorage.getItem(VOXEL_TOKEN_KEY);
-  const payload = decodeJwt(token);
-  if (!payload) return null;
-  // exp is seconds-since-epoch
-  if (payload.exp && payload.exp * 1000 < Date.now()) {
-    localStorage.removeItem(VOXEL_TOKEN_KEY);
-    return null;
-  }
-  return { id: payload.sub, email: payload.email, role: payload.role || 'user', exp: payload.exp };
-}
+// N3: getStoredUser() lived here and decoded the localStorage token to decide
+// whether to render the admin panel — an UNVERIFIED claim, and the reason the
+// token had to be stored at all. It is gone on purpose. Admin identity now
+// comes from adminApi.me(), which the server answers from the httpOnly cookie.
+// Do not reintroduce a client-side role check: the server is the authority.
