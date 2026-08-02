@@ -33,7 +33,6 @@
 
 import crypto from 'node:crypto';
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
-import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
 // ---- encryption ----------------------------------------------------------
 
@@ -113,42 +112,28 @@ function offsiteClient(env = process.env) {
       secretAccessKey: env.OFFSITE_S3_SECRET.trim(),
     },
     forcePathStyle: true, // widest compatibility (B2, R2, MinIO…)
-    // SDK ≥3.729 sends aws-chunked bodies with trailing CRC checksums by
-    // default; B2 rejects them with "The request body was too small".
+    // SDK ≥3.729 defaults to flexible checksums (aws-chunked bodies with
+    // trailing CRC), which some S3-compatible providers reject. B2 accepts
+    // them today (verified 2026-08-02), but plain signed bodies are the
+    // compatibility-safe choice. NB: with a WRONG applicationKey, B2 fails
+    // PUTs with the misleading "The request body was too small" instead of
+    // SignatureDoesNotMatch — check credentials before blaming the body.
     requestChecksumCalculation: 'WHEN_REQUIRED',
     responseChecksumValidation: 'WHEN_REQUIRED',
   });
   return cachedClient;
 }
 
-/** Upload an already-encrypted archive to the offsite bucket.
- *
- * Deliberately NOT `client.send(new PutObjectCommand({Body}))`: the SDK's
- * middleware wraps bodies in aws-chunked encoding with trailing checksums,
- * which B2's S3 layer rejects ("The request body was too small") — and it
- * kept doing so even with requestChecksumCalculation: 'WHEN_REQUIRED'.
- * A presigned URL + plain PUT sends the exact bytes with a Content-Length,
- * which every S3-compatible provider accepts. */
+/** Upload an already-encrypted archive to the offsite bucket. */
 export async function uploadOffsite(key, body, env = process.env) {
   const prefix = (env.OFFSITE_S3_PREFIX || 'backups/').replace(/^\/+/, '');
   const fullKey = key.startsWith(prefix) ? key : prefix + key.replace(/^backups\//, '');
-  const url = await getSignedUrl(offsiteClient(env), new PutObjectCommand({
+  await offsiteClient(env).send(new PutObjectCommand({
     Bucket: env.OFFSITE_S3_BUCKET.trim(),
     Key: fullKey,
+    Body: body,
     ContentType: 'application/octet-stream',
-  }), { expiresIn: 300 });
-  const res = await fetch(url, {
-    method: 'PUT',
-    body,
-    headers: {
-      'Content-Type': 'application/octet-stream',
-      'Content-Length': String(body.length),
-    },
-  });
-  if (!res.ok) {
-    const detail = (await res.text().catch(() => '')).slice(0, 300);
-    throw new Error(`offsite PUT ${res.status}: ${detail || res.statusText}`);
-  }
+  }));
   return fullKey;
 }
 
