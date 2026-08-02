@@ -53,13 +53,16 @@ export const VIDEO_CREDITS = {
   //   720p  $0.070/s no-audio · $0.100/s with audio
   //   1080p $0.090/s no-audio · $0.135/s with audio
   //   4K    $0.335/s (same with or without audio)
-  // 720p used to reuse the 1080p price, overcharging by 0.5–1 cr/s. Note the
-  // dispatcher must send mode 'std' for 720p — charging the 720p rate while
-  // sending 'pro' would deliver (and pay for) 1080p.
+  // BUT the basis is MAX(kie, fal), and FAL's Kling 3.0 rate ($0.084/s
+  // no-audio, $0.112/s with audio) is HIGHER than kie's at 720p. So 720p
+  // no-audio stays at 2.5 (46.9% vs basis, 55.8% vs the kie backend we
+  // actually use); only the with-audio rate drops, 4 → 3. Note the
+  // dispatcher must send mode 'std' for 720p — charging a 720p rate while
+  // sending 'pro' would deliver, and pay for, 1080p.
   'kling-3': {
     type: 'per-sec', defaultRes: '1080p',
     byRes: {
-      '720p':  { off: 2,   on: 3 },
+      '720p':  { off: 2.5, on: 3 },
       '1080p': { off: 2.5, on: 4 },
       '4K':    { off: 9,   on: 9 },
     },
@@ -76,11 +79,6 @@ export const VIDEO_CREDITS = {
       '1080p': { off: 3,   on: 3   },
     },
   },
-  // Gemini Omni — added 2026-08-02. The workbook prices only the 6s clip
-  // ($0.42 / $0.84), but kie allows 4/6/8/10s. A FLAT per-clip price would
-  // fall to 3.9% margin on a 10s clip, so this is priced PER SECOND from the
-  // same basis: $0.0700/s and $0.1400/s → 2 and 4 cr/s, 44.7% at every
-  // duration. No audio parameter, so on === off.
   // Gemini Omni — kie bills PER WHOLE VIDEO, and the cost is NOT linear in
   // duration: it is a fixed base plus a per-second component
   // ($0.105 + $0.0525/s at 720p/1080p; $0.525 + $0.0525/s at 4K). A

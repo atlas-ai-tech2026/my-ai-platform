@@ -106,7 +106,7 @@ export const VIDEO_CREDITS = {
   'kling-3': {
     type: 'per-sec', defaultRes: '1080p',
     byRes: {
-      '720p':  { off: 2,   on: 3 },
+      '720p':  { off: 2.5, on: 3 },
       '1080p': { off: 2.5, on: 4 },
       '4K':    { off: 9,   on: 9 },
     },
