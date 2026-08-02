@@ -66,3 +66,6 @@ services:
   - key: DATABASE_URL
     scope: RUN_TIME
     value: ${dev-db.DATABASE_URL}
+  - key: ALLOWED_ORIGINS
+    scope: RUN_TIME
+    value: https://voxel-app-dev-b8a2h.ondigitalocean.app,http://localhost:5173,http://localhost:8080,http://localhost:3001
