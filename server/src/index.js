@@ -1413,7 +1413,15 @@ app.post('/api/generate-video', verifyJwt, requireNotBanned, requireModelProvide
   // Veo family). Old history rows carry unprefixed FAL ids and keep polling FAL.
   if (mapping.provider === 'kie') {
     try {
-      const frames = image_url ? (tail_image_url ? [image_url, tail_image_url] : [image_url]) : [];
+      // /api/upload falls back to a `data:` URI when neither Spaces nor FAL
+      // storage will take the file, and the providers cannot read those —
+      // they reject with "Only jpeg/jpg/png image formats are supported".
+      // The IMAGE route has always re-hosted refs through this helper; the
+      // video routes never did, which is why attaching a start frame to a
+      // video failed while the same image worked for image generation.
+      // (Production bug, 2026-08-02.)
+      const rawFrames = image_url ? (tail_image_url ? [image_url, tail_image_url] : [image_url]) : [];
+      const frames = await resolveReferenceUrls(rawFrames, { forKie: true, tag: 'REFS-VIDEO' });
       const { family, body, modelIdTag } = buildKieVideoSubmission(mapping, {
         prompt, frames, duration, aspectRatio: aspect_ratio, resolution, audio,
         multiShots: multi_shots,
@@ -1453,14 +1461,37 @@ app.post('/api/generate-video', verifyJwt, requireNotBanned, requireModelProvide
     ...(aspect_ratio ? { aspect_ratio } : {}),
   };
 
+  // Same re-hosting as the kie branch above: a `data:` URI from the upload
+  // fallback must become a real URL before the provider sees it.
+  let falStart = image_url;
+  let falTail = tail_image_url;
+  try {
+    if (image_url || tail_image_url) {
+      const resolved = await resolveReferenceUrls(
+        [image_url, tail_image_url].filter(Boolean), { tag: 'REFS-VIDEO-FAL' }
+      );
+      if (image_url) { falStart = resolved[0]; falTail = tail_image_url ? resolved[1] : undefined; }
+      else { falTail = resolved[0]; }
+    }
+  } catch (error) {
+    console.error('[VIDEO] reference re-host failed:', error.message);
+    if (chargedKind) {
+      refundCredits({
+        userId: req.user.id, kind: chargedKind, ip: clientIp(req), cost: chargedCost,
+        reason: `video_ref_resolve_failed: ${error.message}`.slice(0, 500),
+      }).catch(() => {});
+    }
+    return res.status(400).json({ error: publicError(error.message) });
+  }
+
   // Add start image with the correct param name for this model
-  if (image_url) {
-    input[mapping.imageParam] = image_url;
+  if (falStart) {
+    input[mapping.imageParam] = falStart;
   }
 
   // Add end image with the correct param name for this model
-  if (tail_image_url && mapping.endParam) {
-    input[mapping.endParam] = tail_image_url;
+  if (falTail && mapping.endParam) {
+    input[mapping.endParam] = falTail;
   }
 
   console.log('[VIDEO] Payload:', JSON.stringify(input, null, 2));
@@ -1985,10 +2016,34 @@ app.post('/api/generate-video-ref', verifyJwt, requireNotBanned, requireModelPro
     return res.status(500).json({ error: 'Credit charge failed.' });
   }
 
+  // Re-host any `data:` URI the upload fallback produced BEFORE the provider
+  // sees it — otherwise it rejects with "Only jpeg/jpg/png image formats are
+  // supported". Same step the image route has always performed.
+  // (Production bug, 2026-08-02.)
+  let startFrameUrl = start_frame;
+  let endFrameUrl = end_frame;
+  let refImageUrls = image_urls;
+  try {
+    const isKieSeedance = VIDEO_DIRECT_MAP[modelLabel]?.provider === 'kie';
+    const opts = { forKie: isKieSeedance, tag: 'REFS-SEEDANCE' };
+    if (start_frame) startFrameUrl = (await resolveReferenceUrls([start_frame], opts))[0];
+    if (end_frame) endFrameUrl = (await resolveReferenceUrls([end_frame], opts))[0];
+    if ((image_urls || []).length) refImageUrls = await resolveReferenceUrls(image_urls, opts);
+  } catch (error) {
+    console.error('[SEEDANCE] reference re-host failed:', error.message);
+    if (chargedKind) {
+      refundCredits({
+        userId: req.user.id, kind: chargedKind, ip: clientIp(req), cost: chargedCost,
+        reason: `seedance_ref_resolve_failed: ${error.message}`.slice(0, 500),
+      }).catch(() => {});
+    }
+    return res.status(400).json({ error: publicError(error.message) });
+  }
+
   // Determine which Seedance endpoint to use
-  const hasStartFrame = !!start_frame;
-  const hasEndFrame = !!end_frame;
-  const hasRefImages = (image_urls || []).length > 0;
+  const hasStartFrame = !!startFrameUrl;
+  const hasEndFrame = !!endFrameUrl;
+  const hasRefImages = (refImageUrls || []).length > 0;
   const hasRefVideos = (video_urls || []).length > 0;
   const hasRefAudios = (audio_urls || []).length > 0;
 
@@ -2011,9 +2066,9 @@ app.post('/api/generate-video-ref', verifyJwt, requireNotBanned, requireModelPro
           duration: durInt,
           resolution: res_,
           generate_audio: generate_audio !== false,
-          ...(hasStartFrame ? { first_frame_url: start_frame } : {}),
-          ...(hasEndFrame ? { last_frame_url: end_frame } : {}),
-          ...(hasRefImages ? { reference_image_urls: image_urls.slice(0, 9) } : {}),
+          ...(hasStartFrame ? { first_frame_url: startFrameUrl } : {}),
+          ...(hasEndFrame ? { last_frame_url: endFrameUrl } : {}),
+          ...(hasRefImages ? { reference_image_urls: refImageUrls.slice(0, 9) } : {}),
           ...(hasRefVideos ? { reference_video_urls: video_urls.slice(0, 3) } : {}),
           ...(hasRefAudios ? { reference_audio_urls: audio_urls.slice(0, 3) } : {}),
         },
@@ -2052,13 +2107,13 @@ app.post('/api/generate-video-ref', verifyJwt, requireNotBanned, requireModelPro
   if (mode === 'frame' || hasStartFrame || hasEndFrame) {
     // Image-to-video mode (start frame / end frame)
     falModel = `${endpointBase}/image-to-video`;
-    if (hasStartFrame) input[frameField]    = start_frame;
-    if (hasEndFrame)   input[endFrameField] = end_frame;
+    if (hasStartFrame) input[frameField]    = startFrameUrl;
+    if (hasEndFrame)   input[endFrameField] = endFrameUrl;
     console.log(`[SEEDANCE] Mode: image-to-video (start: ${hasStartFrame}, end: ${hasEndFrame})`);
   } else if (mode === 'reference' || hasRefImages || hasRefVideos || hasRefAudios) {
     // Reference-to-video mode (both variants accept image_urls/video_urls/audio_urls)
     falModel = `${endpointBase}/reference-to-video`;
-    if (hasRefImages) input.image_urls = image_urls;
+    if (hasRefImages) input.image_urls = refImageUrls;
     if (hasRefVideos) input.video_urls = video_urls;
     if (hasRefAudios) input.audio_urls = audio_urls;
     console.log(`[SEEDANCE] Mode: reference-to-video (images: ${(image_urls||[]).length}, videos: ${(video_urls||[]).length}, audio: ${(audio_urls||[]).length})`);
