@@ -11,7 +11,7 @@
 // server's magic-byte check (H2) whenever the real image wasn't a PNG.
 
 import { describe, it, expect, vi } from 'vitest';
-import { dataUriToFile, extForMime } from './uploadToFal.js';
+import { dataUriToFile, extForMime, toProviderSafeImage } from './uploadToFal.js';
 
 // jsdom's File has no .arrayBuffer(); FileReader is supported.
 const readBytes = (file) => new Promise((resolve, reject) => {
@@ -72,6 +72,39 @@ describe('data: URI upload — the CSP bug', () => {
 
   it('throws a clear error on a malformed URI instead of failing silently', () => {
     expect(() => dataUriToFile('data:image/png;base64')).toThrow(/malformed/i);
+  });
+});
+
+describe('provider-format conversion (webp/avif/gif → png)', () => {
+  // Production bug 2026-08-01: "Video generation failed: Only jpeg/jpg/png
+  // image formats are supported". Our upload endpoint accepts webp/avif/
+  // gif/heic, but the AI providers do not — so the upload succeeded and the
+  // GENERATION failed one step later with a confusing provider error.
+  it('leaves jpeg and png untouched (no needless re-encode)', async () => {
+    for (const type of ['image/png', 'image/jpeg', 'image/jpg']) {
+      const f = new File([new Uint8Array([1, 2, 3])], 'x', { type });
+      expect(await toProviderSafeImage(f)).toBe(f);   // same object
+    }
+  });
+
+  it('passes non-images straight through (video/audio uploads)', async () => {
+    for (const type of ['video/mp4', 'audio/mpeg', 'video/quicktime']) {
+      const f = new File([new Uint8Array([1, 2, 3])], 'x', { type });
+      expect(await toProviderSafeImage(f)).toBe(f);
+    }
+  });
+
+  it('gives an ACTIONABLE error when the browser cannot decode the format', async () => {
+    // jsdom cannot decode any real image, so this exercises the failure
+    // path — which is exactly what a browser does with HEIC.
+    const heic = new File([new Uint8Array([0, 1, 2])], 'photo.heic', { type: 'image/heic' });
+    await expect(toProviderSafeImage(heic)).rejects.toThrow(/HEIC/);
+    await expect(toProviderSafeImage(heic)).rejects.toThrow(/convert it to JPG or PNG/i);
+  });
+
+  it('names the offending format in the message', async () => {
+    const webp = new File([new Uint8Array([0, 1, 2])], 'x.webp', { type: 'image/webp' });
+    await expect(toProviderSafeImage(webp)).rejects.toThrow(/WEBP/);
   });
 });
 

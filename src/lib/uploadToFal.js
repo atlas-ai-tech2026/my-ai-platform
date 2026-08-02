@@ -46,7 +46,70 @@ export function dataUriToFile(dataUri, baseName = 'image') {
   return new File([bytes], `${baseName}.${extForMime(mime)}`, { type: mime });
 }
 
+// The AI providers accept ONLY jpeg/png for image inputs ("Only jpeg/jpg/png
+// image formats are supported"). Browsers happily hand us webp / avif / gif
+// / heic from a paste or file picker, and our upload endpoint accepts them,
+// so without this the upload succeeds and the GENERATION fails one step
+// later — which is what users actually saw (production, 2026-08-01).
+const PROVIDER_SAFE_TYPES = new Set(['image/png', 'image/jpeg', 'image/jpg']);
+
+/**
+ * Re-encode an image the provider can't read into PNG, in the browser.
+ *
+ * Uses canvas, so it needs no server dependency and no extra round trip.
+ * PNG (not JPEG) because it is lossless and keeps transparency, which
+ * matters for character cut-outs. Videos/audio pass through untouched.
+ *
+ * If the browser cannot decode the format at all (HEIC in most browsers),
+ * we throw a message that tells the user exactly what to do, instead of
+ * letting the provider return something cryptic much later.
+ */
+export async function toProviderSafeImage(file) {
+  const type = (file?.type || '').toLowerCase();
+  if (!type.startsWith('image/') || PROVIDER_SAFE_TYPES.has(type)) return file;
+
+  // EVERYTHING is inside the try, including createObjectURL: any failure at
+  // all must surface as the actionable message below, never as a raw
+  // internal error the user can't act on.
+  let url = null;
+  try {
+    url = URL.createObjectURL(file);
+    const img = await new Promise((resolve, reject) => {
+      const el = new Image();
+      el.onload = () => resolve(el);
+      el.onerror = () => reject(new Error('decode failed'));
+      el.src = url;
+    });
+
+    const canvas = document.createElement('canvas');
+    canvas.width = img.naturalWidth || img.width;
+    canvas.height = img.naturalHeight || img.height;
+    if (!canvas.width || !canvas.height) throw new Error('zero-size image');
+    canvas.getContext('2d').drawImage(img, 0, 0);
+
+    const blob = await new Promise((resolve, reject) => {
+      canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('encode failed'))), 'image/png');
+    });
+
+    const base = (file.name || 'image').replace(/\.[^.]+$/, '');
+    console.log(`[FAL UPLOAD] converted ${type} → image/png for provider compatibility`);
+    return new File([blob], `${base}.png`, { type: 'image/png' });
+  } catch {
+    const short = type.replace('image/', '').toUpperCase();
+    throw new Error(
+      `${short} images aren't supported by the AI model. Please convert it to JPG or PNG and try again.`
+    );
+  } finally {
+    if (url) { try { URL.revokeObjectURL(url); } catch { /* nothing to clean */ } }
+  }
+}
+
 async function uploadViaServer(file) {
+  // Everything the providers can't read is re-encoded to PNG first, so an
+  // unsupported format fails HERE with a clear message rather than surfacing
+  // as a confusing provider error after the generation is submitted.
+  file = await toProviderSafeImage(file);
+
   // Pre-check: warn locally before the request even goes out
   const MAX_BYTES = 100 * 1024 * 1024; // backend multer limit
   if (file?.size > MAX_BYTES) {

@@ -3,6 +3,7 @@ import { Sparkles, ChevronDown, Minus, Plus, Pencil, Type, X, Check, Video, Arro
 import PageSwitcher from '@/components/common/PageSwitcher';
 import { base44 } from '@/api/base44Client';
 import { detectCompositionIntent } from '@/lib/enhancePrompt';
+import { toProviderSafeImage } from '@/lib/uploadToFal';
 import CameraSelector from './CameraSelector';
 import { getImageCredits } from '@/lib/creditPricing';
 
@@ -468,8 +469,12 @@ export default function ImagePromptBar({
       // Upload to FAL storage in background
       (async () => {
         try {
+          // Providers accept only jpeg/png; re-encode webp/avif/gif here so
+          // the failure surfaces now (with a clear message) instead of as a
+          // cryptic provider error after the generation is submitted.
+          const safeFile = await toProviderSafeImage(file);
           const formData = new FormData();
-          formData.append('file', file);
+          formData.append('file', safeFile);
           // H2: /api/upload requires auth (Authorization only — the browser
           // sets the multipart Content-Type boundary itself).
           const token = localStorage.getItem('voxel_token');
