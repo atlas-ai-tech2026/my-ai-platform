@@ -2748,7 +2748,13 @@ app.get('/api/entities/:name', verifyJwt, async (req, res) => {
   }
 });
 
-app.post('/api/entities/:name', verifyJwt, async (req, res) => {
+// N12 (recheck 2026-08-03): create/update carried verifyJwt but NOT
+// requireNotBanned, so a banned account could still write history rows —
+// storage abuse, and the exact mechanism that lets N4 plant a result_url.
+// Reads (GET and the POST /filter query) stay open on purpose: a banned
+// user must still be able to load the app far enough to be told they are
+// banned, and DELETE stays open so they can remove their own content.
+app.post('/api/entities/:name', verifyJwt, requireNotBanned, async (req, res) => {
   if (!dbReady()) return res.status(503).json({ error: 'Database not configured.' });
   try {
     // Strip any client-supplied user_id / id / timestamps before persisting.
@@ -2768,7 +2774,7 @@ app.post('/api/entities/:name', verifyJwt, async (req, res) => {
   }
 });
 
-app.put('/api/entities/:name/:id', verifyJwt, async (req, res) => {
+app.put('/api/entities/:name/:id', verifyJwt, requireNotBanned, async (req, res) => {
   if (!dbReady()) return res.status(503).json({ error: 'Database not configured.' });
   try {
     const { user_id: _u, id: _id, created_date: _c, updated_date: _ud, ...patch } = req.body || {};
