@@ -1,6 +1,8 @@
 // Voxel Node — thin client for the /api/node/* routes. Reuses the same
 // bearer-token scheme the rest of the app uses (localStorage voxel_token).
 
+import { toProviderSafeImage } from '@/lib/uploadToFal';
+
 const TOKEN_KEY = 'voxel_token';
 
 function headers() {
@@ -20,10 +22,13 @@ async function jsonOrThrow(res) {
 export const nodeApi = {
   // Upload a binary file (image asset node) → { url }. Multipart, so we set
   // only Authorization and let the browser set the multipart boundary.
-  uploadFile: (file) => {
+  uploadFile: async (file) => {
+    // Providers accept only jpeg/png — re-encode anything else first so the
+    // failure surfaces here rather than as a provider error later.
+    const safeFile = await toProviderSafeImage(file);
     const token = localStorage.getItem(TOKEN_KEY);
     const fd = new FormData();
-    fd.append('file', file);
+    fd.append('file', safeFile);
     return fetch('/api/upload', {
       method: 'POST',
       headers: token ? { Authorization: `Bearer ${token}` } : {},
