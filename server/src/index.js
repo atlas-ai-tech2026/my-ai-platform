@@ -36,6 +36,7 @@ import {
   IMAGE_CREDITS as PRICE_IMAGE_CREDITS,
   VIDEO_CREDITS as PRICE_VIDEO_CREDITS,
   resolveChargeCost,
+  getVoiceCredits,
   UnpricedModelError,
   PriceMismatchError,
 } from './pricing.js';
@@ -1752,14 +1753,23 @@ app.post('/api/tts', verifyJwt, requireNotBanned, requireFalKey, async (req, res
     return res.status(400).json({ error: 'text too long (max 5000 chars)' });
   }
 
+  // Voice is billed per 1,000 characters (workbook "VOICE MODELS" section).
+  // This used to be a FLAT 1 credit per take regardless of length, which lost
+  // money on anything over ~380 characters — a full 5,000-char take cost us
+  // $0.50 and earned $0.063.
+  const voiceModelKey = usingV3 ? 'eleven-v3' : 'multilingual-v2';
+  const voiceCost = getVoiceCredits(voiceModelKey, text.length);
+
   let chargedKind = null;
   let chargedCost = null;
   try {
     const charge = await chargeCredits({
-      userId: req.user.id, kind: 'audio', ip: req.ip, note: 'audio: TTS', provider: 'fal',
+      userId: req.user.id, kind: 'audio', ip: req.ip, cost: voiceCost,
+      note: `audio: TTS (${Math.ceil(text.length / 1000)}k chars)`, provider: 'fal',
       falCost: estimateFalCost({ kind: 'audio', model: 'TTS', chars: text.length }),
     });
     chargedKind = 'audio';
+    chargedCost = charge.cost;
     res.setHeader('X-Credits-Remaining', String(charge.newBalance));
   } catch (e) {
     if (e instanceof InsufficientCreditsError) {

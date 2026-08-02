@@ -177,6 +177,40 @@ export const VIDEO_CREDITS = {
   },
 };
 
+// ---- VOICE — credits per 1,000 CHARACTERS, per the workbook's
+// "VOICE MODELS — per 1,000 characters" section. Same formula as everything
+// else: basis = MAX(fal, kie) → sale = basis / (1 − 40%) →
+// CEILING(sale / $0.063333, 0.5).
+//
+//   Multilingual v2  fal $0.10 / kie $0.06 → basis 0.10 → 3   cr/1k chars
+//   Eleven v3        fal $0.10 / kie $0.07 → basis 0.10 → 3   cr/1k chars
+//   Turbo v2.5       fal $0.05 / kie $0.03 → basis 0.05 → 1.5 cr/1k chars
+//
+// This replaced a FLAT 1-credit-per-take charge that ignored length
+// entirely: a 5,000-character take cost us $0.50 and earned $0.063, a
+// margin of −689%. Every take over ~380 characters was losing money.
+export const VOICE_CREDITS_PER_1K = {
+  'multilingual-v2': 3,
+  'eleven-v3': 3,
+  'turbo-v2-5': 1.5,
+};
+
+// PRO-RATED by character, exactly as video is pro-rated by second: the
+// workbook's CEILING(…, 0.5) sets the UNIT price (3 credits per 1,000
+// chars), and the charge is that unit rate × the quantity used — we don't
+// re-round per generation for video, so we don't for voice either.
+//
+// Floored at 0.5 credits (the smallest unit the workbook uses) so a very
+// short take can never round down to a free generation.
+export const VOICE_MIN_CREDITS = 0.5;
+
+export function getVoiceCredits(model, chars) {
+  const rate = VOICE_CREDITS_PER_1K[model] ?? VOICE_CREDITS_PER_1K['eleven-v3'];
+  const n = Math.max(0, Number(chars) || 0);
+  const exact = rate * (n / 1000);
+  return Math.max(VOICE_MIN_CREDITS, Math.round(exact * 100) / 100);
+}
+
 // ---- Server routes receive display LABELS ("Nano Banana Pro"), the
 // pricing tables are keyed by app id ('nano-pro'). Motion/Edit entries are
 // keyed by label already and resolve to themselves. --------------------------
