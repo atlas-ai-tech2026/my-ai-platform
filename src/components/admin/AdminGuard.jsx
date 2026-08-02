@@ -79,13 +79,22 @@ function InlineLogin({ checking, setChecking, onLogin }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [err, setErr] = useState('');
+  // N1: second-factor step. `needsCode` flips on once the server says the
+  // account has 2FA enabled; the password fields stay mounted (and disabled)
+  // so the same submit can resend them with the code.
+  const [needsCode, setNeedsCode] = useState(false);
+  const [code, setCode] = useState('');
+  const [useRecovery, setUseRecovery] = useState(false);
 
   async function handleSubmit(e) {
     e.preventDefault();
     setErr('');
     setChecking(true);
     try {
-      const r = await adminApi.login(email.trim().toLowerCase(), password);
+      const trimmed = code.trim();
+      const r = await adminApi.login(email.trim().toLowerCase(), password,
+        !needsCode || !trimmed ? {}
+          : useRecovery ? { recoveryCode: trimmed } : { totpCode: trimmed });
       localStorage.setItem(VOXEL_TOKEN_KEY, r.token);
       const decoded = getStoredUser();
       if (!decoded || decoded.role !== 'admin') {
@@ -98,8 +107,15 @@ function InlineLogin({ checking, setChecking, onLogin }) {
       }
       onLogin(decoded);
     } catch (e) {
-      if (e instanceof ApiError && e.status === 429) {
-        setErr('Too many attempts. Try again later.');
+      // N1: a 401 carrying totp_required means the password was accepted and
+      // only the second factor is missing or wrong. Showing "Invalid email or
+      // password" here (the old behaviour) is what made 2FA look broken.
+      if (e instanceof ApiError && e.status === 401 && e.body?.totp_required) {
+        setNeedsCode(true);
+        setCode('');
+        setErr(needsCode ? (e.body.error || 'That code was not accepted.') : '');
+      } else if (e instanceof ApiError && e.status === 429) {
+        setErr('Too many attempts. Try again in 15 minutes.');
       } else {
         setErr('Invalid email or password.');
       }
@@ -127,15 +143,43 @@ function InlineLogin({ checking, setChecking, onLogin }) {
         </div>
 
         <input
-          type="email" required autoFocus value={email}
+          type="email" required autoFocus={!needsCode} value={email}
           onChange={e => setEmail(e.target.value)} placeholder="Email"
-          style={inputStyle}
+          disabled={needsCode}
+          style={{ ...inputStyle, opacity: needsCode ? 0.5 : 1 }}
         />
         <input
           type="password" required value={password}
           onChange={e => setPassword(e.target.value)} placeholder="Password" minLength={8}
-          style={{ ...inputStyle, marginTop: 10 }}
+          disabled={needsCode}
+          style={{ ...inputStyle, marginTop: 10, opacity: needsCode ? 0.5 : 1 }}
         />
+
+        {needsCode && (
+          <>
+            <input
+              type="text" required autoFocus value={code}
+              onChange={e => setCode(e.target.value)}
+              placeholder={useRecovery ? 'Recovery code' : '6-digit code'}
+              inputMode={useRecovery ? 'text' : 'numeric'}
+              autoComplete="one-time-code"
+              // Recovery codes are grouped like ABCD-EFGH; TOTP is 6 digits.
+              maxLength={useRecovery ? 32 : 6}
+              style={{ ...inputStyle, marginTop: 10, letterSpacing: useRecovery ? 1 : 4, fontSize: 16 }}
+            />
+            <button
+              type="button"
+              onClick={() => { setUseRecovery(v => !v); setCode(''); setErr(''); }}
+              style={{
+                marginTop: 8, background: 'none', border: 'none', padding: 0,
+                color: 'rgba(255,255,255,0.45)', fontSize: 12, cursor: 'pointer',
+                fontFamily: 'inherit', textDecoration: 'underline',
+              }}
+            >
+              {useRecovery ? 'Use an authenticator code instead' : 'Lost your phone? Use a recovery code'}
+            </button>
+          </>
+        )}
 
         {err && (
           <div style={{
@@ -151,7 +195,7 @@ function InlineLogin({ checking, setChecking, onLogin }) {
           border: 'none', borderRadius: 10, color: '#fff', fontSize: 14, fontWeight: 700,
           cursor: checking ? 'wait' : 'pointer',
         }}>
-          {checking ? 'Signing in…' : 'Sign in'}
+          {checking ? 'Signing in…' : needsCode ? 'Verify' : 'Sign in'}
         </button>
       </form>
     </div>
