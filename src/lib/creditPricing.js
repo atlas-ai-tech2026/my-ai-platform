@@ -77,6 +77,12 @@ export const IMAGE_CREDITS = {
   'skin-enhancer':    { Draft: 1.5, '1K': 1.5, '2K': 1.5, '4K': 1.5 }, // aura-sr, FAL (basis ≤.05)
   'face-swap':        { Draft: 1.5, '1K': 1.5, '2K': 1.5, '4K': 1.5 }, // FAL (basis ≤.04)
   'relight':          { Draft: 1.5, '1K': 1.5, '2K': 1.5, '4K': 1.5 }, // ic-light, FAL (basis ≤.04)
+  // ── added 2026-08-02 from the workbook. Must stay identical to
+  //    server/src/pricing.js — enforced by the parity test. ──
+  'imagen-4-fast':    { Draft: 1.5, '1K': 1.5, '2K': 1.5, '4K': 1.5 }, // basis $0.040 → 57.9%
+  'imagen-4':         { Draft: 1.5, '1K': 1.5, '2K': 1.5, '4K': 1.5 }, // basis $0.050 → 47.4%
+  'imagen-4-ultra':   { Draft: 2,   '1K': 2,   '2K': 2,   '4K': 2   }, // basis $0.060 → 52.6%
+  'seedream-5-pro':   { Draft: 1,   '1K': 1,   '2K': 2,   '4K': 2   }, // tops out at 2K
 };
 
 // Image models NOT in the pricing workbook — fall back to model-list `credits`.
@@ -114,6 +120,17 @@ export const VIDEO_CREDITS = {
     byRes: {
       '720p':  { off: 2.5, on: 2.5 },
       '1080p': { off: 3,   on: 3   },
+    },
+  },
+  // Gemini Omni — priced PER SECOND (the workbook lists only the 6s clip,
+  // but kie allows 4/6/8/10s and a flat price would fall to 3.9% margin at
+  // 10s). $0.070/s and $0.140/s → 2 and 4 cr/s, 44.7% at every duration.
+  'gemini-omni': {
+    type: 'per-sec', defaultRes: '720p',
+    byRes: {
+      '720p':  { off: 2, on: 2 },
+      '1080p': { off: 2, on: 2 },
+      '4K':    { off: 4, on: 4 },
     },
   },
   'kling-2-6': {

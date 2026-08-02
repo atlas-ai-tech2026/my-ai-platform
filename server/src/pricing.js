@@ -33,6 +33,14 @@ export const IMAGE_CREDITS = {
   'skin-enhancer':    { Draft: 1.5, '1K': 1.5, '2K': 1.5, '4K': 1.5 },
   'face-swap':        { Draft: 1.5, '1K': 1.5, '2K': 1.5, '4K': 1.5 },
   'relight':          { Draft: 1.5, '1K': 1.5, '2K': 1.5, '4K': 1.5 },
+  // ── added 2026-08-02 from the workbook, standard formula ──
+  // Imagen 4: kie exposes no resolution tier, so one price per variant.
+  'imagen-4-fast':    { Draft: 1.5, '1K': 1.5, '2K': 1.5, '4K': 1.5 }, // basis $0.040 → 57.9%
+  'imagen-4':         { Draft: 1.5, '1K': 1.5, '2K': 1.5, '4K': 1.5 }, // basis $0.050 → 47.4%
+  'imagen-4-ultra':   { Draft: 2,   '1K': 2,   '2K': 2,   '4K': 2   }, // basis $0.060 → 52.6%
+  // Seedream 5 Pro tops out at 2K (quality basic=1K / high=2K), so a 4K
+  // request is served — and charged — at the 2K tier.
+  'seedream-5-pro':   { Draft: 1,   '1K': 1,   '2K': 2,   '4K': 2   }, // basis $0.035/$0.070 → 44.7%
 };
 
 // ---- VIDEO — keyed by app model id (plus panel model NAMES for the
@@ -58,6 +66,19 @@ export const VIDEO_CREDITS = {
     byRes: {
       '720p':  { off: 2.5, on: 2.5 },
       '1080p': { off: 3,   on: 3   },
+    },
+  },
+  // Gemini Omni — added 2026-08-02. The workbook prices only the 6s clip
+  // ($0.42 / $0.84), but kie allows 4/6/8/10s. A FLAT per-clip price would
+  // fall to 3.9% margin on a 10s clip, so this is priced PER SECOND from the
+  // same basis: $0.0700/s and $0.1400/s → 2 and 4 cr/s, 44.7% at every
+  // duration. No audio parameter, so on === off.
+  'gemini-omni': {
+    type: 'per-sec', defaultRes: '720p',
+    byRes: {
+      '720p':  { off: 2, on: 2 },
+      '1080p': { off: 2, on: 2 },
+      '4K':    { off: 4, on: 4 },
     },
   },
   'kling-2-6': {
@@ -231,11 +252,16 @@ export const IMAGE_LABEL_TO_ID = {
   'Skin Enhancer': 'skin-enhancer',
   'Face Swap': 'face-swap',
   'Relight': 'relight',
+  'Imagen 4 Fast': 'imagen-4-fast',
+  'Imagen 4': 'imagen-4',
+  'Imagen 4 Ultra': 'imagen-4-ultra',
+  'Seedream 5 Pro': 'seedream-5-pro',
 };
 
 export const VIDEO_LABEL_TO_ID = {
   'Kling 3.0': 'kling-3',
   'Kling 3.0 Turbo': 'kling-3-turbo',
+  'Gemini Omni': 'gemini-omni',
   'Kling 2.6': 'kling-2-6',
   'Kling 2.5': 'kling-2-5',
   'Kling 2.1': 'kling-2-1',

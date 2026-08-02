@@ -482,6 +482,17 @@ const MODEL_CONFIG = {
   // ── kie.ai-backed models (provider:'kie' routes them through kie.js) ──
   // family selects the kie endpoint pair; kieModel is the model field where
   // the family needs one (flux). Input building: buildKieImageInput().
+  // ── added 2026-08-02 from the pricing workbook ──
+  // Imagen 4 (Google) — three quality tiers, each a SEPARATE kie model id.
+  // Text-to-image only; kie exposes no resolution parameter for these.
+  // NOTE: kie's `seed` is an integer on imagen4-fast but a STRING on the
+  // other two, so we never send it.
+  "Imagen 4 Fast":     { provider: "kie", family: "jobs", kieModel: "google/imagen4-fast",  t2iOnly: true, kieStyle: "imagen4" },
+  "Imagen 4":          { provider: "kie", family: "jobs", kieModel: "google/imagen4",       t2iOnly: true, kieStyle: "imagen4" },
+  "Imagen 4 Ultra":    { provider: "kie", family: "jobs", kieModel: "google/imagen4-ultra", t2iOnly: true, kieStyle: "imagen4" },
+  // Seedream 5 Pro — separate t2i / i2i ids. `quality` is TWO-valued here
+  // (basic = 1K, high = 2K), unlike the Lite variant's three values.
+  "Seedream 5 Pro":    { provider: "kie", family: "jobs", kieModel: "seedream/5-pro-text-to-image", kieModelI2I: "seedream/5-pro-image-to-image", kieStyle: "seedream5pro" },
   "GPT-4o Image":      { provider: "kie", family: "gpt4o" },
   "Flux Kontext Max":  { provider: "kie", family: "flux", kieModel: "flux-kontext-max" },
   "Midjourney":        { provider: "kie", family: "mj" },
@@ -533,6 +544,10 @@ const VIDEO_DIRECT_MAP = {
   // variant takes no aspect_ratio (it adopts the source image's).
   // Docs: docs.kie.ai/market/kling/v3-turbo-text-to-video (+ …-image-to-video)
   "Kling 3.0 Turbo":       { provider: "kie", family: "jobs", kieModel: "kling/v3-turbo-text-to-video", kieModelI2V: "kling/v3-turbo-image-to-video", kieStyle: "klingTurbo" },
+  // Gemini Omni — ONE model for t2v and reference-to-video (image_urls).
+  // NOTE the model id has NO vendor prefix, unlike every other kie id here;
+  // that is what kie's docs specify. duration is a STRING enum 4/6/8/10.
+  "Gemini Omni":           { provider: "kie", family: "jobs", kieModel: "gemini-omni-video", kieStyle: "geminiOmni" },
   "Kling 2.6":             { provider: "kie", family: "jobs", kieModel: "kling-2.6/text-to-video", kieModelI2V: "kling-2.6/image-to-video" },
   // Kling V2.5 uses image_url / tail_image_url
   "Kling 2.5":             { t2v: "fal-ai/kling-video/v1.5/pro/text-to-video",       i2v: "fal-ai/kling-video/v1.5/pro/image-to-video",       imageParam: "image_url",       endParam: "tail_image_url" },
@@ -625,6 +640,34 @@ function buildKieImageInput(cfg, { prompt, ratio, quality, imageUrls }) {
           resolution,
           output_format: 'png',
           ...(hasImages ? { image_input: imageUrls.slice(0, cfg.kieModel === 'nano-banana-2' ? 14 : 8) } : {}),
+        },
+      };
+    }
+    // Imagen 4 (Fast / Default / Ultra). Text-to-image only. kie exposes NO
+    // resolution parameter here, and `seed` is an integer on imagen4-fast but
+    // a STRING on the other two — so neither is sent. 'auto' IS valid.
+    if (cfg.kieStyle === 'imagen4') {
+      return {
+        model: cfg.kieModel,
+        input: {
+          prompt,
+          aspect_ratio: ['1:1', '16:9', '9:16', '3:4', '4:3', 'auto'].includes(ratio) ? ratio : 'auto',
+        },
+      };
+    }
+    // Seedream 5 Pro. `quality` is TWO-valued here — basic = 1K, high = 2K.
+    // The Lite variant below has a THREE-value enum; they are different
+    // models and the enums must not be shared. Separate t2i / i2i ids.
+    if (cfg.kieStyle === 'seedream5pro') {
+      const AR = ['1:1', '4:3', '3:4', '16:9', '9:16', '2:3', '3:2', '21:9'];
+      return {
+        model: hasImages ? cfg.kieModelI2I : cfg.kieModel,
+        input: {
+          prompt,
+          aspect_ratio: AR.includes(ratio) ? ratio : '1:1',
+          quality: resolution === '1K' ? 'basic' : 'high',
+          output_format: 'png',
+          ...(hasImages ? { image_urls: imageUrls.slice(0, 10) } : {}),
         },
       };
     }
@@ -797,6 +840,31 @@ function buildKieVideoSubmission(mapping, { prompt, frames, duration, aspectRati
           resolution: res,
           generate_audio: true,
           ...(frames.length ? { input_urls: frames.slice(0, 2) } : {}),
+        },
+      },
+      modelIdTag: 'kie:jobs:' + mapping.kieModel,
+    };
+  }
+  if (mapping.family === 'jobs' && mapping.kieStyle === 'geminiOmni') {
+    // Gemini Omni. duration is a STRING enum ('4'|'6'|'8'|'10') — snapped to
+    // the nearest allowed value, never passed through raw. resolution accepts
+    // lowercase '4k'. Reference images ride in image_urls (max 7, and kie
+    // enforces a 7-unit budget where each image counts 1).
+    const ALLOWED = [4, 6, 8, 10];
+    const want = parseInt(duration, 10) || 6;
+    const dur = ALLOWED.reduce((a, b) => (Math.abs(b - want) < Math.abs(a - want) ? b : a));
+    const r = String(resolution).toLowerCase();
+    const res = r.includes('4k') ? '4k' : r.includes('1080') ? '1080p' : '720p';
+    return {
+      family: 'jobs',
+      body: {
+        model: mapping.kieModel,
+        input: {
+          prompt,
+          duration: String(dur),
+          resolution: res,
+          aspect_ratio: aspectRatio === '9:16' ? '9:16' : '16:9',
+          ...(frames.length ? { image_urls: frames.slice(0, 7) } : {}),
         },
       },
       modelIdTag: 'kie:jobs:' + mapping.kieModel,
