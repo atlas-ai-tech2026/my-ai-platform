@@ -48,6 +48,18 @@ export const VIDEO_CREDITS = {
       '4K':    { off: 9,   on: 9 },
     },
   },
+  // Kling 3.0 Turbo — added 2026-08-02. Derived with the standard formula:
+  // basis = MAX(fal, kie) cost (no FAL entry, so kie is the basis:
+  // 720p $0.09/s, 1080p $0.1125/s) → sale = basis / (1 − 40%) →
+  // credits = CEILING(sale / $0.063333, 0.5). Yields 2.5 and 3 cr/s, at
+  // 43.2% and 40.8% margin. Turbo has NO audio parameter, so on === off.
+  'kling-3-turbo': {
+    type: 'per-sec', defaultRes: '720p',
+    byRes: {
+      '720p':  { off: 2.5, on: 2.5 },
+      '1080p': { off: 3,   on: 3   },
+    },
+  },
   'kling-2-6': {
     type: 'per-sec', defaultRes: '1080p',
     byRes: { '1080p': { off: 1.5, on: 2.9 } },
@@ -189,6 +201,7 @@ export const IMAGE_LABEL_TO_ID = {
 
 export const VIDEO_LABEL_TO_ID = {
   'Kling 3.0': 'kling-3',
+  'Kling 3.0 Turbo': 'kling-3-turbo',
   'Kling 2.6': 'kling-2-6',
   'Kling 2.5': 'kling-2-5',
   'Kling 2.1': 'kling-2-1',

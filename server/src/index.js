@@ -526,6 +526,12 @@ const VIDEO_DIRECT_MAP = {
   // std/pro/4K); 2.6 has separate t2v/i2v ids, duration "5"|"10" only.
   // Omni/2.5/2.1/O1 stay on FAL — not confirmed available on kie.
   "Kling 3.0":             { provider: "kie", family: "jobs", kieModel: "kling-3.0/video" },
+  // Kling 3.0 Turbo — the faster/cheaper V3 tier. SEPARATE t2v and i2v model
+  // ids (unlike Kling 3.0, which is one model), and a DIFFERENT input schema:
+  // `resolution` ("720p"|"1080p") instead of `mode`, no `sound`, and the i2v
+  // variant takes no aspect_ratio (it adopts the source image's).
+  // Docs: docs.kie.ai/market/kling/v3-turbo-text-to-video (+ …-image-to-video)
+  "Kling 3.0 Turbo":       { provider: "kie", family: "jobs", kieModel: "kling/v3-turbo-text-to-video", kieModelI2V: "kling/v3-turbo-image-to-video", kieStyle: "klingTurbo" },
   "Kling 2.6":             { provider: "kie", family: "jobs", kieModel: "kling-2.6/text-to-video", kieModelI2V: "kling-2.6/image-to-video" },
   // Kling V2.5 uses image_url / tail_image_url
   "Kling 2.5":             { t2v: "fal-ai/kling-video/v1.5/pro/text-to-video",       i2v: "fal-ai/kling-video/v1.5/pro/image-to-video",       imageParam: "image_url",       endParam: "tail_image_url" },
@@ -793,6 +799,35 @@ function buildKieVideoSubmission(mapping, { prompt, frames, duration, aspectRati
         },
       },
       modelIdTag: 'kie:jobs:' + mapping.kieModel,
+    };
+  }
+  if (mapping.family === 'jobs' && mapping.kieStyle === 'klingTurbo') {
+    // Kling 3.0 Turbo. Schema differs from Kling 3.0 in three ways, all
+    // verified against kie's OpenAPI spec:
+    //   • `resolution` ("720p"|"1080p") — NOT Kling 3.0's `mode` std/pro/4K
+    //   • no `sound` parameter at all (so the Audio toggle cannot apply)
+    //   • the i2v variant takes no aspect_ratio (it adopts the image's)
+    // Separate model ids for t2v and i2v; the first frame rides in
+    // image_urls, exactly as Kling 3.0 does.
+    const isI2V = frames.length > 0;
+    const kieModel = isI2V ? mapping.kieModelI2V : mapping.kieModel;
+    const dur = Math.min(15, Math.max(3, parseInt(duration, 10) || 5));
+    const res = String(resolution).toLowerCase() === '1080p' ? '1080p' : '720p';
+    return {
+      family: 'jobs',
+      body: {
+        model: kieModel,
+        input: {
+          prompt,
+          duration: String(dur),
+          resolution: res,
+          // t2v accepts aspect_ratio; i2v derives it from the source image.
+          ...(isI2V
+            ? { image_urls: [frames[0]] }
+            : { aspect_ratio: ['1:1', '9:16', '16:9'].includes(aspectRatio) ? aspectRatio : '16:9' }),
+        },
+      },
+      modelIdTag: 'kie:jobs:' + kieModel,
     };
   }
   if (mapping.family === 'jobs' && mapping.kieStyle === 'grok') {

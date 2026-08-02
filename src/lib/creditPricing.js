@@ -105,6 +105,17 @@ export const VIDEO_CREDITS = {
   // Kling 2.6 — workbook prices per 5s clip (7.5 no-audio / 14.5 audio)
   // → 1.5 / 2.9 per second; kie durations are 5s or 10s so this lands
   // exactly on the sheet numbers (and 2× for 10s).
+  // Kling 3.0 Turbo — added 2026-08-02. basis = kie cost (720p $0.09/s,
+  // 1080p $0.1125/s) → sale = basis / (1 − 40%) → CEILING(…, 0.5) = 2.5 and
+  // 3 cr/s (43.2% / 40.8% margin). Turbo has no audio param, so on === off.
+  // Must stay identical to server/src/pricing.js — enforced by a parity test.
+  'kling-3-turbo': {
+    type: 'per-sec', defaultRes: '720p',
+    byRes: {
+      '720p':  { off: 2.5, on: 2.5 },
+      '1080p': { off: 3,   on: 3   },
+    },
+  },
   'kling-2-6': {
     type: 'per-sec', defaultRes: '1080p',
     byRes: { '1080p': { off: 1.5, on: 2.9 } },
