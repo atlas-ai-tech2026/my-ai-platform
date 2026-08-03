@@ -48,6 +48,7 @@ import {
 } from './download-guard.js';
 // H2 (audit 2026-07-28): /api/upload content-type policy.
 import { validateUpload } from './upload-guard.js';
+import { isKnownVoice, VOICE_COUNT } from './voice-catalog.js';
 // H3 (audit 2026-07-28): hard deadline on synchronous provider calls.
 import { withProviderDeadline, ProviderTimeoutError } from './provider-deadline.js';
 // M1 (audit 2026-07-28): keep credentials out of the admin audit log.
@@ -2053,46 +2054,43 @@ app.post('/api/generate-music', verifyJwt, requireNotBanned, requireFalKey, asyn
 // the URL is cached in a module-level Map; every subsequent request
 // for that voice returns the cached URL with no FAL call and no charge.
 //
-// Rate-limited per IP so a malicious caller can't burn through every
-// voice and force a fresh FAL call for each. Cap = 30 fresh previews
-// per IP per hour.
+// N7 (recheck 2026-08-03): the limiter here was a hand-rolled Map keyed on the
+// caller's IP that was NEVER evicted (unbounded growth), reset on every deploy,
+// and — with two instances in production — allowed double its stated cap.
+// Replaced with the same express-rate-limit + clientIp keying every other route
+// uses. The cache stays a Map on purpose: it is bounded by the catalogue, so at
+// most VOICE_COUNT entries can ever exist.
 const PREVIEW_TEXT = 'Hi! This is a quick voice preview. You can pick this voice to read your script.';
-const voicePreviewCache = new Map(); // voice name → audio_url
-const previewRateBucket = new Map(); // ip → { count, resetAt }
-const PREVIEW_RATE_MAX = 30;
-const PREVIEW_RATE_WINDOW_MS = 60 * 60 * 1000;
+const voicePreviewCache = new Map(); // voice id/name → audio_url (max VOICE_COUNT entries)
+const previewLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 30,
+  keyGenerator: ipKey,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many previews. Try again in an hour.' },
+});
 
-function checkPreviewRate(ip) {
-  const now = Date.now();
-  const cur = previewRateBucket.get(ip);
-  if (!cur || cur.resetAt < now) {
-    previewRateBucket.set(ip, { count: 1, resetAt: now + PREVIEW_RATE_WINDOW_MS });
-    return true;
-  }
-  if (cur.count >= PREVIEW_RATE_MAX) return false;
-  cur.count++;
-  return true;
-}
-
-app.post('/api/tts/preview', requireFalKey, async (req, res) => {
+// Deliberately public: visitors hear a sample before signing up, and the cache
+// means the first listener pays the FAL call and everyone after gets it free.
+// N7 keeps it public but bounds it — see voice-catalog.js for why validating
+// the voice is a stronger guarantee here than requiring a login.
+app.post('/api/tts/preview', previewLimiter, requireFalKey, async (req, res) => {
   const { voice } = req.body || {};
   if (!voice || typeof voice !== 'string') {
     return res.status(400).json({ error: 'voice required' });
+  }
+  // N7: only voices the picker actually offers. Without this, any made-up
+  // string missed the cache and became a billable FAL call.
+  if (!isKnownVoice(voice)) {
+    console.warn(`[TTS-PREVIEW] rejected unknown voice from ${clientIp(req)}`);
+    return res.status(400).json({ error: 'Unknown voice.' });
   }
 
   // Cache hit → free + zero FAL load.
   const cached = voicePreviewCache.get(voice);
   if (cached) {
     return res.json({ success: true, audio_url: cached, cached: true });
-  }
-
-  // Cache miss → FAL call. Gate on per-IP rate limit so it can't
-  // be abused to fill the cache from one source.
-  // clientIp(req), not req.ip: behind Cloudflare req.ip is the EDGE address,
-  // so every visitor sharing an edge shared ONE preview budget and throttled
-  // each other. clientIp resolves the real visitor (see client-ip.js, M2).
-  if (!checkPreviewRate(clientIp(req) || 'unknown')) {
-    return res.status(429).json({ error: 'Too many previews. Try again in an hour.' });
   }
 
   const falModel = TTS_MODELS['eleven-v3'];
@@ -2311,15 +2309,15 @@ app.post('/api/generate-video-ref', verifyJwt, requireNotBanned, requireModelPro
 });
 
 // ─── CHARACTER ELIGIBILITY CHECK ──────────────────────────────────
-app.post('/api/check-character-eligibility', async (req, res) => {
+// N7 (recheck 2026-08-03): had no auth and no limiter, and slept 2 seconds on
+// every call — a free way for anyone to hold connections open on a single-
+// process server. It is only ever called from the video flow by a signed-in
+// user, so requiring a login costs nothing, and the artificial delay is gone.
+app.post('/api/check-character-eligibility', verifyJwt, requireNotBanned, statusLimiter, async (req, res) => {
   const { image_url } = req.body;
   if (!image_url) return res.status(400).json({ error: 'image_url required' });
 
   console.log('[ELIGIBILITY] Checking:', image_url);
-
-  // Simulate a 2-second approval check
-  // In production, this could call a face detection/content moderation API
-  await new Promise(r => setTimeout(r, 2000));
 
   // For now: always approve if the URL is valid
   const approved = image_url.startsWith('http');
@@ -2641,7 +2639,11 @@ app.get('/api/download', verifyJwt, requireNotBanned, async (req, res) => {
 });
 
 // ─── LLM ENDPOINT (for Studio ScriptModule) ───────────────────────
-app.post('/api/llm', async (req, res) => {
+// N7: was unauthenticated. It returns a static placeholder today, so nothing
+// leaks and nothing is billed — but it is the wiring for a real LLM call, and
+// an endpoint that becomes expensive later should not be public now. Its only
+// caller is the app's own client, used while signed in.
+app.post('/api/llm', verifyJwt, requireNotBanned, enhanceLimiter, async (req, res) => {
   const { prompt, response_json_schema } = req.body;
   if (!prompt) return res.status(400).json({ error: 'Prompt required' });
   try {
