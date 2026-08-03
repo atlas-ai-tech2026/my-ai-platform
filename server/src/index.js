@@ -45,6 +45,10 @@ import {
   assertSafeDownloadUrl,
   sanitizeFilename,
   DownloadRejectedError,
+  // N10: the character-element route reuses the same host allow-list rather
+  // than inventing a second, weaker idea of "a url we can read".
+  isAllowedDownloadHost,
+  buildAllowedHostSuffixes,
 } from './download-guard.js';
 // H2 (audit 2026-07-28): /api/upload content-type policy.
 import { validateUpload } from './upload-guard.js';
@@ -2327,21 +2331,47 @@ app.post('/api/generate-video-ref', verifyJwt, requireNotBanned, requireModelPro
 });
 
 // ─── CHARACTER ELIGIBILITY CHECK ──────────────────────────────────
+// Accept an uploaded image as a reusable character element.
+//
 // N7 (recheck 2026-08-03): had no auth and no limiter, and slept 2 seconds on
 // every call — a free way for anyone to hold connections open on a single-
 // process server. It is only ever called from the video flow by a signed-in
 // user, so requiring a login costs nothing, and the artificial delay is gone.
+//
+// N10 (recheck 2026-08-03): it also RETURNED approved:true for any string
+// beginning with 'http' — it inspected nothing — while the interface presented
+// it as a moderation control: a shield icon, "Check eligibility", and
+// "Character approved". That is a false compliance record: a user could upload
+// a real person's likeness and the platform would stamp it approved.
+//
+// It now does only what it can honestly do — confirm the reference is an https
+// URL on a host we actually serve media from — and the UI no longer claims
+// moderation. Adding real content moderation is a separate decision (it needs
+// a provider, a cost, and a written policy on what gets rejected); when it
+// lands, it belongs right here.
 app.post('/api/check-character-eligibility', verifyJwt, requireNotBanned, statusLimiter, async (req, res) => {
   const { image_url } = req.body;
   if (!image_url) return res.status(400).json({ error: 'image_url required' });
 
-  console.log('[ELIGIBILITY] Checking:', image_url);
+  let accepted = false;
+  let reason = null;
+  try {
+    const u = new URL(String(image_url));
+    if (u.protocol !== 'https:') {
+      reason = 'Reference images must be served over https.';
+    } else if (!isAllowedDownloadHost(u.hostname, buildAllowedHostSuffixes())) {
+      reason = 'That image is not hosted where we can read it — re-upload it here.';
+    } else {
+      accepted = true;
+    }
+  } catch {
+    reason = 'That does not look like a valid image address.';
+  }
 
-  // For now: always approve if the URL is valid
-  const approved = image_url.startsWith('http');
-  console.log('[ELIGIBILITY]', approved ? '✅ Approved' : '❌ Rejected');
-
-  res.json({ approved, image_url });
+  console.log(`[CHARACTER-ELEMENT] ${accepted ? 'accepted' : `rejected: ${reason}`}`);
+  // NOTE: no content inspection happens here. Do not reintroduce wording
+  // anywhere that implies this endpoint moderates or approves imagery.
+  res.json({ accepted, image_url, ...(reason ? { reason } : {}) });
 });
 
 // ─── VIDEO STATUS POLLING ─────────────────────────────────────────
