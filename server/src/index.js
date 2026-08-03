@@ -2507,13 +2507,32 @@ app.get('/api/download', verifyJwt, requireNotBanned, async (req, res) => {
   if (!url) return res.status(400).json({ error: 'url required' });
 
   // A URL that appears in the CALLER'S OWN history is allowed regardless of
-  // which provider hosts it. Outputs from different eras live on different
-  // hosts (FAL, kie, supabase, base44, Spaces), and a static allow-list kept
-  // refusing legitimate downloads. This is also STRICTER than the host list
-  // against SSRF — an attacker cannot plant a URL in someone else's history,
-  // so it can never be aimed at an internal address. The DNS private-address
-  // check below still runs either way.
+  // which provider hosts it.
+  //
+  // N4 (recheck 2026-08-03): that reasoning had a hole. "An attacker cannot
+  // plant a URL in someone else's history" is true and irrelevant — they plant
+  // it in their OWN. POST /api/entities/:name persists arbitrary client JSON,
+  // so two requests (write {"result_url":"https://attacker.tld/x"}, then ask
+  // to download it) turned this route into an authenticated proxy for any host
+  // on the internet, with a 512 MB ceiling and no rate limit.
+  //
+  // The host allow-list is therefore enforced on EVERY request now, ownership
+  // or not. What made the list unworkable before was that it was written from
+  // the code that produces new URLs instead of from the URLs that actually
+  // exist; it is now derived from the production data (see download-guard.js),
+  // including the kie output host that holds 47% of all history.
+  //
+  // Ownership no longer changes WHERE we will connect. It is recorded so the
+  // logs show whether anyone actually downloads media that is not in their own
+  // history — this route has broken twice by tightening it on assumption
+  // rather than evidence, so the hard refusal waits until the data says it is
+  // safe. Everything reachable is already on the allow-list either way.
   const ownedByCaller = await userOwnsMediaUrl(req.user.id, url);
+  if (!ownedByCaller) {
+    let host = 'unparseable';
+    try { host = new URL(String(url)).hostname; } catch { /* keep placeholder */ }
+    console.warn(`[download] user ${req.user.id} fetched a url absent from their history (host=${host})`);
+  }
 
   const controller = new AbortController();
   const deadline = setTimeout(() => controller.abort(), DOWNLOAD_TIMEOUT_MS);
@@ -2524,13 +2543,17 @@ app.get('/api/download', verifyJwt, requireNotBanned, async (req, res) => {
     let target = String(url);
     let response = null;
     for (let hop = 0; hop <= DOWNLOAD_MAX_REDIRECTS; hop++) {
-      // `skipHostAllowList` only relaxes the HOST check, and only for the
-      // user's own media. https-only, no-credentials, no-IP-literal and the
-      // private/loopback/link-local DNS rejection all still apply — on the
-      // first hop and on every redirect.
-      const safeUrl = await assertSafeDownloadUrl(target, {
-        skipHostAllowList: ownedByCaller && hop === 0,
-      });
+      // N4: no skipHostAllowList. The host list, https-only, no-credentials,
+      // no-IP-literal and the private/loopback/link-local DNS rejection all
+      // apply on the first hop and on every redirect, without exception.
+      //
+      // Residual, accepted: assertSafeDownloadUrl resolves the name and fetch()
+      // resolves it again, so a DNS rebind between the two is theoretically
+      // possible. Pinning the validated address needs a custom undici
+      // dispatcher; with connections now limited to a handful of known CDNs an
+      // attacker would have to control one of THEIR zones, so the exposure is
+      // small. Tracked in TECH-DEBT.md.
+      const safeUrl = await assertSafeDownloadUrl(target);
       response = await fetch(safeUrl, { redirect: 'manual', signal: controller.signal });
       if ([301, 302, 303, 307, 308].includes(response.status)) {
         const loc = response.headers.get('location');

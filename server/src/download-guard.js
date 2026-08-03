@@ -32,8 +32,15 @@ function envHost(value) {
  */
 export function buildAllowedHostSuffixes(env = process.env) {
   const list = [
-    'fal.media',       // FAL output CDN
-    'redpandaai.co',   // kie.ai file/temp hosts
+    'fal.media',       // FAL output CDN            (v3b.fal.media)
+    'redpandaai.co',   // kie.ai file upload host   (kieai.redpandaai.co)
+    // kie.ai OUTPUT host. Distinct from redpandaai.co above, which is only
+    // where references are uploaded TO. Derived from the production data on
+    // 2026-08-03, not from the code that writes new rows: it holds 5,949 of
+    // the 12,554 media URLs in history — 47%. Enforcing the allow-list
+    // without it would have broken downloads for nearly half of every
+    // generation ever made, repeating the 2026-08-01 regression exactly.
+    'aiquickdraw.com', // tempfile.aiquickdraw.com
     // Historical output hosts. Generations made before outputs were
     // re-hosted to our own Spaces bucket still point here, and a user
     // downloading an old image from their history must keep working.

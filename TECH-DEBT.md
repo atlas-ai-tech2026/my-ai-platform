@@ -116,3 +116,18 @@ What it would take to finish: issue the same httpOnly cookie for normal logins,
 switch `base44Client` to `credentials: 'include'` + CSRF, and delete
 `VOXEL_TOKEN_KEY`. Roughly half a day, touching every authenticated call in the
 app, so it is its own change rather than a rider on a security fix.
+
+## /api/download resolves DNS twice (N4, residual)
+
+`assertSafeDownloadUrl` resolves the hostname to check it is not private, then
+`fetch()` resolves it again independently. A zero-TTL record answering public
+on the first lookup and internal on the second would slip past the check.
+
+Why it is accepted for now: N4 made the host allow-list unconditional, so an
+attacker must control the DNS of `fal.media`, `aiquickdraw.com`, `supabase.co`,
+`base44.com` or our own Spaces domain to exploit it. That is a far larger
+compromise than this route.
+
+The fix is a custom undici dispatcher that connects to the address already
+validated, rather than re-resolving. Perhaps an hour, plus care that redirects
+and keep-alive still behave.
