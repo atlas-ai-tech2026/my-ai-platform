@@ -1667,6 +1667,10 @@ app.post('/api/edit-video-omni', verifyJwt, requireNotBanned, requireFalKey, asy
   if (!prompt) return res.status(400).json({ error: 'prompt required' });
 
   // C1: server-computed price (flat per clip; resolution rides in `quality`).
+  // N5: same position as /api/generate — after the model is resolved and
+  // before any charge, so a blocked attempt is never billed.
+  if (!modelAllowedForUser(req, model)) return res.status(403).json(MODEL_BLOCKED(model));
+
   const serverCost = priceOrRespond(res, {
     kind: 'video', model, resolution: req.body.quality,
     clientCost: req.body.credit_cost,
@@ -1758,6 +1762,10 @@ app.post('/api/motion-control', verifyJwt, requireNotBanned, requireFalKey, asyn
   if (!video_url) return res.status(400).json({ error: 'video_url (motion reference) required' });
 
   // C1: server-computed price (flat per clip; resolution rides in `quality`).
+  // N5: same position as /api/generate — after the model is resolved and
+  // before any charge, so a blocked attempt is never billed.
+  if (!modelAllowedForUser(req, model)) return res.status(403).json(MODEL_BLOCKED(model));
+
   const serverCost = priceOrRespond(res, {
     kind: 'video', model, resolution: req.body.quality,
     clientCost: req.body.credit_cost,
@@ -1841,6 +1849,15 @@ const TTS_MODELS = {
   'multilingual-v2': 'fal-ai/elevenlabs/tts/multilingual-v2',
 };
 
+// N5: human-facing labels for the per-user allow-list. These are the strings
+// the CRM shows and stores, so they must match GET /api/admin/models exactly —
+// model-coverage.test.js fails if the two ever drift.
+const TTS_MODEL_LABELS = {
+  'eleven-v3':       'ElevenLabs v3',
+  'multilingual-v2': 'ElevenLabs Multilingual v2',
+};
+const MUSIC_MODEL_LABEL = 'Lyria 2 (Music)';
+
 app.post('/api/tts', verifyJwt, requireNotBanned, requireFalKey, async (req, res) => {
   const {
     model,
@@ -1851,6 +1868,12 @@ app.post('/api/tts', verifyJwt, requireNotBanned, requireFalKey, async (req, res
     similarity_boost,
     style,
   } = req.body || {};
+
+  // N5: voice was ungated entirely — a restricted account could spend its
+  // whole balance here. Gate the RESOLVED label so the default path is checked
+  // too, not only an explicitly requested model.
+  const ttsLabel = TTS_MODEL_LABELS[model] || TTS_MODEL_LABELS['eleven-v3'];
+  if (!modelAllowedForUser(req, ttsLabel)) return res.status(403).json(MODEL_BLOCKED(ttsLabel));
 
   const falModel = TTS_MODELS[model] || TTS_MODELS['eleven-v3'];
   const usingV3 = falModel.endsWith('eleven-v3');
@@ -1956,6 +1979,11 @@ app.post('/api/generate-music', verifyJwt, requireNotBanned, requireFalKey, asyn
   }
   if (prompt.length > 4000) {
     return res.status(400).json({ error: 'prompt too long (max 4000 chars)' });
+  }
+
+  // N5: music was ungated. One fixed model, so the label is a constant.
+  if (!modelAllowedForUser(req, MUSIC_MODEL_LABEL)) {
+    return res.status(403).json(MODEL_BLOCKED(MUSIC_MODEL_LABEL));
   }
 
   let chargedKind = null;
@@ -3020,6 +3048,13 @@ app.post('/api/node/run-node', verifyJwt, requireNotBanned, requireFalKey, async
   const { type, settings } = req.body || {};
   const spec = NODE_SYNC_SPECS[type];
   if (!spec) return res.status(400).json({ error: `Unsupported node type: ${type || '(missing)'}` });
+
+  // N5: the node canvas reaches the same providers as the normal pages, so it
+  // honours the same allow-list. The node's chosen model is the label when
+  // there is one; otherwise the node type itself.
+  const nodeLabel = settings?.model || type;
+  if (!modelAllowedForUser(req, nodeLabel)) return res.status(403).json(MODEL_BLOCKED(nodeLabel));
+
   const falModel = spec.resolve(settings);
 
   const prompt = settings?.prompt;
@@ -3118,6 +3153,11 @@ app.post('/api/node/run-node-async', verifyJwt, requireNotBanned, requireFalKey,
   }
 
   const modelLabel = settings?.model;
+  // N5: the async video node spends credits like every other path, so it takes
+  // the same allow-list gate — before pricing, before charging.
+  if (!modelAllowedForUser(req, modelLabel || type)) {
+    return res.status(403).json(MODEL_BLOCKED(modelLabel || type));
+  }
   // Upstream image(s). image_urls is the multi-reference array; image_url is
   // the single start frame (first reference) for back-compat.
   const imageUrls = Array.isArray(settings?.image_urls)
@@ -4467,9 +4507,16 @@ app.post('/api/admin/2fa/disable', adminGate, async (req, res) => {
 // Server is the source of truth for model labels — the same keys the
 // generate routes resolve and the allow-list gate compares against.
 app.get('/api/admin/models', adminGate, (req, res) => {
+  // N5: this used to offer only image + video, while the server gated only
+  // those three routes. Now that voice, music, editing, motion control and the
+  // node canvas are gated too, they have to be grantable — otherwise
+  // restricting an account would silently remove them with no way back.
   res.json({
     image: Object.keys(MODEL_CONFIG),
     video: Object.keys(VIDEO_DIRECT_MAP),
+    audio: [...Object.values(TTS_MODEL_LABELS), MUSIC_MODEL_LABEL],
+    editing: [...Object.keys(EDIT_VIDEO_MODELS), ...Object.keys(MOTION_CONTROL_MODELS)],
+    node: Object.keys(NODE_SYNC_SPECS),
   });
 });
 
