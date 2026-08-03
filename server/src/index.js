@@ -3987,7 +3987,13 @@ app.post('/api/admin/users/:id/reset-password', adminGate, async (req, res) => {
     }
 
     const hash = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
-    await pool.query(`UPDATE users SET password_hash = $1 WHERE id = $2`, [hash, targetId]);
+    // N9: stamp the session cutoff in the SAME statement as the new hash, so
+    // a reset always evicts existing tokens. Previously the attacker whose
+    // compromise prompted the reset kept a working session for up to 7 days.
+    await pool.query(
+      `UPDATE users SET password_hash = $1, sessions_valid_from = NOW() WHERE id = $2`,
+      [hash, targetId]
+    );
 
     // Audit trail alongside the other moderation actions.
     pool.query(

@@ -389,6 +389,17 @@ export async function migrate() {
     await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_last_step      BIGINT;`);
     await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_recovery_codes JSONB;`);
 
+    // ─── N9 (recheck 2026-08-03): session invalidation ──────────────
+    // JWTs carry no version and last 7 days for users / 30 min for admins,
+    // and nothing anywhere compared them against a password change. So
+    // resetting a compromised account's password did NOT evict the attacker:
+    // their existing token kept spending credits until it expired naturally.
+    //
+    // sessions_valid_from is the cutoff. Any token issued before it is
+    // refused. Defaults to NULL (= no cutoff), so every token in flight when
+    // this deploys stays valid and nobody is logged out by the migration.
+    await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS sessions_valid_from TIMESTAMPTZ;`);
+
     // ─── one-shot admin promotion ───────────────────────────────────
     const promoted = await client.query(
       `UPDATE users SET role = 'admin' WHERE email = $1 AND role <> 'admin' RETURNING id`,
