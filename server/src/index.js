@@ -1041,6 +1041,24 @@ async function resolveReferenceUrls(rawUrls, { forKie = false, tag = 'REFS' } = 
     const contentType = m[1] || 'image/png';
     const buf = Buffer.from(m[2], 'base64');
 
+    // N6 (recheck 2026-08-03): this path skipped validateUpload entirely.
+    // /api/upload runs it on the multipart route, but references arriving as
+    // data: URIs went straight to persistBuffer — which writes to Spaces with
+    // ACL 'public-read' and the caller's OWN Content-Type. So any signed-in
+    // user could host arbitrary content (data:text/html;base64,...) on our
+    // bucket, under our domain, for free — and the object survived even when
+    // the generation then failed and the credits were refunded.
+    //
+    // Same validator, same rules as the multipart path: the declared type must
+    // be an allowed media type AND the magic bytes must actually match it.
+    // Throwing here is correct — the charge already happened above, so the
+    // route's catch refunds and the user is told why their file was rejected.
+    const verdict = validateUpload({ mimetype: contentType, buffer: buf });
+    if (!verdict.ok) {
+      console.error(`[${tag}] reference ${i + 1} rejected: ${verdict.reason}`);
+      throw new Error(`A reference file was rejected: ${verdict.reason}`);
+    }
+
     if (spacesReady()) {
       try {
         const url = await persistBuffer(buf, contentType, 'reference');
