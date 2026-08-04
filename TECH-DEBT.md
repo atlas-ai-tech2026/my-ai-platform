@@ -131,3 +131,21 @@ compromise than this route.
 The fix is a custom undici dispatcher that connects to the address already
 validated, rather than re-resolving. Perhaps an hour, plus care that redirects
 and keep-alive still behave.
+
+## Sign-up still discloses whether an email has an account (N11, partial)
+
+`POST /api/auth/register` returns 409 "An account with that email already
+exists." `/api/auth/login` deliberately avoids exactly this disclosure, so the
+two are inconsistent.
+
+Why it is not fully fixed: the standard answer is to accept every sign-up and
+send an email that either confirms the new account or says "you already have
+one" — and this platform has no email delivery of any kind. Without it, sign-up
+must tell the person immediately whether they now have an account.
+
+N11 tightened the limiter from 100 to 15 attempts per 15 minutes per address,
+cutting the probing ceiling from ~9,600 to ~1,440 emails a day and making list
+enumeration impractical rather than merely slow.
+
+Closing it properly comes free with email delivery, whenever that lands — the
+same dependency that blocks email-based 2FA.

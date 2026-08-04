@@ -279,9 +279,22 @@ const loginLimiter = rateLimit({
   legacyHeaders: false,
   message: { error: 'Too many login attempts. Try again in a few minutes.' },
 });
+// N11 (recheck 2026-08-03): sign-up answers 409 "an account with that email
+// already exists", which tells an attacker exactly which addresses hold
+// accounts — the disclosure /api/auth/login deliberately avoids.
+//
+// The textbook fix ("we've emailed you either way") is NOT available: this
+// platform has no email delivery at all, so sign-up has to tell the person
+// then and there whether they got an account. The honest mitigation is to
+// make bulk probing impractical rather than to pretend the leak is closed.
+//
+// 100 per 15 minutes let one address test ~9,600 emails a day. 15 keeps real
+// sign-ups comfortable — NAT/campus/carrier traffic rarely produces more than
+// a handful — while making list enumeration far too slow to be worth running.
+// Residual risk is documented in TECH-DEBT.md.
 const registerLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 100, // generous: NAT/campus/carrier can put many real signups behind one IP
+  max: 15,
   keyGenerator: ipKey,
   standardHeaders: true,
   legacyHeaders: false,
