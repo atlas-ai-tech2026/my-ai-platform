@@ -45,9 +45,14 @@ import {
   assertSafeDownloadUrl,
   sanitizeFilename,
   DownloadRejectedError,
+  // N10: the character-element route reuses the same host allow-list rather
+  // than inventing a second, weaker idea of "a url we can read".
+  isAllowedDownloadHost,
+  buildAllowedHostSuffixes,
 } from './download-guard.js';
 // H2 (audit 2026-07-28): /api/upload content-type policy.
 import { validateUpload } from './upload-guard.js';
+import { isKnownVoice, VOICE_COUNT } from './voice-catalog.js';
 // H3 (audit 2026-07-28): hard deadline on synchronous provider calls.
 import { withProviderDeadline, ProviderTimeoutError } from './provider-deadline.js';
 // M1 (audit 2026-07-28): keep credentials out of the admin audit log.
@@ -152,6 +157,18 @@ app.use((req, res, next) => {
 // non-text types like images automatically.
 app.use(compression());
 
+// N15: every https origin the browser legitimately connects to, derived from
+// the download allow-list so the two cannot drift apart. Suffixes become
+// wildcard origins ('fal.media' → 'https://*.fal.media' plus the bare host).
+function mediaConnectSources() {
+  const out = new Set();
+  for (const suffix of buildAllowedHostSuffixes()) {
+    out.add(`https://${suffix}`);
+    out.add(`https://*.${suffix}`);
+  }
+  return [...out];
+}
+
 app.use(helmet({
   // CSP: scripts/styles are same-origin (index.html has no inline <script>;
   // the JSON-LD block is data, not executable, so script-src 'self' is fine).
@@ -164,9 +181,23 @@ app.use(helmet({
       scriptSrc: ["'self'"],
       styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
       fontSrc: ["'self'", 'https://fonts.gstatic.com', 'data:'],
+      // N15 (recheck 2026-08-03): connect-src was 'https:' — anything on the
+      // internet — so the policy contributed nothing against exfiltration if
+      // script ever executed. Narrowed to the hosts media actually comes from,
+      // reusing the SAME list the download guard derives from production data
+      // (download-guard.js) rather than inventing a second one that drifts.
+      //
+      // It has to be a list and not just 'self': Audio.jsx fetches provider
+      // audio urls directly in the browser, and uploadToFal.js fetches image
+      // sources — narrowing this to 'self' would break playback with an opaque
+      // "Failed to fetch", the exact failure mode documented in the handover.
+      //
+      // img/media stay https:-wide. They cannot exfiltrate a response body,
+      // and old history rows point at hosts that predate every list we keep;
+      // breaking those would blank out images users can still see today.
       imgSrc: ["'self'", 'data:', 'blob:', 'https:'],
       mediaSrc: ["'self'", 'data:', 'blob:', 'https:'],
-      connectSrc: ["'self'", 'blob:', 'https:'],
+      connectSrc: ["'self'", 'blob:', 'data:', ...mediaConnectSources()],
       workerSrc: ["'self'", 'blob:'],
       objectSrc: ["'none'"],
       baseUri: ["'self'"],
@@ -179,13 +210,38 @@ app.use(helmet({
 
 // Lock CORS to known origins. Empty Origin (curl, server-to-server) is
 // allowed because admin curl + DO health probe both have no Origin header.
-const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS ||
-  // :3001 = single-process prod repro (Express serves dist/ directly);
-  // module <script crossorigin> sends Origin, so it must be allowed.
-  // www is allowed as belt-and-suspenders for tabs opened before the
-  // www→apex 301 shipped (their cached pages still send a www Origin).
-  'https://voxel-ai.ai,https://www.voxel-ai.ai,http://localhost:5173,http://localhost:8080,http://localhost:3001')
-  .split(',').map(s => s.trim()).filter(Boolean);
+// N14 (recheck 2026-08-03): ALLOWED_ORIGINS is NOT set in production —
+// verified against the live App Platform spec — so production runs on this
+// fallback, which also trusted three localhost origins. With credentials:true
+// that let software listening on a victim's own machine make credentialed
+// calls and read the responses.
+//
+// Fixed in the DEFAULT rather than by setting the env var, deliberately: an
+// env var that has to be right is one that can be cleared, mistyped, or
+// forgotten on a new app (it already was on this one, and on the dev twin).
+// The localhost entries now appear only when NODE_ENV is not 'production', so
+// local development keeps working and production cannot inherit them.
+// Setting ALLOWED_ORIGINS explicitly still overrides everything.
+const IS_PRODUCTION = process.env.NODE_ENV === 'production';
+const DEFAULT_ORIGINS = [
+  'https://voxel-ai.ai',
+  // www is belt-and-suspenders for tabs opened before the www→apex 301
+  // shipped (their cached pages still send a www Origin).
+  'https://www.voxel-ai.ai',
+  // Dev only. :3001 is the single-process prod repro (Express serves dist/
+  // directly); a module <script crossorigin> sends an Origin, so it must be
+  // allowed or the app's own bundle is refused.
+  ...(IS_PRODUCTION ? [] : [
+    'http://localhost:5173',
+    'http://localhost:8080',
+    'http://localhost:3001',
+  ]),
+];
+const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS
+  ? process.env.ALLOWED_ORIGINS.split(',')
+  : DEFAULT_ORIGINS
+).map(s => s.trim()).filter(Boolean);
+console.log(`[cors] ${process.env.ALLOWED_ORIGINS ? 'ALLOWED_ORIGINS env' : 'built-in default'} → ${ALLOWED_ORIGINS.join(', ')}`);
 app.use(cors({
   origin: (origin, cb) => {
     if (!origin) return cb(null, true);
@@ -274,9 +330,22 @@ const loginLimiter = rateLimit({
   legacyHeaders: false,
   message: { error: 'Too many login attempts. Try again in a few minutes.' },
 });
+// N11 (recheck 2026-08-03): sign-up answers 409 "an account with that email
+// already exists", which tells an attacker exactly which addresses hold
+// accounts — the disclosure /api/auth/login deliberately avoids.
+//
+// The textbook fix ("we've emailed you either way") is NOT available: this
+// platform has no email delivery at all, so sign-up has to tell the person
+// then and there whether they got an account. The honest mitigation is to
+// make bulk probing impractical rather than to pretend the leak is closed.
+//
+// 100 per 15 minutes let one address test ~9,600 emails a day. 15 keeps real
+// sign-ups comfortable — NAT/campus/carrier traffic rarely produces more than
+// a handful — while making list enumeration far too slow to be worth running.
+// Residual risk is documented in TECH-DEBT.md.
 const registerLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 100, // generous: NAT/campus/carrier can put many real signups behind one IP
+  max: 15,
   keyGenerator: ipKey,
   standardHeaders: true,
   legacyHeaders: false,
@@ -1040,6 +1109,24 @@ async function resolveReferenceUrls(rawUrls, { forKie = false, tag = 'REFS' } = 
     const contentType = m[1] || 'image/png';
     const buf = Buffer.from(m[2], 'base64');
 
+    // N6 (recheck 2026-08-03): this path skipped validateUpload entirely.
+    // /api/upload runs it on the multipart route, but references arriving as
+    // data: URIs went straight to persistBuffer — which writes to Spaces with
+    // ACL 'public-read' and the caller's OWN Content-Type. So any signed-in
+    // user could host arbitrary content (data:text/html;base64,...) on our
+    // bucket, under our domain, for free — and the object survived even when
+    // the generation then failed and the credits were refunded.
+    //
+    // Same validator, same rules as the multipart path: the declared type must
+    // be an allowed media type AND the magic bytes must actually match it.
+    // Throwing here is correct — the charge already happened above, so the
+    // route's catch refunds and the user is told why their file was rejected.
+    const verdict = validateUpload({ mimetype: contentType, buffer: buf });
+    if (!verdict.ok) {
+      console.error(`[${tag}] reference ${i + 1} rejected: ${verdict.reason}`);
+      throw new Error(`A reference file was rejected: ${verdict.reason}`);
+    }
+
     if (spacesReady()) {
       try {
         const url = await persistBuffer(buf, contentType, 'reference');
@@ -1667,6 +1754,10 @@ app.post('/api/edit-video-omni', verifyJwt, requireNotBanned, requireFalKey, asy
   if (!prompt) return res.status(400).json({ error: 'prompt required' });
 
   // C1: server-computed price (flat per clip; resolution rides in `quality`).
+  // N5: same position as /api/generate — after the model is resolved and
+  // before any charge, so a blocked attempt is never billed.
+  if (!modelAllowedForUser(req, model)) return res.status(403).json(MODEL_BLOCKED(model));
+
   const serverCost = priceOrRespond(res, {
     kind: 'video', model, resolution: req.body.quality,
     clientCost: req.body.credit_cost,
@@ -1758,6 +1849,10 @@ app.post('/api/motion-control', verifyJwt, requireNotBanned, requireFalKey, asyn
   if (!video_url) return res.status(400).json({ error: 'video_url (motion reference) required' });
 
   // C1: server-computed price (flat per clip; resolution rides in `quality`).
+  // N5: same position as /api/generate — after the model is resolved and
+  // before any charge, so a blocked attempt is never billed.
+  if (!modelAllowedForUser(req, model)) return res.status(403).json(MODEL_BLOCKED(model));
+
   const serverCost = priceOrRespond(res, {
     kind: 'video', model, resolution: req.body.quality,
     clientCost: req.body.credit_cost,
@@ -1841,6 +1936,15 @@ const TTS_MODELS = {
   'multilingual-v2': 'fal-ai/elevenlabs/tts/multilingual-v2',
 };
 
+// N5: human-facing labels for the per-user allow-list. These are the strings
+// the CRM shows and stores, so they must match GET /api/admin/models exactly —
+// model-coverage.test.js fails if the two ever drift.
+const TTS_MODEL_LABELS = {
+  'eleven-v3':       'ElevenLabs v3',
+  'multilingual-v2': 'ElevenLabs Multilingual v2',
+};
+const MUSIC_MODEL_LABEL = 'Lyria 2 (Music)';
+
 app.post('/api/tts', verifyJwt, requireNotBanned, requireFalKey, async (req, res) => {
   const {
     model,
@@ -1851,6 +1955,12 @@ app.post('/api/tts', verifyJwt, requireNotBanned, requireFalKey, async (req, res
     similarity_boost,
     style,
   } = req.body || {};
+
+  // N5: voice was ungated entirely — a restricted account could spend its
+  // whole balance here. Gate the RESOLVED label so the default path is checked
+  // too, not only an explicitly requested model.
+  const ttsLabel = TTS_MODEL_LABELS[model] || TTS_MODEL_LABELS['eleven-v3'];
+  if (!modelAllowedForUser(req, ttsLabel)) return res.status(403).json(MODEL_BLOCKED(ttsLabel));
 
   const falModel = TTS_MODELS[model] || TTS_MODELS['eleven-v3'];
   const usingV3 = falModel.endsWith('eleven-v3');
@@ -1958,6 +2068,11 @@ app.post('/api/generate-music', verifyJwt, requireNotBanned, requireFalKey, asyn
     return res.status(400).json({ error: 'prompt too long (max 4000 chars)' });
   }
 
+  // N5: music was ungated. One fixed model, so the label is a constant.
+  if (!modelAllowedForUser(req, MUSIC_MODEL_LABEL)) {
+    return res.status(403).json(MODEL_BLOCKED(MUSIC_MODEL_LABEL));
+  }
+
   let chargedKind = null;
   let chargedCost = null;
   try {
@@ -2025,46 +2140,43 @@ app.post('/api/generate-music', verifyJwt, requireNotBanned, requireFalKey, asyn
 // the URL is cached in a module-level Map; every subsequent request
 // for that voice returns the cached URL with no FAL call and no charge.
 //
-// Rate-limited per IP so a malicious caller can't burn through every
-// voice and force a fresh FAL call for each. Cap = 30 fresh previews
-// per IP per hour.
+// N7 (recheck 2026-08-03): the limiter here was a hand-rolled Map keyed on the
+// caller's IP that was NEVER evicted (unbounded growth), reset on every deploy,
+// and — with two instances in production — allowed double its stated cap.
+// Replaced with the same express-rate-limit + clientIp keying every other route
+// uses. The cache stays a Map on purpose: it is bounded by the catalogue, so at
+// most VOICE_COUNT entries can ever exist.
 const PREVIEW_TEXT = 'Hi! This is a quick voice preview. You can pick this voice to read your script.';
-const voicePreviewCache = new Map(); // voice name → audio_url
-const previewRateBucket = new Map(); // ip → { count, resetAt }
-const PREVIEW_RATE_MAX = 30;
-const PREVIEW_RATE_WINDOW_MS = 60 * 60 * 1000;
+const voicePreviewCache = new Map(); // voice id/name → audio_url (max VOICE_COUNT entries)
+const previewLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 30,
+  keyGenerator: ipKey,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many previews. Try again in an hour.' },
+});
 
-function checkPreviewRate(ip) {
-  const now = Date.now();
-  const cur = previewRateBucket.get(ip);
-  if (!cur || cur.resetAt < now) {
-    previewRateBucket.set(ip, { count: 1, resetAt: now + PREVIEW_RATE_WINDOW_MS });
-    return true;
-  }
-  if (cur.count >= PREVIEW_RATE_MAX) return false;
-  cur.count++;
-  return true;
-}
-
-app.post('/api/tts/preview', requireFalKey, async (req, res) => {
+// Deliberately public: visitors hear a sample before signing up, and the cache
+// means the first listener pays the FAL call and everyone after gets it free.
+// N7 keeps it public but bounds it — see voice-catalog.js for why validating
+// the voice is a stronger guarantee here than requiring a login.
+app.post('/api/tts/preview', previewLimiter, requireFalKey, async (req, res) => {
   const { voice } = req.body || {};
   if (!voice || typeof voice !== 'string') {
     return res.status(400).json({ error: 'voice required' });
+  }
+  // N7: only voices the picker actually offers. Without this, any made-up
+  // string missed the cache and became a billable FAL call.
+  if (!isKnownVoice(voice)) {
+    console.warn(`[TTS-PREVIEW] rejected unknown voice from ${clientIp(req)}`);
+    return res.status(400).json({ error: 'Unknown voice.' });
   }
 
   // Cache hit → free + zero FAL load.
   const cached = voicePreviewCache.get(voice);
   if (cached) {
     return res.json({ success: true, audio_url: cached, cached: true });
-  }
-
-  // Cache miss → FAL call. Gate on per-IP rate limit so it can't
-  // be abused to fill the cache from one source.
-  // clientIp(req), not req.ip: behind Cloudflare req.ip is the EDGE address,
-  // so every visitor sharing an edge shared ONE preview budget and throttled
-  // each other. clientIp resolves the real visitor (see client-ip.js, M2).
-  if (!checkPreviewRate(clientIp(req) || 'unknown')) {
-    return res.status(429).json({ error: 'Too many previews. Try again in an hour.' });
   }
 
   const falModel = TTS_MODELS['eleven-v3'];
@@ -2283,21 +2395,47 @@ app.post('/api/generate-video-ref', verifyJwt, requireNotBanned, requireModelPro
 });
 
 // ─── CHARACTER ELIGIBILITY CHECK ──────────────────────────────────
-app.post('/api/check-character-eligibility', async (req, res) => {
+// Accept an uploaded image as a reusable character element.
+//
+// N7 (recheck 2026-08-03): had no auth and no limiter, and slept 2 seconds on
+// every call — a free way for anyone to hold connections open on a single-
+// process server. It is only ever called from the video flow by a signed-in
+// user, so requiring a login costs nothing, and the artificial delay is gone.
+//
+// N10 (recheck 2026-08-03): it also RETURNED approved:true for any string
+// beginning with 'http' — it inspected nothing — while the interface presented
+// it as a moderation control: a shield icon, "Check eligibility", and
+// "Character approved". That is a false compliance record: a user could upload
+// a real person's likeness and the platform would stamp it approved.
+//
+// It now does only what it can honestly do — confirm the reference is an https
+// URL on a host we actually serve media from — and the UI no longer claims
+// moderation. Adding real content moderation is a separate decision (it needs
+// a provider, a cost, and a written policy on what gets rejected); when it
+// lands, it belongs right here.
+app.post('/api/check-character-eligibility', verifyJwt, requireNotBanned, statusLimiter, async (req, res) => {
   const { image_url } = req.body;
   if (!image_url) return res.status(400).json({ error: 'image_url required' });
 
-  console.log('[ELIGIBILITY] Checking:', image_url);
+  let accepted = false;
+  let reason = null;
+  try {
+    const u = new URL(String(image_url));
+    if (u.protocol !== 'https:') {
+      reason = 'Reference images must be served over https.';
+    } else if (!isAllowedDownloadHost(u.hostname, buildAllowedHostSuffixes())) {
+      reason = 'That image is not hosted where we can read it — re-upload it here.';
+    } else {
+      accepted = true;
+    }
+  } catch {
+    reason = 'That does not look like a valid image address.';
+  }
 
-  // Simulate a 2-second approval check
-  // In production, this could call a face detection/content moderation API
-  await new Promise(r => setTimeout(r, 2000));
-
-  // For now: always approve if the URL is valid
-  const approved = image_url.startsWith('http');
-  console.log('[ELIGIBILITY]', approved ? '✅ Approved' : '❌ Rejected');
-
-  res.json({ approved, image_url });
+  console.log(`[CHARACTER-ELEMENT] ${accepted ? 'accepted' : `rejected: ${reason}`}`);
+  // NOTE: no content inspection happens here. Do not reintroduce wording
+  // anywhere that implies this endpoint moderates or approves imagery.
+  res.json({ accepted, image_url, ...(reason ? { reason } : {}) });
 });
 
 // ─── VIDEO STATUS POLLING ─────────────────────────────────────────
@@ -2507,13 +2645,32 @@ app.get('/api/download', verifyJwt, requireNotBanned, async (req, res) => {
   if (!url) return res.status(400).json({ error: 'url required' });
 
   // A URL that appears in the CALLER'S OWN history is allowed regardless of
-  // which provider hosts it. Outputs from different eras live on different
-  // hosts (FAL, kie, supabase, base44, Spaces), and a static allow-list kept
-  // refusing legitimate downloads. This is also STRICTER than the host list
-  // against SSRF — an attacker cannot plant a URL in someone else's history,
-  // so it can never be aimed at an internal address. The DNS private-address
-  // check below still runs either way.
+  // which provider hosts it.
+  //
+  // N4 (recheck 2026-08-03): that reasoning had a hole. "An attacker cannot
+  // plant a URL in someone else's history" is true and irrelevant — they plant
+  // it in their OWN. POST /api/entities/:name persists arbitrary client JSON,
+  // so two requests (write {"result_url":"https://attacker.tld/x"}, then ask
+  // to download it) turned this route into an authenticated proxy for any host
+  // on the internet, with a 512 MB ceiling and no rate limit.
+  //
+  // The host allow-list is therefore enforced on EVERY request now, ownership
+  // or not. What made the list unworkable before was that it was written from
+  // the code that produces new URLs instead of from the URLs that actually
+  // exist; it is now derived from the production data (see download-guard.js),
+  // including the kie output host that holds 47% of all history.
+  //
+  // Ownership no longer changes WHERE we will connect. It is recorded so the
+  // logs show whether anyone actually downloads media that is not in their own
+  // history — this route has broken twice by tightening it on assumption
+  // rather than evidence, so the hard refusal waits until the data says it is
+  // safe. Everything reachable is already on the allow-list either way.
   const ownedByCaller = await userOwnsMediaUrl(req.user.id, url);
+  if (!ownedByCaller) {
+    let host = 'unparseable';
+    try { host = new URL(String(url)).hostname; } catch { /* keep placeholder */ }
+    console.warn(`[download] user ${req.user.id} fetched a url absent from their history (host=${host})`);
+  }
 
   const controller = new AbortController();
   const deadline = setTimeout(() => controller.abort(), DOWNLOAD_TIMEOUT_MS);
@@ -2524,13 +2681,17 @@ app.get('/api/download', verifyJwt, requireNotBanned, async (req, res) => {
     let target = String(url);
     let response = null;
     for (let hop = 0; hop <= DOWNLOAD_MAX_REDIRECTS; hop++) {
-      // `skipHostAllowList` only relaxes the HOST check, and only for the
-      // user's own media. https-only, no-credentials, no-IP-literal and the
-      // private/loopback/link-local DNS rejection all still apply — on the
-      // first hop and on every redirect.
-      const safeUrl = await assertSafeDownloadUrl(target, {
-        skipHostAllowList: ownedByCaller && hop === 0,
-      });
+      // N4: no skipHostAllowList. The host list, https-only, no-credentials,
+      // no-IP-literal and the private/loopback/link-local DNS rejection all
+      // apply on the first hop and on every redirect, without exception.
+      //
+      // Residual, accepted: assertSafeDownloadUrl resolves the name and fetch()
+      // resolves it again, so a DNS rebind between the two is theoretically
+      // possible. Pinning the validated address needs a custom undici
+      // dispatcher; with connections now limited to a handful of known CDNs an
+      // attacker would have to control one of THEIR zones, so the exposure is
+      // small. Tracked in TECH-DEBT.md.
+      const safeUrl = await assertSafeDownloadUrl(target);
       response = await fetch(safeUrl, { redirect: 'manual', signal: controller.signal });
       if ([301, 302, 303, 307, 308].includes(response.status)) {
         const loc = response.headers.get('location');
@@ -2590,7 +2751,11 @@ app.get('/api/download', verifyJwt, requireNotBanned, async (req, res) => {
 });
 
 // ─── LLM ENDPOINT (for Studio ScriptModule) ───────────────────────
-app.post('/api/llm', async (req, res) => {
+// N7: was unauthenticated. It returns a static placeholder today, so nothing
+// leaks and nothing is billed — but it is the wiring for a real LLM call, and
+// an endpoint that becomes expensive later should not be public now. Its only
+// caller is the app's own client, used while signed in.
+app.post('/api/llm', verifyJwt, requireNotBanned, enhanceLimiter, async (req, res) => {
   const { prompt, response_json_schema } = req.body;
   if (!prompt) return res.status(400).json({ error: 'Prompt required' });
   try {
@@ -2997,6 +3162,13 @@ app.post('/api/node/run-node', verifyJwt, requireNotBanned, requireFalKey, async
   const { type, settings } = req.body || {};
   const spec = NODE_SYNC_SPECS[type];
   if (!spec) return res.status(400).json({ error: `Unsupported node type: ${type || '(missing)'}` });
+
+  // N5: the node canvas reaches the same providers as the normal pages, so it
+  // honours the same allow-list. The node's chosen model is the label when
+  // there is one; otherwise the node type itself.
+  const nodeLabel = settings?.model || type;
+  if (!modelAllowedForUser(req, nodeLabel)) return res.status(403).json(MODEL_BLOCKED(nodeLabel));
+
   const falModel = spec.resolve(settings);
 
   const prompt = settings?.prompt;
@@ -3095,6 +3267,11 @@ app.post('/api/node/run-node-async', verifyJwt, requireNotBanned, requireFalKey,
   }
 
   const modelLabel = settings?.model;
+  // N5: the async video node spends credits like every other path, so it takes
+  // the same allow-list gate — before pricing, before charging.
+  if (!modelAllowedForUser(req, modelLabel || type)) {
+    return res.status(403).json(MODEL_BLOCKED(modelLabel || type));
+  }
   // Upstream image(s). image_urls is the multi-reference array; image_url is
   // the single start frame (first reference) for back-compat.
   const imageUrls = Array.isArray(settings?.image_urls)
@@ -3904,7 +4081,13 @@ app.post('/api/admin/users/:id/reset-password', adminGate, async (req, res) => {
     }
 
     const hash = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
-    await pool.query(`UPDATE users SET password_hash = $1 WHERE id = $2`, [hash, targetId]);
+    // N9: stamp the session cutoff in the SAME statement as the new hash, so
+    // a reset always evicts existing tokens. Previously the attacker whose
+    // compromise prompted the reset kept a working session for up to 7 days.
+    await pool.query(
+      `UPDATE users SET password_hash = $1, sessions_valid_from = NOW() WHERE id = $2`,
+      [hash, targetId]
+    );
 
     // Audit trail alongside the other moderation actions.
     pool.query(
@@ -4444,9 +4627,16 @@ app.post('/api/admin/2fa/disable', adminGate, async (req, res) => {
 // Server is the source of truth for model labels — the same keys the
 // generate routes resolve and the allow-list gate compares against.
 app.get('/api/admin/models', adminGate, (req, res) => {
+  // N5: this used to offer only image + video, while the server gated only
+  // those three routes. Now that voice, music, editing, motion control and the
+  // node canvas are gated too, they have to be grantable — otherwise
+  // restricting an account would silently remove them with no way back.
   res.json({
     image: Object.keys(MODEL_CONFIG),
     video: Object.keys(VIDEO_DIRECT_MAP),
+    audio: [...Object.values(TTS_MODEL_LABELS), MUSIC_MODEL_LABEL],
+    editing: [...Object.keys(EDIT_VIDEO_MODELS), ...Object.keys(MOTION_CONTROL_MODELS)],
+    node: Object.keys(NODE_SYNC_SPECS),
   });
 });
 

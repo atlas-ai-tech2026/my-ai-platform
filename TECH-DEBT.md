@@ -116,3 +116,63 @@ What it would take to finish: issue the same httpOnly cookie for normal logins,
 switch `base44Client` to `credentials: 'include'` + CSRF, and delete
 `VOXEL_TOKEN_KEY`. Roughly half a day, touching every authenticated call in the
 app, so it is its own change rather than a rider on a security fix.
+
+## /api/download resolves DNS twice (N4, residual)
+
+`assertSafeDownloadUrl` resolves the hostname to check it is not private, then
+`fetch()` resolves it again independently. A zero-TTL record answering public
+on the first lookup and internal on the second would slip past the check.
+
+Why it is accepted for now: N4 made the host allow-list unconditional, so an
+attacker must control the DNS of `fal.media`, `aiquickdraw.com`, `supabase.co`,
+`base44.com` or our own Spaces domain to exploit it. That is a far larger
+compromise than this route.
+
+The fix is a custom undici dispatcher that connects to the address already
+validated, rather than re-resolving. Perhaps an hour, plus care that redirects
+and keep-alive still behave.
+
+## Sign-up still discloses whether an email has an account (N11, partial)
+
+`POST /api/auth/register` returns 409 "An account with that email already
+exists." `/api/auth/login` deliberately avoids exactly this disclosure, so the
+two are inconsistent.
+
+Why it is not fully fixed: the standard answer is to accept every sign-up and
+send an email that either confirms the new account or says "you already have
+one" — and this platform has no email delivery of any kind. Without it, sign-up
+must tell the person immediately whether they now have an account.
+
+N11 tightened the limiter from 100 to 15 attempts per 15 minutes per address,
+cutting the probing ceiling from ~9,600 to ~1,440 emails a day and making list
+enumeration impractical rather than merely slow.
+
+Closing it properly comes free with email delivery, whenever that lands — the
+same dependency that blocks email-based 2FA.
+
+## Dependency advisories deliberately left open (N13)
+
+N13 removed nine unimported production packages, patched everything fixable
+without a major-version jump, and took the server to zero advisories. What
+remains, and why each was left:
+
+**react-router / react-router-dom (moderate)** — open redirect via a backslash
+in `<Link>` / `useNavigate`. The advisory range ends at 7.17.0, so "fixing" it
+means React Router 6 → 7 across every route in the app. Checked reachability
+first: every navigation target in `src/` is a string literal, `createPageUrl()`
+of a literal, or `/node/${space.id}` where the id is server-generated. Nothing
+passes a user-controlled value into a route, so the vulnerability cannot be
+triggered here. A major routing upgrade inside a security batch is a far larger
+regression risk than the bug. Revisit when React Router 7 is wanted on merit.
+
+**vitest / vite / esbuild / vite-node / @vitest/mocker** — dev dependencies. They
+build and test the app; not one byte ships to a user. The "critical" rating is
+about a test runner, not production code. Upgrading means vitest 4, which
+rewrites the test setup — worth doing deliberately, not as a rider.
+
+**exceljs / uuid (moderate)** — `exceljs` is used only by the operator scripts in
+the repo root (`export_spa_report.js`), never by the app or the server. The fix
+is exceljs 3, a breaking API change, for code that runs on a laptop by hand.
+
+**xlsx (high)** — genuinely used by the CRM Bulk tab, and SheetJS publishes no
+patched build to npm at all. Already documented above; unchanged by N13.

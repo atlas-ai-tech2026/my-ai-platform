@@ -8,8 +8,21 @@ server/data/
 *.log
 .DS_Store
 
-# Claude Code's local agent scratch (worktrees, settings, plans). Never commit.
-.claude/
+# Claude Code's local agent scratch — worktrees, machine-local settings, plans.
+# N18 (recheck 2026-08-03): this used to ignore ALL of .claude/, while 52 files
+# under it were already tracked — .gitignore does not untrack what is already
+# committed, so the stated rule was simply untrue. Reviewed the contents: they
+# are skill definitions and launch.json, i.e. deliberate portable tooling, not
+# scratch, and none of it contains secrets. So the rule is narrowed to match the
+# intent rather than deleting files that are working.
+.claude/*
+!.claude/skills/
+!.claude/launch.json
+.claude/settings.local.json
+.claude/plans/
+.claude/worktrees/
+.claude/sessions/
+.claude/**/settings.local.json
 
 # Sensitive business documents — must NEVER be committed to this PUBLIC repo.
 *.pdf
