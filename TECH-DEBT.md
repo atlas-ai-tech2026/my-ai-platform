@@ -149,3 +149,30 @@ enumeration impractical rather than merely slow.
 
 Closing it properly comes free with email delivery, whenever that lands — the
 same dependency that blocks email-based 2FA.
+
+## Dependency advisories deliberately left open (N13)
+
+N13 removed nine unimported production packages, patched everything fixable
+without a major-version jump, and took the server to zero advisories. What
+remains, and why each was left:
+
+**react-router / react-router-dom (moderate)** — open redirect via a backslash
+in `<Link>` / `useNavigate`. The advisory range ends at 7.17.0, so "fixing" it
+means React Router 6 → 7 across every route in the app. Checked reachability
+first: every navigation target in `src/` is a string literal, `createPageUrl()`
+of a literal, or `/node/${space.id}` where the id is server-generated. Nothing
+passes a user-controlled value into a route, so the vulnerability cannot be
+triggered here. A major routing upgrade inside a security batch is a far larger
+regression risk than the bug. Revisit when React Router 7 is wanted on merit.
+
+**vitest / vite / esbuild / vite-node / @vitest/mocker** — dev dependencies. They
+build and test the app; not one byte ships to a user. The "critical" rating is
+about a test runner, not production code. Upgrading means vitest 4, which
+rewrites the test setup — worth doing deliberately, not as a rider.
+
+**exceljs / uuid (moderate)** — `exceljs` is used only by the operator scripts in
+the repo root (`export_spa_report.js`), never by the app or the server. The fix
+is exceljs 3, a breaking API change, for code that runs on a laptop by hand.
+
+**xlsx (high)** — genuinely used by the CRM Bulk tab, and SheetJS publishes no
+patched build to npm at all. Already documented above; unchanged by N13.
