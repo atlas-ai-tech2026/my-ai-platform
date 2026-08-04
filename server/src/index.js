@@ -157,6 +157,18 @@ app.use((req, res, next) => {
 // non-text types like images automatically.
 app.use(compression());
 
+// N15: every https origin the browser legitimately connects to, derived from
+// the download allow-list so the two cannot drift apart. Suffixes become
+// wildcard origins ('fal.media' → 'https://*.fal.media' plus the bare host).
+function mediaConnectSources() {
+  const out = new Set();
+  for (const suffix of buildAllowedHostSuffixes()) {
+    out.add(`https://${suffix}`);
+    out.add(`https://*.${suffix}`);
+  }
+  return [...out];
+}
+
 app.use(helmet({
   // CSP: scripts/styles are same-origin (index.html has no inline <script>;
   // the JSON-LD block is data, not executable, so script-src 'self' is fine).
@@ -169,9 +181,23 @@ app.use(helmet({
       scriptSrc: ["'self'"],
       styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
       fontSrc: ["'self'", 'https://fonts.gstatic.com', 'data:'],
+      // N15 (recheck 2026-08-03): connect-src was 'https:' — anything on the
+      // internet — so the policy contributed nothing against exfiltration if
+      // script ever executed. Narrowed to the hosts media actually comes from,
+      // reusing the SAME list the download guard derives from production data
+      // (download-guard.js) rather than inventing a second one that drifts.
+      //
+      // It has to be a list and not just 'self': Audio.jsx fetches provider
+      // audio urls directly in the browser, and uploadToFal.js fetches image
+      // sources — narrowing this to 'self' would break playback with an opaque
+      // "Failed to fetch", the exact failure mode documented in the handover.
+      //
+      // img/media stay https:-wide. They cannot exfiltrate a response body,
+      // and old history rows point at hosts that predate every list we keep;
+      // breaking those would blank out images users can still see today.
       imgSrc: ["'self'", 'data:', 'blob:', 'https:'],
       mediaSrc: ["'self'", 'data:', 'blob:', 'https:'],
-      connectSrc: ["'self'", 'blob:', 'https:'],
+      connectSrc: ["'self'", 'blob:', 'data:', ...mediaConnectSources()],
       workerSrc: ["'self'", 'blob:'],
       objectSrc: ["'none'"],
       baseUri: ["'self'"],
