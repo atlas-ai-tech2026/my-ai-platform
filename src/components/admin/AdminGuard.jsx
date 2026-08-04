@@ -38,10 +38,6 @@ export default function AdminGuard({ children }) {
     }
   }, [user, navigate]);
 
-  // Still asking the server who we are — render nothing rather than flashing
-  // the sign-in form at an already-signed-in admin.
-  if (user === undefined) return null;
-
   // Idle redirect (frontend-only; not a security boundary).
   const logout = useCallback(() => {
     // N17: the UI used to drop only its own copy, leaving the httpOnly admin
@@ -63,6 +59,15 @@ export default function AdminGuard({ children }) {
       events.forEach(ev => window.removeEventListener(ev, reset));
     };
   }, [user, logout]);
+
+  // Still asking the server who we are — render nothing rather than flashing
+  // the sign-in form at an already-signed-in admin.
+  //
+  // MUST stay below every hook. Placing this above useCallback/useEffect meant
+  // the first render (user === undefined) ran five hooks and the next ran
+  // seven, which is React error #310 — it crashed the whole panel to a black
+  // screen. Hooks cannot be skipped by an early return.
+  if (user === undefined) return null;
 
   // Logged in + admin → render the panel.
   if (user && user.role === 'admin') {
