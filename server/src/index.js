@@ -210,13 +210,38 @@ app.use(helmet({
 
 // Lock CORS to known origins. Empty Origin (curl, server-to-server) is
 // allowed because admin curl + DO health probe both have no Origin header.
-const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS ||
-  // :3001 = single-process prod repro (Express serves dist/ directly);
-  // module <script crossorigin> sends Origin, so it must be allowed.
-  // www is allowed as belt-and-suspenders for tabs opened before the
-  // www→apex 301 shipped (their cached pages still send a www Origin).
-  'https://voxel-ai.ai,https://www.voxel-ai.ai,http://localhost:5173,http://localhost:8080,http://localhost:3001')
-  .split(',').map(s => s.trim()).filter(Boolean);
+// N14 (recheck 2026-08-03): ALLOWED_ORIGINS is NOT set in production —
+// verified against the live App Platform spec — so production runs on this
+// fallback, which also trusted three localhost origins. With credentials:true
+// that let software listening on a victim's own machine make credentialed
+// calls and read the responses.
+//
+// Fixed in the DEFAULT rather than by setting the env var, deliberately: an
+// env var that has to be right is one that can be cleared, mistyped, or
+// forgotten on a new app (it already was on this one, and on the dev twin).
+// The localhost entries now appear only when NODE_ENV is not 'production', so
+// local development keeps working and production cannot inherit them.
+// Setting ALLOWED_ORIGINS explicitly still overrides everything.
+const IS_PRODUCTION = process.env.NODE_ENV === 'production';
+const DEFAULT_ORIGINS = [
+  'https://voxel-ai.ai',
+  // www is belt-and-suspenders for tabs opened before the www→apex 301
+  // shipped (their cached pages still send a www Origin).
+  'https://www.voxel-ai.ai',
+  // Dev only. :3001 is the single-process prod repro (Express serves dist/
+  // directly); a module <script crossorigin> sends an Origin, so it must be
+  // allowed or the app's own bundle is refused.
+  ...(IS_PRODUCTION ? [] : [
+    'http://localhost:5173',
+    'http://localhost:8080',
+    'http://localhost:3001',
+  ]),
+];
+const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS
+  ? process.env.ALLOWED_ORIGINS.split(',')
+  : DEFAULT_ORIGINS
+).map(s => s.trim()).filter(Boolean);
+console.log(`[cors] ${process.env.ALLOWED_ORIGINS ? 'ALLOWED_ORIGINS env' : 'built-in default'} → ${ALLOWED_ORIGINS.join(', ')}`);
 app.use(cors({
   origin: (origin, cb) => {
     if (!origin) return cb(null, true);
