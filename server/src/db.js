@@ -400,6 +400,27 @@ export async function migrate() {
     // this deploys stays valid and nobody is logged out by the migration.
     await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS sessions_valid_from TIMESTAMPTZ;`);
 
+    // ─── Sign in with Google ────────────────────────────────────────
+    // google_sub is Google's own stable user id. Linking on THIS rather than
+    // on the email address matters: a person can change the address on their
+    // Google account, and Google can reassign a Workspace address to a new
+    // employee. The sub never changes and is never reused.
+    await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS google_sub VARCHAR(64);`);
+    await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS users_google_sub_idx ON users (google_sub) WHERE google_sub IS NOT NULL;`);
+    // Google-only accounts have no password at all. Storing a fake hash would
+    // be worse than NULL: it looks like a credential and would quietly become
+    // one if anything ever compared against it.
+    await client.query(`
+      DO $$
+      BEGIN
+        IF EXISTS (SELECT 1 FROM information_schema.columns
+                   WHERE table_name='users' AND column_name='password_hash'
+                     AND is_nullable='NO') THEN
+          ALTER TABLE users ALTER COLUMN password_hash DROP NOT NULL;
+        END IF;
+      END $$;
+    `);
+
     // ─── one-shot admin promotion ───────────────────────────────────
     const promoted = await client.query(
       `UPDATE users SET role = 'admin' WHERE email = $1 AND role <> 'admin' RETURNING id`,

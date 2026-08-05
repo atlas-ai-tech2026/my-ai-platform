@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { X, Mail, Eye, EyeOff, ArrowRight } from 'lucide-react';
 import { adminApi, ApiError, VOXEL_TOKEN_KEY } from '@/lib/adminApi';
+import { useAuth } from '@/lib/AuthContext';
 
 const font = '"DM Sans", sans-serif';
 
@@ -44,20 +45,32 @@ export default function LoginModal({ onClose, onSuccess, initialMode = 'login' }
   const [showPass, setShowPass] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+  // A failed Google round trip lands back on the site, not in this modal, so
+  // the reason is held in AuthContext until something can show it.
+  const { googleError, clearGoogleError } = useAuth();
+  useEffect(() => {
+    if (googleError) { setErrorMsg(googleError); clearGoogleError(); }
+  }, [googleError, clearGoogleError]);
   const [successMsg, setSuccessMsg] = useState('');
 
   // Apple sign-in removed per product decision (single mobile-keyboard
-  // owner, no Apple Developer account). Google + Microsoft will be wired
-  // in a later phase via OAuth — for now those buttons are placeholders.
+  // owner, no Apple Developer account). Google is live; Microsoft is still a
+  // placeholder — it is free to add, but each provider brings its own
+  // account-linking edge cases, so they go in one at a time.
   const providers = [
-    { label: 'Continue with Google',    icon: <GoogleIcon />,    provider: 'google' },
+    { label: 'Continue with Google',    icon: <GoogleIcon />,    provider: 'google', live: true },
     { label: 'Continue with Microsoft', icon: <MicrosoftIcon />, provider: 'microsoft' },
   ];
 
   const handleProviderLogin = (provider) => {
-    // OAuth not yet wired. Show a friendly inline message rather than calling
-    // the dead Base44 redirect, which silently no-ops on this site.
-    setErrorMsg(`${provider[0].toUpperCase() + provider.slice(1)} sign-in is coming soon. Use email for now.`);
+    if (provider === 'google') {
+      // Full-page navigation, not fetch(): this is an OAuth redirect, and the
+      // browser has to actually land on Google's own domain so the person can
+      // see the address bar they are typing their password into.
+      window.location.assign('/api/auth/google');
+      return;
+    }
+    setErrorMsg(`${provider[0].toUpperCase() + provider.slice(1)} sign-in is coming soon. Use email or Google for now.`);
   };
 
   // Show the email form. The previous version called base44.auth.redirectToLogin

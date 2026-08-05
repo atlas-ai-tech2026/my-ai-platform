@@ -53,6 +53,13 @@ import {
 // H2 (audit 2026-07-28): /api/upload content-type policy.
 import { validateUpload } from './upload-guard.js';
 import { isKnownVoice, VOICE_COUNT } from './voice-catalog.js';
+import {
+  googleConfigured, missingGoogleVars, googleRedirectUri,
+  verifyGoogleIdToken, buildGoogleAuthUrl, exchangeCodeForTokens,
+  newOauthState, stateMatches,
+  setOauthCookie, clearOauthCookie,
+  OAUTH_STATE_COOKIE, OAUTH_HANDOFF_COOKIE,
+} from './google-auth.js';
 // H3 (audit 2026-07-28): hard deadline on synchronous provider calls.
 import { withProviderDeadline, ProviderTimeoutError } from './provider-deadline.js';
 // M1 (audit 2026-07-28): keep credentials out of the admin audit log.
@@ -315,6 +322,19 @@ const isAdminAuth = (req) =>
 //  • registerLimiter: more generous — many legitimate users legitimately share
 //    one IP (office/campus NAT, mobile carrier CGNAT) and must all be able to
 //    sign up. adminLimiter stays generous for the admin UI's burst of reads.
+// Sign in with Google. Separate from loginLimiter because these are top-level
+// browser NAVIGATIONS, not API calls: a single sign-in spends two of them
+// (start + callback), and a person who mistypes their Google password will
+// legitimately bounce through several times. Still per-IP, so one visitor
+// cannot spend anyone else's budget.
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 60,
+  keyGenerator: ipKey,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many sign-in attempts. Try again in a few minutes.' },
+});
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   // Generous per-IP ceiling: many legitimate users share one IP (office/campus
@@ -3678,6 +3698,191 @@ app.post('/api/auth/login', loginLimiter, requireAuthInfra, async (req, res) => 
     res.status(500).json({ error: 'Login failed.' });
   }
 });
+
+// ─── SIGN IN WITH GOOGLE ───────────────────────────────────────────
+// Server-side authorization-code flow. See google-auth.js for why this rather
+// than Google's button widget (it would require loosening script-src) and why
+// no new dependency was added.
+//
+// Three hops:
+//   GET  /api/auth/google           → bounce the browser to Google
+//   GET  /api/auth/google/callback  → Google returns here with a code
+//   POST /api/auth/google/complete  → the SPA trades a cookie for its token
+//
+// The third hop exists so the session token never appears in a URL, where it
+// would land in browser history, server logs and Referer headers.
+
+const HANDOFF_TTL_SECONDS = 120;
+
+app.get('/api/auth/google', authLimiter, (req, res) => {
+  if (!googleConfigured()) {
+    console.error(`[google] not configured — missing: ${missingGoogleVars().join(', ')}`);
+    return res.redirect('/?auth_error=google_unavailable');
+  }
+  const redirectUri = googleRedirectUri();
+  if (!redirectUri) {
+    console.error('[google] no redirect uri — set GOOGLE_REDIRECT_URI or PUBLIC_BASE_URL');
+    return res.redirect('/?auth_error=google_unavailable');
+  }
+  const state = newOauthState();
+  setOauthCookie(res, OAUTH_STATE_COOKIE, state, 600);
+  res.redirect(buildGoogleAuthUrl({
+    clientId: process.env.GOOGLE_CLIENT_ID.trim(),
+    redirectUri,
+    state,
+  }));
+});
+
+app.get('/api/auth/google/callback', authLimiter, async (req, res) => {
+  const fail = (logLine, code = 'google_failed') => {
+    console.error(`[google] ${logLine}`);
+    clearOauthCookie(res, OAUTH_STATE_COOKIE);
+    // Never echo the provider's error text to the browser: it is diagnostic,
+    // not user-facing, and can contain request identifiers.
+    return res.redirect(`/?auth_error=${code}`);
+  };
+
+  if (!googleConfigured() || !dbReady()) return fail('not configured');
+
+  // The user pressed "cancel" on Google's screen.
+  if (req.query.error) return fail(`provider returned ${req.query.error}`, 'google_cancelled');
+
+  // CSRF: the state we set must come back unchanged. Without this an attacker
+  // could complete a flow of their choosing in the victim's browser and
+  // silently sign them into an account the attacker controls.
+  const expected = req.cookies?.[OAUTH_STATE_COOKIE];
+  if (!stateMatches(String(expected || ''), String(req.query.state || ''))) {
+    return fail('state mismatch — possible CSRF, or the sign-in took too long');
+  }
+  clearOauthCookie(res, OAUTH_STATE_COOKIE);
+
+  const code = String(req.query.code || '');
+  if (!code) return fail('no authorization code returned');
+
+  try {
+    const tokens = await exchangeCodeForTokens({
+      code,
+      clientId: process.env.GOOGLE_CLIENT_ID.trim(),
+      clientSecret: process.env.GOOGLE_CLIENT_SECRET.trim(),
+      redirectUri: googleRedirectUri(),
+    });
+    const identity = await verifyGoogleIdToken(tokens.id_token);
+    const user = await findOrCreateGoogleUser(identity, clientIp(req));
+    if (!user) return fail('account is banned', 'account_banned');
+
+    // Hand the session over via a short-lived httpOnly cookie rather than the
+    // URL. The SPA immediately trades it in at /complete.
+    const handoff = jwt.sign(
+      { sub: user.id, email: user.email, role: user.role, handoff: true },
+      JWT_SECRET,
+      { expiresIn: HANDOFF_TTL_SECONDS }
+    );
+    setOauthCookie(res, OAUTH_HANDOFF_COOKIE, handoff, HANDOFF_TTL_SECONDS);
+    console.log(`[google] signed in user=${user.id} ${user.email}`);
+    return res.redirect('/?google=1');
+  } catch (e) {
+    return fail(`callback failed: ${e.message}`);
+  }
+});
+
+// The SPA calls this once, on landing with ?google=1.
+app.post('/api/auth/google/complete', authLimiter, async (req, res) => {
+  const raw = req.cookies?.[OAUTH_HANDOFF_COOKIE];
+  clearOauthCookie(res, OAUTH_HANDOFF_COOKIE);
+  if (!raw) return res.status(401).json({ error: 'Sign-in link expired. Please try again.' });
+  if (!dbReady()) return res.status(503).json({ error: 'Database not configured.' });
+
+  let payload;
+  try {
+    payload = jwt.verify(raw, JWT_SECRET);
+  } catch {
+    return res.status(401).json({ error: 'Sign-in link expired. Please try again.' });
+  }
+  if (!payload?.handoff) return res.status(401).json({ error: 'Invalid sign-in link.' });
+
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, email, credits, credit_limit, role, banned, package, display_name, created_at
+         FROM users WHERE id = $1`,
+      [payload.sub]
+    );
+    const user = rows[0];
+    if (!user) return res.status(401).json({ error: 'Account no longer exists.' });
+    if (user.banned) return res.status(403).json({ error: 'Account is banned.' });
+
+    const isAdmin = user.role === 'admin';
+    const token = jwt.sign(
+      { sub: user.id, email: user.email, role: user.role },
+      JWT_SECRET,
+      { expiresIn: isAdmin ? ADMIN_JWT_EXPIRES : JWT_EXPIRES_IN }
+    );
+    let csrfToken = null;
+    if (isAdmin) {
+      csrfToken = newCsrfToken();
+      setAdminSessionCookies(res, { token, csrfToken, maxAgeSeconds: 30 * 60 });
+    }
+    pool.query(`UPDATE users SET last_login_at = NOW(), last_login_ip = $1 WHERE id = $2`,
+      [clientIp(req), user.id]).catch(() => {});
+
+    const { banned: _b, ...safeUser } = user;
+    res.json({ token, user: safeUser, ...(csrfToken ? { csrf_token: csrfToken } : {}) });
+  } catch (e) {
+    console.error('[google/complete] error:', e.message);
+    res.status(500).json({ error: 'Sign-in failed.' });
+  }
+});
+
+/**
+ * Match a Google identity to a Voxel account, creating one if needed.
+ *
+ * Linking rule: match on google_sub first (stable and never reused), then fall
+ * back to the email address ONLY because verifyGoogleIdToken has already
+ * refused any identity Google does not report as email_verified. Without that
+ * guarantee this branch would be an account-takeover primitive — set an
+ * arbitrary address on a Google account, sign in, inherit the Voxel account.
+ *
+ * Returns null if the account is banned.
+ */
+async function findOrCreateGoogleUser(identity, ip) {
+  const bySub = await pool.query(
+    `SELECT id, email, role, banned FROM users WHERE google_sub = $1`, [identity.sub]
+  );
+  if (bySub.rows[0]) {
+    if (bySub.rows[0].banned) return null;
+    return bySub.rows[0];
+  }
+
+  const byEmail = await pool.query(
+    `SELECT id, email, role, banned, google_sub FROM users WHERE email = $1`, [identity.email]
+  );
+  if (byEmail.rows[0]) {
+    const existing = byEmail.rows[0];
+    if (existing.banned) return null;
+    // Attach Google to the existing password account. Their password keeps
+    // working — this adds a way in, it does not replace one.
+    await pool.query(`UPDATE users SET google_sub = $1 WHERE id = $2`, [identity.sub, existing.id]);
+    console.log(`[google] linked google account to existing user=${existing.id}`);
+    return existing;
+  }
+
+  // New account. Mirrors /api/auth/register exactly, including 0 credits and
+  // the 'signup' ledger row — deliberately NOT a different amount, because
+  // signup credit values are a pricing decision and not mine to make.
+  const created = await pool.query(
+    `INSERT INTO users (email, password_hash, credits, role, google_sub, display_name)
+     VALUES ($1, NULL, 0, 'user', $2, $3)
+     RETURNING id, email, role, banned`,
+    [identity.email, identity.sub, identity.name]
+  );
+  const user = created.rows[0];
+  pool.query(
+    `INSERT INTO credits_history (user_id, amount, action, ip_address)
+     VALUES ($1, 0, 'signup', $2)`,
+    [user.id, ip]
+  ).catch(err => console.error('[google] credits_history insert failed:', err.message));
+  console.log(`[google] created user=${user.id} ${user.email}`);
+  return user;
+}
 
 // ─── /api/auth/logout (H7) ─────────────────────────────────────────
 // Clears the admin session cookies server-side. The client still drops its

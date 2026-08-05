@@ -58,6 +58,8 @@ export const AuthProvider = ({ children }) => {
   const [authModalMode, setAuthModalMode] = useState(null);
   const lastRefreshAt = useRef(0);
 
+  const [googleError, setGoogleError] = useState('');
+
   const refresh = useCallback(async () => {
     lastRefreshAt.current = Date.now();
     const u = await fetchMe();
@@ -65,7 +67,55 @@ export const AuthProvider = ({ children }) => {
     setIsLoadingAuth(false);
   }, []);
 
-  useEffect(() => { refresh(); }, [refresh]);
+  // Returning from "Sign in with Google". The callback put the session in a
+  // short-lived httpOnly cookie and sent the browser back with ?google=1 — the
+  // token deliberately never travels in the URL, where it would be recorded in
+  // browser history, Referer headers and any proxy log on the way.
+  //
+  // Runs BEFORE the normal refresh so the first paint after signing in already
+  // shows the user as logged in.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const authError = params.get('auth_error');
+    const isGoogleReturn = params.get('google') === '1';
+    if (!authError && !isGoogleReturn) { refresh(); return; }
+
+    // Strip the marker so a refresh or a shared link cannot replay it.
+    const clean = new URL(window.location.href);
+    clean.searchParams.delete('google');
+    clean.searchParams.delete('auth_error');
+    window.history.replaceState({}, '', clean.pathname + clean.search + clean.hash);
+
+    if (authError) {
+      setGoogleError(
+        authError === 'google_cancelled' ? 'Google sign-in was cancelled.'
+        : authError === 'account_banned' ? 'That account has been suspended.'
+        : authError === 'google_unavailable' ? 'Google sign-in is not available right now.'
+        : 'Google sign-in did not complete. Please try again.'
+      );
+      refresh();
+      return;
+    }
+
+    (async () => {
+      try {
+        const res = await fetch('/api/auth/google/complete', {
+          method: 'POST',
+          credentials: 'include',
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok && data.token) {
+          localStorage.setItem(VOXEL_TOKEN_KEY, data.token);
+        } else {
+          setGoogleError(data.error || 'Google sign-in did not complete. Please try again.');
+        }
+      } catch {
+        setGoogleError('Google sign-in did not complete. Please try again.');
+      } finally {
+        refresh();
+      }
+    })();
+  }, [refresh]);
 
   // Pick up out-of-band balance changes (admin granted credits, generate on
   // another tab, etc.) the next time the user tabs back to this window.
@@ -118,6 +168,10 @@ export const AuthProvider = ({ children }) => {
       handleAuthSuccess,
       refresh,
       logout,
+      // Surfaced so the login modal can show why a Google round trip failed
+      // instead of the user landing back on the site with no explanation.
+      googleError,
+      clearGoogleError: () => setGoogleError(''),
     }}>
       {children}
     </AuthContext.Provider>
