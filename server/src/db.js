@@ -406,6 +406,10 @@ export async function migrate() {
     // Google account, and Google can reassign a Workspace address to a new
     // employee. The sub never changes and is never reused.
     await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS google_sub VARCHAR(64);`);
+    // Microsoft. Stored separately from google_sub: a person may legitimately
+    // hold both, and the two id spaces are unrelated.
+    await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS microsoft_sub VARCHAR(64);`);
+    await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS users_microsoft_sub_idx ON users (microsoft_sub) WHERE microsoft_sub IS NOT NULL;`);
     await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS users_google_sub_idx ON users (google_sub) WHERE google_sub IS NOT NULL;`);
     // Google-only accounts have no password at all. Storing a fake hash would
     // be worse than NULL: it looks like a credential and would quietly become

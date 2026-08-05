@@ -60,6 +60,10 @@ import {
   setOauthCookie, clearOauthCookie,
   OAUTH_STATE_COOKIE, OAUTH_HANDOFF_COOKIE,
 } from './google-auth.js';
+import {
+  microsoftConfigured, missingMicrosoftVars, microsoftRedirectUri,
+  verifyMicrosoftIdToken, buildMicrosoftAuthUrl, exchangeMicrosoftCode,
+} from './microsoft-auth.js';
 // H3 (audit 2026-07-28): hard deadline on synchronous provider calls.
 import { withProviderDeadline, ProviderTimeoutError } from './provider-deadline.js';
 // M1 (audit 2026-07-28): keep credentials out of the admin audit log.
@@ -3882,6 +3886,135 @@ async function findOrCreateGoogleUser(identity, ip) {
   ).catch(err => console.error('[google] credits_history insert failed:', err.message));
   console.log(`[google] created user=${user.id} ${user.email}`);
   return user;
+}
+
+// ─── SIGN IN WITH MICROSOFT ────────────────────────────────────────
+// Same shape as Google, with ONE deliberate difference — see the linking rule
+// in findOrCreateMicrosoftUser. Entra ID lets a user set any email address
+// without verifying it (the nOAuth attack class), so an email collision with
+// an existing Voxel account is REFUSED here rather than linked. Google's
+// email_verified makes linking safe there; Microsoft has no equivalent.
+
+app.get('/api/auth/microsoft', authLimiter, (req, res) => {
+  if (!microsoftConfigured()) {
+    console.error(`[microsoft] not configured — missing: ${missingMicrosoftVars().join(', ')}`);
+    return res.redirect('/?auth_error=microsoft_unavailable');
+  }
+  const redirectUri = microsoftRedirectUri();
+  if (!redirectUri) {
+    console.error('[microsoft] no redirect uri — set MICROSOFT_REDIRECT_URI or PUBLIC_BASE_URL');
+    return res.redirect('/?auth_error=microsoft_unavailable');
+  }
+  const state = newOauthState();
+  setOauthCookie(res, OAUTH_STATE_COOKIE, state, 600);
+  res.redirect(buildMicrosoftAuthUrl({
+    clientId: process.env.MICROSOFT_CLIENT_ID.trim(),
+    redirectUri,
+    state,
+  }));
+});
+
+app.get('/api/auth/microsoft/callback', authLimiter, async (req, res) => {
+  const fail = (logLine, code = 'microsoft_failed') => {
+    console.error(`[microsoft] ${logLine}`);
+    clearOauthCookie(res, OAUTH_STATE_COOKIE);
+    return res.redirect(`/?auth_error=${code}`);
+  };
+
+  if (!microsoftConfigured() || !dbReady()) return fail('not configured');
+  if (req.query.error) return fail(`provider returned ${req.query.error}`, 'microsoft_cancelled');
+
+  const expected = req.cookies?.[OAUTH_STATE_COOKIE];
+  if (!stateMatches(String(expected || ''), String(req.query.state || ''))) {
+    return fail('state mismatch — possible CSRF, or the sign-in took too long');
+  }
+  clearOauthCookie(res, OAUTH_STATE_COOKIE);
+
+  const code = String(req.query.code || '');
+  if (!code) return fail('no authorization code returned');
+
+  try {
+    const tokens = await exchangeMicrosoftCode({
+      code,
+      clientId: process.env.MICROSOFT_CLIENT_ID.trim(),
+      clientSecret: process.env.MICROSOFT_CLIENT_SECRET.trim(),
+      redirectUri: microsoftRedirectUri(),
+    });
+    const identity = await verifyMicrosoftIdToken(tokens.id_token);
+    const outcome = await findOrCreateMicrosoftUser(identity, clientIp(req));
+    if (outcome.error === 'banned') return fail('account is banned', 'account_banned');
+    if (outcome.error === 'email_taken') {
+      // Deliberately NOT linked. Tell them how to proceed instead of failing
+      // silently: sign in the existing way, and we can attach Microsoft later.
+      return fail(
+        `refused to link ${identity.email} to an existing account (nOAuth risk)`,
+        'microsoft_email_taken'
+      );
+    }
+
+    const handoff = jwt.sign(
+      { sub: outcome.user.id, email: outcome.user.email, role: outcome.user.role, handoff: true },
+      JWT_SECRET,
+      { expiresIn: HANDOFF_TTL_SECONDS }
+    );
+    setOauthCookie(res, OAUTH_HANDOFF_COOKIE, handoff, HANDOFF_TTL_SECONDS);
+    console.log(`[microsoft] signed in user=${outcome.user.id} ${outcome.user.email}`);
+    return res.redirect('/?google=1');
+  } catch (e) {
+    return fail(`callback failed: ${e.message}`);
+  }
+});
+
+/**
+ * Match a Microsoft identity to a Voxel account.
+ *
+ * THE LINKING RULE IS STRICTER THAN GOOGLE'S, ON PURPOSE.
+ *
+ * Entra ID permits a user to set an arbitrary, UNVERIFIED email address on
+ * their account. That is the nOAuth attack: create a tenant, set the address to
+ * a victim's, sign in, and any app matching on email hands over the account.
+ * Google's email_verified is a real guarantee; Microsoft offers none, so:
+ *
+ *   - identity is the (immutable) subject alone;
+ *   - an email that already belongs to another account is REFUSED, never
+ *     silently attached. The person signs in their existing way instead.
+ *
+ * xms_edov, when a tenant enables it, does assert domain ownership — but most
+ * tenants do not emit it, so its absence must never be read as "fine".
+ */
+async function findOrCreateMicrosoftUser(identity, ip) {
+  const bySub = await pool.query(
+    `SELECT id, email, role, banned FROM users WHERE microsoft_sub = $1`, [identity.sub]
+  );
+  if (bySub.rows[0]) {
+    if (bySub.rows[0].banned) return { error: 'banned' };
+    return { user: bySub.rows[0] };
+  }
+
+  const byEmail = await pool.query(
+    `SELECT id, banned FROM users WHERE email = $1`, [identity.email]
+  );
+  if (byEmail.rows[0]) {
+    if (byEmail.rows[0].banned) return { error: 'banned' };
+    // The account exists and belongs to someone who signed up another way.
+    // Attaching on an unverifiable address is exactly the nOAuth takeover.
+    return { error: 'email_taken' };
+  }
+
+  const created = await pool.query(
+    `INSERT INTO users (email, password_hash, credits, role, microsoft_sub, display_name)
+     VALUES ($1, NULL, 0, 'user', $2, $3)
+     RETURNING id, email, role, banned`,
+    [identity.email, identity.sub, identity.name]
+  );
+  const user = created.rows[0];
+  pool.query(
+    `INSERT INTO credits_history (user_id, amount, action, ip_address)
+     VALUES ($1, 0, 'signup', $2)`,
+    [user.id, ip]
+  ).catch(err => console.error('[microsoft] credits_history insert failed:', err.message));
+  console.log(`[microsoft] created user=${user.id} ${user.email} (personal=${identity.isPersonalAccount})`);
+  return { user };
 }
 
 // ─── /api/auth/logout (H7) ─────────────────────────────────────────

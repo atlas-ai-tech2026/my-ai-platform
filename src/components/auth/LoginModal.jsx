@@ -58,19 +58,20 @@ export default function LoginModal({ onClose, onSuccess, initialMode = 'login' }
   // placeholder — it is free to add, but each provider brings its own
   // account-linking edge cases, so they go in one at a time.
   const providers = [
-    { label: 'Continue with Google',    icon: <GoogleIcon />,    provider: 'google', live: true },
-    { label: 'Continue with Microsoft', icon: <MicrosoftIcon />, provider: 'microsoft' },
+    { label: 'Continue with Google',    icon: <GoogleIcon />,    provider: 'google',    live: true },
+    { label: 'Continue with Microsoft', icon: <MicrosoftIcon />, provider: 'microsoft', live: true },
   ];
 
   const handleProviderLogin = (provider) => {
-    if (provider === 'google') {
+    const live = providers.find(p => p.provider === provider)?.live;
+    if (live) {
       // Full-page navigation, not fetch(): this is an OAuth redirect, and the
-      // browser has to actually land on Google's own domain so the person can
-      // see the address bar they are typing their password into.
-      window.location.assign('/api/auth/google');
+      // browser has to actually land on the provider's own domain so the person
+      // can see the address bar they are typing their password into.
+      window.location.assign(`/api/auth/${provider}`);
       return;
     }
-    setErrorMsg(`${provider[0].toUpperCase() + provider.slice(1)} sign-in is coming soon. Use email or Google for now.`);
+    setErrorMsg(`${provider[0].toUpperCase() + provider.slice(1)} sign-in is coming soon.`);
   };
 
   // Show the email form. The previous version called base44.auth.redirectToLogin

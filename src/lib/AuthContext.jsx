@@ -91,6 +91,13 @@ export const AuthProvider = ({ children }) => {
         authError === 'google_cancelled' ? 'Google sign-in was cancelled.'
         : authError === 'account_banned' ? 'That account has been suspended.'
         : authError === 'google_unavailable' ? 'Google sign-in is not available right now.'
+        : authError === 'microsoft_cancelled' ? 'Microsoft sign-in was cancelled.'
+        : authError === 'microsoft_unavailable' ? 'Microsoft sign-in is not available right now.'
+        // Refused on purpose: Entra ID does not verify email addresses, so
+        // attaching to an existing account on an email match would be an
+        // account-takeover route (nOAuth). Tell them what actually works.
+        : authError === 'microsoft_email_taken' ? 'An account already uses that email address. Sign in with your password or Google, and we can connect Microsoft afterwards.'
+        : authError === 'microsoft_failed' ? 'Microsoft sign-in did not complete. Please try again.'
         : 'Google sign-in did not complete. Please try again.'
       );
       refresh();
