@@ -48,8 +48,11 @@ images/
 server/scripts/
 
 # N16 (recheck 2026-08-03): internal unit-economics workbooks and one-off
-# report tooling. Voxel_Credit_Calculator.html carries per-supplier costs
-# and margin formulas — untracked but, until now, not ignored, so a single
-# `git add .` would have published it from this PUBLIC repo.
+# report tooling. Voxel_Credit_Calculator.html carries per-supplier costs and
+# margin formulas — in a PUBLIC repo a single `git add .` would publish them.
+#
+# 2026-08-06: this rule existed only on the security branch, so a branch cut
+# from main did not have it and `git add -A` committed the file. Keep this rule
+# on EVERY branch that can reach main.
 Voxel_Credit_Calculator.html
 SPA_REPORT_README.md

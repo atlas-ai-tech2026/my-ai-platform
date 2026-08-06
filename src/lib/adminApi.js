@@ -115,6 +115,10 @@ export const adminApi = {
   createPromo: (body)   => request('POST', '/api/admin/promocodes', body),
   listPromos:  ()       => request('GET', '/api/admin/promocodes'),
   togglePromo: (id)     => request('POST', `/api/admin/promocodes/${id}/toggle`),
+  // Only description + expiry are editable server-side; credits and the code
+  // itself stay locked so the credit ledger cannot disagree with the code.
+  updatePromo: (id, body) => request('PATCH', `/api/admin/promocodes/${id}`, body),
+  promoRedemptions: (id) => request('GET', `/api/admin/promocodes/${id}/redemptions`),
   createGiftCards: (body) => request('POST', '/api/admin/giftcards', body),
   listGiftCards: (status = 'all') => request('GET', `/api/admin/giftcards?status=${status}`),
 

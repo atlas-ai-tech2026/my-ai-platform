@@ -5081,10 +5081,14 @@ app.post('/api/admin/promocodes', adminGate, async (req, res) => {
     const expiresAt = req.body?.expires_at ? new Date(req.body.expires_at) : null;
     if (expiresAt && isNaN(expiresAt)) return res.status(400).json({ error: 'Bad expiry date.' });
 
+    // Free text so the admin can record who the code is for. Capped only to
+    // keep the table readable; no format is imposed.
+    const description = String(req.body?.description || '').trim().slice(0, 500) || null;
+
     const { rows } = await pool.query(
-      `INSERT INTO promo_codes (code, credits, max_redemptions, expires_at, created_by)
-       VALUES ($1, $2, $3, $4, $5) RETURNING *`,
-      [code, credits, maxRedemptions, expiresAt, req.user?.email || ADMIN_EMAIL]
+      `INSERT INTO promo_codes (code, credits, max_redemptions, expires_at, created_by, description)
+       VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+      [code, credits, maxRedemptions, expiresAt, req.user?.email || ADMIN_EMAIL, description]
     );
     res.json({ promo: rows[0] });
   } catch (err) {
@@ -5105,6 +5109,81 @@ app.get('/api/admin/promocodes', adminGate, async (req, res) => {
   } catch (err) {
     console.error('[admin/promocodes] list error:', err);
     res.status(500).json({ error: 'Promo list failed.' });
+  }
+});
+
+// Edit a promo code after creation (CRM 2026-08-06).
+//
+// ONLY the description and the expiry are editable, deliberately:
+//   - `credits` must not change once anyone has redeemed. The amount granted is
+//     already recorded in credits_history; altering it here would make the
+//     ledger disagree with the code that produced it.
+//   - `code` must not change because printed/shared codes are already in the
+//     wild, and promo_redemptions references this row by id, not by text.
+// If either is genuinely needed, deactivate this code and create a new one.
+//
+// Extending the expiry REVIVES an expired code immediately: redemption checks
+// `expires_at > NOW()` at redeem time, so nothing needs republishing.
+app.patch('/api/admin/promocodes/:id', adminGate, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isInteger(id)) return res.status(400).json({ error: 'Bad promo id.' });
+
+    const fields = [];
+    const values = [];
+    const set = (sql, value) => { values.push(value); fields.push(`${sql} = $${values.length}`); };
+
+    if (Object.prototype.hasOwnProperty.call(req.body || {}, 'description')) {
+      const d = String(req.body.description ?? '').trim().slice(0, 500);
+      set('description', d || null);
+    }
+    if (Object.prototype.hasOwnProperty.call(req.body || {}, 'expires_at')) {
+      const raw = req.body.expires_at;
+      if (raw === null || raw === '') {
+        // Explicitly clearing it — "never expires".
+        set('expires_at', null);
+      } else {
+        const d = new Date(raw);
+        if (isNaN(d)) return res.status(400).json({ error: 'Bad expiry date.' });
+        set('expires_at', d);
+      }
+    }
+    if (!fields.length) return res.status(400).json({ error: 'Nothing to update.' });
+
+    values.push(id);
+    const { rows } = await pool.query(
+      `UPDATE promo_codes SET ${fields.join(', ')} WHERE id = $${values.length} RETURNING *`,
+      values
+    );
+    if (!rows[0]) return res.status(404).json({ error: 'Promo code not found.' });
+    console.log(`[admin/promocodes] ${req.user?.email} edited promo ${rows[0].code}`);
+    res.json({ promo: rows[0] });
+  } catch (err) {
+    console.error('[admin/promocodes] patch error:', err);
+    res.status(500).json({ error: 'Promo update failed.' });
+  }
+});
+
+// Which accounts redeemed this code. The data has always been recorded in
+// promo_redemptions; it has simply never been shown, so the admin could see a
+// count but not who it was.
+app.get('/api/admin/promocodes/:id/redemptions', adminGate, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isInteger(id)) return res.status(400).json({ error: 'Bad promo id.' });
+    const { rows } = await pool.query(
+      `SELECT r.user_id, r.created_at, u.email, u.banned
+         FROM promo_redemptions r
+         JOIN users u ON u.id = r.user_id
+        WHERE r.code_id = $1
+        ORDER BY r.created_at DESC
+        LIMIT 1000`,
+      [id]
+    );
+    res.json({ redemptions: rows });
+  } catch (err) {
+    console.error('[admin/promocodes] redemptions error:', err);
+    res.status(500).json({ error: 'Could not load redemptions.' });
   }
 });
 
