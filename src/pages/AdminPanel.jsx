@@ -16,6 +16,7 @@ import PromoCodesTab from '@/components/admin/PromoCodesTab';
 import GiftCardsTab from '@/components/admin/GiftCardsTab';
 import BulkTab from '@/components/admin/BulkTab';
 import SecurityTab from '@/components/admin/SecurityTab';
+import CostingTab from '@/components/admin/CostingTab';
 
 const PAGE_SIZE = 50;
 
@@ -30,6 +31,9 @@ const TABS = [
   { id: 'bulk',   label: 'Bulk' },
   // N1: 2FA enrolment had no screen anywhere — the server side shipped with H5.
   { id: 'security', label: 'Security' },
+  // Costing calculator — works out what prices SHOULD be. It does not charge
+  // anybody; pricing.js remains the charging authority (finding C1).
+  { id: 'costing', label: 'Costing' },
 ];
 
 export default function AdminPanel() {
@@ -202,6 +206,7 @@ export default function AdminPanel() {
         {tab === 'gifts' && <GiftCardsTab onError={handleError} />}
         {tab === 'bulk' && <BulkTab onError={handleError} />}
         {tab === 'security' && <SecurityTab onError={handleError} />}
+        {tab === 'costing' && <CostingTab onError={handleError} />}
 
         {tab === 'users' && (<>
         <StatsCards stats={stats} />
