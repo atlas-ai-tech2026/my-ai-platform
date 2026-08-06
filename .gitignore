@@ -33,3 +33,10 @@ reports/
 cameras voxel/
 images/
 server/scripts/
+
+# Internal pricing tooling — per-supplier costs and margin formulas.
+# MUST NOT reach this PUBLIC repo. (N16 fixed this on the security branch; this
+# branch was cut from main, which did not yet carry that rule, so `git add -A`
+# swept the file in. Duplicated here so the protection exists on every branch.)
+Voxel_Credit_Calculator.html
+SPA_REPORT_README.md

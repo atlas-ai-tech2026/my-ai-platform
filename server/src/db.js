@@ -204,6 +204,18 @@ export async function migrate() {
         UNIQUE (code_id, user_id)
       );
     `);
+    // Promo code description (CRM 2026-08-06). Free text so the admin can
+    // record WHO a code was created for — "Ahmed, Gulf Media campaign" —
+    // because a bare code tells you nothing months later.
+    //
+    // ADDITIVE AND OPTIONAL: existing codes get NULL and keep working exactly
+    // as before. Nothing about redemption reads this column.
+    await client.query(`ALTER TABLE promo_codes ADD COLUMN IF NOT EXISTS description TEXT;`);
+    // Searching by description across a few hundred codes needs no index, but
+    // redemption lookups by code_id do — this is what makes the "who redeemed
+    // it" list instant rather than a scan.
+    await client.query(`CREATE INDEX IF NOT EXISTS promo_redemptions_code_idx ON promo_redemptions (code_id, created_at DESC);`);
+
     await client.query(`
       CREATE TABLE IF NOT EXISTS gift_cards (
         id          SERIAL       PRIMARY KEY,
