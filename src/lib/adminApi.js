@@ -118,6 +118,23 @@ export const adminApi = {
   costingApprove:  ()            => request('POST',   '/api/costing/plans/approve'),
   costingDiscard:  ()            => request('DELETE', '/api/costing/plans/draft'),
 
+  // ─── Offers (2026-08-07) ──────────────────────────────────────────
+  // Promotions with margin impact from the Costing engine. Like costing,
+  // these never charge a customer — approval writes offers + an audit row.
+  offersList:        ()          => request('GET',  '/api/offers'),
+  offerCreate:       (body)      => request('POST', '/api/offers', body),
+  offerUpdate:       (id, body)  => request('PATCH', `/api/offers/${id}`, body),
+  // `below_floor_approved` is the deliberate "yes, I know" — the server
+  // refuses a below-floor offer without it, and audits it when used.
+  offerApprove:      (id, belowFloor = false) =>
+    request('POST', `/api/offers/${id}/approve`, { below_floor_approved: belowFloor }),
+  offerPause:        (id)        => request('POST', `/api/offers/${id}/pause`),
+  offerResume:       (id)        => request('POST', `/api/offers/${id}/resume`),
+  offerStats:        (id)        => request('GET',  `/api/offers/${id}/stats`),
+  offerMarginImpact: (body)      => request('POST', '/api/offers/margin-impact', body),
+  offerSegmentPreview: (filters) => request('POST', '/api/offers/segment/preview', { filters }),
+  offerSettings:     (body)      => request('PATCH', '/api/offers/settings', body),
+
   // ─── Bulk user provisioning ───────────────────────────────────────
   listModels: () => request('GET', '/api/admin/models'),
   bulkCreateUsers: (body) => request('POST', '/api/admin/users/bulk', body),
