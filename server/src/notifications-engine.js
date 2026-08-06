@@ -206,7 +206,14 @@ export function validateCompose(draft = {}, { audienceCount = null } = {}) {
     errs.push('segment matches 0 clients');
   }
   // A button with no destination does nothing when clicked.
-  if (String(draft.cta || '').trim() && !String(draft.url || '').trim()) {
+  //
+  // Accepts BOTH namings on purpose. This rule read only `cta`/`url` while
+  // every real caller sends `cta_text`/`cta_url`, so it silently never fired
+  // and a button with no link would ship to customers. Found 2026-08-07 while
+  // auditing the CRM forms; the test below pins both spellings.
+  const ctaText = String(draft.cta_text ?? draft.cta ?? '').trim();
+  const ctaUrl = String(draft.cta_url ?? draft.url ?? '').trim();
+  if (ctaText && !ctaUrl) {
     errs.push('give the button a link, or remove the button text');
   }
   if (draft.scheduled_for && draft.expires_at &&

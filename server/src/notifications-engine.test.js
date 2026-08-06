@@ -195,12 +195,23 @@ describe('validateCompose', () => {
   });
 
   // A button that goes nowhere is a dead end in front of a customer.
-  it('refuses button text with no link', () => {
-    expect(errs({ cta: 'Claim it' }).join(' · ')).toMatch(/give the button a link/i);
+  //
+  // Both spellings are asserted deliberately. The rule originally read only
+  // `cta`/`url` while every caller sent `cta_text`/`cta_url`, so it never
+  // fired once in practice — a validation that cannot trigger is worse than
+  // none, because it reads as covered.
+  it.each([
+    ['cta / url',           { cta: 'Claim it' }],
+    ['cta_text / cta_url',  { cta_text: 'Claim it' }],
+  ])('refuses button text with no link (%s)', (_label, patch) => {
+    expect(errs(patch).join(' · ')).toMatch(/give the button a link/i);
   });
 
-  it('accepts a button with a link', () => {
-    expect(errs({ cta: 'Claim it', url: '/pricing' })).toEqual([]);
+  it.each([
+    ['cta / url',          { cta: 'Claim it', url: '/pricing' }],
+    ['cta_text / cta_url', { cta_text: 'Claim it', cta_url: '/pricing' }],
+  ])('accepts a button with a link (%s)', (_label, patch) => {
+    expect(errs(patch)).toEqual([]);
   });
 
   it('refuses a notification that expires before it is sent', () => {

@@ -6,12 +6,15 @@
 
 import React, { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
+import Field from './FormField';
 import { adminApi } from '@/lib/adminApi';
 
 export default function GiftCardsTab({ onError }) {
   const [cards, setCards] = useState(null);
   const [status, setStatus] = useState('all');
   const [creating, setCreating] = useState(false);
+  // Required boxes go red only after a generate attempt.
+  const [tried, setTried] = useState(false);
   const [lastBatch, setLastBatch] = useState(null); // codes from the most recent generation
 
   // Generate form
@@ -29,7 +32,12 @@ export default function GiftCardsTab({ onError }) {
 
   useEffect(() => { load(); }, [load]);
 
+  // Which required boxes are empty. Only shown once Generate has been pressed.
+  const missCredits = tried && !(Number(credits) > 0);
+  const missCount = tried && !(Number(count) >= 1 && Number(count) <= 500);
+
   const generate = useCallback(async () => {
+    setTried(true);
     const c = Number(credits);
     const n = parseInt(count, 10);
     if (!Number.isFinite(c) || c <= 0) { toast.error('Enter the credit value per card'); return; }
@@ -82,18 +90,42 @@ export default function GiftCardsTab({ onError }) {
       {/* Generate form */}
       <div style={panelStyle}>
         <div style={panelTitleStyle}>Generate gift cards</div>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-          <input placeholder="How many" type="number" min="1" max="500" value={count}
-            onChange={e => setCount(e.target.value)} style={{ ...inputStyle, width: 110 }} />
-          <input placeholder="Credits per card *" type="number" min="0.5" step="0.5" value={credits}
-            onChange={e => setCredits(e.target.value)} style={{ ...inputStyle, width: 160 }} />
-          <input placeholder="Note (e.g. July giveaway)" value={note}
-            onChange={e => setNote(e.target.value)} style={{ ...inputStyle, minWidth: 200 }} />
-          <input type="date" value={expiresAt} onChange={e => setExpiresAt(e.target.value)}
-            style={inputStyle} title="Expiry (blank = never)" />
-          <button onClick={generate} disabled={creating} style={primaryBtnStyle}>
-            {creating ? 'Generating…' : '🎁 Generate'}
-          </button>
+        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+          <Field label="How many" required invalid={missCount}
+            message="Enter a number between 1 and 500"
+            info="How many separate gift-card codes to generate in this batch. Each one is a unique code that a single customer can redeem once. Between 1 and 500.">
+            <input placeholder="e.g. 10" type="number" min="1" max="500" value={count}
+              aria-required="true" aria-invalid={missCount}
+              onChange={e => setCount(e.target.value)}
+              style={{ ...inputStyle, width: 120, ...(missCount ? invalidStyle : null) }} />
+          </Field>
+          <Field label="Credits per card" required invalid={missCredits}
+            message="Enter the credit value of each card"
+            info="How many credits each card is worth when redeemed. Every card in this batch gets the same value. Must be above zero.">
+            <input placeholder="e.g. 50" type="number" min="0.5" step="0.5" value={credits}
+              aria-required="true" aria-invalid={missCredits}
+              onChange={e => setCredits(e.target.value)}
+              style={{ ...inputStyle, width: 170, ...(missCredits ? invalidStyle : null) }} />
+          </Field>
+          <Field label="Note"
+            info="A private label for this batch so you can tell it apart later — for example “July giveaway” or “Gitex handouts”. Customers never see it.">
+            <input placeholder="e.g. July giveaway" value={note}
+              onChange={e => setNote(e.target.value)} style={{ ...inputStyle, minWidth: 200 }} />
+          </Field>
+          <Field label="Expires"
+            info="The last day these cards can be redeemed. Leave it empty and they never expire.">
+            <input type="date" value={expiresAt} onChange={e => setExpiresAt(e.target.value)}
+              style={inputStyle} />
+          </Field>
+          <div style={{ paddingTop: 17 }}>
+            <button onClick={generate} disabled={creating} style={primaryBtnStyle}>
+              {creating ? 'Generating…' : '🎁 Generate'}
+            </button>
+          </div>
+        </div>
+        <div style={{ color: 'rgba(255,255,255,0.4)', fontSize: 11.5, marginTop: 10 }}>
+          Boxes marked <span style={{ color: '#f87171', fontWeight: 700 }}>*</span> must be filled ·
+          press <b>ⓘ</b> beside a box to see exactly what it expects.
         </div>
         {lastBatch?.length > 0 && (
           <div style={{ marginTop: 12, padding: 12, borderRadius: 10, background: 'rgba(74,222,128,0.06)', border: '1px solid rgba(74,222,128,0.2)' }}>
@@ -171,6 +203,7 @@ export default function GiftCardsTab({ onError }) {
   );
 }
 
+const invalidStyle = { border: '1px solid #f87171', background: 'rgba(248,113,113,0.08)' };
 const inputStyle = {
   height: 36, padding: '0 12px', borderRadius: 10,
   background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)',

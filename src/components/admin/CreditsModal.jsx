@@ -3,24 +3,37 @@
 // the modal shape (amount + reason + confirm) is the same. Reason is REQUIRED
 // because every change writes to credits_history forever.
 import React, { useState, useEffect } from 'react';
+import Field from './FormField';
 
 export default function CreditsModal({ user, action, onClose, onSubmit }) {
   const [amount, setAmount] = useState('10');
   const [reason, setReason] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [tried, setTried] = useState(false);
 
-  useEffect(() => { setAmount('10'); setReason(''); }, [user, action]);
+  useEffect(() => { setAmount('10'); setReason(''); setTried(false); }, [user, action]);
 
   const isCredit = action === 'grant' || action === 'revoke';
   const isBan = action === 'ban' || action === 'unban';
 
   async function handleSubmit(e) {
     e.preventDefault();
-    if (!reason.trim()) return;
+    setTried(true);
+    // Reason is required for a credit change (it goes in the ledger forever)
+    // and optional for a ban, which is what the label and the server both say.
+    //
+    // This used to be an unconditional `if (!reason.trim()) return;` while the
+    // Ban button stayed ENABLED — so pressing Ban with no reason silently did
+    // nothing at all: no request, no error, no feedback. Found 2026-08-07.
+    if (isCredit && !reason.trim()) return;
+    if (isCredit && !(Number(amount) >= 0)) return;
     setSubmitting(true);
     try { await onSubmit({ amount: Number(amount), reason: reason.trim() }); }
     finally { setSubmitting(false); }
   }
+
+  const missingAmount = isCredit && tried && !(Number(amount) >= 0);
+  const missingReason = isCredit && tried && !reason.trim();
 
   const titles = {
     grant:  `Add credits to ${user.email}`,
@@ -42,26 +55,42 @@ export default function CreditsModal({ user, action, onClose, onSubmit }) {
         </div>
 
         {isCredit && (
-          <>
-            <Label>Amount</Label>
+          <Field label="AMOUNT" required invalid={missingAmount}
+            message="Enter how many credits"
+            info={action === 'grant'
+              ? 'How many credits to ADD to this account. Decimals are allowed (0.5 is half a credit). The balance above goes up by this amount.'
+              : 'How many credits to REMOVE from this account. Decimals are allowed. It cannot take the balance below zero.'}>
             <input
               type="number" required min="0" step="0.01" value={amount}
+              aria-required="true" aria-invalid={missingAmount}
               onChange={e => setAmount(e.target.value)}
-              style={inputStyle} autoFocus
+              style={{ ...inputStyle, ...(missingAmount ? invalidStyle : null) }} autoFocus
             />
-          </>
+          </Field>
         )}
 
-        <Label style={{ marginTop: isCredit ? 12 : 0 }}>
-          Reason {isBan && <span style={{ color: 'rgba(255,255,255,0.4)' }}>(optional)</span>}
-        </Label>
-        <textarea
+        <Field
+          label="REASON"
           required={isCredit}
-          value={reason}
-          onChange={e => setReason(e.target.value)}
-          placeholder={isBan ? 'Reason (logged in audit)' : 'Why? Logged forever in credit history.'}
-          rows={3} style={{ ...inputStyle, resize: 'vertical', minHeight: 70, paddingTop: 10 }}
-        />
+          invalid={missingReason}
+          message="Enter a reason — it is stored in the credit history forever"
+          style={{ marginTop: isCredit ? 12 : 0 }}
+          info={isCredit
+            ? 'Why you are making this change. It is written to the credit history permanently and cannot be edited later, so write something you would still understand in six months — e.g. “goodwill after failed render”.'
+            : 'Optional. A short note explaining the ban, kept in the admin audit log. You can leave it empty.'}>
+          <textarea
+            required={isCredit}
+            aria-required={isCredit}
+            aria-invalid={missingReason}
+            value={reason}
+            onChange={e => setReason(e.target.value)}
+            placeholder={isBan ? 'Reason (logged in audit)' : 'Why? Logged forever in credit history.'}
+            rows={3} style={{
+              ...inputStyle, resize: 'vertical', minHeight: 70, paddingTop: 10,
+              ...(missingReason ? invalidStyle : null),
+            }}
+          />
+        </Field>
 
         <div style={{ marginTop: 18, display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
           <button type="button" onClick={onClose} style={cancelBtnStyle}>Cancel</button>
@@ -80,12 +109,6 @@ export default function CreditsModal({ user, action, onClose, onSubmit }) {
   );
 }
 
-const Label = ({ children, style }) => (
-  <div style={{ fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.5)', marginBottom: 6, letterSpacing: '0.04em', textTransform: 'uppercase', ...style }}>
-    {children}
-  </div>
-);
-
 const overlayStyle = {
   position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)',
   backdropFilter: 'blur(8px)', display: 'flex',
@@ -102,6 +125,10 @@ const inputStyle = {
   background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)',
   borderRadius: 10, color: '#fff', fontSize: 14, outline: 'none',
   fontFamily: 'inherit',
+};
+const invalidStyle = {
+  border: '1px solid #f87171',
+  background: 'rgba(248,113,113,0.08)',
 };
 const cancelBtnStyle = {
   padding: '8px 14px', fontSize: 13, fontWeight: 600,

@@ -17,6 +17,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { adminApi } from '@/lib/adminApi';
 import { toast } from 'sonner';
+import Field, { adminInput, MissingSummary } from './FormField';
 
 const pct = (v) => (v == null ? '—' : `${(v * 100).toFixed(1)}%`);
 const money = (v) => (v == null ? '—' : `$${Number(v).toFixed(2)}`);
@@ -247,6 +248,21 @@ function CreateOffer({ data, busy, onSaved, onError }) {
   const [impact, setImpact] = useState(null);
   const [errs, setErrs] = useState([]);
   const [confirmBelow, setConfirmBelow] = useState(false);
+  // Required boxes turn red only after Submit & approve has been pressed.
+  // "Save as draft" deliberately never validates — a draft is a scratchpad.
+  const [tried, setTried] = useState(false);
+
+  // Mirrors localErrors() below, per box, so the red border and the error list
+  // can never disagree about what is missing.
+  const missing = {
+    name: !name.trim(),
+    // The server requires a positive value (offers-engine validateForApproval)
+    // but the client never checked it — an offer with value 0 was rejected only
+    // after the round trip, with no box highlighted.
+    value: !(Number(value) > 0),
+    code: dCode && !code.trim(),
+  };
+  const miss = tried ? missing : { name: false, value: false, code: false };
 
   // Margin impact is computed by the SERVER so the number the owner approves
   // is the number the approval gate will use — a second implementation here
@@ -300,12 +316,14 @@ function CreateOffer({ data, busy, onSaved, onError }) {
     };
   }
 
+  /**
+   * Problems with no single box to point at — the per-box ones are in
+   * `missing` above and are shown as red borders instead of listed here.
+   */
   function localErrors() {
     const e = [];
-    if (!name.trim()) e.push('give the offer a name');
     if (!planIds.length) e.push('select at least one plan');
     if (!dCode && !dAuto) e.push('choose at least one delivery channel');
-    if (dCode && !code.trim()) e.push('enter or generate the promo code');
     if (aud === 'picked' && !picked.length) e.push('pick at least one client');
     if (aud === 'segment' && segPreview?.count === 0) e.push('segment matches 0 clients');
     if (ends < starts) e.push('the end date is before the start date');
@@ -313,8 +331,12 @@ function CreateOffer({ data, busy, onSaved, onError }) {
   }
 
   async function save(approve) {
+    // A draft is a scratchpad — never validated, so work in progress can
+    // always be saved. Only approval has to be complete.
+    if (approve) setTried(true);
     const e = approve ? localErrors() : [];
-    if (e.length) { setErrs(e); return; }
+    const boxesMissing = approve && Object.values(missing).some(Boolean);
+    if (e.length || boxesMissing) { setErrs(e); return; }
     setErrs([]);
     try {
       const created = await adminApi.offerCreate(body());
@@ -331,9 +353,12 @@ function CreateOffer({ data, busy, onSaved, onError }) {
     <div>
       {/* 1 — what */}
       <Card step="1" title="What is the offer?" why="Choose the type, the value, and which plans it applies to.">
-        <Field label="Offer name">
+        <Field label="Offer name" required invalid={miss.name}
+          message="Give the offer a name"
+          info="Your own name for this campaign, shown in the offers list and the audit trail. Customers do not see it. Something you will recognise later — “National Day 15%” beats “offer 2”.">
           <input value={name} onChange={(e) => setName(e.target.value)}
-            placeholder="e.g. National Day 15%" style={{ ...input, width: 280 }} />
+            aria-required="true" aria-invalid={miss.name}
+            placeholder="e.g. National Day 15%" style={{ ...adminInput(miss.name), width: 280 }} />
         </Field>
         <div style={{ display: 'grid', gap: 10, marginTop: 12,
           gridTemplateColumns: 'repeat(auto-fit, minmax(215px, 1fr))' }}>
@@ -377,9 +402,18 @@ function CreateOffer({ data, busy, onSaved, onError }) {
         )}
 
         <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', alignItems: 'flex-end', marginTop: 14 }}>
-          <Field label={VALUE_LABEL[type]}>
+          <Field label={VALUE_LABEL[type]} required invalid={miss.value}
+            message="Enter a value above zero"
+            info={{
+              pct: 'The percentage taken off the plan price. 15 means the client pays 85% of the normal price.',
+              bonus: 'Extra credits as a percentage of the plan’s normal allowance. 25 means a 300-credit plan gives 375.',
+              days: 'How many days of the plan the client gets free. The price does not change — this is a cost to you, shown in step 5.',
+              fixed: 'A flat dollar amount off the plan price. It cannot be more than the price itself.',
+            }[type]}>
             <input type="number" min="1" value={value}
-              onChange={(e) => setValue(Number(e.target.value))} style={{ ...input, width: 110 }} />
+              aria-required="true" aria-invalid={miss.value}
+              onChange={(e) => setValue(Number(e.target.value))}
+              style={{ ...adminInput(miss.value), width: 110 }} />
           </Field>
           <Field label="Applies to plans">
             <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap' }}>
@@ -503,14 +537,19 @@ function CreateOffer({ data, busy, onSaved, onError }) {
             <input type="checkbox" checked={dCode} onChange={(e) => setDCode(e.target.checked)} /> Promo code
           </label>
           {dCode && (
-            <>
-              <input value={code} onChange={(e) => setCode(e.target.value.toUpperCase())}
-                placeholder="VOXEL15" style={{ ...input, width: 150, textTransform: 'uppercase' }} />
-              <button type="button" style={smallBtn} onClick={() => {
-                const base = (name.trim().replace(/[^a-z0-9]/gi, '').slice(0, 8) || 'VOXEL').toUpperCase();
-                setCode(`${base}${value}`);
-              }}>Generate</button>
-            </>
+            <Field label="Promo code" required invalid={miss.code}
+              info="The code a customer types at checkout to claim this offer. Uppercase letters, numbers, hyphen or underscore, 3–30 characters. Press Generate to build one from the offer name, or type your own. It must be unique across all offers.">
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <input value={code} onChange={(e) => setCode(e.target.value.toUpperCase())}
+                  aria-required="true" aria-invalid={miss.code}
+                  placeholder="VOXEL15"
+                  style={{ ...adminInput(miss.code), width: 150, textTransform: 'uppercase' }} />
+                <button type="button" style={smallBtn} onClick={() => {
+                  const base = (name.trim().replace(/[^a-z0-9]/gi, '').slice(0, 8) || 'VOXEL').toUpperCase();
+                  setCode(`${base}${value}`);
+                }}>Generate</button>
+              </div>
+            </Field>
           )}
           <label style={radio}>
             <input type="checkbox" checked={dAuto} onChange={(e) => setDAuto(e.target.checked)} /> Auto-applied to the audience
@@ -645,13 +684,13 @@ function CreateOffer({ data, busy, onSaved, onError }) {
         <button disabled={busy} onClick={() => save(false)} style={{ ...smallBtn, padding: '9px 16px', fontSize: 13.5 }}>
           Save as draft
         </button>
-        {errs.length > 0 && (
-          <span style={{ color: '#f87171', fontWeight: 600, fontSize: 12.5 }}>
-            Fix first: {errs.join(' · ')}
-          </span>
-        )}
       </div>
+      {tried && (
+        <MissingSummary count={Object.values(missing).filter(Boolean).length} extra={errs} />
+      )}
       <div style={{ ...muted, marginTop: 10, fontSize: 12 }}>
+        Boxes marked <span style={{ color: '#f87171', fontWeight: 700 }}>*</span> must be filled ·
+        press <b>ⓘ</b> beside any box to see what it expects.
         Approval writes the audit log and activates on the start date.
       </div>
     </div>
@@ -729,14 +768,6 @@ function Card({ step, title, why, children }) {
     </div>
   );
 }
-function Field({ label, children }) {
-  return (
-    <div>
-      <label style={{ display: 'block', color: 'rgba(255,255,255,0.45)', fontSize: 11.5, marginBottom: 3 }}>{label}</label>
-      {children}
-    </div>
-  );
-}
 function Chip({ sel, onClick, children }) {
   return (
     <button type="button" onClick={onClick} style={{
@@ -776,11 +807,7 @@ const th = {
   letterSpacing: '.03em', color: 'rgba(255,255,255,0.45)', textAlign: 'right', whiteSpace: 'nowrap',
 };
 const td = { padding: '7px 10px', textAlign: 'right', color: 'rgba(255,255,255,0.85)', whiteSpace: 'nowrap' };
-const input = {
-  height: 34, padding: '0 10px', borderRadius: 8, fontFamily: 'inherit', fontSize: 13,
-  background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.12)',
-  color: '#fff', outline: 'none',
-};
+const input = adminInput();
 // A <select> inherits the page's dark background but its <option> list is
 // painted by the OS. Without an explicit pair the dropdown renders black text
 // on a black sheet in dark mode — the bug the brief asks to verify.
