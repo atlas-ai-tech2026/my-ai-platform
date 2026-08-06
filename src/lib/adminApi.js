@@ -155,6 +155,17 @@ export const adminApi = {
   offerSegmentPreview: (filters) => request('POST', '/api/offers/segment/preview', { filters }),
   offerSettings:     (body)      => request('PATCH', '/api/offers/settings', body),
 
+  // ─── Notifications (2026-08-07) ───────────────────────────────────
+  // Admin side. The customer's own bell uses the bearer-authenticated client
+  // in src/api/, not this cookie-authenticated admin one.
+  notificationsState:   ()        => request('GET',   '/api/admin/notifications'),
+  notificationsAudience:(body)    => request('POST',  '/api/admin/notifications/audience', body),
+  notificationsPreview: (body)    => request('POST',  '/api/admin/notifications/preview', body),
+  notificationsSend:    (body)    => request('POST',  '/api/admin/notifications/send', body),
+  notificationsAutomation: (key, body) =>
+    request('PATCH', `/api/admin/notifications/automations/${key}`, body),
+  notificationsSettings:(body)    => request('PATCH', '/api/admin/notifications/settings', body),
+
   // ─── Bulk user provisioning ───────────────────────────────────────
   listModels: () => request('GET', '/api/admin/models'),
   bulkCreateUsers: (body) => request('POST', '/api/admin/users/bulk', body),
