@@ -338,6 +338,8 @@ export async function migrate() {
     await client.query(`
       CREATE UNIQUE INDEX IF NOT EXISTS pricing_catalog_identity_idx
         ON pricing_catalog_models (provider, family);
+    `);
+
     // ─── OFFERS (2026-08-07) ──────────────────────────────────────
     // Promotions with live margin impact from the Costing engine.
     //
