@@ -1,6 +1,6 @@
-import React, { useState, useRef } from 'react';
-import { Play, Pause, SkipBack, SkipForward, Download, Plus, Trash2, Copy, RefreshCw } from 'lucide-react';
-import { RedButton, GhostButton, SectionLabel, stepStyles } from './DirectorShared';
+import React, { useState } from 'react';
+import { Play, Pause, SkipBack, SkipForward, Download, Plus, Trash2, Copy } from 'lucide-react';
+import { RedButton, GhostButton, stepStyles } from './DirectorShared';
 
 const TRANSITIONS = ['Cut', 'Dissolve', 'Fade to Black', 'Wipe'];
 

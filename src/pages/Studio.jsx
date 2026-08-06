@@ -1,4 +1,17 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+/* eslint-disable react-hooks/rules-of-hooks --
+ * Studio is gated behind `if (true) { return <ComingSoon/> }` further down, so
+ * every hook below that return is UNREACHABLE dead code kept for when the
+ * feature ships. eslint cannot see that the condition is constant, so it
+ * reports 16 hooks as conditionally called.
+ *
+ * This is scoped to ONE rule in ONE file on purpose. Turning the rule off
+ * globally would hide the real thing it catches — hooks after an early return
+ * blank the page with React error #310, which is what happened to the admin
+ * panel on 2026-08-03.
+ *
+ * REMOVE THIS LINE when the gate is removed, and fix the hook order then.
+ */
+import React, { useState, useEffect, useRef } from 'react';
 import { toast } from 'sonner';
 import { base44 } from '@/api/base44Client';
 
@@ -30,6 +43,14 @@ export default function Studio() {
   // ─── COMING SOON ──────────────────────────────────────────────────────────
   // Studio is temporarily gated behind a "Coming Soon" screen. The full
   // implementation below is preserved — delete this block to re-enable it.
+  //
+  // ⚠️ WHEN YOU DELETE THE GATE, DELETE THE eslint-disable AT THE TOP OF THIS
+  // FILE TOO. Everything under this early return is currently unreachable, so
+  // eslint reports its 16 hooks as "called conditionally" — true of the source,
+  // harmless in practice because the code never runs. The moment the gate goes,
+  // those hooks DO run after an early return, which is React error #310: the
+  // page renders as a blank screen. That exact bug took out the admin panel on
+  // 2026-08-03. The rule must be back on before Studio ships.
   if (true) {
     return (
       <div style={{

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
-import { CheckCircle2, Gift, Star, Crown, ChevronDown, Check, X, Sparkles, BarChart3 } from 'lucide-react';
+import { CheckCircle2, Star, Crown, Check, X, Sparkles, BarChart3 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
   Accordion,

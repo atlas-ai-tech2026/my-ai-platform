@@ -3,9 +3,7 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import VoxelLogo from '@/components/VoxelLogo';
 import { 
-  Scissors, Layers, Music, Type, Palette, Sparkles, 
-  CheckCircle2, Bell, ArrowRight, Play, Undo, Redo, 
-  Download, Settings, Maximize, Volume2
+  CheckCircle2, Bell
 } from 'lucide-react';
 import { toast } from 'sonner';
 

@@ -10,7 +10,7 @@
 // scene_control toggle is persisted to history but NOT sent to FAL
 // today — Kling hasn't exposed the flag publicly. Once they do, the
 // backend route can start forwarding it without a frontend change.
-import React, { useState, useRef } from 'react';
+import React, { useState } from 'react';
 import { Video as VideoIcon, Plus, X, BookOpen, ChevronDown } from 'lucide-react';
 import { toast } from 'sonner';
 import { OptionChip, PopoverChip } from './videoChipAtoms';

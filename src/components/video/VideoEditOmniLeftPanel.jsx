@@ -13,7 +13,7 @@
 //
 // Brand red is the only accent colour. No yellow anywhere.
 import React, { useState, useRef } from 'react';
-import { Video as VideoIcon, Plus, X, Info, BookOpen, ChevronDown } from 'lucide-react';
+import { Video as VideoIcon, Plus, X, BookOpen, ChevronDown } from 'lucide-react';
 import { toast } from 'sonner';
 import { OptionChip, PopoverChip } from './videoChipAtoms';
 import InlineModelPicker from './InlineModelPicker';

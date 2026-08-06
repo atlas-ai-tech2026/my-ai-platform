@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ChevronDown, Star, Filter, Grid, Search, SlidersHorizontal, MessageSquare, Video, Music, Sparkles, Download } from 'lucide-react';
+import { ChevronDown, Sparkles, Download } from 'lucide-react';
 import { toast } from 'sonner';
 import { downloadViaApi } from '@/lib/downloadFile';
 

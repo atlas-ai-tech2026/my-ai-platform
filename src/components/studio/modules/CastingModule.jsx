@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Plus, Search, Trash2, Pencil, Upload, Loader2, X } from 'lucide-react';
+import { Plus, Search, Trash2, Pencil, Loader2, X } from 'lucide-react';
 import { base44 } from '@/api/base44Client';
 
 const STYLES = ['Photorealistic', 'Cinematic', 'Anime', 'Comic', '3D'];

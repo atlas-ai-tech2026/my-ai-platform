@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { base44 } from '@/api/base44Client';
 import { Sparkles, ChevronRight } from 'lucide-react';
-import { Pill, SectionLabel, StyledInput, RedButton, GhostButton, ImageGrid, ErrorBanner, stepStyles } from './DirectorShared';
+import { Pill, SectionLabel, StyledInput, RedButton, ImageGrid, ErrorBanner, stepStyles } from './DirectorShared';
 
 const GENDERS = ['Male', 'Female', 'Non-binary'];
 const BUILDS = ['Slim', 'Athletic', 'Average', 'Heavy'];

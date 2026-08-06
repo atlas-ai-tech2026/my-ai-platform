@@ -1,7 +1,6 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { Sparkles, ChevronDown, Minus, Plus, Pencil, Type, X, Check, Video, ArrowUp, ImagePlus, ArrowLeftRight } from 'lucide-react';
+import { Sparkles, ChevronDown, Minus, Plus, Pencil, Type, X, Check, ImagePlus, ArrowLeftRight } from 'lucide-react';
 import PageSwitcher from '@/components/common/PageSwitcher';
-import { base44 } from '@/api/base44Client';
 import { detectCompositionIntent } from '@/lib/enhancePrompt';
 import { toProviderSafeImage } from '@/lib/uploadToFal';
 import CameraSelector from './CameraSelector';

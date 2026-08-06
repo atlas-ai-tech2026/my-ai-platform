@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Check, Search, Sparkles, BarChart2, X } from 'lucide-react';
+import { Check, Search } from 'lucide-react';
 
 const featuredModels = [
   { id: 'soul-2', name: 'Soul 2.0', description: 'Next generation ultra-realistic fashion visuals', badge: 'NEW' },

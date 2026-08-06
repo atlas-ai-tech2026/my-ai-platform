@@ -1,6 +1,4 @@
 import React, { useState } from 'react';
-import { Link } from 'react-router-dom';
-import { createPageUrl } from '@/utils';
 import { Button } from '@/components/ui/button';
 import { ArrowRight, Image, Sparkles, Zap, User, Smile, RefreshCw, Box, Paintbrush, Sun, Maximize, Video, Move, Film, Clapperboard, Camera, Palette, Users, UserCheck, Shirt, Maximize2, MousePointer, Star, Package, MessageSquare, Bookmark, Mic, MessageCircle, Globe, Headphones, Music, Feather, Flame, Droplets, Wind, Boxes } from 'lucide-react';
 import { apps } from '@/components/data/siteData';

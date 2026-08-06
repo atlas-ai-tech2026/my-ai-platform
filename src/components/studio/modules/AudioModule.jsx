@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Play, Plus, Loader2 } from 'lucide-react';
+import { Play, Loader2 } from 'lucide-react';
 
 const MOODS = ['Epic', 'Emotional', 'Tense', 'Upbeat', 'Ambient', 'Dark', 'Inspiring'];
 const TEMPOS = ['Slow', 'Medium', 'Fast'];
