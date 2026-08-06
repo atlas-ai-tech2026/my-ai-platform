@@ -3,7 +3,7 @@
 //
 // Wired in src/App.jsx. Uses the adminApi client + sonner toasts.
 
-import React, { useEffect, useState, useCallback, useMemo } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { Toaster, toast } from 'sonner';
 import { adminApi, ApiError, VOXEL_TOKEN_KEY, getStoredUser } from '@/lib/adminApi';
 import StatsCards from '@/components/admin/StatsCards';

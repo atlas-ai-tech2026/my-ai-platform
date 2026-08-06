@@ -36,6 +36,14 @@ export default [
     },
     rules: {
       "no-unused-vars": "off",
+      // Spreading pluginJs.configs.recommended above sets a `rules` object,
+      // but the explicit `rules` block here REPLACES it wholesale — so
+      // no-undef was silently absent. It is the one rule that catches a
+      // variable used in JSX but never declared, which renders as a blank
+      // screen at runtime and which neither `npm run build` nor the test
+      // suite detects. Turned on explicitly after exactly that bug reached
+      // the Gift Cards tab on 2026-08-07.
+      "no-undef": "error",
       "react/jsx-uses-vars": "error",
       "react/jsx-uses-react": "error",
       "unused-imports/no-unused-imports": "error",
@@ -56,5 +64,13 @@ export default [
       ],
       "react-hooks/rules-of-hooks": "error",
     },
+  },
+  {
+    // Test files run under Vitest/node, so `global`, `process` and friends are
+    // legitimately defined there. Without this, no-undef flags them and the
+    // rule gets turned off again — which is how it went missing in the first
+    // place.
+    files: ["**/*.test.{js,jsx}"],
+    languageOptions: { globals: { ...globals.node, ...globals.browser } },
   },
 ];

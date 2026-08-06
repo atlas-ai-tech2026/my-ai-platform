@@ -19,6 +19,7 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
+import Field from './FormField';
 import { adminApi } from '@/lib/adminApi';
 
 /** Active / expired / used up — more useful than active-or-not now that
@@ -88,6 +89,8 @@ const fmt = (n) => Number(n).toLocaleString(undefined, { maximumFractionDigits: 
 export default function PromoCodesTab({ onError }) {
   const [promos, setPromos] = useState(null);
   const [creating, setCreating] = useState(false);
+  // Required boxes go red only after a create attempt, not while typing.
+  const [tried, setTried] = useState(false);
   const [query, setQuery] = useState('');
 
   // Create form
@@ -114,7 +117,10 @@ export default function PromoCodesTab({ onError }) {
 
   useEffect(() => { load(); }, [load]);
 
+  const missCredits = tried && !(Number(credits) > 0);
+
   const create = useCallback(async () => {
+    setTried(true);
     const c = Number(credits);
     if (!Number.isFinite(c) || c <= 0) { toast.error('Enter the credits each redemption grants'); return; }
     setCreating(true);
@@ -239,20 +245,48 @@ export default function PromoCodesTab({ onError }) {
       {/* Create form */}
       <div style={panelStyle}>
         <div style={panelTitleStyle}>Create promo code</div>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-          <input placeholder="Description — who is this for?" value={description}
-            onChange={e => setDescription(e.target.value)} style={{ ...inputStyle, minWidth: 260 }} />
-          <input placeholder="Code (blank = auto-generate)" value={code}
-            onChange={e => setCode(e.target.value.toUpperCase())} style={{ ...inputStyle, minWidth: 210 }} />
-          <input placeholder="Credits per redemption *" type="number" min="0.5" step="0.5" value={credits}
-            onChange={e => setCredits(e.target.value)} style={{ ...inputStyle, width: 180 }} />
-          <input placeholder="Max redemptions (blank = ∞)" type="number" min="1" value={maxRedemptions}
-            onChange={e => setMaxRedemptions(e.target.value)} style={{ ...inputStyle, width: 200 }} />
-          <input type="date" value={expiresAt} onChange={e => setExpiresAt(e.target.value)}
-            style={inputStyle} title="Expiry (blank = never)" />
-          <button onClick={create} disabled={creating} style={primaryBtnStyle}>
-            {creating ? 'Creating…' : '+ Create promo'}
-          </button>
+        {/* Every box carries a permanent label, an ⓘ explaining what goes in
+            it, and a red * when it is required. Before this the form was
+            placeholder-only — and a placeholder vanishes the moment you type,
+            so there was nothing left to tell you what a box was for. */}
+        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+          <Field label="Description"
+            info="A private note for you — who this code is for, or why you made it. Customers never see it. It is what you will search on later, so “Ramadan campaign — Instagram” beats “promo 3”.">
+            <input placeholder="Who is this for?" value={description}
+              onChange={e => setDescription(e.target.value)} style={{ ...inputStyle, minWidth: 260 }} />
+          </Field>
+          <Field label="Code"
+            info="The code the customer types to redeem. Leave it empty and one is generated for you. Letters, numbers and hyphens only, 4–64 characters.">
+            <input placeholder="Blank = auto-generate" value={code}
+              onChange={e => setCode(e.target.value.toUpperCase())} style={{ ...inputStyle, minWidth: 210 }} />
+          </Field>
+          <Field label="Credits per redemption" required invalid={missCredits}
+            message="Enter how many credits each redemption grants"
+            info="How many credits land in an account each time someone redeems this code. Must be above zero. This is the only box you have to fill.">
+            <input placeholder="e.g. 50" type="number" min="0.5" step="0.5" value={credits}
+              aria-required="true" aria-invalid={missCredits}
+              onChange={e => setCredits(e.target.value)}
+              style={{ ...inputStyle, width: 180, ...(missCredits ? invalidStyle : null) }} />
+          </Field>
+          <Field label="Max redemptions"
+            info="How many times the code may be used in total, across all customers. Leave it empty for unlimited use.">
+            <input placeholder="Blank = unlimited" type="number" min="1" value={maxRedemptions}
+              onChange={e => setMaxRedemptions(e.target.value)} style={{ ...inputStyle, width: 200 }} />
+          </Field>
+          <Field label="Expires"
+            info="The last day the code works. Leave it empty and it never expires. You can change this later from the table below.">
+            <input type="date" value={expiresAt} onChange={e => setExpiresAt(e.target.value)}
+              style={inputStyle} />
+          </Field>
+          <div style={{ paddingTop: 17 }}>
+            <button onClick={create} disabled={creating} style={primaryBtnStyle}>
+              {creating ? 'Creating…' : '+ Create promo'}
+            </button>
+          </div>
+        </div>
+        <div style={{ color: 'rgba(255,255,255,0.4)', fontSize: 11.5, marginTop: 10 }}>
+          Boxes marked <span style={{ color: '#f87171', fontWeight: 700 }}>*</span> must be filled ·
+          press <b>ⓘ</b> beside a box to see exactly what it expects.
         </div>
       </div>
 
@@ -435,6 +469,7 @@ function Stat({ label, value, note, color }) {
   );
 }
 
+const invalidStyle = { border: '1px solid #f87171', background: 'rgba(248,113,113,0.08)' };
 const inputStyle = {
   height: 36, padding: '0 12px', background: 'rgba(255,255,255,0.04)',
   border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8,

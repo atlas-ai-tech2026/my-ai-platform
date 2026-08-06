@@ -92,10 +92,10 @@ describe('1 — description', () => {
     const user = userEvent.setup();
     api.createPromo.mockResolvedValue({ promo: { code: 'NEW-1', credits: 5 } });
     render(<PromoCodesTab />);
-    await waitFor(() => screen.getByPlaceholderText('Description — who is this for?'));
+    await waitFor(() => screen.getByPlaceholderText('Who is this for?'));
 
-    await user.type(screen.getByPlaceholderText('Description — who is this for?'), 'Fatima, expo booth');
-    await user.type(screen.getByPlaceholderText('Credits per redemption *'), '20');
+    await user.type(screen.getAllByPlaceholderText('Who is this for?')[0], 'Fatima, expo booth');
+    await user.type(screen.getByPlaceholderText('e.g. 50'), '20');
     await user.click(screen.getByRole('button', { name: /create promo/i }));
 
     await waitFor(() => expect(api.createPromo).toHaveBeenCalledWith(
@@ -113,7 +113,8 @@ describe('2 — editing description and expiry', () => {
     const row = screen.getByText('GULF-MEDIA').closest('tr');
     await user.click(within(row).getByRole('button', { name: /^edit$/i }));
 
-    const field = screen.getByPlaceholderText('Who is this for?');
+    const all = screen.getAllByPlaceholderText('Who is this for?');
+    const field = all[all.length - 1];   // the row-edit box, not the create box
     await user.clear(field);
     await user.type(field, 'Ahmed — renewed for Q4');
     await user.click(screen.getByRole('button', { name: /^save$/i }));

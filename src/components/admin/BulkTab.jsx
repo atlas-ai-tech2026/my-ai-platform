@@ -8,6 +8,7 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
+import Field from './FormField';
 import { adminApi } from '@/lib/adminApi';
 import { CREDIT_PLANS } from '@/lib/creditPricing';
 
@@ -29,6 +30,8 @@ export default function BulkTab({ onError }) {
 
   // Run state
   const [running, setRunning] = useState(false);
+  // Required boxes go red only after a generate attempt.
+  const [tried, setTried] = useState(false);
   const [result, setResult] = useState(null);
 
   useEffect(() => {
@@ -97,11 +100,20 @@ export default function BulkTab({ onError }) {
     });
   };
 
+  const missCredits = tried && !(Number(credits) >= 0);
+  const pastExpiry = !!expiresAt && new Date(expiresAt) <= new Date();
+
   const generate = useCallback(async () => {
+    setTried(true);
     if (!emails.length) { toast.error('Add emails first (upload a sheet or paste)'); return; }
     if (!allModels && picked.size === 0) { toast.error('Pick at least one model, or choose All models'); return; }
     const c = Number(credits);
     if (!Number.isFinite(c) || c < 0) { toast.error('Credits must be a number'); return; }
+    // The server refuses a past expiry; catch it here so the admin sees WHICH
+    // box is wrong instead of the whole batch failing after submit.
+    if (expiresAt && new Date(expiresAt) <= new Date()) {
+      toast.error('Expiry must be a future date'); return;
+    }
     if (!window.confirm(`Create ${emails.length} account(s) on the ${plan} plan with ${c} credits each${expiresAt ? `, expiring ${expiresAt}` : ''}?`)) return;
     setRunning(true);
     try {
@@ -182,12 +194,23 @@ export default function BulkTab({ onError }) {
             ))}
             <option value="Free">Free — 0 cr</option>
           </select>
-          <label style={{ fontSize: 12, color: 'rgba(255,255,255,0.45)' }}>Credits each</label>
-          <input type="number" min="0" value={credits} onChange={e => setCredits(e.target.value)}
-            style={{ ...inputStyle, width: 110 }} />
-          <label style={{ fontSize: 12, color: 'rgba(255,255,255,0.45)' }}>Expires</label>
-          <input type="date" value={expiresAt} onChange={e => setExpiresAt(e.target.value)}
-            style={inputStyle} title="Blank = never expires" />
+          <Field label="Credits each" required invalid={missCredits}
+            message="Enter a number — 0 or more"
+            info="How many credits every account in this batch starts with. The same number goes to all of them. Enter 0 to create accounts with no credits.">
+            <input type="number" min="0" value={credits} onChange={e => setCredits(e.target.value)}
+              aria-required="true" aria-invalid={missCredits}
+              style={{ ...inputStyle, width: 110, ...(missCredits ? invalidStyle : null) }} />
+          </Field>
+          {/* The server rejects a past date outright ("Expiry must be a future
+              date"), but nothing here checked it — so the whole batch failed
+              after submitting, with no indication which box was wrong. */}
+          <Field label="Expires" invalid={pastExpiry}
+            message="Pick a future date — accounts cannot be created already expired"
+            info="The day these accounts stop working. Leave it empty and they never expire. Useful for workshop or trial accounts. It must be a date in the future.">
+            <input type="date" value={expiresAt} onChange={e => setExpiresAt(e.target.value)}
+              aria-invalid={pastExpiry}
+              style={{ ...inputStyle, ...(pastExpiry ? invalidStyle : null) }} />
+          </Field>
         </div>
       </div>
 
@@ -265,6 +288,7 @@ export default function BulkTab({ onError }) {
   );
 }
 
+const invalidStyle = { border: '1px solid #f87171', background: 'rgba(248,113,113,0.08)' };
 const inputStyle = {
   height: 36, padding: '0 12px', borderRadius: 10,
   background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)',

@@ -189,11 +189,15 @@ describe('validation before approval', () => {
     expect(api.offerCreate).not.toHaveBeenCalled();
   });
 
-  it('requires a code when promo-code delivery is on', async () => {
+  it('marks the code box when promo-code delivery is on but no code is typed', async () => {
     const user = await openCreate();
     await user.type(screen.getByPlaceholderText(/National Day/i), 'Test');
     await user.click(screen.getByRole('button', { name: /Submit & approve/i }));
-    expect(await screen.findByText(/enter or generate the promo code/i)).toBeInTheDocument();
+    // Per-box now: the empty box turns red and says so, instead of the reason
+    // appearing only in an aggregate line far from the box it refers to.
+    expect(await screen.findByText(/You must fill this/i)).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('VOXEL15')).toHaveAttribute('aria-invalid', 'true');
+    expect(api.offerCreate).not.toHaveBeenCalled();
   });
 
   // A draft is a scratchpad; forcing it through full validation makes it
