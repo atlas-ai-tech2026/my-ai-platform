@@ -50,6 +50,7 @@ import {
 import { validateUpload } from './upload-guard.js';
 import { registerCostingRoutes } from './costing-routes.js';
 import { registerOffersRoutes } from './offers-routes.js';
+import { registerNotificationsRoutes } from './notifications-routes.js';
 import { runDailyModelSync } from './costing-sync.js';
 // H3 (audit 2026-07-28): hard deadline on synchronous provider calls.
 import { withProviderDeadline, ProviderTimeoutError } from './provider-deadline.js';
@@ -3649,6 +3650,14 @@ registerCostingRoutes(app, { pool, dbReady, adminGate });
 // Promotions with live margin impact from the Costing engine. Reuses that
 // engine's settings and the same audit log; nothing here charges a customer.
 registerOffersRoutes(app, { pool, dbReady, adminGate });
+
+// ─── CRM NOTIFICATIONS (2026-08-07) ────────────────────────────────
+// Admin side goes through adminGate; the customer's own bell goes through
+// verifyJwt + requireNotBanned and only ever reads rows owned by req.user.id.
+registerNotificationsRoutes(app, {
+  pool, dbReady, adminGate,
+  userGate: [verifyJwt, requireNotBanned],
+});
 
 // Daily check for models that ship into production without a costing row. A
 // model nobody has costed is one nobody is checking the margin on, and that

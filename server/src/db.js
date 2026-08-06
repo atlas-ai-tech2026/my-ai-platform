@@ -430,6 +430,88 @@ export async function migrate() {
       );
     `);
 
+    // ─── NOTIFICATIONS (2026-08-07) ───────────────────────────────
+    // A campaign is what the admin composed ONCE; `notifications` holds one row
+    // per recipient. They are separate tables on purpose: read and click rates
+    // are per person, and a single row with a recipient array could never
+    // answer "did Layla read it?" — which is the whole point of the History tab.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS notification_campaigns (
+        id            BIGSERIAL    PRIMARY KEY,
+        type          VARCHAR(16)  NOT NULL,
+        title         VARCHAR(160) NOT NULL,
+        body          TEXT         NOT NULL,
+        cta_text      VARCHAR(60),
+        cta_url       VARCHAR(200),
+        offer_id      BIGINT       REFERENCES offers(id) ON DELETE SET NULL,
+        spotlight     BOOLEAN      NOT NULL DEFAULT FALSE,
+        audience_mode VARCHAR(10)  NOT NULL DEFAULT 'all',
+        segment_json  JSONB,
+        scheduled_for TIMESTAMPTZ,
+        expires_at    TIMESTAMPTZ,
+        status        VARCHAR(10)  NOT NULL DEFAULT 'sent',
+        delivered     INT          NOT NULL DEFAULT 0,
+        skipped_cap   INT          NOT NULL DEFAULT 0,
+        created_by    VARCHAR(80),
+        created_at    TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+        sent_at       TIMESTAMPTZ
+      );
+    `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS notifications (
+        id          BIGSERIAL    PRIMARY KEY,
+        campaign_id BIGINT       REFERENCES notification_campaigns(id) ON DELETE CASCADE,
+        user_id     INTEGER      NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        type        VARCHAR(16)  NOT NULL,
+        title       VARCHAR(160) NOT NULL,
+        body        TEXT         NOT NULL,
+        cta_text    VARCHAR(60),
+        cta_url     VARCHAR(200),
+        code        VARCHAR(30),
+        pinned      BOOLEAN      NOT NULL DEFAULT FALSE,
+        read_at     TIMESTAMPTZ,
+        clicked_at  TIMESTAMPTZ,
+        expires_at  TIMESTAMPTZ,
+        created_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+      );
+    `);
+    // The bell asks "my unread, newest first" on every page load, so this index
+    // is what keeps that off a sequential scan as the table grows.
+    await client.query(`CREATE INDEX IF NOT EXISTS notifications_user_idx ON notifications (user_id, created_at DESC);`);
+    await client.query(`CREATE INDEX IF NOT EXISTS notifications_unread_idx ON notifications (user_id) WHERE read_at IS NULL;`);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS notification_automations (
+        key            VARCHAR(32)  PRIMARY KEY,
+        name           VARCHAR(60)  NOT NULL,
+        icon           VARCHAR(8),
+        type           VARCHAR(16)  NOT NULL,
+        trigger_label  VARCHAR(80)  NOT NULL,
+        n              INT,
+        template       TEXT         NOT NULL,
+        is_system      BOOLEAN      NOT NULL DEFAULT FALSE,
+        -- TRUE = nothing in this codebase can ever fire it (no checkout, so no
+        -- renewals and no charges). Shipped switched off and labelled rather
+        -- than looking armed. See notifications-engine.js.
+        needs_checkout BOOLEAN      NOT NULL DEFAULT FALSE,
+        enabled        BOOLEAN      NOT NULL DEFAULT TRUE,
+        updated_by     VARCHAR(80),
+        updated_at     TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+      );
+    `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS notification_settings (
+        id                   INT          PRIMARY KEY DEFAULT 1,
+        daily_marketing_cap  INT          NOT NULL DEFAULT 2,
+        bell_enabled         BOOLEAN      NOT NULL DEFAULT FALSE,
+        updated_at           TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+        CONSTRAINT notification_settings_singleton CHECK (id = 1)
+      );
+    `);
+    await client.query(`
+      INSERT INTO notification_settings (id) VALUES (1) ON CONFLICT (id) DO NOTHING;
+    `);
+
     // ── seed, ONCE ────────────────────────────────────────────────
     // Deliberately insert-only. A boot must never overwrite a cost the owner
     // has edited in the CRM, so ON CONFLICT DO NOTHING is the whole point:

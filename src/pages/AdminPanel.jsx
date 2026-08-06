@@ -17,6 +17,7 @@ import GiftCardsTab from '@/components/admin/GiftCardsTab';
 import BulkTab from '@/components/admin/BulkTab';
 import CostingTab from '@/components/admin/CostingTab';
 import OffersTab from '@/components/admin/OffersTab';
+import NotificationsTab from '@/components/admin/NotificationsTab';
 
 const PAGE_SIZE = 50;
 
@@ -34,6 +35,8 @@ const TABS = [
   { id: 'costing', label: 'Costing' },
   // Offers — promotions priced against the Costing engine's margin target.
   { id: 'offers', label: 'Offers' },
+  // Notifications — manual messages + automatic rules, in-app bell only.
+  { id: 'notifications', label: 'Notifications' },
 ];
 
 export default function AdminPanel() {
@@ -204,6 +207,7 @@ export default function AdminPanel() {
         {tab === 'bulk' && <BulkTab onError={handleError} />}
         {tab === 'costing' && <CostingTab onError={handleError} />}
         {tab === 'offers' && <OffersTab onError={handleError} />}
+        {tab === 'notifications' && <NotificationsTab onError={handleError} />}
 
         {tab === 'users' && (<>
         <StatsCards stats={stats} />
