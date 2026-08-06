@@ -43,6 +43,48 @@ function toDateInput(value) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
+/**
+ * Headline numbers for the promo dashboard.
+ *
+ * "Credits outstanding" is the honest one to get right: it is what you could
+ * still be liable for, i.e. for each usable code, (cap - already redeemed) ×
+ * credits. Codes with NO cap are unbounded — they are counted separately
+ * rather than silently treated as zero, which would understate the exposure.
+ */
+function promoTotals(promos) {
+  const t = {
+    total: 0, active: 0, inactive: 0, usable: 0,
+    expired: 0, usedUp: 0,
+    creditsOutstanding: 0, uncappedCodes: 0, redemptions: 0,
+    creditsGranted: 0,
+  };
+  const now = new Date();
+  for (const p of promos || []) {
+    t.total += 1;
+    const credits = Number(p.credits) || 0;
+    const used = Number(p.redeemed_count) || 0;
+    t.redemptions += used;
+    t.creditsGranted += used * credits;
+
+    if (!p.active) { t.inactive += 1; continue; }
+    t.active += 1;
+
+    const expired = p.expires_at && new Date(p.expires_at) <= now;
+    const cappedOut = p.max_redemptions != null && used >= p.max_redemptions;
+    if (expired) t.expired += 1;
+    if (cappedOut) t.usedUp += 1;
+    if (expired || cappedOut) continue;
+
+    // Genuinely redeemable right now.
+    t.usable += 1;
+    if (p.max_redemptions == null) t.uncappedCodes += 1;
+    else t.creditsOutstanding += Math.max(0, p.max_redemptions - used) * credits;
+  }
+  return t;
+}
+
+const fmt = (n) => Number(n).toLocaleString(undefined, { maximumFractionDigits: 2 });
+
 export default function PromoCodesTab({ onError }) {
   const [promos, setPromos] = useState(null);
   const [creating, setCreating] = useState(false);
@@ -155,6 +197,10 @@ export default function PromoCodesTab({ onError }) {
     );
   }, [promos, query]);
 
+  // Always over ALL codes, never the filtered view — a dashboard that changed
+  // as you typed a search would be misleading.
+  const totals = useMemo(() => promoTotals(promos), [promos]);
+
   const COLS = 8;
 
   return (
@@ -163,6 +209,31 @@ export default function PromoCodesTab({ onError }) {
         Reusable marketing codes. Each user can redeem a code once; the optional
         “max redemptions” caps total uses across all users. Users enter codes in
         their account’s Promocode section.
+      </div>
+
+      {/* Dashboard */}
+      <div style={{
+        display: 'grid', gap: 10, marginBottom: 16,
+        gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))',
+      }}>
+        <Stat label="Promo codes created" value={promos ? fmt(totals.total) : '—'}
+          note={promos ? `${fmt(totals.redemptions)} redemptions so far` : ''} />
+        <Stat label="Active" value={promos ? fmt(totals.active) : '—'}
+          note={promos ? `${fmt(totals.inactive)} deactivated` : ''} color="#4ade80" />
+        <Stat label="Usable right now" value={promos ? fmt(totals.usable) : '—'}
+          note={promos
+            ? [totals.expired ? `${totals.expired} expired` : null,
+               totals.usedUp ? `${totals.usedUp} used up` : null]
+              .filter(Boolean).join(' · ') || 'none expired or used up'
+            : ''}
+          color="#60a5fa" />
+        <Stat label="Credits outstanding" value={promos ? fmt(totals.creditsOutstanding) : '—'}
+          note={promos
+            ? (totals.uncappedCodes
+                ? `+ ${totals.uncappedCodes} code${totals.uncappedCodes === 1 ? '' : 's'} with no limit`
+                : 'across usable codes')
+            : ''}
+          color="#fbbf24" />
       </div>
 
       {/* Create form */}
@@ -339,6 +410,27 @@ export default function PromoCodesTab({ onError }) {
           </tbody>
         </table>
       </div>
+    </div>
+  );
+}
+
+function Stat({ label, value, note, color }) {
+  return (
+    <div style={{
+      padding: '14px 16px', background: 'rgba(255,255,255,0.03)',
+      border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12,
+    }}>
+      <div style={{
+        fontSize: 11, fontWeight: 600, textTransform: 'uppercase',
+        letterSpacing: '0.05em', color: 'rgba(255,255,255,0.4)', marginBottom: 6,
+      }}>{label}</div>
+      <div style={{
+        fontSize: 26, fontWeight: 700, lineHeight: 1.1,
+        color: color || '#fff', fontVariantNumeric: 'tabular-nums',
+      }}>{value}</div>
+      {note ? (
+        <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)', marginTop: 4 }}>{note}</div>
+      ) : null}
     </div>
   );
 }

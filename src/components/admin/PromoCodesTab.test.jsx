@@ -242,3 +242,50 @@ describe('status reflects expiry and caps, not just the on/off flag', () => {
     expect(within(row).getByText('active')).toBeInTheDocument();
   });
 });
+
+describe('dashboard totals', () => {
+  it('counts codes, active and deactivated', async () => {
+    render(<PromoCodesTab />);
+    await waitFor(() => screen.getByText('Promo codes created'));
+
+    const created = screen.getByText('Promo codes created').closest('div').parentElement;
+    expect(within(created).getByText('3')).toBeInTheDocument();       // 3 fixtures
+    expect(within(created).getByText(/10 redemptions so far/)).toBeInTheDocument(); // 7+0+3
+
+    const active = screen.getByText('Active').closest('div').parentElement;
+    expect(within(active).getByText('3')).toBeInTheDocument();        // all flagged active
+    expect(within(active).getByText(/0 deactivated/)).toBeInTheDocument();
+  });
+
+  it('separates "usable right now" from merely active', async () => {
+    render(<PromoCodesTab />);
+    await waitFor(() => screen.getByText('Usable right now'));
+    // LEGACY (7/100, future expiry) and WITH_DESC (uncapped) are usable;
+    // EXPIRED is flagged active but its date has passed, so it is not.
+    const usable = screen.getByText('Usable right now').closest('div').parentElement;
+    expect(within(usable).getByText('2')).toBeInTheDocument();
+    expect(within(usable).getByText(/1 expired/)).toBeInTheDocument();
+  });
+
+  it('sums credits still claimable, and counts uncapped codes separately', async () => {
+    render(<PromoCodesTab />);
+    await waitFor(() => screen.getByText('Credits outstanding'));
+    // LEGACY: (100 - 7) x 25 = 2,325. WITH_DESC has no cap so it is unbounded
+    // and must NOT be counted as zero — it is reported alongside instead.
+    const out = screen.getByText('Credits outstanding').closest('div').parentElement;
+    expect(within(out).getByText('2,325')).toBeInTheDocument();
+    expect(within(out).getByText(/1 code with no limit/)).toBeInTheDocument();
+  });
+
+  it('does not change when the list is filtered by search', async () => {
+    const user = userEvent.setup();
+    render(<PromoCodesTab />);
+    await waitFor(() => screen.getByText('Promo codes created'));
+
+    await user.type(screen.getByPlaceholderText(/search description/i), 'gulf');
+    // A dashboard that moved as you typed would be misleading — totals are
+    // always over every code, never the filtered view.
+    const created = screen.getByText('Promo codes created').closest('div').parentElement;
+    expect(within(created).getByText('3')).toBeInTheDocument();
+  });
+});
