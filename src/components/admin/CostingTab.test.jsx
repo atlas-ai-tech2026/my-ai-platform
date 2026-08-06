@@ -21,6 +21,7 @@ const api = vi.hoisted(() => ({
   costingSaveDraft: vi.fn(),
   costingApprove: vi.fn(),
   costingDiscard: vi.fn(),
+  costingDismissCatalog: vi.fn(),
 }));
 
 vi.mock('@/lib/adminApi', () => ({ adminApi: api }));
@@ -72,6 +73,16 @@ const STATE = {
     seed_rows: 50,
     note: '32 models are charged in production but have no supplier cost recorded here — their margin is unknown, not verified.',
   },
+  catalog: [
+    { id: 1, provider: 'fal', family: 'Flux 3', lab: 'Black Forest Labs',
+      category: 'text-to-video', endpoints: 8, price_usd: 0.2, price_unit: 'second',
+      first_seen: '2026-08-04T00:00:00.000Z', dismissed: false },
+    // The provider states a price we refuse to parse (token billing), so this
+    // one carries NULL — the row must say so, not show $0.
+    { id: 2, provider: 'fal', family: 'Qwen Image 3', lab: 'Alibaba',
+      category: 'text-to-image', endpoints: 2, price_usd: null, price_unit: null,
+      first_seen: '2026-07-21T00:00:00.000Z', dismissed: false },
+  ],
 };
 
 beforeEach(() => {
@@ -254,5 +265,86 @@ describe('profit check', () => {
 
     const row = screen.getByText('GPT Image 2').closest('tr');
     expect(within(row).getAllByText('—').length).toBeGreaterThan(0);
+  });
+});
+
+// ─── New Models ──────────────────────────────────────────────────────────────
+// Models a provider offers that the website does not sell yet. These must be
+// visually and semantically distinct from the amber "COST NEEDED" rows: those
+// are sold-but-uncosted, these are not sold at all.
+describe('New Models', () => {
+  const openTab = async () => {
+    const user = userEvent.setup();
+    render(<CostingTab onError={() => {}} />);
+    await waitFor(() => expect(api.costingState).toHaveBeenCalled());
+    await user.click(await screen.findByRole('button', { name: /New Models/i }));
+    return user;
+  };
+
+  it('shows the count of not-yet-sold models on the tab', async () => {
+    render(<CostingTab onError={() => {}} />);
+    expect(await screen.findByRole('button', { name: /New Models \(2\)/i })).toBeInTheDocument();
+  });
+
+  it('lists a discovered model with its provider cost and maker', async () => {
+    await openTab();
+    expect(await screen.findByText('Flux 3')).toBeInTheDocument();
+    expect(screen.getByText('Black Forest Labs')).toBeInTheDocument();
+    expect(screen.getByText(/0\.2000/)).toBeInTheDocument();
+  });
+
+  // The single most important assertion in this block. A null provider price
+  // rendered as $0 would read as a free model at a 100% margin.
+  it('renders an unknown provider price as "unknown", never as $0', async () => {
+    await openTab();
+    const row = (await screen.findByText('Qwen Image 3')).closest('tr');
+    expect(within(row).getByText('unknown')).toBeInTheDocument();
+    expect(within(row).queryByText('$0.0000')).toBeNull();
+    expect(within(row).queryByText('$0.000')).toBeNull();
+    expect(within(row).queryByText('$0')).toBeNull();
+  });
+
+  it('gives no indicative credits when the provider price is unknown', async () => {
+    await openTab();
+    const row = (await screen.findByText('Qwen Image 3')).closest('tr');
+    // An indicative credit figure computed from a null cost would be 0 credits,
+    // implying we could sell it for nothing.
+    expect(within(row).getByText('—')).toBeInTheDocument();
+  });
+
+  it('marks every discovered row NEW so it cannot be read as a sold model', async () => {
+    await openTab();
+    expect(screen.getAllByText('NEW')).toHaveLength(2);
+  });
+
+  it('says plainly that nothing here is charged to anyone', async () => {
+    await openTab();
+    expect(screen.getByText(/does not sell yet/i)).toBeInTheDocument();
+    expect(screen.getByText(/Nothing here is charged/i)).toBeInTheDocument();
+  });
+
+  it('discloses that kie.ai is not checked automatically', async () => {
+    await openTab();
+    expect(screen.getByText(/kie\.ai publishes no catalogue API/i)).toBeInTheDocument();
+  });
+
+  it('hides a model on request and takes the refreshed state from the server', async () => {
+    const after = { ...STATE, catalog: [STATE.catalog[0]] };
+    api.costingDismissCatalog.mockResolvedValue(after);
+    const user = await openTab();
+    await user.click(within((await screen.findByText('Qwen Image 3')).closest('tr'))
+      .getByRole('button', { name: /hide/i }));
+    await waitFor(() => expect(api.costingDismissCatalog).toHaveBeenCalledWith(2, true));
+    await waitFor(() => expect(screen.queryByText('Qwen Image 3')).toBeNull());
+  });
+
+  it('survives a server that returns no catalog field at all', async () => {
+    const { catalog, ...noCatalog } = STATE;
+    api.costingState.mockResolvedValue(noCatalog);
+    const user = userEvent.setup();
+    render(<CostingTab onError={() => {}} />);
+    await waitFor(() => expect(api.costingState).toHaveBeenCalled());
+    await user.click(await screen.findByRole('button', { name: /New Models/i }));
+    expect(await screen.findByText(/Nothing new/i)).toBeInTheDocument();
   });
 });

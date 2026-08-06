@@ -310,6 +310,34 @@ export async function migrate() {
       END $$;
     `);
 
+    // Models a PROVIDER offers that the website does not sell yet. Kept in its
+    // own table on purpose: pricing_models means "what we charge for", and
+    // mixing in things we have never sold would make every count on the screen
+    // ambiguous. Rows here are candidates, not products.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS pricing_catalog_models (
+        id            SERIAL        PRIMARY KEY,
+        provider      VARCHAR(10)   NOT NULL,
+        family        VARCHAR(120)  NOT NULL,
+        lab           VARCHAR(80),
+        category      VARCHAR(40),
+        endpoints     INT           NOT NULL DEFAULT 1,
+        -- NULL when the provider states a price we refuse to parse (token or
+        -- per-megapixel billing). Same rule as pricing_models: unknown is a
+        -- legitimate answer, an invented number is not.
+        price_usd     NUMERIC(12,6),
+        price_unit    VARCHAR(12),
+        first_seen    TIMESTAMPTZ,
+        discovered_at TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
+        -- The owner's "not interested" / "we already have this". Name matching
+        -- cannot be perfect, so there has to be a way to retire a row for good.
+        dismissed     BOOLEAN       NOT NULL DEFAULT FALSE,
+        dismissed_at  TIMESTAMPTZ
+      );
+    `);
+    await client.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS pricing_catalog_identity_idx
+        ON pricing_catalog_models (provider, family);
     // ─── OFFERS (2026-08-07) ──────────────────────────────────────
     // Promotions with live margin impact from the Costing engine.
     //
