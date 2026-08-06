@@ -240,7 +240,9 @@ export async function migrate() {
         variant          VARCHAR(80),
         resolution       VARCHAR(40),
         unit             VARCHAR(20)   NOT NULL,
-        kie_cost         NUMERIC(12,6) NOT NULL,
+        -- NULL = found in production, cost not recorded yet. Nullable on
+        -- purpose: forcing a value here would mean inventing a supplier cost.
+        kie_cost         NUMERIC(12,6),
         fal_cost         NUMERIC(12,6),
         credits_override NUMERIC(8,1),
         margin_override  NUMERIC(6,4),
@@ -297,6 +299,16 @@ export async function migrate() {
       );
     `);
     await client.query(`CREATE INDEX IF NOT EXISTS pricing_audit_time_idx ON pricing_audit_log (changed_at DESC);`);
+    await client.query(`
+      DO $$
+      BEGIN
+        IF EXISTS (SELECT 1 FROM information_schema.columns
+                   WHERE table_name='pricing_models' AND column_name='kie_cost'
+                     AND is_nullable='NO') THEN
+          ALTER TABLE pricing_models ALTER COLUMN kie_cost DROP NOT NULL;
+        END IF;
+      END $$;
+    `);
 
     // ── seed, ONCE ────────────────────────────────────────────────
     // Deliberately insert-only. A boot must never overwrite a cost the owner

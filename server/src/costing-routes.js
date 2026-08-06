@@ -17,7 +17,7 @@
 import {
   autoCredits, creditsOf, saleOf, basisOf, marginVsBasis, marginVsKie,
   planCredits, autoPlanCredits, planQty, profitMargin, costForMode,
-  worstMarginForPlan, targetOf,
+  worstMarginForPlan, targetOf, isUncosted,
 } from './costing-engine.js';
 import { coverageReport } from './costing-coverage.js';
 
@@ -92,7 +92,9 @@ export function registerCostingRoutes(app, deps) {
     };
     const M = models.rows.map((m) => ({
       ...m,
-      kie_cost: Number(m.kie_cost),
+      // Number(null) is 0 — which would make an uncosted model read as costing
+      // NOTHING and show a perfect 100% margin. Preserve the null.
+      kie_cost: m.kie_cost == null ? null : Number(m.kie_cost),
       fal_cost: m.fal_cost == null ? null : Number(m.fal_cost),
       credits_override: m.credits_override == null ? null : Number(m.credits_override),
       margin_override: m.margin_override == null ? null : Number(m.margin_override),
@@ -127,6 +129,9 @@ export function registerCostingRoutes(app, deps) {
         sale: saleOf(m, S),
         margin_vs_basis: marginVsBasis(m, S),
         margin_vs_kie: marginVsKie(m, S),
+        // No supplier cost recorded → the screen shows this row in its own
+        // colour and reports the margin as unknown rather than as a number.
+        needs_cost: isUncosted(m),
         qty_per_plan: plans.map((p) => planQty(m, p, S)),
       })),
       worst_margin_per_plan: plans.map((p) => worstMarginForPlan(models, p, S)),

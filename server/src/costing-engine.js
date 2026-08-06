@@ -31,10 +31,20 @@ export const EPS = 1e-9;
  * request. A null FAL price means KIE is the only supplier.
  */
 export function basisOf(model) {
-  const kie = Number(model.kie_cost ?? model.kie);
+  const kieRaw = model.kie_cost ?? model.kie;
   const falRaw = model.fal_cost ?? model.fal;
-  if (falRaw == null) return kie;
-  return Math.max(kie, Number(falRaw));
+  // Both unknown → the cost is genuinely unknown. Returning 0 here would make
+  // every downstream margin read as a perfect 100%, which is the most
+  // dangerous possible lie for a pricing tool to tell.
+  if (kieRaw == null && falRaw == null) return null;
+  if (kieRaw == null) return Number(falRaw);
+  if (falRaw == null) return Number(kieRaw);
+  return Math.max(Number(kieRaw), Number(falRaw));
+}
+
+/** A model production charges for whose supplier cost nobody has recorded. */
+export function isUncosted(model) {
+  return basisOf(model) === null;
 }
 
 /** Per-model margin target, falling back to the global setting. */
@@ -49,28 +59,40 @@ export function targetOf(model, settings) {
  * the realised margin never lands below target.
  */
 export function autoCredits(model, settings) {
-  const sale = basisOf(model) / (1 - targetOf(model, settings));
+  const basis = basisOf(model);
+  if (basis == null) return null;          // no cost → no formula price
+  const sale = basis / (1 - targetOf(model, settings));
   return Math.ceil(sale / Number(settings.credit_value) * 2 - EPS) / 2;
 }
 
 /** The formula unless a human has pinned a value. */
 export function creditsOf(model, settings) {
   const override = model.credits_override ?? model.override;
+  // An uncosted model still has a live credit price (what production charges);
+  // it is the MARGIN that is unknown, not the price.
   return override == null ? autoCredits(model, settings) : Number(override);
 }
 
 export function saleOf(model, settings) {
-  return creditsOf(model, settings) * Number(settings.credit_value);
+  const credits = creditsOf(model, settings);
+  if (credits == null) return null;
+  return credits * Number(settings.credit_value);
 }
 
 /** Margin against the cost we price on (the safe, higher supplier). */
 export function marginVsBasis(model, settings) {
-  return 1 - basisOf(model) / saleOf(model, settings);
+  const basis = basisOf(model);
+  const sale = saleOf(model, settings);
+  if (basis == null || sale == null || sale === 0) return null;
+  return 1 - basis / sale;
 }
 
 /** Margin if the request happens to be served by KIE — always ≥ marginVsBasis. */
 export function marginVsKie(model, settings) {
-  return 1 - Number(model.kie_cost ?? model.kie) / saleOf(model, settings);
+  const kie = model.kie_cost ?? model.kie;
+  const sale = saleOf(model, settings);
+  if (kie == null || sale == null || sale === 0) return null;
+  return 1 - Number(kie) / sale;
 }
 
 export function planCredits(plan, settings) {
@@ -85,7 +107,9 @@ export function autoPlanCredits(plan, settings) {
 
 /** How many units of this model a plan buys, if spent entirely on it. */
 export function planQty(model, plan, settings) {
-  return Math.floor(planCredits(plan, settings) / creditsOf(model, settings) + EPS);
+  const credits = creditsOf(model, settings);
+  if (credits == null || credits <= 0) return null;
+  return Math.floor(planCredits(plan, settings) / credits + EPS);
 }
 
 /**
@@ -95,12 +119,17 @@ export function planQty(model, plan, settings) {
  * mean they sometimes get slightly more value than the per-unit price implies.
  */
 export function profitMargin(model, plan, settings, cost) {
-  return 1 - planQty(model, plan, settings) * cost / Number(plan.price_usd ?? plan.price);
+  const qty = planQty(model, plan, settings);
+  if (qty == null || cost == null) return null;
+  return 1 - qty * cost / Number(plan.price_usd ?? plan.price);
 }
 
 /** Cost basis for the Profit Check view. 'fal' may be null → caller shows "—". */
 export function costForMode(model, mode) {
-  if (mode === 'kie') return Number(model.kie_cost ?? model.kie);
+  if (mode === 'kie') {
+    const kie = model.kie_cost ?? model.kie;
+    return kie == null ? null : Number(kie);
+  }
   if (mode === 'fal') {
     const fal = model.fal_cost ?? model.fal;
     return fal == null ? null : Number(fal);
@@ -115,7 +144,7 @@ export function worstMarginForPlan(models, plan, settings, mode = 'max') {
     const cost = costForMode(m, mode);
     if (cost == null) continue;
     const margin = profitMargin(m, plan, settings, cost);
-    if (margin < worst) worst = margin;
+    if (margin != null && margin < worst) worst = margin;
   }
   return worst === Infinity ? null : worst;
 }
@@ -128,7 +157,7 @@ export function belowTarget(models, plans, settings, mode = 'max') {
     if (cost == null) continue;
     for (const p of plans) {
       const margin = profitMargin(m, p, settings, cost);
-      if (margin < targetOf(m, settings) - 1e-6) {
+      if (margin != null && margin < targetOf(m, settings) - 1e-6) {
         out.push({ model: m, plan: p, margin, target: targetOf(m, settings) });
       }
     }

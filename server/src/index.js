@@ -49,6 +49,7 @@ import {
 // H2 (audit 2026-07-28): /api/upload content-type policy.
 import { validateUpload } from './upload-guard.js';
 import { registerCostingRoutes } from './costing-routes.js';
+import { runDailyModelSync } from './costing-sync.js';
 // H3 (audit 2026-07-28): hard deadline on synchronous provider calls.
 import { withProviderDeadline, ProviderTimeoutError } from './provider-deadline.js';
 // M1 (audit 2026-07-28): keep credentials out of the admin audit log.
@@ -3642,6 +3643,16 @@ const adminGate = [adminLimiter, verifyJwt, requireAdmin, requireCsrf, adminAudi
 // costing is self-contained. It reads and writes only the pricing_* tables —
 // server/src/pricing.js remains the single authority for charging (C1).
 registerCostingRoutes(app, { pool, dbReady, adminGate });
+
+// Daily check for models that ship into production without a costing row. A
+// model nobody has costed is one nobody is checking the margin on, and that
+// failure is silent — so it runs on a timer rather than relying on memory.
+// Insert-only: it can never overwrite a cost the owner has entered.
+const MODEL_SYNC_INTERVAL_MS = 24 * 60 * 60 * 1000;
+setTimeout(() => {
+  runDailyModelSync(pool, dbReady);
+  setInterval(() => runDailyModelSync(pool, dbReady), MODEL_SYNC_INTERVAL_MS);
+}, 90_000).unref?.();
 
 // ─── ADMIN: LIST USERS (paginated) ──────────────────────────────────
 app.get('/api/admin/users', adminGate, async (req, res) => {

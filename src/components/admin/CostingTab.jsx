@@ -1,0 +1,612 @@
+// ─── CostingTab ──────────────────────────────────────────────────────────────
+// The CRM Costing calculator: what Voxel's prices SHOULD be, given supplier
+// costs and a margin target. Rebuilt from the reference prototype shipped with
+// the costing brief (2026-08-06).
+//
+// ── IT DOES NOT CHARGE ANYBODY ─────────────────────────────────────────────
+// What a customer actually pays comes from server/src/pricing.js, which finding
+// C1 of the July audit made the single charging authority. Editing a cost here
+// changes what this screen SAYS, never what anyone is billed. That is stated on
+// the screen too, because a pricing tool that looks live but isn't — or looks
+// safe but isn't — is dangerous either way.
+//
+// The server recomputes every derived number and returns the whole state on
+// each write, so this component renders rather than calculates. That is why the
+// numbers here can never disagree with the backend.
+
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { toast } from 'sonner';
+import { adminApi } from '@/lib/adminApi';
+
+const pct = (v) => v == null ? '—' : `${(v * 100).toFixed(1)}%`;
+const money = (v) => v == null ? '—' : `$${Number(v).toFixed(Number(v) < 1 ? 4 : 3)}`;
+const cr = (v) => v == null ? '—' : Number(v) % 1 ? Number(v).toFixed(1) : String(Number(v));
+const num = (v) => Number(v).toLocaleString('en-US');
+
+const CATEGORY_LABEL = {
+  image: 'IMAGE MODELS — per image',
+  video_sec: 'VIDEO MODELS — per SECOND of output',
+  video_clip: 'VIDEO MODELS — per WHOLE video (KIE bills per clip)',
+  voice: 'VOICE MODELS — per 1,000 characters',
+};
+
+export default function CostingTab({ onError }) {
+  const [state, setState] = useState(null);
+  const [tab, setTab] = useState('models');
+  const [basis, setBasis] = useState('max');
+  const [busy, setBusy] = useState(false);
+  const [audit, setAudit] = useState(null);
+  // Plan edits are local until approved — mirrors the server's draft table.
+  const [draft, setDraft] = useState(null);
+
+  const load = useCallback(async () => {
+    try {
+      const s = await adminApi.costingState();
+      setState(s);
+      setDraft(null);
+    } catch (e) { onError?.(e, 'Could not load costing'); }
+  }, [onError]);
+
+  useEffect(() => { load(); }, [load]);
+
+  /** Every mutation returns the full recomputed state — no local arithmetic. */
+  const apply = useCallback(async (fn, successMsg) => {
+    setBusy(true);
+    try {
+      const s = await fn();
+      setState(s);
+      if (successMsg) toast.success(successMsg);
+      return s;
+    } catch (e) {
+      onError?.(e, 'Update failed');
+      await load();      // never leave the screen showing an unsaved value
+      return null;
+    } finally { setBusy(false); }
+  }, [onError, load]);
+
+  const saveModel = useCallback((id, body) =>
+    apply(() => adminApi.costingModel(id, body)), [apply]);
+
+  const saveSetting = useCallback((body) =>
+    apply(() => adminApi.costingSettings(body)), [apply]);
+
+  const loadAudit = useCallback(async () => {
+    try {
+      const r = await adminApi.costingAudit(200);
+      setAudit(r.audit);
+    } catch (e) { onError?.(e, 'Could not load the audit trail'); }
+  }, [onError]);
+
+  useEffect(() => { if (tab === 'audit' && audit === null) loadAudit(); }, [tab, audit, loadAudit]);
+
+  // ── plan draft handling ───────────────────────────────────────────
+  const workingPlans = draft ?? state?.plans ?? [];
+  const draftDirty = useMemo(() => {
+    if (!draft || !state) return false;
+    return draft.some((d, i) => {
+      const p = state.plans[i];
+      return d.name !== p.name
+        || Number(d.price_usd) !== Number(p.price_usd)
+        || (d.credits_override ?? null) !== (p.credits_override ?? null);
+    });
+  }, [draft, state]);
+
+  const editPlan = useCallback((i, field, value) => {
+    setDraft((cur) => {
+      const base = cur ?? state.plans.map((p) => ({ ...p }));
+      const next = base.map((p) => ({ ...p }));
+      if (field === 'name') next[i].name = value;
+      if (field === 'price_usd') next[i].price_usd = value;
+      if (field === 'credits_override') next[i].credits_override = value;
+      return next;
+    });
+  }, [state]);
+
+  const approvePlans = useCallback(async () => {
+    setBusy(true);
+    try {
+      await adminApi.costingSaveDraft(draft.map((p) => ({
+        id: p.id, name: p.name, price_usd: p.price_usd,
+        credits_override: p.credits_override,
+      })));
+      const s = await adminApi.costingApprove();
+      setState(s); setDraft(null);
+      toast.success(`Approved ${s.approved} plan change${s.approved === 1 ? '' : 's'}`);
+    } catch (e) { onError?.(e, 'Approval failed'); }
+    finally { setBusy(false); }
+  }, [draft, onError]);
+
+  if (!state) return <div style={muted}>Loading costing…</div>;
+
+  const S = state.settings;
+  const worst = Math.min(...state.worst_margin_per_plan.filter((x) => x != null));
+  // Explicit null check: an unknown margin is NOT "below target", it is unknown.
+  const belowCount = state.models.filter(
+    (m) => m.margin_vs_basis != null && m.margin_vs_basis < m.target - 1e-6
+  ).length;
+
+  return (
+    <div>
+      {/* The single most important thing on this screen. */}
+      <div style={{
+        padding: '10px 14px', marginBottom: 14, borderRadius: 10, fontSize: 13,
+        background: 'rgba(96,165,250,0.10)', border: '1px solid rgba(96,165,250,0.35)',
+        color: 'rgba(255,255,255,0.85)',
+      }}>
+        <b>This is a calculator.</b> It works out what prices should be from supplier costs.
+        Editing anything here does <b>not</b> change what customers are charged — that still
+        comes from the live pricing table until you deliberately carry a number across.
+      </div>
+
+      {/* Headline numbers */}
+      <div style={{ display: 'grid', gap: 10, marginBottom: 14,
+        gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))' }}>
+        <Stat label="Worst-case margin" value={pct(worst)}
+          note={worst >= S.margin_target - 1e-6 ? 'every plan clears its target' : 'BELOW TARGET'}
+          color={worst >= S.margin_target - 1e-6 ? '#4ade80' : '#f87171'} />
+        <Stat label="Margin target" value={pct(S.margin_target)} note="of sale price" />
+        <Stat label="Credit value" value={`$${Number(S.credit_value).toFixed(6)}`} note="$19 plan ÷ 300 credits" />
+        <Stat label="Models costed" value={num(state.models.length)}
+          note={`${state.models.filter((m) => m.fal_cost == null).length} KIE-only rows`} />
+        <Stat label="Awaiting cost" value={num(state.models.filter((m) => m.needs_cost).length)}
+          note="margin unknown until filled"
+          color={state.models.some((m) => m.needs_cost) ? '#fbbf24' : '#4ade80'} />
+        <Stat label="Below target" value={num(belowCount)}
+          note={belowCount ? 'needs re-pricing' : 'none'}
+          color={belowCount ? '#f87171' : '#4ade80'} />
+      </div>
+
+      {/* Global controls */}
+      <div style={{ ...panel, display: 'flex', gap: 18, flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: 14 }}>
+        <Field label="Margin target — all models (%)">
+          <input type="number" step="1" min="1" max="94" defaultValue={(S.margin_target * 100).toFixed(0)}
+            onBlur={(e) => {
+              const v = Number(e.target.value);
+              if (Number.isFinite(v) && Math.abs(v / 100 - S.margin_target) > 1e-9) {
+                saveSetting({ margin_target: v });
+              }
+            }} style={input} />
+        </Field>
+        <Field label="Credit value ($ per credit)">
+          <input type="number" step="0.000001" min="0.000001" defaultValue={Number(S.credit_value).toFixed(6)}
+            onBlur={(e) => {
+              const v = Number(e.target.value);
+              if (Number.isFinite(v) && Math.abs(v - S.credit_value) > 1e-12) {
+                saveSetting({ credit_value: v });
+              }
+            }} style={input} />
+        </Field>
+        <div style={{ ...muted, flex: 1, minWidth: 220 }}>
+          Blue cells are editable. Every change is recorded in the audit trail with your name.
+        </div>
+      </div>
+
+      {/* Tabs */}
+      <div style={{ display: 'flex', gap: 4, borderBottom: '1px solid rgba(255,255,255,0.1)', marginBottom: 12, flexWrap: 'wrap' }}>
+        {[
+          ['models', 'Model Credits'],
+          ['plans', 'Plans'],
+          ['profit', 'Profit Check'],
+          ['coverage', `Coverage${state.coverage.uncosted_total ? ` (${state.coverage.uncosted_total})` : ''}`],
+          ['audit', 'Audit'],
+        ].map(([id, label]) => (
+          <button key={id} onClick={() => setTab(id)} style={{
+            border: 'none', background: 'none', padding: '9px 14px', cursor: 'pointer',
+            fontFamily: 'inherit', fontSize: 14,
+            color: tab === id ? '#fff' : 'rgba(255,255,255,0.45)',
+            fontWeight: tab === id ? 700 : 500,
+            borderBottom: tab === id ? '2px solid #e0442c' : '2px solid transparent',
+          }}>{label}</button>
+        ))}
+      </div>
+
+      {tab === 'models' && (
+        <ModelsTable state={state} busy={busy} onSave={saveModel} />
+      )}
+
+      {tab === 'plans' && (
+        <PlansTable state={state} plans={workingPlans} dirty={draftDirty} busy={busy}
+          onEdit={editPlan}
+          onApprove={approvePlans}
+          onDiscard={() => setDraft(null)} />
+      )}
+
+      {tab === 'profit' && (
+        <ProfitTable state={state} basis={basis} setBasis={setBasis} />
+      )}
+
+      {tab === 'coverage' && <Coverage report={state.coverage} />}
+
+      {tab === 'audit' && <AuditList rows={audit} onRefresh={() => { setAudit(null); loadAudit(); }} />}
+    </div>
+  );
+}
+
+/* ── Model Credits ─────────────────────────────────────────────────── */
+function ModelsTable({ state, busy, onSave }) {
+  const S = state.settings;
+  let lastCat = null;
+  return (
+    <>
+      <div style={tableWrap}>
+        <table style={table}>
+          <thead>
+            <tr>{['Model', 'Variant', 'Res', 'KIE cost', 'FAL cost', 'Basis', 'Target %',
+                 'Credits', 'Sale $', 'Margin vs basis', 'Margin vs KIE',
+                 ...state.plans.map((p) => `${p.name} $${p.price_usd}`)]
+              .map((h, i) => <th key={i} style={{ ...th, textAlign: i < 3 ? 'left' : 'right' }}>{h}</th>)}</tr>
+          </thead>
+          <tbody>
+            {state.models.map((m) => {
+              const header = m.category !== lastCat ? (lastCat = m.category) : null;
+              const below = m.margin_vs_basis != null && m.margin_vs_basis < m.target - 1e-6;
+              // Amber row = found in production, no supplier cost recorded yet.
+              // Its margin is UNKNOWN, which must never be mistaken for fine.
+              const needsCost = m.needs_cost;
+              return (
+                <React.Fragment key={m.id}>
+                  {header && (
+                    <tr><td colSpan={11 + state.plans.length} style={catRow}>{CATEGORY_LABEL[m.category]}</td></tr>
+                  )}
+                  <tr style={{
+                    borderTop: '1px solid rgba(255,255,255,0.06)',
+                    ...(needsCost ? { background: 'rgba(251,191,36,0.07)' } : {}),
+                  }}>
+                    <td style={{ ...td, textAlign: 'left', fontWeight: 600 }}>
+                      {m.model_name}
+                      {needsCost && (
+                        <span title="Charged in production, but no supplier cost recorded — margin unknown"
+                          style={{
+                            marginLeft: 6, fontSize: 10, fontWeight: 700, letterSpacing: '0.04em',
+                            padding: '1px 6px', borderRadius: 999, verticalAlign: 'middle',
+                            background: 'rgba(251,191,36,0.18)', color: '#fbbf24',
+                          }}>COST NEEDED</span>
+                      )}
+                    </td>
+                    <td style={{ ...td, textAlign: 'left', color: 'rgba(255,255,255,0.55)' }}>{m.variant}</td>
+                    <td style={{ ...td, textAlign: 'left', color: 'rgba(255,255,255,0.55)' }}>{m.resolution ?? '—'}</td>
+                    <td style={td}><Cell value={m.kie_cost ?? ''} disabled={busy}
+                      placeholder="add cost"
+                      onCommit={(v) => onSave(m.id, { kie_cost: v })} /></td>
+                    <td style={td}>{m.fal_cost == null
+                      ? <span style={{ ...muted, fontSize: 12 }}>KIE only</span>
+                      : <Cell value={m.fal_cost} disabled={busy} onCommit={(v) => onSave(m.id, { fal_cost: v })} />}</td>
+                    <td style={td}>{money(m.basis)}</td>
+                    <td style={td}>
+                      <Cell value={(m.target * 100).toFixed(0)} width={48} disabled={busy}
+                        overridden={m.margin_override != null}
+                        onCommit={(v) => onSave(m.id, { margin_override: v })} />
+                      {m.margin_override != null && (
+                        <Reset label={`all ${(S.margin_target * 100).toFixed(0)}`}
+                          onClick={() => onSave(m.id, { margin_override: null })} />
+                      )}
+                    </td>
+                    <td style={td}>
+                      <Cell value={cr(m.credits)} width={56} disabled={busy}
+                        overridden={m.credits_override != null}
+                        onCommit={(v) => onSave(m.id, { credits_override: v })} />
+                      {m.credits_override != null && (
+                        <Reset label={`auto ${cr(m.auto_credits)}`}
+                          onClick={() => onSave(m.id, { credits_override: null })} />
+                      )}
+                    </td>
+                    <td style={td}>{money(m.sale)}</td>
+                    <td style={{ ...td, ...(below ? belowStyle : m.margin_vs_basis >= 0.5 ? { color: '#4ade80' } : {}) }}>
+                      {m.margin_vs_basis == null
+                        ? <span style={{ color: '#fbbf24' }}>unknown</span>
+                        : <>{below ? '▼ ' : ''}{pct(m.margin_vs_basis)}</>}
+                    </td>
+                    <td style={{ ...td, color: 'rgba(255,255,255,0.55)' }}>
+                      {m.margin_vs_kie == null ? <span style={{ color: '#fbbf24' }}>unknown</span> : pct(m.margin_vs_kie)}
+                    </td>
+                    {m.qty_per_plan.map((q, i) => (
+                      <td key={i} style={{ ...td, color: 'rgba(255,255,255,0.45)' }}>{num(q)}</td>
+                    ))}
+                  </tr>
+                </React.Fragment>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <p style={note}>
+        Credits = cost ÷ (1 − target), rounded <b>up</b> to the next half credit — rounding up is
+        what keeps the realised margin from landing under target. <b>Target %</b> follows the global
+        value until you type a different number for a row (amber); “all” returns it. A hand-typed
+        credits value is likewise an override; “auto” returns it to the formula.
+      </p>
+    </>
+  );
+}
+
+/* ── Plans ─────────────────────────────────────────────────────────── */
+function PlansTable({ state, plans, dirty, busy, onEdit, onApprove, onDiscard }) {
+  const S = state.settings;
+  return (
+    <>
+      <div style={{ ...tableWrap, maxWidth: 860 }}>
+        <table style={table}>
+          <thead><tr>{['Plan name', 'Price (USD)', 'Credits included', '$ per credit', 'Status']
+            .map((h, i) => <th key={i} style={{ ...th, textAlign: i === 0 || i === 4 ? 'left' : 'right' }}>{h}</th>)}</tr></thead>
+          <tbody>
+            {plans.map((p, i) => {
+              const published = state.plans[i];
+              const credits = p.credits_override ?? Math.round(Number(p.price_usd) / S.credit_value);
+              const perCredit = Number(p.price_usd) / credits;
+              // >1% under the anchor is a real discount, not rounding noise —
+              // and it silently shrinks the margin on every model.
+              const cheap = perCredit < S.credit_value * 0.99;
+              const changed = p.name !== published.name
+                || Number(p.price_usd) !== Number(published.price_usd)
+                || (p.credits_override ?? null) !== (published.credits_override ?? null);
+              return (
+                <tr key={p.id} style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                  <td style={{ ...td, textAlign: 'left' }}>
+                    <Cell value={p.name} width={110} align="left" disabled={busy}
+                      onCommit={(v) => onEdit(i, 'name', v)} raw />
+                  </td>
+                  <td style={td}>
+                    <Cell value={p.price_usd} width={80} disabled={busy}
+                      onCommit={(v) => onEdit(i, 'price_usd', v)} />
+                  </td>
+                  <td style={td}>
+                    <Cell value={num(credits)} width={78} disabled={busy}
+                      overridden={p.credits_override != null}
+                      onCommit={(v) => onEdit(i, 'credits_override', v)} />
+                    {p.credits_override != null && (
+                      <Reset label={`auto ${num(Math.round(Number(p.price_usd) / S.credit_value))}`}
+                        onClick={() => onEdit(i, 'credits_override', null)} />
+                    )}
+                  </td>
+                  <td style={{ ...td, ...(cheap ? belowStyle : {}) }}>
+                    ${perCredit.toFixed(5)}{cheap ? ' ▼' : ''}
+                  </td>
+                  <td style={{ ...td, textAlign: 'left' }}>
+                    {changed
+                      ? <span style={{ color: '#fbbf24', fontWeight: 600 }}>● draft — not approved</span>
+                      : <span style={muted}>published</span>}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <div style={{ marginTop: 12, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+        {dirty ? (
+          <>
+            <button style={primaryBtn} disabled={busy} onClick={onApprove}>
+              {busy ? 'Approving…' : 'Submit & approve changes'}
+            </button>
+            <button style={btn} onClick={onDiscard}>Discard draft</button>
+            <span style={muted}>Nothing moves until you approve.</span>
+          </>
+        ) : (
+          <span style={muted}>No pending changes — what you see is what is approved.</span>
+        )}
+      </div>
+      <p style={note}>
+        Credits follow price ÷ credit value automatically; a hand-typed number is an override. If an
+        override makes a plan’s $-per-credit cheaper than the global credit value, that plan’s margins
+        shrink on every model — the cell turns red and Profit Check shows which models fall below target.
+      </p>
+    </>
+  );
+}
+
+/* ── Profit Check ──────────────────────────────────────────────────── */
+function ProfitTable({ state, basis, setBasis }) {
+  const rows = state.profit[basis];
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  let lastCat = null;
+  const worstPerPlan = state.plans.map((_, pi) => {
+    let w = Infinity;
+    for (const r of rows) if (r.margins) w = Math.min(w, r.margins[pi]);
+    return w === Infinity ? null : w;
+  });
+  return (
+    <>
+      <div style={{ display: 'flex', gap: 14, alignItems: 'center', marginBottom: 12, flexWrap: 'wrap' }}>
+        <span style={muted}>Margin if a customer spends an <b>entire plan on one model</b>, costed against:</span>
+        <div style={{ display: 'inline-flex', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 8, overflow: 'hidden' }}>
+          {[['max', 'Safe — MAX(KIE, FAL)'], ['kie', 'KIE only'], ['fal', 'FAL only']].map(([id, label]) => (
+            <button key={id} onClick={() => setBasis(id)} style={{
+              border: 'none', borderRadius: 0, padding: '6px 13px', fontSize: 12.5, cursor: 'pointer',
+              fontFamily: 'inherit',
+              background: basis === id ? '#e0442c' : 'transparent',
+              color: basis === id ? '#fff' : 'rgba(255,255,255,0.6)',
+              fontWeight: basis === id ? 600 : 500,
+            }}>{label}</button>
+          ))}
+        </div>
+      </div>
+      <div style={tableWrap}>
+        <table style={table}>
+          <thead><tr>{['Model', 'Variant', 'Res', 'Cost used', 'Credits',
+            ...state.plans.map((p) => `${p.name} $${p.price_usd}`)]
+            .map((h, i) => <th key={i} style={{ ...th, textAlign: i < 3 ? 'left' : 'right' }}>{h}</th>)}</tr></thead>
+          <tbody>
+            <tr>
+              <td colSpan={5} style={{ ...td, textAlign: 'left', fontWeight: 700 }}>WORST model in each plan →</td>
+              {worstPerPlan.map((w, i) => (
+                <td key={i} style={{ ...td, fontWeight: 700, ...(w != null && w < state.settings.margin_target - 1e-6 ? belowStyle : {}) }}>
+                  {pct(w)}
+                </td>
+              ))}
+            </tr>
+            {state.models.map((m) => {
+              const header = m.category !== lastCat ? (lastCat = m.category) : null;
+              const r = byId.get(m.id);
+              return (
+                <React.Fragment key={m.id}>
+                  {header && <tr><td colSpan={5 + state.plans.length} style={catRow}>{CATEGORY_LABEL[m.category]}</td></tr>}
+                  <tr style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                    <td style={{ ...td, textAlign: 'left', fontWeight: 600 }}>{m.model_name}</td>
+                    <td style={{ ...td, textAlign: 'left', color: 'rgba(255,255,255,0.55)' }}>{m.variant}</td>
+                    <td style={{ ...td, textAlign: 'left', color: 'rgba(255,255,255,0.55)' }}>{m.resolution}</td>
+                    <td style={td}>{money(r?.cost)}</td>
+                    <td style={td}>{cr(m.credits)}</td>
+                    {state.plans.map((_, i) => {
+                      if (!r?.margins) return <td key={i} style={{ ...td, color: 'rgba(255,255,255,0.3)' }}>—</td>;
+                      const mg = r.margins[i];
+                      const below = mg < m.target - 1e-6;
+                      return (
+                        <td key={i} style={{ ...td, ...(below ? belowStyle : mg >= 0.5 ? { color: '#4ade80' } : {}) }}>
+                          {below ? '▼ ' : ''}{pct(mg)}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                </React.Fragment>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </>
+  );
+}
+
+/* ── Coverage ──────────────────────────────────────────────────────── */
+function Coverage({ report }) {
+  return (
+    <div>
+      <div style={{ display: 'grid', gap: 10, marginBottom: 14,
+        gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))' }}>
+        <Stat label="Charged in production" value={num(report.live_total)} note="models customers can use" />
+        <Stat label="Costed here" value={num(report.costed_total)} note="margin is known" color="#4ade80" />
+        <Stat label="Not costed" value={num(report.uncosted_total)} note="margin is UNKNOWN"
+          color={report.uncosted_total ? '#fbbf24' : '#4ade80'} />
+      </div>
+      <div style={{ ...panel, marginBottom: 14 }}>
+        <p style={{ margin: 0, fontSize: 13.5, color: 'rgba(255,255,255,0.8)' }}>{report.note}</p>
+        {report.uncosted_total > 0 && (
+          <p style={{ ...muted, marginTop: 8, marginBottom: 0 }}>
+            These are charged today, but no supplier cost is recorded for them here — so this
+            calculator cannot tell you whether they are profitable. To include them, add their
+            KIE and FAL costs.
+          </p>
+        )}
+      </div>
+      {report.uncosted_total > 0 && (
+        <div style={{ ...panel }}>
+          <div style={{ ...muted, marginBottom: 8, fontWeight: 600 }}>Models without a recorded cost</div>
+          <div style={{ display: 'grid', gap: 6, gridTemplateColumns: 'repeat(auto-fill, minmax(190px, 1fr))' }}>
+            {report.uncosted.map((id) => (
+              <div key={id} style={{
+                padding: '5px 10px', borderRadius: 7, fontSize: 12.5,
+                background: 'rgba(251,191,36,0.10)', color: 'rgba(255,255,255,0.85)',
+              }}>{id}</div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ── Audit ─────────────────────────────────────────────────────────── */
+function AuditList({ rows, onRefresh }) {
+  if (rows === null) return <div style={muted}>Loading…</div>;
+  if (!rows.length) return <div style={{ ...panel, ...muted }}>Nothing has been changed yet.</div>;
+  return (
+    <>
+      <div style={{ marginBottom: 10 }}>
+        <button style={btn} onClick={onRefresh}>Refresh</button>
+      </div>
+      <div style={tableWrap}>
+        <table style={table}>
+          <thead><tr>{['When', 'What', 'Field', 'From', 'To', 'By', 'Note']
+            .map((h, i) => <th key={i} style={{ ...th, textAlign: 'left' }}>{h}</th>)}</tr></thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.id} style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                <td style={{ ...td, textAlign: 'left', color: 'rgba(255,255,255,0.5)' }}>
+                  {new Date(r.changed_at).toLocaleString()}
+                </td>
+                <td style={{ ...td, textAlign: 'left' }}>{r.entity}</td>
+                <td style={{ ...td, textAlign: 'left' }}>{r.field}</td>
+                <td style={{ ...td, textAlign: 'left', color: 'rgba(255,255,255,0.5)' }}>{r.old_value ?? '—'}</td>
+                <td style={{ ...td, textAlign: 'left', color: '#4ade80' }}>{r.new_value ?? '—'}</td>
+                <td style={{ ...td, textAlign: 'left' }}>{r.changed_by}</td>
+                <td style={{ ...td, textAlign: 'left', color: 'rgba(255,255,255,0.5)' }}>{r.note ?? ''}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </>
+  );
+}
+
+/* ── small pieces ──────────────────────────────────────────────────── */
+function Cell({ value, onCommit, width = 74, overridden, disabled, align = 'right', raw, placeholder }) {
+  const [v, setV] = useState(String(value ?? ''));
+  useEffect(() => { setV(String(value ?? '')); }, [value]);
+  return (
+    <input
+      value={v}
+      placeholder={placeholder}
+      disabled={disabled}
+      onChange={(e) => setV(e.target.value)}
+      // Commit on blur, not on every keystroke: each commit is a server round
+      // trip AND an audit row, so per-character saves would flood both.
+      onBlur={() => { if (String(value ?? '') !== v) onCommit(raw ? v : v.replace(/,/g, '')); }}
+      onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
+      style={{
+        width, textAlign: align, padding: '3px 6px', borderRadius: 6, fontFamily: 'inherit',
+        fontVariantNumeric: 'tabular-nums', fontSize: 13, fontWeight: 600,
+        background: 'rgba(96,165,250,0.12)', color: '#93c5fd',
+        border: overridden ? '1px solid #fbbf24' : '1px solid transparent',
+      }}
+    />
+  );
+}
+
+const Reset = ({ label, onClick }) => (
+  <span onClick={onClick} style={{
+    color: 'rgba(255,255,255,0.45)', fontSize: 11, cursor: 'pointer',
+    marginLeft: 4, textDecoration: 'underline',
+  }}>{label}</span>
+);
+
+function Stat({ label, value, note, color }) {
+  return (
+    <div style={panel}>
+      <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em',
+        color: 'rgba(255,255,255,0.4)', marginBottom: 5 }}>{label}</div>
+      <div style={{ fontSize: 24, fontWeight: 700, lineHeight: 1.1, color: color || '#fff',
+        fontVariantNumeric: 'tabular-nums' }}>{value}</div>
+      {note ? <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)', marginTop: 4 }}>{note}</div> : null}
+    </div>
+  );
+}
+
+const Field = ({ label, children }) => (
+  <div>
+    <div style={{ ...muted, fontSize: 11.5, marginBottom: 3 }}>{label}</div>
+    {children}
+  </div>
+);
+
+const muted = { color: 'rgba(255,255,255,0.45)', fontSize: 13 };
+const panel = { padding: 14, background: 'rgba(255,255,255,0.03)',
+  border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12 };
+const tableWrap = { overflowX: 'auto', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12 };
+const table = { width: '100%', borderCollapse: 'collapse', fontSize: 13, fontVariantNumeric: 'tabular-nums' };
+const th = { padding: '9px 10px', fontSize: 11, fontWeight: 600, textTransform: 'uppercase',
+  letterSpacing: '0.04em', color: 'rgba(255,255,255,0.4)', background: 'rgba(255,255,255,0.03)',
+  whiteSpace: 'nowrap', position: 'sticky', top: 0 };
+const td = { padding: '7px 10px', textAlign: 'right', color: 'rgba(255,255,255,0.85)', whiteSpace: 'nowrap' };
+const catRow = { padding: '7px 10px', textAlign: 'left', background: 'rgba(255,255,255,0.05)',
+  color: 'rgba(255,255,255,0.55)', fontWeight: 700, fontSize: 12, letterSpacing: '0.02em' };
+const belowStyle = { background: 'rgba(248,113,113,0.15)', color: '#f87171', fontWeight: 700 };
+const note = { ...muted, marginTop: 10, maxWidth: '90ch', lineHeight: 1.6 };
+const input = { height: 34, padding: '0 10px', width: 130, borderRadius: 8, fontFamily: 'inherit',
+  background: 'rgba(96,165,250,0.12)', color: '#93c5fd', fontWeight: 600, fontSize: 13,
+  border: '1px solid rgba(255,255,255,0.12)', fontVariantNumeric: 'tabular-nums' };
+const btn = { height: 32, padding: '0 12px', background: 'rgba(255,255,255,0.06)',
+  border: '1px solid rgba(255,255,255,0.12)', borderRadius: 8, color: 'rgba(255,255,255,0.85)',
+  fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' };
+const primaryBtn = { height: 36, padding: '0 18px', background: '#e0442c', border: 'none',
+  borderRadius: 8, color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' };

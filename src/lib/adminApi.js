@@ -105,6 +105,19 @@ export const adminApi = {
   createGiftCards: (body) => request('POST', '/api/admin/giftcards', body),
   listGiftCards: (status = 'all') => request('GET', `/api/admin/giftcards?status=${status}`),
 
+  // ─── Costing calculator (2026-08-06) ──────────────────────────────
+  // Read-and-write for the pricing_* tables only. These never touch what a
+  // customer is charged — pricing.js remains the charging authority.
+  // Every mutating call returns the FULL recomputed state, so the screen can
+  // never drift from the server's numbers.
+  costingState:    ()            => request('GET',    '/api/costing/state'),
+  costingAudit:    (limit = 100) => request('GET',    `/api/costing/audit?limit=${limit}`),
+  costingSettings: (body)        => request('PATCH',  '/api/costing/settings', body),
+  costingModel:    (id, body)    => request('PATCH',  `/api/costing/models/${id}`, body),
+  costingSaveDraft:(plans)       => request('PUT',    '/api/costing/plans/draft', { plans }),
+  costingApprove:  ()            => request('POST',   '/api/costing/plans/approve'),
+  costingDiscard:  ()            => request('DELETE', '/api/costing/plans/draft'),
+
   // ─── Bulk user provisioning ───────────────────────────────────────
   listModels: () => request('GET', '/api/admin/models'),
   bulkCreateUsers: (body) => request('POST', '/api/admin/users/bulk', body),
