@@ -17,6 +17,7 @@ import GiftCardsTab from '@/components/admin/GiftCardsTab';
 import BulkTab from '@/components/admin/BulkTab';
 import SecurityTab from '@/components/admin/SecurityTab';
 import CostingTab from '@/components/admin/CostingTab';
+import OffersTab from '@/components/admin/OffersTab';
 
 const PAGE_SIZE = 50;
 
@@ -34,6 +35,8 @@ const TABS = [
   // Costing calculator — works out what prices SHOULD be. It does not charge
   // anybody; pricing.js remains the charging authority (finding C1).
   { id: 'costing', label: 'Costing' },
+  // Offers — promotions priced against the Costing engine's margin target.
+  { id: 'offers', label: 'Offers' },
 ];
 
 export default function AdminPanel() {
@@ -207,6 +210,7 @@ export default function AdminPanel() {
         {tab === 'bulk' && <BulkTab onError={handleError} />}
         {tab === 'security' && <SecurityTab onError={handleError} />}
         {tab === 'costing' && <CostingTab onError={handleError} />}
+        {tab === 'offers' && <OffersTab onError={handleError} />}
 
         {tab === 'users' && (<>
         <StatsCards stats={stats} />

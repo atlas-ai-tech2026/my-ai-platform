@@ -65,6 +65,7 @@ import {
   verifyMicrosoftIdToken, buildMicrosoftAuthUrl, exchangeMicrosoftCode,
 } from './microsoft-auth.js';
 import { registerCostingRoutes } from './costing-routes.js';
+import { registerOffersRoutes } from './offers-routes.js';
 import { runDailyModelSync } from './costing-sync.js';
 // H3 (audit 2026-07-28): hard deadline on synchronous provider calls.
 import { withProviderDeadline, ProviderTimeoutError } from './provider-deadline.js';
@@ -4234,6 +4235,11 @@ const adminGate = [adminLimiter, verifyJwt, requireCookieAuth, requireAdmin, req
 // costing is self-contained. It reads and writes only the pricing_* tables —
 // server/src/pricing.js remains the single authority for charging (C1).
 registerCostingRoutes(app, { pool, dbReady, adminGate });
+
+// ─── CRM OFFERS (2026-08-07) ───────────────────────────────────────
+// Promotions with live margin impact from the Costing engine. Reuses that
+// engine's settings and the same audit log; nothing here charges a customer.
+registerOffersRoutes(app, { pool, dbReady, adminGate });
 
 // Daily check for models that ship into production without a costing row. A
 // model nobody has costed is one nobody is checking the margin on, and that

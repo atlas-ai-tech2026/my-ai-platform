@@ -340,6 +340,96 @@ export async function migrate() {
         ON pricing_catalog_models (provider, family);
     `);
 
+    // ─── OFFERS (2026-08-07) ──────────────────────────────────────
+    // Promotions with live margin impact from the Costing engine.
+    //
+    // margin_floor: the margin an offer may not cross without an explicit
+    // below-floor approval. Lives on pricing_settings because it is a pricing
+    // policy, not an offer attribute — one floor governs every offer.
+    await client.query(`
+      ALTER TABLE pricing_settings
+        ADD COLUMN IF NOT EXISTS margin_floor NUMERIC(6,4) NOT NULL DEFAULT 0.25;
+    `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS offers (
+        id                   BIGSERIAL     PRIMARY KEY,
+        name                 VARCHAR(80)   NOT NULL,
+        type                 VARCHAR(10)   NOT NULL,   -- pct | bonus | days | fixed
+        value                NUMERIC(10,2) NOT NULL,
+        plan_ids             INT[]         NOT NULL,
+        audience_mode        VARCHAR(10)   NOT NULL,   -- all | segment | picked
+        segment_json         JSONB,
+        renewal_rule         VARCHAR(10)   NOT NULL DEFAULT 'first',
+        renewal_months       INT,
+        delivery_code        BOOLEAN       NOT NULL DEFAULT FALSE,
+        delivery_auto        BOOLEAN       NOT NULL DEFAULT FALSE,
+        -- Stored so a campaign can be designed now, but NO sender exists.
+        -- TODO(email-on-hold): the owner will ask for the email phase once his
+        -- mail server is configured. Until then nothing reads this to send.
+        delivery_email       BOOLEAN       NOT NULL DEFAULT FALSE,
+        starts_at            DATE          NOT NULL,
+        ends_at              DATE          NOT NULL,
+        max_per_client       INT           NOT NULL DEFAULT 1,
+        max_total            INT,
+        below_floor_approved BOOLEAN       NOT NULL DEFAULT FALSE,
+        status               VARCHAR(10)   NOT NULL DEFAULT 'draft',
+        created_by           VARCHAR(80),
+        approved_by          VARCHAR(80),
+        approved_at          TIMESTAMPTZ,
+        created_at           TIMESTAMPTZ   NOT NULL DEFAULT NOW()
+      );
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS offers_status_idx ON offers (status, starts_at);`);
+
+    // client_id is INTEGER with a real foreign key: users.id is SERIAL, not the
+    // BIGINT the brief assumed, and an unconstrained id column would happily
+    // store references to users who no longer exist.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS offer_picked_clients (
+        offer_id  BIGINT  NOT NULL REFERENCES offers(id) ON DELETE CASCADE,
+        client_id INTEGER NOT NULL REFERENCES users(id)  ON DELETE CASCADE,
+        PRIMARY KEY (offer_id, client_id)
+      );
+    `);
+
+    // NOT `promo_codes`. That table already exists in production with a
+    // different shape (code/credits/max_redemptions/redeemed_count) and holds
+    // live customer codes behind the Promo Codes CRM. CREATE TABLE IF NOT
+    // EXISTS would silently no-op against it and every offer_id/uses query
+    // would then fail at runtime. Offers get their own table by the owner's
+    // decision (2026-08-07).
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS offer_codes (
+        id       BIGSERIAL   PRIMARY KEY,
+        offer_id BIGINT      NOT NULL REFERENCES offers(id) ON DELETE CASCADE,
+        code     VARCHAR(30) NOT NULL UNIQUE,
+        uses     INT         NOT NULL DEFAULT 0,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS offer_redemptions (
+        id                       BIGSERIAL   PRIMARY KEY,
+        offer_id                 BIGINT      NOT NULL REFERENCES offers(id) ON DELETE CASCADE,
+        client_id                INTEGER     NOT NULL REFERENCES users(id)  ON DELETE CASCADE,
+        subscription_or_order_id BIGINT,
+        amount_saved             NUMERIC(10,2),
+        bonus_credits_granted    NUMERIC(10,2),
+        redeemed_at              TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS offer_redemptions_offer_idx ON offer_redemptions (offer_id);`);
+    await client.query(`CREATE INDEX IF NOT EXISTS offer_redemptions_client_idx ON offer_redemptions (client_id, offer_id);`);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS saved_segments (
+        id           SERIAL       PRIMARY KEY,
+        name         VARCHAR(60)  NOT NULL,
+        segment_json JSONB        NOT NULL,
+        created_by   VARCHAR(80),
+        created_at   TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+      );
+    `);
+
     // ── seed, ONCE ────────────────────────────────────────────────
     // Deliberately insert-only. A boot must never overwrite a cost the owner
     // has edited in the CRM, so ON CONFLICT DO NOTHING is the whole point:
