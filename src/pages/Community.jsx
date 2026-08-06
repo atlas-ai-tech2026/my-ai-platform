@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import MediaCard from '@/components/common/MediaCard';
 import { communityFeed } from '@/components/data/siteData';
-import { Trophy, Video, Image, Sparkles, Users, Palette, Award } from 'lucide-react';
+import { Trophy, Video, Sparkles, Users, Palette } from 'lucide-react';
 
 const stats = [
   { label: 'Videos Generated', value: '4M+', icon: Video },

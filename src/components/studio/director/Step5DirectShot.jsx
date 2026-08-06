@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { base44 } from '@/api/base44Client';
-import { Sparkles, RefreshCw, ChevronRight, ChevronDown } from 'lucide-react';
-import { Pill, SectionLabel, StyledTextarea, StyledInput, RedButton, GhostButton, ErrorBanner, LockedAssets, stepStyles } from './DirectorShared';
+import { Sparkles, RefreshCw } from 'lucide-react';
+import { Pill, SectionLabel, StyledTextarea, RedButton, GhostButton, ErrorBanner, LockedAssets, stepStyles } from './DirectorShared';
 
 const CAMERA_ANGLES = ['Wide Shot', 'Medium Shot', 'Close-Up', 'Extreme Close-Up', 'Over the Shoulder', "Bird's Eye View", 'Low Angle', 'Dutch Angle', 'POV'];
 const LIGHTING = ['Natural', 'Cinematic', 'Golden Hour', 'Night', 'Studio', 'Dramatic', 'Neon', 'Backlit', 'Foggy', 'Harsh Midday'];

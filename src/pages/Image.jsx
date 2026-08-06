@@ -19,7 +19,7 @@ const STYLE_SUFFIXES = {
 };
 import TemplateModal from '@/components/common/TemplateModal';
 import ImageDetailModal from '@/components/image/ImageDetailModal';
-import { History, Globe, Heart, Download, RefreshCw, Maximize2, Sparkles, X } from 'lucide-react';
+import { History, Globe, Heart, Download, RefreshCw, Maximize2, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '@/lib/AuthContext';
 

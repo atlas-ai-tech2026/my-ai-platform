@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { X, Play, Pause, Download, Heart, Share2, Copy, Volume2, VolumeX, Maximize, ChevronLeft, ChevronRight, RefreshCw, RotateCcw } from 'lucide-react';
+import { X, Play, Pause, Download, Heart, Share2, Copy, Volume2, VolumeX, ChevronLeft, ChevronRight, RefreshCw, RotateCcw } from 'lucide-react';
 
 const font = '"DM Sans", sans-serif';
 

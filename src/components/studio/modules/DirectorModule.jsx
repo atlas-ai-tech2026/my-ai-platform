@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Lock, Film } from 'lucide-react';
+import { Lock } from 'lucide-react';
 import StoryboardTab from '@/components/studio/director/StoryboardTab';
 import AnimateTab from '@/components/studio/director/AnimateTab';
 

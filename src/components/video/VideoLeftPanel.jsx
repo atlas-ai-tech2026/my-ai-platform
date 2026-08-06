@@ -11,7 +11,7 @@
 // count stepper, generate handler — is identical to the previous
 // version; we only rewrote the rendering.
 import React, { useState } from 'react';
-import { ArrowLeft, ChevronDown, Minus, Plus, ArrowLeftRight, Zap, Music, Monitor, Clock, RatioIcon, Video } from 'lucide-react';
+import { ArrowLeft, ChevronDown, Minus, Plus, ArrowLeftRight, Zap, Video } from 'lucide-react';
 import { toast } from 'sonner';
 import { OptionChip, PopoverChip } from './videoChipAtoms';
 import { getVideoCredits } from '@/lib/creditPricing';

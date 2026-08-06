@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Search, Download, Trash2, Play, X } from 'lucide-react';
+import { Search, Download, X } from 'lucide-react';
 
 const FILTER_TABS = ['All', 'Images', 'Videos', 'Audio', 'Characters', 'Locations'];
 

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { base44 } from '@/api/base44Client';
 import { Sparkles, ChevronRight } from 'lucide-react';
-import { Pill, SectionLabel, StyledTextarea, RedButton, ImageGrid, ErrorBanner, LockedAssets, stepStyles } from './DirectorShared';
+import { Pill, SectionLabel, StyledTextarea, RedButton, ErrorBanner, LockedAssets, stepStyles } from './DirectorShared';
 
 const LOCATION_TYPES = ['Interior', 'Exterior'];
 const ENVIRONMENTS = ['City Street', 'Forest', 'Beach', 'Desert', 'Office', 'Luxury Home', 'Studio', 'Rooftop', 'Underground', 'Space', 'Fantasy World', 'Historical', 'Custom'];
