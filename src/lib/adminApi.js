@@ -131,6 +131,9 @@ export const adminApi = {
   costingAudit:    (limit = 100) => request('GET',    `/api/costing/audit?limit=${limit}`),
   costingSettings: (body)        => request('PATCH',  '/api/costing/settings', body),
   costingModel:    (id, body)    => request('PATCH',  `/api/costing/models/${id}`, body),
+  // "New models": what a provider offers that the website does not sell yet.
+  costingDismissCatalog: (id, dismissed = true) =>
+    request('POST', `/api/costing/catalog/${id}/dismiss`, { dismissed }),
   costingSaveDraft:(plans)       => request('PUT',    '/api/costing/plans/draft', { plans }),
   costingApprove:  ()            => request('POST',   '/api/costing/plans/approve'),
   costingDiscard:  ()            => request('DELETE', '/api/costing/plans/draft'),
