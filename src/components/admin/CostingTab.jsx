@@ -102,6 +102,14 @@ export default function CostingTab({ onError }) {
     });
   }, [state]);
 
+  const dismissCatalog = useCallback(async (id, dismissed) => {
+    setBusy(true);
+    try {
+      setState(await adminApi.costingDismissCatalog(id, dismissed));
+    } catch (e) { onError?.(e, 'Could not update that model'); }
+    finally { setBusy(false); }
+  }, [onError]);
+
   const approvePlans = useCallback(async () => {
     setBusy(true);
     try {
@@ -187,6 +195,7 @@ export default function CostingTab({ onError }) {
           ['models', 'Model Credits'],
           ['plans', 'Plans'],
           ['profit', 'Profit Check'],
+          ['new', `New Models${state.catalog?.length ? ` (${state.catalog.length})` : ''}`],
           ['coverage', `Coverage${state.coverage.uncosted_total ? ` (${state.coverage.uncosted_total})` : ''}`],
           ['audit', 'Audit'],
         ].map(([id, label]) => (
@@ -213,6 +222,11 @@ export default function CostingTab({ onError }) {
 
       {tab === 'profit' && (
         <ProfitTable state={state} basis={basis} setBasis={setBasis} />
+      )}
+
+      {tab === 'new' && (
+        <NewModels rows={state.catalog || []} busy={busy}
+          onDismiss={dismissCatalog} settings={S} />
       )}
 
       {tab === 'coverage' && <Coverage report={state.coverage} />}
@@ -468,6 +482,129 @@ function ProfitTable({ state, basis, setBasis }) {
 }
 
 /* ── Coverage ──────────────────────────────────────────────────────── */
+// ─── New Models ──────────────────────────────────────────────────────────────
+// What a provider offers that the website does not sell yet — the onboarding
+// queue, in its own VIOLET so it can never be mistaken for the amber
+// "COST NEEDED" rows. The two mean different things and must not look alike:
+//   amber  = we sell this, but no supplier cost is recorded → margin unknown
+//   violet = we do NOT sell this yet → nothing to have a margin on
+const VIOLET = '#a78bfa';
+const VIOLET_BG = 'rgba(167,139,250,0.10)';
+const VIOLET_LINE = 'rgba(167,139,250,0.30)';
+
+function NewModels({ rows, busy, onDismiss, settings }) {
+  const [showDismissed, setShowDismissed] = useState(false);
+  const priced = rows.filter((r) => r.price_usd != null);
+
+  // What we WOULD charge, if the provider price is known. Uses the same credit
+  // value the rest of the screen uses, so the number is comparable — but it is
+  // an indication only: nothing here is sold yet.
+  const indicativeCredits = (r) => {
+    if (r.price_usd == null || !settings) return null;
+    const target = Number(settings.margin_target);
+    const cv = Number(settings.credit_value);
+    if (!(target > 0 && target < 1) || !(cv > 0)) return null;
+    return Math.ceil((r.price_usd / (1 - target)) / cv * 2 - 1e-9) / 2;
+  };
+
+  return (
+    <div>
+      <div style={{
+        padding: '10px 14px', marginBottom: 14, borderRadius: 10, fontSize: 13,
+        background: VIOLET_BG, border: `1px solid ${VIOLET_LINE}`, color: 'rgba(255,255,255,0.85)',
+      }}>
+        <b>Models the provider offers that the website does not sell yet.</b> Checked daily
+        against fal.ai's public catalogue. Nothing here is charged to anyone — before a model
+        joins the table above it needs to be added to the site, connected to a provider, given
+        a cost and given a credit value.
+      </div>
+
+      <div style={{ display: 'grid', gap: 10, marginBottom: 14,
+        gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))' }}>
+        <Stat label="Available, not sold" value={num(rows.length)} note="found at the provider" color={VIOLET} />
+        <Stat label="With a provider price" value={num(priced.length)}
+          note={`${rows.length - priced.length} price unknown`} />
+      </div>
+
+      {!rows.length ? (
+        <div style={{ ...panel, ...muted }}>
+          Nothing new. Either the daily check has not run yet, or every model the provider
+          offers is already on the website.
+        </div>
+      ) : (
+        <div style={{ ...panel, padding: 0, overflowX: 'auto' }}>
+          <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: 13 }}>
+            <thead>
+              <tr>
+                <th style={{ ...th, textAlign: 'left' }}>Model</th>
+                <th style={{ ...th, textAlign: 'left' }}>Maker</th>
+                <th style={{ ...th, textAlign: 'left' }}>Type</th>
+                <th style={th}>Provider cost</th>
+                <th style={th}>Credits (indicative)</th>
+                <th style={{ ...th, textAlign: 'left' }}>Appeared</th>
+                <th style={th}></th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => {
+                const cr = indicativeCredits(r);
+                return (
+                  <tr key={r.id} style={{
+                    borderTop: '1px solid rgba(255,255,255,0.06)',
+                    background: VIOLET_BG,
+                  }}>
+                    <td style={{ ...td, textAlign: 'left', color: '#fff', fontWeight: 600 }}>
+                      {r.family}
+                      <span style={{
+                        marginLeft: 8, padding: '1px 6px', borderRadius: 5, fontSize: 10,
+                        fontWeight: 700, letterSpacing: 0.4,
+                        background: 'rgba(167,139,250,0.20)', color: VIOLET,
+                      }}>NEW</span>
+                      {r.endpoints > 1 && (
+                        <span style={{ ...muted, marginLeft: 8, fontSize: 11 }}>
+                          {r.endpoints} variants
+                        </span>
+                      )}
+                    </td>
+                    <td style={{ ...td, textAlign: 'left' }}>{r.lab || '—'}</td>
+                    <td style={{ ...td, textAlign: 'left' }}>{r.category || '—'}</td>
+                    <td style={td}>
+                      {r.price_usd == null
+                        // Never render 0. The provider states a price we refuse
+                        // to parse (token or per-megapixel billing) — saying
+                        // "unknown" is honest; saying $0 is not.
+                        ? <span style={{ ...muted }}>unknown</span>
+                        : <>{money(r.price_usd)}<span style={{ ...muted, fontSize: 11 }}> /{r.price_unit}</span></>}
+                    </td>
+                    <td style={td}>{cr == null ? <span style={muted}>—</span> : cr.toFixed(1)}</td>
+                    <td style={{ ...td, textAlign: 'left' }}>
+                      {r.first_seen ? String(r.first_seen).slice(0, 10) : '—'}
+                    </td>
+                    <td style={td}>
+                      <button disabled={busy} onClick={() => onDismiss(r.id, true)} style={{
+                        border: '1px solid rgba(255,255,255,0.14)', background: 'none',
+                        color: 'rgba(255,255,255,0.6)', borderRadius: 7, padding: '4px 10px',
+                        fontSize: 11.5, cursor: busy ? 'wait' : 'pointer', fontFamily: 'inherit',
+                      }}>Hide</button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <p style={{ ...muted, marginTop: 10, fontSize: 12.5 }}>
+        Matching is by name, so a model you already sell under a different name can appear
+        here — press <b>Hide</b> and it will not come back. Only fal.ai is checked
+        automatically: kie.ai publishes no catalogue API, so kie costs still come from the
+        recorded table and from what you enter.
+      </p>
+    </div>
+  );
+}
+
 function Coverage({ report }) {
   return (
     <div>

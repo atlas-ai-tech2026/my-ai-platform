@@ -107,6 +107,21 @@ export function registerCostingRoutes(app, deps) {
     return { settings: S, models: M, plans: P, drafts: drafts.rows };
   }
 
+  /** Models a provider offers that we do not sell — the onboarding queue. */
+  async function loadCatalog() {
+    const { rows } = await pool.query(
+      `SELECT * FROM pricing_catalog_models
+        WHERE dismissed = FALSE
+        ORDER BY first_seen DESC NULLS LAST, family ASC`
+    );
+    return rows.map((r) => ({
+      ...r,
+      // Same rule as pricing_models: Number(null) is 0, and a 0 here would
+      // read as a free model. Keep the null so the screen says "unknown".
+      price_usd: r.price_usd == null ? null : Number(r.price_usd),
+    }));
+  }
+
   /** The server computes every derived number, so the screen can never show a
    *  figure the backend disagrees with. */
   function decorate({ settings, models, plans, drafts }) {
@@ -154,10 +169,47 @@ export function registerCostingRoutes(app, deps) {
   app.get('/api/costing/state', adminGate, async (req, res) => {
     if (!dbReady()) return res.status(503).json({ error: 'Database not configured.' });
     try {
-      res.json(decorate(await loadState()));
+      const state = decorate(await loadState());
+      // The catalogue is a separate table and a separate concern; if it is
+      // missing (older database, migration not yet run) the rest of the screen
+      // must still load rather than 500.
+      state.catalog = await loadCatalog().catch(() => []);
+      res.json(state);
     } catch (e) {
       console.error('[costing/state]', e);
       res.status(500).json({ error: 'Could not load costing state.' });
+    }
+  });
+
+  // ── provider catalogue: dismiss / restore ─────────────────────────
+  // Name matching between fal's catalogue and our labels cannot be exact, so
+  // the owner needs a way to say "we already have this" permanently. Dismissal
+  // is reversible and never deletes the row — the sync's ON CONFLICT DO
+  // NOTHING then leaves it dismissed forever.
+  app.post('/api/costing/catalog/:id/dismiss', adminGate, async (req, res) => {
+    if (!dbReady()) return res.status(503).json({ error: 'Database not configured.' });
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isInteger(id)) return res.status(400).json({ error: 'Bad id.' });
+    const dismissed = req.body?.dismissed !== false;
+    try {
+      const { rows } = await pool.query(
+        `UPDATE pricing_catalog_models
+            SET dismissed = $2, dismissed_at = CASE WHEN $2 THEN NOW() ELSE NULL END
+          WHERE id = $1 RETURNING family`,
+        [id, dismissed]
+      );
+      if (!rows.length) return res.status(404).json({ error: 'Not found.' });
+      await pool.query(
+        `INSERT INTO pricing_audit_log (entity, entity_id, field, new_value, changed_by, note)
+         VALUES ('catalog', $1, 'dismissed', $2, $3, $4)`,
+        [id, String(dismissed), req.user?.email || 'admin', rows[0].family]
+      ).catch(() => {});
+      const state = decorate(await loadState());
+      state.catalog = await loadCatalog();
+      res.json(state);
+    } catch (e) {
+      console.error('[costing/catalog/dismiss]', e);
+      res.status(500).json({ error: 'Could not update the catalogue entry.' });
     }
   });
 
