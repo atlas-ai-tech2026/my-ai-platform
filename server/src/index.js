@@ -48,6 +48,7 @@ import {
 } from './download-guard.js';
 // H2 (audit 2026-07-28): /api/upload content-type policy.
 import { validateUpload } from './upload-guard.js';
+import { registerCostingRoutes } from './costing-routes.js';
 // H3 (audit 2026-07-28): hard deadline on synchronous provider calls.
 import { withProviderDeadline, ProviderTimeoutError } from './provider-deadline.js';
 // M1 (audit 2026-07-28): keep credentials out of the admin audit log.
@@ -3635,6 +3636,12 @@ function requireCsrf(req, res, next) {
 // One handy gate to apply to every admin route: rate limit, auth, role,
 // CSRF (state-changing cookie requests only), audit.
 const adminGate = [adminLimiter, verifyJwt, requireAdmin, requireCsrf, adminAudit];
+
+// ─── CRM COSTING (2026-08-06) ──────────────────────────────────────
+// Own module: index.js is past the ~1500-line split threshold in CLAUDE.md and
+// costing is self-contained. It reads and writes only the pricing_* tables —
+// server/src/pricing.js remains the single authority for charging (C1).
+registerCostingRoutes(app, { pool, dbReady, adminGate });
 
 // ─── ADMIN: LIST USERS (paginated) ──────────────────────────────────
 app.get('/api/admin/users', adminGate, async (req, res) => {

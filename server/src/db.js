@@ -17,6 +17,7 @@
 // FAL-only deploys keep working. Auth routes check isReady() and return 503.
 
 import pg from 'pg';
+import { COSTING_SEED as COSTING_MODELS_SEED, SEED_PLANS as COSTING_PLANS_SEED } from './costing-seed.js';
 import dotenv from 'dotenv';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -215,6 +216,117 @@ export async function migrate() {
     // redemption lookups by code_id do — this is what makes the "who redeemed
     // it" list instant rather than a scan.
     await client.query(`CREATE INDEX IF NOT EXISTS promo_redemptions_code_idx ON promo_redemptions (code_id, created_at DESC);`);
+
+    // ─── CRM COSTING (2026-08-06) ───────────────────────────────────
+    // Management calculator for what prices SHOULD be. It does NOT charge
+    // anybody — server/src/pricing.js remains the single charging authority
+    // (finding C1). Moving a number here changes nothing a customer sees.
+    // Every table is prefixed so none of it is mistaken for the charge path.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS pricing_settings (
+        id              SMALLINT      PRIMARY KEY DEFAULT 1,
+        margin_target   NUMERIC(6,4)  NOT NULL DEFAULT 0.4000,
+        credit_value    NUMERIC(12,8) NOT NULL DEFAULT 0.06333333,
+        alert_threshold NUMERIC(6,4)  NOT NULL DEFAULT 0,
+        last_fetch_at   TIMESTAMPTZ,
+        CONSTRAINT pricing_settings_singleton CHECK (id = 1)
+      );
+    `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS pricing_models (
+        id               SERIAL        PRIMARY KEY,
+        category         VARCHAR(20)   NOT NULL,
+        model_name       VARCHAR(80)   NOT NULL,
+        variant          VARCHAR(80),
+        resolution       VARCHAR(40),
+        unit             VARCHAR(20)   NOT NULL,
+        kie_cost         NUMERIC(12,6) NOT NULL,
+        fal_cost         NUMERIC(12,6),
+        credits_override NUMERIC(8,1),
+        margin_override  NUMERIC(6,4),
+        kie_source_url   VARCHAR(300),
+        kie_match        VARCHAR(200),
+        fal_source_url   VARCHAR(300),
+        fal_match        VARCHAR(200),
+        is_active        BOOLEAN       NOT NULL DEFAULT TRUE,
+        sort_order       INT           NOT NULL,
+        updated_at       TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
+        updated_by       VARCHAR(80)
+      );
+    `);
+    // Identity = model + variant + resolution. This is what makes re-running
+    // the seed idempotent instead of duplicating all 50 rows on every boot.
+    await client.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS pricing_models_identity_idx
+        ON pricing_models (model_name, COALESCE(variant,''), COALESCE(resolution,''));
+    `);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS pricing_plans (
+        id               SERIAL        PRIMARY KEY,
+        name             VARCHAR(40)   NOT NULL,
+        price_usd        NUMERIC(10,2) NOT NULL,
+        credits_override INT,
+        sort_order       INT           NOT NULL UNIQUE
+      );
+    `);
+    // Draft edits live apart from the published row, so nothing customer-facing
+    // moves until someone approves. One draft per plan.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS pricing_plan_drafts (
+        plan_id          INT           PRIMARY KEY REFERENCES pricing_plans(id) ON DELETE CASCADE,
+        name             VARCHAR(40)   NOT NULL,
+        price_usd        NUMERIC(10,2) NOT NULL,
+        credits_override INT,
+        created_by       VARCHAR(80),
+        created_at       TIMESTAMPTZ   NOT NULL DEFAULT NOW()
+      );
+    `);
+    // Every cost, credit, target, plan and setting change lands here. The brief
+    // makes this non-negotiable: pricing changes must be attributable.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS pricing_audit_log (
+        id          BIGSERIAL     PRIMARY KEY,
+        entity      VARCHAR(20)   NOT NULL,
+        entity_id   INT,
+        field       VARCHAR(40)   NOT NULL,
+        old_value   VARCHAR(80),
+        new_value   VARCHAR(80),
+        changed_by  VARCHAR(80)   NOT NULL,
+        note        VARCHAR(200),
+        changed_at  TIMESTAMPTZ   NOT NULL DEFAULT NOW()
+      );
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS pricing_audit_time_idx ON pricing_audit_log (changed_at DESC);`);
+
+    // ── seed, ONCE ────────────────────────────────────────────────
+    // Deliberately insert-only. A boot must never overwrite a cost the owner
+    // has edited in the CRM, so ON CONFLICT DO NOTHING is the whole point:
+    // the seed establishes a starting picture and then gets out of the way.
+    await client.query(`
+      INSERT INTO pricing_settings (id, margin_target, credit_value)
+      VALUES (1, 0.4000, 0.06333333)
+      ON CONFLICT (id) DO NOTHING;
+    `);
+    for (const p of COSTING_PLANS_SEED) {
+      await client.query(
+        `INSERT INTO pricing_plans (name, price_usd, sort_order)
+         VALUES ($1, $2, $3) ON CONFLICT (sort_order) DO NOTHING`,
+        [p.name, p.price_usd, p.sort_order]
+      );
+    }
+    for (const m of COSTING_MODELS_SEED) {
+      await client.query(
+        `INSERT INTO pricing_models
+           (category, model_name, variant, resolution, unit, kie_cost, fal_cost, sort_order, updated_by)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'seed')
+         ON CONFLICT (model_name, COALESCE(variant,''), COALESCE(resolution,'')) DO NOTHING`,
+        [m.category, m.model_name, m.variant, m.resolution, m.unit, m.kie_cost, m.fal_cost, m.sort]
+      );
+    }
+    {
+      const { rows } = await client.query('SELECT COUNT(*)::int AS n FROM pricing_models');
+      console.log(`[db] costing: ${rows[0].n} model rows priced`);
+    }
 
     await client.query(`
       CREATE TABLE IF NOT EXISTS gift_cards (

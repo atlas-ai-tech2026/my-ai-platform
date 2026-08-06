@@ -168,3 +168,29 @@ describe('plan quantities', () => {
     expect(profitMargin(m, basic, S, basisOf(m))).toBeGreaterThan(marginVsBasis(m, S));
   });
 });
+
+describe('stored precision cannot silently move a price', () => {
+  // The engine's anchor is the exact fraction 19/300, but the database column
+  // is NUMERIC(12,8), so it round-trips as 0.06333333. With CEILING-to-half
+  // rounding a tiny difference CAN flip a row that sits on a boundary — it
+  // just does not for the current 50. This test is here so the day someone
+  // adds a model on a knife-edge, the build says so instead of the margin
+  // quietly moving.
+  const exact = { margin_target: 0.40, credit_value: 19 / 300 };
+  const stored = { margin_target: 0.40, credit_value: 0.06333333 };
+
+  it('every seed row prices identically at the stored precision', () => {
+    const moved = COSTING_SEED
+      .filter((m) => autoCredits(m, exact) !== autoCredits(m, stored))
+      .map((m) => `${m.model_name} ${m.resolution ?? ''}`.trim());
+    expect(moved).toEqual([]);
+  });
+
+  it('demonstrates the boundary this protects against', () => {
+    // A contrived cost landing exactly on a half-credit line: proof the guard
+    // is meaningful rather than vacuous.
+    const knifeEdge = { kie_cost: 4 * 0.6 * (19 / 300), fal_cost: null };
+    expect(autoCredits(knifeEdge, exact)).toBe(4);          // EPS keeps it at 4
+    expect(autoCredits({ kie_cost: knifeEdge.kie_cost + 1e-6, fal_cost: null }, exact)).toBe(4.5);
+  });
+});
