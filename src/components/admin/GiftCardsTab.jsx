@@ -81,7 +81,7 @@ export default function GiftCardsTab({ onError }) {
 
   return (
     <div>
-      <div style={{ color: 'rgba(255,255,255,0.4)', fontSize: 13, marginBottom: 16 }}>
+      <div style={{ color: 'var(--crm-w40)', fontSize: 13, marginBottom: 16 }}>
         Single-use voucher codes — each card is redeemable exactly once, by any
         user, from the redeem box in their account. Generate a batch, export the
         codes, hand them out.
@@ -123,7 +123,7 @@ export default function GiftCardsTab({ onError }) {
             </button>
           </div>
         </FieldRow>
-        <div style={{ color: 'rgba(255,255,255,0.4)', fontSize: 11.5, marginTop: 10 }}>
+        <div style={{ color: 'var(--crm-w40)', fontSize: 11.5, marginTop: 10 }}>
           Boxes marked <span style={{ color: '#f87171', fontWeight: 700 }}>*</span> must be filled ·
           press <b>ⓘ</b> beside a box to see exactly what it expects.
         </div>
@@ -136,7 +136,7 @@ export default function GiftCardsTab({ onError }) {
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
               {lastBatch.map(g => (
                 <code key={g.id} onClick={() => copy(g.code)} title="Click to copy"
-                  style={{ fontFamily: '"JetBrains Mono", monospace', fontSize: 12, padding: '4px 8px', borderRadius: 6, background: 'rgba(255,255,255,0.06)', cursor: 'pointer' }}>
+                  style={{ fontFamily: '"JetBrains Mono", monospace', fontSize: 12, padding: '4px 8px', borderRadius: 6, background: 'var(--crm-w06)', cursor: 'pointer' }}>
                   {g.code}
                 </code>
               ))}
@@ -155,12 +155,12 @@ export default function GiftCardsTab({ onError }) {
         <button onClick={load} style={btnStyle}>⟳ Refresh</button>
         <button onClick={() => exportBatchCsv(cards, status)} disabled={!cards?.length} style={btnStyle}>⬇ Export view CSV</button>
         {cards && (
-          <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)' }}>
+          <span style={{ fontSize: 12, color: 'var(--crm-w40)' }}>
             {cards.filter(c => !c.redeemed_by).length} unused · {cards.filter(c => c.redeemed_by).length} redeemed
           </span>
         )}
       </div>
-      <div style={{ overflowX: 'auto', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12 }}>
+      <div style={{ overflowX: 'auto', border: '1px solid var(--crm-w08)', borderRadius: 12 }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
           <thead>
             <tr>
@@ -173,7 +173,7 @@ export default function GiftCardsTab({ onError }) {
             {cards === null && <tr><td colSpan={6} style={emptyStyle}>Loading…</td></tr>}
             {cards?.length === 0 && <tr><td colSpan={6} style={emptyStyle}>No gift cards {status !== 'all' ? `(${status})` : ''} yet.</td></tr>}
             {cards?.map(g => (
-              <tr key={g.id} style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+              <tr key={g.id} style={{ borderTop: '1px solid var(--crm-w06)' }}>
                 <td style={{ ...tdStyle, fontFamily: '"JetBrains Mono", monospace', cursor: 'pointer' }}
                   onClick={() => copy(g.code)} title="Click to copy">
                   {g.code}
@@ -191,9 +191,9 @@ export default function GiftCardsTab({ onError }) {
                     </span>
                   )}
                 </td>
-                <td style={{ ...tdStyle, color: 'rgba(255,255,255,0.55)', maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis' }}>{g.note || '—'}</td>
+                <td style={{ ...tdStyle, color: 'var(--crm-w55)', maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis' }}>{g.note || '—'}</td>
                 <td style={tdStyle}>{g.expires_at ? new Date(g.expires_at).toLocaleDateString() : 'never'}</td>
-                <td style={{ ...tdStyle, color: 'rgba(255,255,255,0.4)' }}>{new Date(g.created_at).toLocaleDateString()}</td>
+                <td style={{ ...tdStyle, color: 'var(--crm-w40)' }}>{new Date(g.created_at).toLocaleDateString()}</td>
               </tr>
             ))}
           </tbody>
@@ -206,13 +206,13 @@ export default function GiftCardsTab({ onError }) {
 const invalidStyle = { border: '1px solid #f87171', background: 'rgba(248,113,113,0.08)' };
 const inputStyle = {
   height: 36, padding: '0 12px', borderRadius: 10,
-  background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)',
-  color: '#fff', fontSize: 13, outline: 'none', fontFamily: 'inherit', colorScheme: 'dark',
+  background: 'var(--crm-w04)', border: '1px solid var(--crm-w10)',
+  color: 'var(--crm-ink)', fontSize: 13, outline: 'none', fontFamily: 'inherit', colorScheme: 'dark',
 };
 const btnStyle = {
   height: 32, padding: '0 12px', borderRadius: 10, cursor: 'pointer',
-  background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)',
-  color: '#fff', fontSize: 12, fontWeight: 600, fontFamily: 'inherit',
+  background: 'var(--crm-w06)', border: '1px solid var(--crm-w12)',
+  color: 'var(--crm-ink)', fontSize: 12, fontWeight: 600, fontFamily: 'inherit',
 };
 const primaryBtnStyle = {
   height: 36, padding: '0 16px', borderRadius: 10, cursor: 'pointer',
@@ -220,13 +220,13 @@ const primaryBtnStyle = {
   fontFamily: 'inherit',
 };
 const panelStyle = {
-  background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)',
+  background: 'var(--crm-w03)', border: '1px solid var(--crm-w08)',
   borderRadius: 12, padding: 16,
 };
-const panelTitleStyle = { fontSize: 13, fontWeight: 600, color: 'rgba(255,255,255,0.6)', marginBottom: 12 };
+const panelTitleStyle = { fontSize: 13, fontWeight: 600, color: 'var(--crm-w60)', marginBottom: 12 };
 const thStyle = {
   textAlign: 'left', padding: '10px 14px', fontSize: 12, fontWeight: 600,
-  color: 'rgba(255,255,255,0.45)', background: 'rgba(255,255,255,0.03)', whiteSpace: 'nowrap',
+  color: 'var(--crm-w45)', background: 'var(--crm-w03)', whiteSpace: 'nowrap',
 };
-const tdStyle = { padding: '10px 14px', color: 'rgba(255,255,255,0.85)', whiteSpace: 'nowrap' };
-const emptyStyle = { padding: 32, textAlign: 'center', color: 'rgba(255,255,255,0.35)' };
+const tdStyle = { padding: '10px 14px', color: 'var(--crm-w85)', whiteSpace: 'nowrap' };
+const emptyStyle = { padding: 32, textAlign: 'center', color: 'var(--crm-w35)' };

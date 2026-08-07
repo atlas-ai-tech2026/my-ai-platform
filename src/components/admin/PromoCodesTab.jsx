@@ -211,7 +211,7 @@ export default function PromoCodesTab({ onError }) {
 
   return (
     <div>
-      <div style={{ color: 'rgba(255,255,255,0.4)', fontSize: 13, marginBottom: 16 }}>
+      <div style={{ color: 'var(--crm-w40)', fontSize: 13, marginBottom: 16 }}>
         Reusable marketing codes. Each user can redeem a code once; the optional
         “max redemptions” caps total uses across all users. Users enter codes in
         their account’s Promocode section.
@@ -284,7 +284,7 @@ export default function PromoCodesTab({ onError }) {
             </button>
           </div>
         </FieldRow>
-        <div style={{ color: 'rgba(255,255,255,0.4)', fontSize: 11.5, marginTop: 10 }}>
+        <div style={{ color: 'var(--crm-w40)', fontSize: 11.5, marginTop: 10 }}>
           Boxes marked <span style={{ color: '#f87171', fontWeight: 700 }}>*</span> must be filled ·
           press <b>ⓘ</b> beside a box to see exactly what it expects.
         </div>
@@ -301,13 +301,13 @@ export default function PromoCodesTab({ onError }) {
         {query && (
           <button onClick={() => setQuery('')} style={btnStyle}>Clear</button>
         )}
-        <span style={{ color: 'rgba(255,255,255,0.4)', fontSize: 12 }}>
+        <span style={{ color: 'var(--crm-w40)', fontSize: 12 }}>
           {promos ? `${visible.length} of ${promos.length}` : ''}
         </span>
       </div>
 
       {/* List */}
-      <div style={{ overflowX: 'auto', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12, marginTop: 12 }}>
+      <div style={{ overflowX: 'auto', border: '1px solid var(--crm-w08)', borderRadius: 12, marginTop: 12 }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
           <thead>
             <tr>
@@ -329,14 +329,14 @@ export default function PromoCodesTab({ onError }) {
               const rows = redemptions[p.id];
               return (
                 <React.Fragment key={p.id}>
-                  <tr style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                  <tr style={{ borderTop: '1px solid var(--crm-w06)' }}>
                     <td style={{ ...tdStyle, maxWidth: 280 }}>
                       {isEditing ? (
                         <input value={editDescription} onChange={e => setEditDescription(e.target.value)}
                           placeholder="Who is this for?" autoFocus
                           style={{ ...inputStyle, width: '100%', minWidth: 200 }} />
                       ) : (
-                        <span style={{ color: p.description ? '#fff' : 'rgba(255,255,255,0.3)' }}>
+                        <span style={{ color: p.description ? 'var(--crm-ink)' : 'var(--crm-w30)' }}>
                           {p.description || '—'}
                         </span>
                       )}
@@ -352,7 +352,7 @@ export default function PromoCodesTab({ onError }) {
                         title={p.redeemed_count ? 'Show the accounts that redeemed this' : 'Nobody has redeemed this yet'}
                         style={{
                           ...btnStyle, padding: '2px 10px',
-                          color: p.redeemed_count ? '#fff' : 'rgba(255,255,255,0.4)',
+                          color: p.redeemed_count ? 'var(--crm-ink)' : 'var(--crm-w40)',
                         }}>
                         {p.redeemed_count}{p.max_redemptions != null ? ` / ${p.max_redemptions}` : ' / ∞'}
                         {p.redeemed_count > 0 && <span style={{ marginLeft: 6 }}>{isExpanded ? '▾' : '▸'}</span>}
@@ -376,7 +376,7 @@ export default function PromoCodesTab({ onError }) {
                         {status.label}
                       </span>
                     </td>
-                    <td style={{ ...tdStyle, color: 'rgba(255,255,255,0.4)' }}>{new Date(p.created_at).toLocaleDateString()}</td>
+                    <td style={{ ...tdStyle, color: 'var(--crm-w40)' }}>{new Date(p.created_at).toLocaleDateString()}</td>
                     <td style={{ ...tdStyle, whiteSpace: 'nowrap' }}>
                       {isEditing ? (
                         <>
@@ -400,17 +400,17 @@ export default function PromoCodesTab({ onError }) {
 
                   {/* Who redeemed it — the accounts behind the count. */}
                   {isExpanded && (
-                    <tr style={{ background: 'rgba(255,255,255,0.02)' }}>
+                    <tr style={{ background: 'var(--crm-w03)' }}>
                       <td colSpan={COLS} style={{ padding: '12px 14px 16px' }}>
-                        {!rows && <div style={{ color: 'rgba(255,255,255,0.4)', fontSize: 12 }}>Loading…</div>}
+                        {!rows && <div style={{ color: 'var(--crm-w40)', fontSize: 12 }}>Loading…</div>}
                         {rows?.length === 0 && (
-                          <div style={{ color: 'rgba(255,255,255,0.4)', fontSize: 12 }}>
+                          <div style={{ color: 'var(--crm-w40)', fontSize: 12 }}>
                             Nobody has redeemed {p.code} yet.
                           </div>
                         )}
                         {rows?.length > 0 && (
                           <>
-                            <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: 12, marginBottom: 8 }}>
+                            <div style={{ color: 'var(--crm-w50)', fontSize: 12, marginBottom: 8 }}>
                               {rows.length} account{rows.length === 1 ? '' : 's'} redeemed {p.code}
                             </div>
                             <div style={{
@@ -422,12 +422,12 @@ export default function PromoCodesTab({ onError }) {
                                 <div key={r.user_id} style={{
                                   display: 'flex', justifyContent: 'space-between', gap: 10,
                                   padding: '6px 10px', borderRadius: 8,
-                                  background: 'rgba(255,255,255,0.04)', fontSize: 12,
+                                  background: 'var(--crm-w04)', fontSize: 12,
                                 }}>
-                                  <span style={{ color: r.banned ? '#f87171' : '#fff' }}>
+                                  <span style={{ color: r.banned ? '#f87171' : 'var(--crm-ink)' }}>
                                     {r.email}{r.banned ? ' (banned)' : ''}
                                   </span>
-                                  <span style={{ color: 'rgba(255,255,255,0.4)', whiteSpace: 'nowrap' }}>
+                                  <span style={{ color: 'var(--crm-w40)', whiteSpace: 'nowrap' }}>
                                     {new Date(r.created_at).toLocaleDateString()}
                                   </span>
                                 </div>
@@ -451,19 +451,19 @@ export default function PromoCodesTab({ onError }) {
 function Stat({ label, value, note, color }) {
   return (
     <div style={{
-      padding: '14px 16px', background: 'rgba(255,255,255,0.03)',
-      border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12,
+      padding: '14px 16px', background: 'var(--crm-w03)',
+      border: '1px solid var(--crm-w08)', borderRadius: 12,
     }}>
       <div style={{
         fontSize: 11, fontWeight: 600, textTransform: 'uppercase',
-        letterSpacing: '0.05em', color: 'rgba(255,255,255,0.4)', marginBottom: 6,
+        letterSpacing: '0.05em', color: 'var(--crm-w40)', marginBottom: 6,
       }}>{label}</div>
       <div style={{
         fontSize: 26, fontWeight: 700, lineHeight: 1.1,
-        color: color || '#fff', fontVariantNumeric: 'tabular-nums',
+        color: color || 'var(--crm-ink)', fontVariantNumeric: 'tabular-nums',
       }}>{value}</div>
       {note ? (
-        <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)', marginTop: 4 }}>{note}</div>
+        <div style={{ fontSize: 12, color: 'var(--crm-w40)', marginTop: 4 }}>{note}</div>
       ) : null}
     </div>
   );
@@ -471,31 +471,31 @@ function Stat({ label, value, note, color }) {
 
 const invalidStyle = { border: '1px solid #f87171', background: 'rgba(248,113,113,0.08)' };
 const inputStyle = {
-  height: 36, padding: '0 12px', background: 'rgba(255,255,255,0.04)',
-  border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8,
-  color: '#fff', fontSize: 13, outline: 'none', fontFamily: 'inherit',
+  height: 36, padding: '0 12px', background: 'var(--crm-w04)',
+  border: '1px solid var(--crm-w10)', borderRadius: 8,
+  color: 'var(--crm-ink)', fontSize: 13, outline: 'none', fontFamily: 'inherit',
 };
 const btnStyle = {
-  height: 32, padding: '0 12px', background: 'rgba(255,255,255,0.06)',
-  border: '1px solid rgba(255,255,255,0.12)', borderRadius: 8,
-  color: 'rgba(255,255,255,0.85)', fontSize: 12, fontWeight: 600,
+  height: 32, padding: '0 12px', background: 'var(--crm-w06)',
+  border: '1px solid var(--crm-w12)', borderRadius: 8,
+  color: 'var(--crm-w85)', fontSize: 12, fontWeight: 600,
   cursor: 'pointer', fontFamily: 'inherit',
 };
 const primaryBtnStyle = {
   height: 36, padding: '0 18px', background: '#e0442c', border: 'none',
-  borderRadius: 8, color: '#fff', fontSize: 13, fontWeight: 700,
+  borderRadius: 8, color: 'var(--crm-ink)', fontSize: 13, fontWeight: 700,
   cursor: 'pointer', fontFamily: 'inherit',
 };
 const panelStyle = {
-  padding: 16, background: 'rgba(255,255,255,0.03)',
-  border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12,
+  padding: 16, background: 'var(--crm-w03)',
+  border: '1px solid var(--crm-w08)', borderRadius: 12,
 };
-const panelTitleStyle = { fontSize: 13, fontWeight: 600, color: 'rgba(255,255,255,0.6)', marginBottom: 12 };
+const panelTitleStyle = { fontSize: 13, fontWeight: 600, color: 'var(--crm-w60)', marginBottom: 12 };
 const thStyle = {
   textAlign: 'left', padding: '10px 14px', fontSize: 11, fontWeight: 600,
   textTransform: 'uppercase', letterSpacing: '0.05em',
-  color: 'rgba(255,255,255,0.4)', background: 'rgba(255,255,255,0.03)',
+  color: 'var(--crm-w40)', background: 'var(--crm-w03)',
   whiteSpace: 'nowrap',
 };
-const tdStyle = { padding: '10px 14px', color: 'rgba(255,255,255,0.85)' };
-const emptyStyle = { padding: '24px 14px', textAlign: 'center', color: 'rgba(255,255,255,0.35)' };
+const tdStyle = { padding: '10px 14px', color: 'var(--crm-w85)' };
+const emptyStyle = { padding: '24px 14px', textAlign: 'center', color: 'var(--crm-w35)' };

@@ -63,7 +63,7 @@ export default function Field({
           // when one label is longer than another and wraps.
           height: LABEL_ROW_HEIGHT,
           lineHeight: `${LABEL_ROW_HEIGHT}px`,
-          color: invalid ? '#f87171' : 'rgba(255,255,255,0.45)',
+          color: invalid ? '#f87171' : 'var(--crm-w45)',
           fontSize: 11.5, fontWeight: invalid ? 600 : 400,
           // nowrap keeps the row aligned: a label that wrapped to two lines
           // would start its input lower than its neighbours'. Deliberately NOT
@@ -94,9 +94,9 @@ export default function Field({
                 style={{
                   width: 15, height: 15, borderRadius: '50%', flex: 'none', padding: 0,
                   display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                  border: `1px solid ${showInfo ? '#60a5fa' : 'rgba(255,255,255,0.28)'}`,
+                  border: `1px solid ${showInfo ? '#60a5fa' : 'var(--crm-w28)'}`,
                   background: showInfo ? 'rgba(96,165,250,0.18)' : 'transparent',
-                  color: showInfo ? '#93c5fd' : 'rgba(255,255,255,0.55)',
+                  color: showInfo ? '#93c5fd' : 'var(--crm-w55)',
                   fontSize: 10, fontWeight: 700, cursor: 'help',
                   fontFamily: 'inherit', lineHeight: 1,
                 }}
@@ -118,7 +118,7 @@ export default function Field({
                   background: '#15151b',
                   border: '1px solid rgba(96,165,250,0.45)',
                   boxShadow: '0 10px 30px rgba(0,0,0,0.55)',
-                  color: 'rgba(255,255,255,0.88)',
+                  color: 'var(--crm-w85)',
                   fontSize: 12, lineHeight: 1.5, fontWeight: 400,
                   whiteSpace: 'normal',      // the label row is nowrap; this is not
                   textAlign: 'left',
@@ -154,7 +154,7 @@ export default function Field({
       )}
 
       {hint && !invalid && (
-        <div style={{ marginTop: 4, color: 'rgba(255,255,255,0.4)', fontSize: 11 }}>{hint}</div>
+        <div style={{ marginTop: 4, color: 'var(--crm-w40)', fontSize: 11 }}>{hint}</div>
       )}
     </div>
   );
@@ -171,9 +171,9 @@ export function adminInput(invalid = false, extra = {}) {
     borderRadius: 8,
     fontFamily: 'inherit',
     fontSize: 13,
-    background: invalid ? 'rgba(248,113,113,0.08)' : 'rgba(255,255,255,0.04)',
-    border: `1px solid ${invalid ? '#f87171' : 'rgba(255,255,255,0.12)'}`,
-    color: '#fff',
+    background: invalid ? 'rgba(248,113,113,0.08)' : 'var(--crm-w04)',
+    border: `1px solid ${invalid ? '#f87171' : 'var(--crm-w12)'}`,
+    color: 'var(--crm-ink)',
     outline: 'none',
     colorScheme: 'dark',
     boxSizing: 'border-box',
