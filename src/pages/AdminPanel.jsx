@@ -4,8 +4,8 @@
 // Wired in src/App.jsx. Uses the adminApi client + sonner toasts.
 
 import React, { useEffect, useState, useCallback } from 'react';
-import { toast } from 'sonner';
-import { adminApi, ApiError, readCsrfCookie } from '@/lib/adminApi';
+import { Toaster, toast } from 'sonner';
+import { adminApi, ApiError, VOXEL_TOKEN_KEY, getStoredUser } from '@/lib/adminApi';
 import StatsCards from '@/components/admin/StatsCards';
 import UserTable from '@/components/admin/UserTable';
 import CreditsModal from '@/components/admin/CreditsModal';
@@ -18,7 +18,6 @@ import BulkTab from '@/components/admin/BulkTab';
 import CostingTab from '@/components/admin/CostingTab';
 import OffersTab from '@/components/admin/OffersTab';
 import NotificationsTab from '@/components/admin/NotificationsTab';
-import { ThemeToggle, ThemedToaster } from '@/components/admin/crmTheme';
 
 const PAGE_SIZE = 50;
 
@@ -63,12 +62,9 @@ export default function AdminPanel() {
   const downloadBackup = useCallback(async () => {
     setBackingUp(true);
     try {
-      // N3: cookie session, not a bearer token. Plain fetch (not adminApi)
-      // only because the response is a gzip stream rather than JSON.
-      const csrf = readCsrfCookie();
+      const token = localStorage.getItem(VOXEL_TOKEN_KEY);
       const res = await fetch('/api/admin/backup', {
-        credentials: 'include',
-        headers: csrf ? { 'X-CSRF-Token': csrf } : {},
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
@@ -178,29 +174,24 @@ export default function AdminPanel() {
 
   return (
     <div style={containerStyle}>
-      <ThemedToaster />
+      <Toaster position="bottom-right" theme="dark" richColors />
 
       <div style={{ maxWidth: 1280, margin: '0 auto', padding: '32px 24px 64px 24px' }}>
-        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 16 }}>
-          <div style={{ flex: 1 }}>
-            <h1 style={{ color: 'var(--crm-ink)', fontSize: 22, fontWeight: 700, marginBottom: 4, fontFamily: '"DM Sans", sans-serif' }}>
-              Control Panel
-            </h1>
-            <div style={{ color: 'var(--crm-w40)', fontSize: 13, marginBottom: 24, fontFamily: '"DM Sans", sans-serif' }}>
-              Signed in as {stats?.admin_email || '—'}.
-            </div>
-          </div>
-          <ThemeToggle />
+        <h1 style={{ color: '#fff', fontSize: 22, fontWeight: 700, marginBottom: 4, fontFamily: '"DM Sans", sans-serif' }}>
+          Control Panel
+        </h1>
+        <div style={{ color: 'rgba(255,255,255,0.4)', fontSize: 13, marginBottom: 24, fontFamily: '"DM Sans", sans-serif' }}>
+          Signed in as {stats?.admin_email || getStoredUser()?.email || '—'}.
         </div>
 
         {/* Tab bar — kie.ai dashboard style */}
-        <div style={{ display: 'flex', gap: 6, marginBottom: 20, borderBottom: '1px solid var(--crm-w08)' }}>
+        <div style={{ display: 'flex', gap: 6, marginBottom: 20, borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
           {TABS.map(t => (
             <button key={t.id} onClick={() => setTab(t.id)}
               style={{
                 padding: '10px 18px', fontSize: 14, fontWeight: 600, fontFamily: 'inherit',
                 background: 'none', border: 'none', cursor: 'pointer',
-                color: tab === t.id ? 'var(--crm-ink)' : 'var(--crm-w40)',
+                color: tab === t.id ? '#fff' : 'rgba(255,255,255,0.4)',
                 borderBottom: tab === t.id ? '2px solid #e0442c' : '2px solid transparent',
                 marginBottom: -1,
               }}>
@@ -232,26 +223,26 @@ export default function AdminPanel() {
           </button>
           {audit && audit !== 'loading' && (
             <div style={auditBoxStyle}>
-              <div style={{ marginBottom: 8, color: audit.users_with_possible_gaps ? 'var(--crm-amber)' : 'var(--crm-green)', fontWeight: 600 }}>
+              <div style={{ marginBottom: 8, color: audit.users_with_possible_gaps ? '#fbbf24' : '#4ade80', fontWeight: 600 }}>
                 {audit.users_with_possible_gaps === 0
                   ? `✅ Clean — ${audit.failed_videos_total} failed videos across ${audit.users_with_failures} users, every one covered by a refund.`
                   : `⚠ ${audit.users_with_possible_gaps} user(s) may have unrefunded failures — review below.`}
               </div>
               {audit.report.filter(u => u.possible_unrefunded > 0).map(u => (
-                <div key={u.user_id} style={{ padding: '8px 0', borderTop: '1px solid var(--crm-w08)', fontSize: 13 }}>
+                <div key={u.user_id} style={{ padding: '8px 0', borderTop: '1px solid rgba(255,255,255,0.08)', fontSize: 13 }}>
                   <b>{u.email}</b> — {u.failed_videos} failed videos, {u.refund_count} refunds
-                  (+{u.refund_total}) → <span style={{ color: 'var(--crm-amber)' }}>{u.possible_unrefunded} possibly unrefunded</span>
-                  <div style={{ color: 'var(--crm-w45)', marginTop: 2 }}>
+                  (+{u.refund_total}) → <span style={{ color: '#fbbf24' }}>{u.possible_unrefunded} possibly unrefunded</span>
+                  <div style={{ color: 'rgba(255,255,255,0.45)', marginTop: 2 }}>
                     {u.failures.slice(0, 5).map((f, i) => (
                       <span key={i}>{f.model} · {new Date(f.at).toLocaleString()}{i < Math.min(u.failures.length, 5) - 1 ? '  |  ' : ''}</span>
                     ))}
                   </div>
-                  <div style={{ color: 'var(--crm-w35)', marginTop: 2 }}>
+                  <div style={{ color: 'rgba(255,255,255,0.35)', marginTop: 2 }}>
                     Check their History for the exact spends, then use + Credits to make good.
                   </div>
                 </div>
               ))}
-              <div style={{ marginTop: 8, color: 'var(--crm-w35)', fontSize: 12 }}>
+              <div style={{ marginTop: 8, color: 'rgba(255,255,255,0.35)', fontSize: 12 }}>
                 Note: refund counts include image refunds, so the gap number is a conservative signal, not an exact figure.
                 Failed images have no history rows (their refunds are immediate and code-enforced) and can't be audited retroactively.
               </div>
@@ -298,9 +289,11 @@ export default function AdminPanel() {
 function handleError(e, fallback) {
   if (e instanceof ApiError) {
     if (e.status === 401) {
-      // N3: nothing to clear locally any more — the session lives in an
-      // httpOnly cookie. The reload lands on AdminGuard, which asks the
-      // server who we are, gets 401, and shows the sign-in form. No loop.
+      // Clear the stale/expired token BEFORE reloading. Without this, the
+      // reloaded page still has the bad token in localStorage, AdminGuard
+      // still thinks we're logged in, and the panel re-fires the same
+      // calls → another 401 → another reload → loop until rate-limited.
+      localStorage.removeItem(VOXEL_TOKEN_KEY);
       toast.error('Session expired. Please sign in again.');
       setTimeout(() => window.location.reload(), 800);
       return;
@@ -313,22 +306,22 @@ function handleError(e, fallback) {
 }
 
 const containerStyle = {
-  minHeight: '100vh', background: 'var(--crm-page)',
-  fontFamily: '"DM Sans", sans-serif', color: 'var(--crm-ink)',
+  minHeight: '100vh', background: '#0a0a0c',
+  fontFamily: '"DM Sans", sans-serif', color: '#fff',
 };
 const auditBtnStyle = {
   height: 36, padding: '0 16px', borderRadius: 10, cursor: 'pointer',
-  background: 'var(--crm-w06)', border: '1px solid var(--crm-w12)',
-  color: 'var(--crm-ink)', fontSize: 13, fontWeight: 600, fontFamily: 'inherit',
+  background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)',
+  color: '#fff', fontSize: 13, fontWeight: 600, fontFamily: 'inherit',
 };
 const auditBoxStyle = {
   marginTop: 10, padding: '12px 16px', borderRadius: 12,
-  background: 'var(--crm-w04)', border: '1px solid var(--crm-w08)',
+  background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)',
   fontFamily: 'inherit', fontSize: 13,
 };
 const searchInputStyle = {
   width: '100%', height: 42, padding: '0 16px', marginBottom: 16,
-  background: 'var(--crm-w04)', border: '1px solid var(--crm-w08)',
-  borderRadius: 12, color: 'var(--crm-ink)', fontSize: 14, outline: 'none',
+  background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)',
+  borderRadius: 12, color: '#fff', fontSize: 14, outline: 'none',
   fontFamily: 'inherit',
 };

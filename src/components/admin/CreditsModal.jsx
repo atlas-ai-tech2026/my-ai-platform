@@ -41,15 +41,15 @@ export default function CreditsModal({ user, action, onClose, onSubmit }) {
     ban:    `Ban ${user.email}`,
     unban:  `Unban ${user.email}`,
   };
-  const accents = { grant: 'var(--crm-green)', revoke: 'var(--crm-amber)', ban: 'var(--crm-red)', unban: 'var(--crm-green)' };
+  const accents = { grant: '#88ee88', revoke: '#ffaa44', ban: '#ff6666', unban: '#88ee88' };
 
   return (
     <div style={overlayStyle} onClick={onClose}>
       <form onSubmit={handleSubmit} onClick={e => e.stopPropagation()} style={modalStyle}>
-        <div style={{ color: 'var(--crm-ink)', fontSize: 18, fontWeight: 700, marginBottom: 6 }}>
+        <div style={{ color: '#fff', fontSize: 18, fontWeight: 700, marginBottom: 6 }}>
           {titles[action]}
         </div>
-        <div style={{ color: 'var(--crm-w40)', fontSize: 12, marginBottom: 18 }}>
+        <div style={{ color: 'rgba(255,255,255,0.4)', fontSize: 12, marginBottom: 18 }}>
           Current balance: {Number(user.credits).toFixed(2)} credits.
           {isCredit && ' This change will be visible in the user\'s history forever.'}
         </div>
@@ -110,30 +110,30 @@ export default function CreditsModal({ user, action, onClose, onSubmit }) {
 }
 
 const overlayStyle = {
-  position: 'fixed', inset: 0, background: 'var(--crm-overlay)',
+  position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)',
   backdropFilter: 'blur(8px)', display: 'flex',
   alignItems: 'center', justifyContent: 'center', zIndex: 999,
   fontFamily: '"DM Sans", sans-serif',
 };
 const modalStyle = {
   width: 420, padding: 24,
-  background: 'var(--crm-surface)',
-  border: '1px solid var(--crm-w10)', borderRadius: 16,
+  background: 'rgba(18,18,22,0.95)',
+  border: '1px solid rgba(255,255,255,0.1)', borderRadius: 16,
 };
 const inputStyle = {
   width: '100%', height: 38, padding: '0 12px',
-  background: 'var(--crm-w04)', border: '1px solid var(--crm-w08)',
-  borderRadius: 10, color: 'var(--crm-ink)', fontSize: 14, outline: 'none',
+  background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)',
+  borderRadius: 10, color: '#fff', fontSize: 14, outline: 'none',
   fontFamily: 'inherit',
 };
 const invalidStyle = {
-  border: '1px solid var(--crm-red)',
-  background: 'var(--crm-red-bg)',
+  border: '1px solid #f87171',
+  background: 'rgba(248,113,113,0.08)',
 };
 const cancelBtnStyle = {
   padding: '8px 14px', fontSize: 13, fontWeight: 600,
-  background: 'var(--crm-w06)', border: '1px solid var(--crm-w10)',
-  borderRadius: 9, color: 'var(--crm-ink)', cursor: 'pointer',
+  background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)',
+  borderRadius: 9, color: '#fff', cursor: 'pointer',
 };
 const confirmBtnStyle = {
   padding: '8px 16px', fontSize: 13, fontWeight: 700,

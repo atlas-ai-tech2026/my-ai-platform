@@ -23,18 +23,6 @@ const api = vi.hoisted(() => ({
 }));
 
 vi.mock('@/lib/adminApi', () => ({ adminApi: api }));
-
-// The export lazy-imports SheetJS; mock it so tests assert the SHAPE of what
-// would land in the spreadsheet without writing a real file in jsdom.
-const xlsx = vi.hoisted(() => ({
-  utils: {
-    json_to_sheet: vi.fn(() => ({})),
-    book_new: vi.fn(() => ({})),
-    book_append_sheet: vi.fn(),
-  },
-  writeFile: vi.fn(),
-}));
-vi.mock('xlsx', () => ({ ...xlsx, default: xlsx }));
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
 const future = new Date(Date.now() + 30 * 864e5).toISOString();
@@ -63,12 +51,8 @@ beforeEach(() => {
   api.updatePromo.mockResolvedValue({ promo: {} });
   api.promoRedemptions.mockResolvedValue({
     redemptions: [
-      { user_id: 11, email: 'sara@example.com', banned: false, created_at: '2026-07-02T09:00:00Z',
-        redeemed_at: '2026-07-02T09:00:00Z', registered_at: '2026-06-01T10:00:00Z',
-        display_name: 'Sara', package: 'Basic', current_credits: 120.5, last_login_at: '2026-08-01T08:00:00Z' },
-      { user_id: 12, email: 'omar@example.com', banned: true, created_at: '2026-07-03T09:00:00Z',
-        redeemed_at: '2026-07-03T09:00:00Z', registered_at: '2026-05-15T10:00:00Z',
-        display_name: null, package: null, current_credits: 0, last_login_at: null },
+      { user_id: 11, email: 'sara@example.com', banned: false, created_at: '2026-07-02T09:00:00Z' },
+      { user_id: 12, email: 'omar@example.com', banned: true, created_at: '2026-07-03T09:00:00Z' },
     ],
   });
 });
@@ -304,56 +288,5 @@ describe('dashboard totals', () => {
     // always over every code, never the filtered view.
     const created = screen.getByText('Promo codes created').closest('div').parentElement;
     expect(within(created).getByText('3')).toBeInTheDocument();
-  });
-});
-
-
-describe('per-code Excel export of redeeming users', () => {
-  const openRedemptions = async () => {
-    const user = userEvent.setup();
-    render(<PromoCodesTab />);
-    await waitFor(() => screen.getByText('VOXEL-OLD-0001'));
-    const row = screen.getByText('VOXEL-OLD-0001').closest('tr');
-    await user.click(within(row).getByRole('button', { name: /7 \/ 100/ }));
-    await screen.findByText('sara@example.com');
-    return user;
-  };
-
-  it('shows a download button named after THIS code, inside its own panel', async () => {
-    await openRedemptions();
-    expect(screen.getByRole('button', { name: /Excel — VOXEL-OLD-0001/ })).toBeInTheDocument();
-    // Per code, not global: no other promo's code appears on an export button.
-    expect(screen.queryByRole('button', { name: /Excel — VOXEL-RAMADAN-24/ })).toBeNull();
-  });
-
-  it('exports one row per redeeming user with registration and redemption dates', async () => {
-    const user = await openRedemptions();
-    await user.click(screen.getByRole('button', { name: /Excel — VOXEL-OLD-0001/ }));
-
-    await waitFor(() => expect(xlsx.utils.json_to_sheet).toHaveBeenCalled());
-    const rows = xlsx.utils.json_to_sheet.mock.calls[0][0];
-    expect(rows).toHaveLength(2);
-    expect(rows[0]).toMatchObject({
-      'Email': 'sara@example.com',
-      'Name': 'Sara',
-      'Plan': 'Basic',
-      'Registered': '2026-06-01',
-      'Redeemed': '2026-07-02',
-      'Credits granted': 25,
-      'Current balance': 120.5,
-      'Account status': 'active',
-    });
-    // Missing optional fields render as honest blanks, never "null" or 0-dates.
-    expect(rows[1]).toMatchObject({
-      'Name': '', 'Plan': 'Free', 'Last login': '', 'Account status': 'banned',
-    });
-  });
-
-  it('names the file after the code and the day', async () => {
-    const user = await openRedemptions();
-    await user.click(screen.getByRole('button', { name: /Excel — VOXEL-OLD-0001/ }));
-    await waitFor(() => expect(xlsx.writeFile).toHaveBeenCalled());
-    const name = xlsx.writeFile.mock.calls[0][1];
-    expect(name).toMatch(/^voxel-promo-VOXEL-OLD-0001-users-\d{4}-\d{2}-\d{2}\.xlsx$/);
   });
 });

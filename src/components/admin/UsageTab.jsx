@@ -59,7 +59,7 @@ export default function UsageTab({ onError }) {
 
   return (
     <div>
-      <div style={{ color: 'var(--crm-w40)', fontSize: 13, marginBottom: 16 }}>
+      <div style={{ color: 'rgba(255,255,255,0.4)', fontSize: 13, marginBottom: 16 }}>
         Credit consumption across all users — Voxel credits (what users spend) next to
         KIE credits (our kie.ai balance) and FAL cost (our fal.ai bill, USD).
       </div>
@@ -67,7 +67,7 @@ export default function UsageTab({ onError }) {
       {/* Controls */}
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 16 }}>
         <input type="date" value={from} onChange={e => setFrom(e.target.value)} style={inputStyle} />
-        <span style={{ color: 'var(--crm-w40)' }}>→</span>
+        <span style={{ color: 'rgba(255,255,255,0.4)' }}>→</span>
         <input type="date" value={to} onChange={e => setTo(e.target.value)} style={inputStyle} />
         <button onClick={load} disabled={loading} style={btnStyle}>{loading ? 'Loading…' : '⟳ Refresh'}</button>
         <button onClick={exportCsv} disabled={!data?.daily?.length} style={btnStyle}>⬇ Export CSV</button>
@@ -76,7 +76,7 @@ export default function UsageTab({ onError }) {
       {/* Stat cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 20 }}>
         <Card label="kie.ai balance (live)"
-          accent={balance?.credits != null && Number(balance.credits) < 3000 ? 'var(--crm-red)' : 'var(--crm-purple)'}
+          accent={balance?.credits != null && Number(balance.credits) < 3000 ? '#f87171' : '#c084fc'}
           value={
             balance === 'loading' || balance === null ? '…'
               : balance.error ? '—'
@@ -91,13 +91,13 @@ export default function UsageTab({ onError }) {
           action={<button onClick={loadBalance} style={miniBtnStyle} title="Refresh kie.ai balance">⟳</button>}
         />
         <Card label="Voxel credits spent" value={t ? t.voxel_spent.toLocaleString() : '…'}
-          sub={t ? `${t.voxel_refunded.toLocaleString()} refunded` : ''} accent="var(--crm-red)" />
+          sub={t ? `${t.voxel_refunded.toLocaleString()} refunded` : ''} accent="#f87171" />
         <Card label="KIE credits used" value={t ? t.kie_credits.toLocaleString() : '…'}
-          sub="estimated, kie-backed models only" accent="var(--crm-purple)" />
+          sub="estimated, kie-backed models only" accent="#c084fc" />
         <Card label="FAL cost" value={t ? `$${t.fal_cost.toLocaleString(undefined, { maximumFractionDigits: 2 })}` : '…'}
-          sub="estimated, FAL-backed models only" accent="var(--crm-orange)" />
+          sub="estimated, FAL-backed models only" accent="#fb923c" />
         <Card label="Generations" value={t ? t.generations.toLocaleString() : '…'}
-          sub={t ? `${t.active_users} active user(s)` : ''} accent="var(--crm-green)" />
+          sub={t ? `${t.active_users} active user(s)` : ''} accent="#4ade80" />
       </div>
 
       {/* Daily chart */}
@@ -106,24 +106,24 @@ export default function UsageTab({ onError }) {
         {data?.daily?.length ? (
           <ResponsiveContainer width="100%" height={280}>
             <ComposedChart data={data.daily} margin={{ top: 8, right: 12, left: -10, bottom: 0 }}>
-              <CartesianGrid stroke="var(--crm-w06)" vertical={false} />
-              <XAxis dataKey="day" tick={{ fill: 'var(--crm-w45)', fontSize: 11 }}
+              <CartesianGrid stroke="rgba(255,255,255,0.06)" vertical={false} />
+              <XAxis dataKey="day" tick={{ fill: 'rgba(255,255,255,0.45)', fontSize: 11 }}
                 tickFormatter={(d) => d.slice(5)} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fill: 'var(--crm-w45)', fontSize: 11 }} axisLine={false} tickLine={false} />
-              <YAxis yAxisId="usd" orientation="right" tick={{ fill: 'var(--crm-orange-br)', fontSize: 11 }}
+              <YAxis tick={{ fill: 'rgba(255,255,255,0.45)', fontSize: 11 }} axisLine={false} tickLine={false} />
+              <YAxis yAxisId="usd" orientation="right" tick={{ fill: 'rgba(251,146,60,0.7)', fontSize: 11 }}
                 axisLine={false} tickLine={false} tickFormatter={(v) => `$${v}`} />
               <Tooltip
-                contentStyle={{ background: 'var(--crm-surface)', border: '1px solid var(--crm-w10)', borderRadius: 10, fontSize: 12 }}
-                labelStyle={{ color: 'var(--crm-w60)' }}
+                contentStyle={{ background: '#141417', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 10, fontSize: 12 }}
+                labelStyle={{ color: 'rgba(255,255,255,0.6)' }}
               />
               <Legend wrapperStyle={{ fontSize: 12 }} />
               <Bar dataKey="voxel_spent" name="Voxel credits" fill="#e0442c" radius={[4, 4, 0, 0]} maxBarSize={28} />
-              <Line dataKey="kie_credits" name="KIE credits" stroke="var(--crm-purple)" strokeWidth={2} dot={false} type="monotone" />
-              <Line yAxisId="usd" dataKey="fal_cost" name="FAL cost ($)" stroke="var(--crm-orange)" strokeWidth={2} dot={false} type="monotone" />
+              <Line dataKey="kie_credits" name="KIE credits" stroke="#c084fc" strokeWidth={2} dot={false} type="monotone" />
+              <Line yAxisId="usd" dataKey="fal_cost" name="FAL cost ($)" stroke="#fb923c" strokeWidth={2} dot={false} type="monotone" />
             </ComposedChart>
           </ResponsiveContainer>
         ) : (
-          <div style={{ padding: 48, textAlign: 'center', color: 'var(--crm-w30)' }}>
+          <div style={{ padding: 48, textAlign: 'center', color: 'rgba(255,255,255,0.3)' }}>
             {data ? 'No data in this range' : 'Loading…'}
           </div>
         )}
@@ -143,17 +143,17 @@ export default function UsageTab({ onError }) {
             </thead>
             <tbody>
               {data?.models?.length === 0 && (
-                <tr><td colSpan={5} style={{ padding: 24, textAlign: 'center', color: 'var(--crm-w35)' }}>No spends in this range.</td></tr>
+                <tr><td colSpan={5} style={{ padding: 24, textAlign: 'center', color: 'rgba(255,255,255,0.35)' }}>No spends in this range.</td></tr>
               )}
               {data?.models?.map(m => (
-                <tr key={m.model} style={{ borderTop: '1px solid var(--crm-w06)' }}>
+                <tr key={m.model} style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
                   <td style={tdStyle}>{m.model}</td>
                   <td style={tdStyle}>{m.generations}</td>
-                  <td style={{ ...tdStyle, color: 'var(--crm-red)', fontWeight: 600 }}>{m.voxel_spent.toLocaleString()}</td>
-                  <td style={{ ...tdStyle, color: m.kie_credits ? 'var(--crm-purple)' : 'var(--crm-w30)', fontWeight: m.kie_credits ? 600 : 400 }}>
+                  <td style={{ ...tdStyle, color: '#f87171', fontWeight: 600 }}>{m.voxel_spent.toLocaleString()}</td>
+                  <td style={{ ...tdStyle, color: m.kie_credits ? '#c084fc' : 'rgba(255,255,255,0.3)', fontWeight: m.kie_credits ? 600 : 400 }}>
                     {m.kie_credits ? m.kie_credits.toLocaleString() : '—'}
                   </td>
-                  <td style={{ ...tdStyle, color: m.fal_cost ? 'var(--crm-orange)' : 'var(--crm-w30)', fontWeight: m.fal_cost ? 600 : 400 }}>
+                  <td style={{ ...tdStyle, color: m.fal_cost ? '#fb923c' : 'rgba(255,255,255,0.3)', fontWeight: m.fal_cost ? 600 : 400 }}>
                     {m.fal_cost ? `$${m.fal_cost.toLocaleString(undefined, { maximumFractionDigits: 2 })}` : '—'}
                   </td>
                 </tr>
@@ -169,38 +169,38 @@ export default function UsageTab({ onError }) {
 function Card({ label, value, sub, accent, action }) {
   return (
     <div style={{ ...panelStyle, padding: '14px 16px', position: 'relative' }}>
-      <div style={{ fontSize: 12, color: 'var(--crm-w45)', marginBottom: 6, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.45)', marginBottom: 6, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         {label}{action}
       </div>
-      <div style={{ fontSize: 22, fontWeight: 700, color: accent || 'var(--crm-ink)' }}>{value}</div>
-      {sub ? <div style={{ fontSize: 11, color: 'var(--crm-w35)', marginTop: 4 }}>{sub}</div> : null}
+      <div style={{ fontSize: 22, fontWeight: 700, color: accent || '#fff' }}>{value}</div>
+      {sub ? <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', marginTop: 4 }}>{sub}</div> : null}
     </div>
   );
 }
 
 const inputStyle = {
   height: 36, padding: '0 12px', borderRadius: 10,
-  background: 'var(--crm-w04)', border: '1px solid var(--crm-w10)',
-  color: 'var(--crm-ink)', fontSize: 13, outline: 'none', fontFamily: 'inherit',
+  background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)',
+  color: '#fff', fontSize: 13, outline: 'none', fontFamily: 'inherit',
   colorScheme: 'dark',
 };
 const btnStyle = {
   height: 36, padding: '0 14px', borderRadius: 10, cursor: 'pointer',
-  background: 'var(--crm-w06)', border: '1px solid var(--crm-w12)',
-  color: 'var(--crm-ink)', fontSize: 13, fontWeight: 600, fontFamily: 'inherit',
+  background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)',
+  color: '#fff', fontSize: 13, fontWeight: 600, fontFamily: 'inherit',
 };
 const miniBtnStyle = {
   height: 22, width: 22, borderRadius: 6, cursor: 'pointer', padding: 0,
-  background: 'var(--crm-w06)', border: '1px solid var(--crm-w12)',
-  color: 'var(--crm-ink)', fontSize: 12, fontFamily: 'inherit',
+  background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)',
+  color: '#fff', fontSize: 12, fontFamily: 'inherit',
 };
 const panelStyle = {
-  background: 'var(--crm-w03)', border: '1px solid var(--crm-w08)',
+  background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)',
   borderRadius: 12, padding: 16,
 };
-const panelTitleStyle = { fontSize: 13, fontWeight: 600, color: 'var(--crm-w60)', marginBottom: 12 };
+const panelTitleStyle = { fontSize: 13, fontWeight: 600, color: 'rgba(255,255,255,0.6)', marginBottom: 12 };
 const thStyle = {
   textAlign: 'left', padding: '8px 14px', fontSize: 12, fontWeight: 600,
-  color: 'var(--crm-w45)', whiteSpace: 'nowrap',
+  color: 'rgba(255,255,255,0.45)', whiteSpace: 'nowrap',
 };
-const tdStyle = { padding: '8px 14px', color: 'var(--crm-w85)', whiteSpace: 'nowrap' };
+const tdStyle = { padding: '8px 14px', color: 'rgba(255,255,255,0.85)', whiteSpace: 'nowrap' };
