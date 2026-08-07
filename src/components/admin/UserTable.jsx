@@ -4,21 +4,21 @@
 import React from 'react';
 
 export default function UserTable({ users, page, total, limit, onPage, onAction }) {
-  if (!users) return <div style={{ color: 'rgba(255,255,255,0.5)' }}>Loading…</div>;
-  if (users.length === 0) return <div style={{ color: 'rgba(255,255,255,0.5)' }}>No users found.</div>;
+  if (!users) return <div style={{ color: 'var(--crm-w50)' }}>Loading…</div>;
+  if (users.length === 0) return <div style={{ color: 'var(--crm-w50)' }}>No users found.</div>;
 
   const totalPages = total ? Math.max(1, Math.ceil(total / limit)) : null;
 
   return (
     <>
       <div style={{
-        background: 'rgba(255,255,255,0.02)',
-        border: '1px solid rgba(255,255,255,0.06)', borderRadius: 12, overflow: 'hidden',
+        background: 'var(--crm-w03)',
+        border: '1px solid var(--crm-w06)', borderRadius: 12, overflow: 'hidden',
         fontFamily: '"DM Sans", sans-serif',
       }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
           <thead>
-            <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.08)', textAlign: 'left' }}>
+            <tr style={{ borderBottom: '1px solid var(--crm-w08)', textAlign: 'left' }}>
               <Th>Email</Th>
               <Th>Credits</Th>
               <Th>Role</Th>
@@ -30,18 +30,18 @@ export default function UserTable({ users, page, total, limit, onPage, onAction 
           </thead>
           <tbody>
             {users.map(u => (
-              <tr key={u.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+              <tr key={u.id} style={{ borderBottom: '1px solid var(--crm-w04)' }}>
                 <Td>
-                  <div style={{ color: '#fff' }}>{u.email}</div>
-                  <div style={{ color: 'rgba(255,255,255,0.35)', fontSize: 11 }}>id: {u.id}</div>
+                  <div style={{ color: 'var(--crm-ink)' }}>{u.email}</div>
+                  <div style={{ color: 'var(--crm-w35)', fontSize: 11 }}>id: {u.id}</div>
                 </Td>
-                <Td><strong style={{ color: '#fff' }}>{Number(u.credits).toFixed(2)}</strong></Td>
+                <Td><strong style={{ color: 'var(--crm-ink)' }}>{Number(u.credits).toFixed(2)}</strong></Td>
                 <Td><RoleBadge role={u.role} /></Td>
-                <Td>{u.package || <span style={{ color: 'rgba(255,255,255,0.3)' }}>—</span>}</Td>
+                <Td>{u.package || <span style={{ color: 'var(--crm-w30)' }}>—</span>}</Td>
                 <Td>
                   {u.banned
-                    ? <span style={{ color: '#ff6666', fontWeight: 600 }}>BANNED</span>
-                    : <span style={{ color: '#88ee88' }}>active</span>}
+                    ? <span style={{ color: 'var(--crm-red)', fontWeight: 600 }}>BANNED</span>
+                    : <span style={{ color: 'var(--crm-green)' }}>active</span>}
                 </Td>
                 <Td>{new Date(u.created_at).toLocaleDateString()}</Td>
                 <Td align="right">
@@ -51,7 +51,7 @@ export default function UserTable({ users, page, total, limit, onPage, onAction 
                     {u.role !== 'admin' && (
                       <ActionBtn
                         onClick={() => onAction(u.banned ? 'unban' : 'ban', u)}
-                        accent={u.banned ? '#88ee88' : '#ff6666'}
+                        accent={u.banned ? 'var(--crm-green)' : 'var(--crm-red)'}
                       >{u.banned ? 'Unban' : 'Ban'}</ActionBtn>
                     )}
                     <ActionBtn onClick={() => onAction('history', u)}>History</ActionBtn>
@@ -67,7 +67,7 @@ export default function UserTable({ users, page, total, limit, onPage, onAction 
       {totalPages && totalPages > 1 && (
         <div style={{
           marginTop: 14, display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          color: 'rgba(255,255,255,0.6)', fontSize: 12, fontFamily: '"DM Sans", sans-serif',
+          color: 'var(--crm-w60)', fontSize: 12, fontFamily: '"DM Sans", sans-serif',
         }}>
           <span>Page {page} of {totalPages} · {total} users total</span>
           <div style={{ display: 'flex', gap: 6 }}>
@@ -81,12 +81,12 @@ export default function UserTable({ users, page, total, limit, onPage, onAction 
 }
 
 const Th = ({ children, align = 'left' }) => (
-  <th style={{ padding: '12px 14px', fontSize: 11, fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.45)', textAlign: align }}>
+  <th style={{ padding: '12px 14px', fontSize: 11, fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase', color: 'var(--crm-w45)', textAlign: align }}>
     {children}
   </th>
 );
 const Td = ({ children, align = 'left' }) => (
-  <td style={{ padding: '12px 14px', color: 'rgba(255,255,255,0.85)', verticalAlign: 'middle', textAlign: align }}>
+  <td style={{ padding: '12px 14px', color: 'var(--crm-w85)', verticalAlign: 'middle', textAlign: align }}>
     {children}
   </td>
 );
@@ -96,9 +96,9 @@ function RoleBadge({ role }) {
   return (
     <span style={{
       padding: '2px 8px', borderRadius: 999, fontSize: 11, fontWeight: 600,
-      background: isAdmin ? 'rgba(224,30,30,0.15)' : 'rgba(255,255,255,0.07)',
-      color: isAdmin ? '#ff8888' : 'rgba(255,255,255,0.7)',
-      border: isAdmin ? '1px solid rgba(224,30,30,0.4)' : '1px solid rgba(255,255,255,0.1)',
+      background: isAdmin ? 'var(--crm-red-bg)' : 'var(--crm-w08)',
+      color: isAdmin ? 'var(--crm-red)' : 'var(--crm-w70)',
+      border: isAdmin ? '1px solid var(--crm-red-br)' : '1px solid var(--crm-w10)',
     }}>{role}</span>
   );
 }
@@ -109,9 +109,9 @@ function ActionBtn({ children, onClick, disabled, accent }) {
       onClick={onClick} disabled={disabled}
       style={{
         padding: '5px 10px', fontSize: 11, fontWeight: 600,
-        background: 'rgba(255,255,255,0.06)',
-        border: `1px solid ${accent ? `${accent}55` : 'rgba(255,255,255,0.1)'}`,
-        borderRadius: 8, color: accent || 'rgba(255,255,255,0.85)',
+        background: 'var(--crm-w06)',
+        border: `1px solid ${accent ? `${accent}55` : 'var(--crm-w10)'}`,
+        borderRadius: 8, color: accent || 'var(--crm-w85)',
         cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.4 : 1,
         fontFamily: '"DM Sans", sans-serif',
       }}

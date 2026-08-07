@@ -44,6 +44,12 @@ export default [
       // suite detects. Turned on explicitly after exactly that bug reached
       // the Gift Cards tab on 2026-08-07.
       "no-undef": "error",
+      // no-undef does NOT check JSX ELEMENT names — `<Foo/>` with no import of
+      // Foo passes it cleanly. That is a blank screen at runtime, and it is
+      // exactly how a missing CrmThemeProvider import survived lint, 845
+      // passing tests and a production build on 2026-08-07. This rule is the
+      // one that catches it.
+      "react/jsx-no-undef": "error",
       "react/jsx-uses-vars": "error",
       "react/jsx-uses-react": "error",
       "unused-imports/no-unused-imports": "error",

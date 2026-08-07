@@ -19,20 +19,20 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
-import Field from './FormField';
+import Field, { FieldRow, buttonRowOffset } from './FormField';
 import { adminApi } from '@/lib/adminApi';
 
 /** Active / expired / used up — more useful than active-or-not now that
  *  expiry dates are something the admin manages. */
 function promoStatus(p) {
-  if (!p.active) return { label: 'off', color: '#f87171', bg: 'rgba(248,113,113,0.12)' };
+  if (!p.active) return { label: 'off', color: 'var(--crm-red)', bg: 'var(--crm-red-bg)' };
   if (p.expires_at && new Date(p.expires_at) <= new Date()) {
-    return { label: 'expired', color: '#fbbf24', bg: 'rgba(251,191,36,0.12)' };
+    return { label: 'expired', color: 'var(--crm-amber)', bg: 'var(--crm-amber-bg)' };
   }
   if (p.max_redemptions != null && p.redeemed_count >= p.max_redemptions) {
-    return { label: 'used up', color: '#fbbf24', bg: 'rgba(251,191,36,0.12)' };
+    return { label: 'used up', color: 'var(--crm-amber)', bg: 'var(--crm-amber-bg)' };
   }
-  return { label: 'active', color: '#4ade80', bg: 'rgba(74,222,128,0.12)' };
+  return { label: 'active', color: 'var(--crm-green)', bg: 'var(--crm-green-bg)' };
 }
 
 /** yyyy-mm-dd for <input type="date">, in LOCAL time. Using toISOString here
@@ -183,6 +183,45 @@ export default function PromoCodesTab({ onError }) {
     } catch (e) { onError?.(e, 'Could not load redemptions'); }
   }, [expandedId, redemptions, onError]);
 
+  /**
+   * One Excel file PER CODE: the users who redeemed this promo, with their
+   * registration date and account details. SheetJS is lazy-imported exactly
+   * like the Bulk tab does, so the admin bundle stays small until the first
+   * export — and it is a real .xlsx, not a CSV renamed.
+   */
+  const exportRedemptionsXlsx = useCallback(async (p) => {
+    const rows = redemptions[p.id];
+    if (!rows?.length) { toast.error('Nothing to export — nobody has redeemed this code'); return; }
+    try {
+      const XLSX = await import('xlsx');
+      const fmt = (v) => v ? new Date(v).toISOString().slice(0, 10) : '';
+      const sheetRows = rows.map(r => ({
+        'Email':            r.email,
+        'Name':             r.display_name || '',
+        'Plan':             r.package || 'Free',
+        'Registered':       fmt(r.registered_at),
+        'Redeemed':         fmt(r.redeemed_at || r.created_at),
+        'Credits granted':  Number(p.credits),
+        'Current balance':  r.current_credits == null ? '' : Number(r.current_credits),
+        'Last login':       fmt(r.last_login_at),
+        'Account status':   r.banned ? 'banned' : 'active',
+      }));
+      const ws = XLSX.utils.json_to_sheet(sheetRows);
+      // Readable column widths — a sheet where every email is clipped is noise.
+      ws['!cols'] = [{ wch: 32 }, { wch: 18 }, { wch: 10 }, { wch: 12 },
+                     { wch: 12 }, { wch: 14 }, { wch: 14 }, { wch: 12 }, { wch: 12 }];
+      const wb = XLSX.utils.book_new();
+      // Sheet names are capped at 31 chars and reject some symbols.
+      XLSX.utils.book_append_sheet(wb, ws, String(p.code).replace(/[\\/?*\[\]:]/g, '-').slice(0, 31));
+      XLSX.writeFile(wb, `voxel-promo-${p.code}-users-${new Date().toISOString().slice(0, 10)}.xlsx`);
+      toast.success(`Exported ${rows.length} user${rows.length === 1 ? '' : 's'} for ${p.code}`
+        + (rows.length === 1000 ? ' (first 1,000 — the list is capped)' : ''));
+    } catch (e) {
+      console.error('[promo] xlsx export failed:', e);
+      toast.error('Could not build the Excel file');
+    }
+  }, [redemptions]);
+
   const copy = (text) => {
     navigator.clipboard?.writeText(text).then(
       () => toast.success(`Copied ${text}`),
@@ -211,7 +250,7 @@ export default function PromoCodesTab({ onError }) {
 
   return (
     <div>
-      <div style={{ color: 'rgba(255,255,255,0.4)', fontSize: 13, marginBottom: 16 }}>
+      <div style={{ color: 'var(--crm-w40)', fontSize: 13, marginBottom: 16 }}>
         Reusable marketing codes. Each user can redeem a code once; the optional
         “max redemptions” caps total uses across all users. Users enter codes in
         their account’s Promocode section.
@@ -225,21 +264,21 @@ export default function PromoCodesTab({ onError }) {
         <Stat label="Promo codes created" value={promos ? fmt(totals.total) : '—'}
           note={promos ? `${fmt(totals.redemptions)} redemptions so far` : ''} />
         <Stat label="Active" value={promos ? fmt(totals.active) : '—'}
-          note={promos ? `${fmt(totals.inactive)} deactivated` : ''} color="#4ade80" />
+          note={promos ? `${fmt(totals.inactive)} deactivated` : ''} color="var(--crm-green)" />
         <Stat label="Usable right now" value={promos ? fmt(totals.usable) : '—'}
           note={promos
             ? [totals.expired ? `${totals.expired} expired` : null,
                totals.usedUp ? `${totals.usedUp} used up` : null]
               .filter(Boolean).join(' · ') || 'none expired or used up'
             : ''}
-          color="#60a5fa" />
+          color="var(--crm-blue)" />
         <Stat label="Credits outstanding" value={promos ? fmt(totals.creditsOutstanding) : '—'}
           note={promos
             ? (totals.uncappedCodes
                 ? `+ ${totals.uncappedCodes} code${totals.uncappedCodes === 1 ? '' : 's'} with no limit`
                 : 'across usable codes')
             : ''}
-          color="#fbbf24" />
+          color="var(--crm-amber)" />
       </div>
 
       {/* Create form */}
@@ -249,7 +288,7 @@ export default function PromoCodesTab({ onError }) {
             it, and a red * when it is required. Before this the form was
             placeholder-only — and a placeholder vanishes the moment you type,
             so there was nothing left to tell you what a box was for. */}
-        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+        <FieldRow>
           <Field label="Description"
             info="A private note for you — who this code is for, or why you made it. Customers never see it. It is what you will search on later, so “Ramadan campaign — Instagram” beats “promo 3”.">
             <input placeholder="Who is this for?" value={description}
@@ -278,14 +317,14 @@ export default function PromoCodesTab({ onError }) {
             <input type="date" value={expiresAt} onChange={e => setExpiresAt(e.target.value)}
               style={inputStyle} />
           </Field>
-          <div style={{ paddingTop: 17 }}>
+          <div style={buttonRowOffset}>
             <button onClick={create} disabled={creating} style={primaryBtnStyle}>
               {creating ? 'Creating…' : '+ Create promo'}
             </button>
           </div>
-        </div>
-        <div style={{ color: 'rgba(255,255,255,0.4)', fontSize: 11.5, marginTop: 10 }}>
-          Boxes marked <span style={{ color: '#f87171', fontWeight: 700 }}>*</span> must be filled ·
+        </FieldRow>
+        <div style={{ color: 'var(--crm-w40)', fontSize: 11.5, marginTop: 10 }}>
+          Boxes marked <span style={{ color: 'var(--crm-red)', fontWeight: 700 }}>*</span> must be filled ·
           press <b>ⓘ</b> beside a box to see exactly what it expects.
         </div>
       </div>
@@ -301,13 +340,13 @@ export default function PromoCodesTab({ onError }) {
         {query && (
           <button onClick={() => setQuery('')} style={btnStyle}>Clear</button>
         )}
-        <span style={{ color: 'rgba(255,255,255,0.4)', fontSize: 12 }}>
+        <span style={{ color: 'var(--crm-w40)', fontSize: 12 }}>
           {promos ? `${visible.length} of ${promos.length}` : ''}
         </span>
       </div>
 
       {/* List */}
-      <div style={{ overflowX: 'auto', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12, marginTop: 12 }}>
+      <div style={{ overflowX: 'auto', border: '1px solid var(--crm-w08)', borderRadius: 12, marginTop: 12 }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
           <thead>
             <tr>
@@ -329,14 +368,14 @@ export default function PromoCodesTab({ onError }) {
               const rows = redemptions[p.id];
               return (
                 <React.Fragment key={p.id}>
-                  <tr style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                  <tr style={{ borderTop: '1px solid var(--crm-w06)' }}>
                     <td style={{ ...tdStyle, maxWidth: 280 }}>
                       {isEditing ? (
                         <input value={editDescription} onChange={e => setEditDescription(e.target.value)}
                           placeholder="Who is this for?" autoFocus
                           style={{ ...inputStyle, width: '100%', minWidth: 200 }} />
                       ) : (
-                        <span style={{ color: p.description ? '#fff' : 'rgba(255,255,255,0.3)' }}>
+                        <span style={{ color: p.description ? 'var(--crm-ink)' : 'var(--crm-w30)' }}>
                           {p.description || '—'}
                         </span>
                       )}
@@ -345,14 +384,14 @@ export default function PromoCodesTab({ onError }) {
                       onClick={() => copy(p.code)} title="Click to copy">
                       {p.code}
                     </td>
-                    <td style={{ ...tdStyle, color: '#4ade80', fontWeight: 600 }}>+{Number(p.credits)}</td>
+                    <td style={{ ...tdStyle, color: 'var(--crm-green)', fontWeight: 600 }}>+{Number(p.credits)}</td>
                     <td style={tdStyle}>
                       <button
                         onClick={() => toggleRedemptions(p)}
                         title={p.redeemed_count ? 'Show the accounts that redeemed this' : 'Nobody has redeemed this yet'}
                         style={{
                           ...btnStyle, padding: '2px 10px',
-                          color: p.redeemed_count ? '#fff' : 'rgba(255,255,255,0.4)',
+                          color: p.redeemed_count ? 'var(--crm-ink)' : 'var(--crm-w40)',
                         }}>
                         {p.redeemed_count}{p.max_redemptions != null ? ` / ${p.max_redemptions}` : ' / ∞'}
                         {p.redeemed_count > 0 && <span style={{ marginLeft: 6 }}>{isExpanded ? '▾' : '▸'}</span>}
@@ -376,7 +415,7 @@ export default function PromoCodesTab({ onError }) {
                         {status.label}
                       </span>
                     </td>
-                    <td style={{ ...tdStyle, color: 'rgba(255,255,255,0.4)' }}>{new Date(p.created_at).toLocaleDateString()}</td>
+                    <td style={{ ...tdStyle, color: 'var(--crm-w40)' }}>{new Date(p.created_at).toLocaleDateString()}</td>
                     <td style={{ ...tdStyle, whiteSpace: 'nowrap' }}>
                       {isEditing ? (
                         <>
@@ -400,18 +439,24 @@ export default function PromoCodesTab({ onError }) {
 
                   {/* Who redeemed it — the accounts behind the count. */}
                   {isExpanded && (
-                    <tr style={{ background: 'rgba(255,255,255,0.02)' }}>
+                    <tr style={{ background: 'var(--crm-w03)' }}>
                       <td colSpan={COLS} style={{ padding: '12px 14px 16px' }}>
-                        {!rows && <div style={{ color: 'rgba(255,255,255,0.4)', fontSize: 12 }}>Loading…</div>}
+                        {!rows && <div style={{ color: 'var(--crm-w40)', fontSize: 12 }}>Loading…</div>}
                         {rows?.length === 0 && (
-                          <div style={{ color: 'rgba(255,255,255,0.4)', fontSize: 12 }}>
+                          <div style={{ color: 'var(--crm-w40)', fontSize: 12 }}>
                             Nobody has redeemed {p.code} yet.
                           </div>
                         )}
                         {rows?.length > 0 && (
                           <>
-                            <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: 12, marginBottom: 8 }}>
-                              {rows.length} account{rows.length === 1 ? '' : 's'} redeemed {p.code}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+                              <span style={{ color: 'var(--crm-w50)', fontSize: 12 }}>
+                                {rows.length} account{rows.length === 1 ? '' : 's'} redeemed {p.code}
+                              </span>
+                              <button onClick={() => exportRedemptionsXlsx(p)} style={btnStyle}
+                                title={`Download an Excel sheet of the users who redeemed ${p.code}`}>
+                                ⬇ Excel — {p.code}
+                              </button>
                             </div>
                             <div style={{
                               display: 'grid',
@@ -422,12 +467,12 @@ export default function PromoCodesTab({ onError }) {
                                 <div key={r.user_id} style={{
                                   display: 'flex', justifyContent: 'space-between', gap: 10,
                                   padding: '6px 10px', borderRadius: 8,
-                                  background: 'rgba(255,255,255,0.04)', fontSize: 12,
+                                  background: 'var(--crm-w04)', fontSize: 12,
                                 }}>
-                                  <span style={{ color: r.banned ? '#f87171' : '#fff' }}>
+                                  <span style={{ color: r.banned ? 'var(--crm-red)' : 'var(--crm-ink)' }}>
                                     {r.email}{r.banned ? ' (banned)' : ''}
                                   </span>
-                                  <span style={{ color: 'rgba(255,255,255,0.4)', whiteSpace: 'nowrap' }}>
+                                  <span style={{ color: 'var(--crm-w40)', whiteSpace: 'nowrap' }}>
                                     {new Date(r.created_at).toLocaleDateString()}
                                   </span>
                                 </div>
@@ -451,51 +496,51 @@ export default function PromoCodesTab({ onError }) {
 function Stat({ label, value, note, color }) {
   return (
     <div style={{
-      padding: '14px 16px', background: 'rgba(255,255,255,0.03)',
-      border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12,
+      padding: '14px 16px', background: 'var(--crm-w03)',
+      border: '1px solid var(--crm-w08)', borderRadius: 12,
     }}>
       <div style={{
         fontSize: 11, fontWeight: 600, textTransform: 'uppercase',
-        letterSpacing: '0.05em', color: 'rgba(255,255,255,0.4)', marginBottom: 6,
+        letterSpacing: '0.05em', color: 'var(--crm-w40)', marginBottom: 6,
       }}>{label}</div>
       <div style={{
         fontSize: 26, fontWeight: 700, lineHeight: 1.1,
-        color: color || '#fff', fontVariantNumeric: 'tabular-nums',
+        color: color || 'var(--crm-ink)', fontVariantNumeric: 'tabular-nums',
       }}>{value}</div>
       {note ? (
-        <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)', marginTop: 4 }}>{note}</div>
+        <div style={{ fontSize: 12, color: 'var(--crm-w40)', marginTop: 4 }}>{note}</div>
       ) : null}
     </div>
   );
 }
 
-const invalidStyle = { border: '1px solid #f87171', background: 'rgba(248,113,113,0.08)' };
+const invalidStyle = { border: '1px solid var(--crm-red)', background: 'var(--crm-red-bg)' };
 const inputStyle = {
-  height: 36, padding: '0 12px', background: 'rgba(255,255,255,0.04)',
-  border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8,
-  color: '#fff', fontSize: 13, outline: 'none', fontFamily: 'inherit',
+  height: 36, padding: '0 12px', background: 'var(--crm-w04)',
+  border: '1px solid var(--crm-w10)', borderRadius: 8,
+  color: 'var(--crm-ink)', fontSize: 13, outline: 'none', fontFamily: 'inherit',
 };
 const btnStyle = {
-  height: 32, padding: '0 12px', background: 'rgba(255,255,255,0.06)',
-  border: '1px solid rgba(255,255,255,0.12)', borderRadius: 8,
-  color: 'rgba(255,255,255,0.85)', fontSize: 12, fontWeight: 600,
+  height: 32, padding: '0 12px', background: 'var(--crm-w06)',
+  border: '1px solid var(--crm-w12)', borderRadius: 8,
+  color: 'var(--crm-w85)', fontSize: 12, fontWeight: 600,
   cursor: 'pointer', fontFamily: 'inherit',
 };
 const primaryBtnStyle = {
   height: 36, padding: '0 18px', background: '#e0442c', border: 'none',
-  borderRadius: 8, color: '#fff', fontSize: 13, fontWeight: 700,
+  borderRadius: 8, color: 'var(--crm-ink)', fontSize: 13, fontWeight: 700,
   cursor: 'pointer', fontFamily: 'inherit',
 };
 const panelStyle = {
-  padding: 16, background: 'rgba(255,255,255,0.03)',
-  border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12,
+  padding: 16, background: 'var(--crm-w03)',
+  border: '1px solid var(--crm-w08)', borderRadius: 12,
 };
-const panelTitleStyle = { fontSize: 13, fontWeight: 600, color: 'rgba(255,255,255,0.6)', marginBottom: 12 };
+const panelTitleStyle = { fontSize: 13, fontWeight: 600, color: 'var(--crm-w60)', marginBottom: 12 };
 const thStyle = {
   textAlign: 'left', padding: '10px 14px', fontSize: 11, fontWeight: 600,
   textTransform: 'uppercase', letterSpacing: '0.05em',
-  color: 'rgba(255,255,255,0.4)', background: 'rgba(255,255,255,0.03)',
+  color: 'var(--crm-w40)', background: 'var(--crm-w03)',
   whiteSpace: 'nowrap',
 };
-const tdStyle = { padding: '10px 14px', color: 'rgba(255,255,255,0.85)' };
-const emptyStyle = { padding: '24px 14px', textAlign: 'center', color: 'rgba(255,255,255,0.35)' };
+const tdStyle = { padding: '10px 14px', color: 'var(--crm-w85)' };
+const emptyStyle = { padding: '24px 14px', textAlign: 'center', color: 'var(--crm-w35)' };

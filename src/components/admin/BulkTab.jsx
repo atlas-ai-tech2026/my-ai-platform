@@ -152,7 +152,7 @@ export default function BulkTab({ onError }) {
 
   return (
     <div>
-      <div style={{ color: 'rgba(255,255,255,0.4)', fontSize: 13, marginBottom: 16 }}>
+      <div style={{ color: 'var(--crm-w40)', fontSize: 13, marginBottom: 16 }}>
         Provision accounts in bulk from a spreadsheet of emails. Each account gets a
         generated password (shown once — export the CSV), the chosen plan&rsquo;s credits,
         an optional model allow-list, and an optional expiry date.
@@ -167,7 +167,7 @@ export default function BulkTab({ onError }) {
             <input type="file" accept=".xlsx,.xls,.csv" style={{ display: 'none' }}
               onChange={e => { onFile(e.target.files?.[0]); e.target.value = ''; }} />
           </label>
-          {fileName && <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.45)' }}>{fileName}</span>}
+          {fileName && <span style={{ fontSize: 12, color: 'var(--crm-w45)' }}>{fileName}</span>}
           <input placeholder="…or paste emails here" value={pasted}
             onChange={e => setPasted(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && addPasted()}
@@ -178,7 +178,7 @@ export default function BulkTab({ onError }) {
         {emails.length > 0 && (
           <div style={{ marginTop: 10, maxHeight: 120, overflowY: 'auto', display: 'flex', flexWrap: 'wrap', gap: 6 }}>
             {emails.map(e => (
-              <span key={e} style={{ fontSize: 11, padding: '3px 8px', borderRadius: 999, background: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.7)' }}>{e}</span>
+              <span key={e} style={{ fontSize: 11, padding: '3px 8px', borderRadius: 999, background: 'var(--crm-w06)', color: 'var(--crm-w70)' }}>{e}</span>
             ))}
           </div>
         )}
@@ -217,29 +217,29 @@ export default function BulkTab({ onError }) {
       {/* Step 3 — model access */}
       <div style={{ ...panelStyle, marginTop: 12 }}>
         <div style={panelTitleStyle}>3 · Model access</div>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: '#fff', cursor: 'pointer' }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--crm-ink)', cursor: 'pointer' }}>
           <input type="checkbox" checked={allModels} onChange={e => setAllModels(e.target.checked)} />
           All models (no restriction)
         </label>
         {!allModels && (catalog ? modelGroups.map(([label, models]) => (
           <div key={label} style={{ marginTop: 10 }}>
-            <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{label}</div>
+            <div style={{ fontSize: 11, color: 'var(--crm-w40)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{label}</div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
               {models.map(m => (
                 <button key={m} onClick={() => togglePicked(m)}
                   style={{
                     ...btnStyle, height: 28, fontSize: 12,
-                    background: picked.has(m) ? '#e0442c' : 'rgba(255,255,255,0.06)',
-                    border: picked.has(m) ? '1px solid #e0442c' : '1px solid rgba(255,255,255,0.12)',
+                    background: picked.has(m) ? '#e0442c' : 'var(--crm-w06)',
+                    border: picked.has(m) ? '1px solid #e0442c' : '1px solid var(--crm-w12)',
                   }}>
                   {m}
                 </button>
               ))}
             </div>
           </div>
-        )) : <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.35)', marginTop: 8 }}>Loading model list…</div>)}
+        )) : <div style={{ fontSize: 12, color: 'var(--crm-w35)', marginTop: 8 }}>Loading model list…</div>)}
         {!allModels && picked.size > 0 && (
-          <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.45)', marginTop: 8 }}>{picked.size} model(s) selected</div>
+          <div style={{ fontSize: 12, color: 'var(--crm-w45)', marginTop: 8 }}>{picked.size} model(s) selected</div>
         )}
       </div>
 
@@ -254,27 +254,27 @@ export default function BulkTab({ onError }) {
       {/* Results */}
       {result && (
         <div style={{ marginTop: 14 }}>
-          <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.6)', marginBottom: 8 }}>
-            <b style={{ color: '#4ade80' }}>{result.created} created</b>
-            {result.skipped_existing > 0 && <> · <span style={{ color: '#fbbf24' }}>{result.skipped_existing} already existed</span></>}
-            {result.invalid?.length > 0 && <> · <span style={{ color: '#f87171' }}>{result.invalid.length} invalid</span></>}
+          <div style={{ fontSize: 13, color: 'var(--crm-w60)', marginBottom: 8 }}>
+            <b style={{ color: 'var(--crm-green)' }}>{result.created} created</b>
+            {result.skipped_existing > 0 && <> · <span style={{ color: 'var(--crm-amber)' }}>{result.skipped_existing} already existed</span></>}
+            {result.invalid?.length > 0 && <> · <span style={{ color: 'var(--crm-red)' }}>{result.invalid.length} invalid</span></>}
             &nbsp;— passwords are shown ONCE, export the CSV now.
           </div>
-          <div style={{ overflowX: 'auto', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12, maxHeight: 320, overflowY: 'auto' }}>
+          <div style={{ overflowX: 'auto', border: '1px solid var(--crm-w08)', borderRadius: 12, maxHeight: 320, overflowY: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
               <thead>
                 <tr>{['Email', 'Password', 'Status'].map(h => <th key={h} style={thStyle}>{h}</th>)}</tr>
               </thead>
               <tbody>
                 {result.results.map(r => (
-                  <tr key={r.email} style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                  <tr key={r.email} style={{ borderTop: '1px solid var(--crm-w06)' }}>
                     <td style={tdStyle}>{r.email}</td>
                     <td style={{ ...tdStyle, fontFamily: '"JetBrains Mono", monospace' }}>{r.password || '—'}</td>
                     <td style={tdStyle}>
                       <span style={{
                         padding: '2px 10px', borderRadius: 999, fontSize: 12, fontWeight: 600,
-                        color: r.status === 'created' ? '#4ade80' : r.status === 'exists' ? '#fbbf24' : '#f87171',
-                        background: r.status === 'created' ? 'rgba(74,222,128,0.12)' : r.status === 'exists' ? 'rgba(251,191,36,0.12)' : 'rgba(248,113,113,0.12)',
+                        color: r.status === 'created' ? 'var(--crm-green)' : r.status === 'exists' ? 'var(--crm-amber)' : 'var(--crm-red)',
+                        background: r.status === 'created' ? 'var(--crm-green-bg)' : r.status === 'exists' ? 'var(--crm-amber-bg)' : 'var(--crm-red-bg)',
                       }}>{r.status}</span>
                     </td>
                   </tr>
@@ -288,16 +288,16 @@ export default function BulkTab({ onError }) {
   );
 }
 
-const invalidStyle = { border: '1px solid #f87171', background: 'rgba(248,113,113,0.08)' };
+const invalidStyle = { border: '1px solid var(--crm-red)', background: 'var(--crm-red-bg)' };
 const inputStyle = {
   height: 36, padding: '0 12px', borderRadius: 10,
-  background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)',
-  color: '#fff', fontSize: 13, outline: 'none', fontFamily: 'inherit', colorScheme: 'dark',
+  background: 'var(--crm-w04)', border: '1px solid var(--crm-w10)',
+  color: 'var(--crm-ink)', fontSize: 13, outline: 'none', fontFamily: 'inherit', colorScheme: 'dark',
 };
 const btnStyle = {
   height: 34, padding: '0 12px', borderRadius: 10, cursor: 'pointer',
-  background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)',
-  color: '#fff', fontSize: 13, fontWeight: 600, fontFamily: 'inherit',
+  background: 'var(--crm-w06)', border: '1px solid var(--crm-w12)',
+  color: 'var(--crm-ink)', fontSize: 13, fontWeight: 600, fontFamily: 'inherit',
   display: 'inline-flex', alignItems: 'center', gap: 6,
 };
 const primaryBtnStyle = {
@@ -306,13 +306,13 @@ const primaryBtnStyle = {
   fontFamily: 'inherit',
 };
 const panelStyle = {
-  background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)',
+  background: 'var(--crm-w03)', border: '1px solid var(--crm-w08)',
   borderRadius: 12, padding: 16,
 };
-const panelTitleStyle = { fontSize: 13, fontWeight: 600, color: 'rgba(255,255,255,0.6)', marginBottom: 12 };
+const panelTitleStyle = { fontSize: 13, fontWeight: 600, color: 'var(--crm-w60)', marginBottom: 12 };
 const thStyle = {
   textAlign: 'left', padding: '10px 14px', fontSize: 12, fontWeight: 600,
-  color: 'rgba(255,255,255,0.45)', background: 'rgba(255,255,255,0.03)', whiteSpace: 'nowrap',
+  color: 'var(--crm-w45)', background: 'var(--crm-w03)', whiteSpace: 'nowrap',
   position: 'sticky', top: 0,
 };
-const tdStyle = { padding: '8px 14px', color: 'rgba(255,255,255,0.85)', whiteSpace: 'nowrap' };
+const tdStyle = { padding: '8px 14px', color: 'var(--crm-w85)', whiteSpace: 'nowrap' };

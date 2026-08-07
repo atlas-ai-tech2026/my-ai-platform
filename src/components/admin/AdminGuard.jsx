@@ -12,6 +12,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { adminApi, getStoredUser, VOXEL_TOKEN_KEY, ApiError } from '@/lib/adminApi';
+import { CrmThemeProvider } from './crmTheme';
 
 const IDLE_MS = 15 * 60 * 1000;
 
@@ -52,27 +53,33 @@ export default function AdminGuard({ children }) {
   // Logged in + admin → render the panel.
   if (user && user.role === 'admin') {
     return (
-      <>
+      <CrmThemeProvider>
         {children}
         <button
           onClick={logout}
           style={{
             position: 'fixed', top: 16, right: 16, zIndex: 1000,
             padding: '6px 14px', fontSize: 12, fontWeight: 600,
-            background: 'rgba(255,255,255,0.06)',
-            border: '1px solid rgba(255,255,255,0.12)',
-            borderRadius: 8, color: 'rgba(255,255,255,0.8)', cursor: 'pointer',
+            background: 'var(--crm-w06)',
+            border: '1px solid var(--crm-w12)',
+            borderRadius: 8, color: 'var(--crm-w80)', cursor: 'pointer',
             fontFamily: '"DM Sans", sans-serif',
           }}
         >Sign out</button>
-      </>
+      </CrmThemeProvider>
     );
   }
 
   // Not logged in → inline login form. We don't render a hint that this is the
   // "admin panel" — just a generic "sign in" form. Anyone sniffing the URL
   // shouldn't be able to confirm by looking at the page that it's privileged.
-  return <InlineLogin checking={checking} setChecking={setChecking} onLogin={(u) => setUser(u)} />;
+  // The provider DEFINES the --crm-* variables the styles below read. It must
+  // wrap the login form too — that was the (real) half of the first diagnosis.
+  return (
+    <CrmThemeProvider>
+      <InlineLogin checking={checking} setChecking={setChecking} onLogin={(u) => setUser(u)} />
+    </CrmThemeProvider>
+  );
 }
 
 function InlineLogin({ checking, setChecking, onLogin }) {
@@ -110,19 +117,19 @@ function InlineLogin({ checking, setChecking, onLogin }) {
 
   return (
     <div style={{
-      minHeight: '100vh', background: '#0a0a0c',
+      minHeight: '100vh', background: 'var(--crm-page)',
       display: 'flex', alignItems: 'center', justifyContent: 'center',
       fontFamily: '"DM Sans", sans-serif',
     }}>
       <form onSubmit={handleSubmit} style={{
         width: 360, padding: 32,
-        background: 'rgba(18,18,22,0.8)',
+        background: 'var(--crm-surface)',
         backdropFilter: 'blur(40px) saturate(1.5)',
         WebkitBackdropFilter: 'blur(40px) saturate(1.5)',
-        border: '1px solid rgba(255,255,255,0.08)', borderRadius: 18,
+        border: '1px solid var(--crm-w08)', borderRadius: 18,
       }}>
-        <div style={{ color: '#fff', fontSize: 20, fontWeight: 700, marginBottom: 4 }}>Sign in</div>
-        <div style={{ color: 'rgba(255,255,255,0.4)', fontSize: 13, marginBottom: 24 }}>
+        <div style={{ color: 'var(--crm-ink)', fontSize: 20, fontWeight: 700, marginBottom: 4 }}>Sign in</div>
+        <div style={{ color: 'var(--crm-w40)', fontSize: 13, marginBottom: 24 }}>
           Use your account credentials.
         </div>
 
@@ -140,15 +147,15 @@ function InlineLogin({ checking, setChecking, onLogin }) {
         {err && (
           <div style={{
             marginTop: 12, padding: '8px 12px',
-            background: 'rgba(224,30,30,0.1)', border: '1px solid rgba(224,30,30,0.4)',
-            borderRadius: 8, color: '#ff6666', fontSize: 12,
+            background: 'var(--crm-red-bg)', border: '1px solid var(--crm-red-br)',
+            borderRadius: 8, color: 'var(--crm-red)', fontSize: 12,
           }}>{err}</div>
         )}
 
         <button type="submit" disabled={checking} style={{
           marginTop: 16, width: '100%', height: 40,
           background: checking ? 'rgba(139,0,0,0.5)' : 'linear-gradient(90deg, #CC0000 0%, #FF2222 50%, #E01E1E 100%)',
-          border: 'none', borderRadius: 10, color: '#fff', fontSize: 14, fontWeight: 700,
+          border: 'none', borderRadius: 10, color: 'var(--crm-ink)', fontSize: 14, fontWeight: 700,
           cursor: checking ? 'wait' : 'pointer',
         }}>
           {checking ? 'Signing in…' : 'Sign in'}
@@ -160,8 +167,8 @@ function InlineLogin({ checking, setChecking, onLogin }) {
 
 const inputStyle = {
   width: '100%', height: 38, padding: '0 12px',
-  background: 'rgba(255,255,255,0.04)',
-  border: '1px solid rgba(255,255,255,0.08)',
-  borderRadius: 10, color: '#fff', fontSize: 14, outline: 'none',
+  background: 'var(--crm-w04)',
+  border: '1px solid var(--crm-w08)',
+  borderRadius: 10, color: 'var(--crm-ink)', fontSize: 14, outline: 'none',
   fontFamily: 'inherit',
 };

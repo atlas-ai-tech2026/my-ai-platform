@@ -11,12 +11,12 @@ import { adminApi } from '@/lib/adminApi';
 const PAGE_SIZE = 50;
 
 const ACTION_CHIP = {
-  spend:  { label: 'success', color: '#4ade80', bg: 'rgba(74,222,128,0.12)' },
-  refund: { label: 'refunded', color: '#fbbf24', bg: 'rgba(251,191,36,0.12)' },
-  grant:  { label: 'grant', color: '#60a5fa', bg: 'rgba(96,165,250,0.12)' },
-  revoke: { label: 'revoke', color: '#f87171', bg: 'rgba(248,113,113,0.12)' },
-  promo:  { label: 'promo', color: '#c084fc', bg: 'rgba(192,132,252,0.12)' },
-  gift:   { label: 'gift card', color: '#f472b6', bg: 'rgba(244,114,182,0.12)' },
+  spend:  { label: 'success', color: 'var(--crm-green)', bg: 'var(--crm-green-bg)' },
+  refund: { label: 'refunded', color: 'var(--crm-amber)', bg: 'var(--crm-amber-bg)' },
+  grant:  { label: 'grant', color: 'var(--crm-blue)', bg: 'var(--crm-blue-bg)' },
+  revoke: { label: 'revoke', color: 'var(--crm-red)', bg: 'var(--crm-red-bg)' },
+  promo:  { label: 'promo', color: 'var(--crm-purple)', bg: 'var(--crm-purple-bg)' },
+  gift:   { label: 'gift card', color: 'var(--crm-pink)', bg: 'var(--crm-pink-bg)' },
 };
 
 export default function LogsTab({ onError }) {
@@ -86,7 +86,7 @@ export default function LogsTab({ onError }) {
 
   return (
     <div>
-      <div style={{ color: 'rgba(255,255,255,0.4)', fontSize: 13, marginBottom: 16 }}>
+      <div style={{ color: 'var(--crm-w40)', fontSize: 13, marginBottom: 16 }}>
         An overview of the latest requests across all users. Voxel credits = what the
         user paid; KIE credits = estimated cost on our kie.ai balance; FAL cost =
         estimated USD on our fal.ai bill. "—" = other provider, no price on file,
@@ -117,15 +117,15 @@ export default function LogsTab({ onError }) {
       </div>
 
       {summary && (
-        <div style={{ color: 'rgba(255,255,255,0.45)', fontSize: 12, marginBottom: 10 }}>
-          This page: <b style={{ color: '#fff' }}>{summary.voxel}</b> voxel credits spent ·{' '}
-          <b style={{ color: '#fff' }}>{summary.kie}</b> KIE credits ·{' '}
-          <b style={{ color: '#fff' }}>${summary.fal}</b> FAL cost
+        <div style={{ color: 'var(--crm-w45)', fontSize: 12, marginBottom: 10 }}>
+          This page: <b style={{ color: 'var(--crm-ink)' }}>{summary.voxel}</b> voxel credits spent ·{' '}
+          <b style={{ color: 'var(--crm-ink)' }}>{summary.kie}</b> KIE credits ·{' '}
+          <b style={{ color: 'var(--crm-ink)' }}>${summary.fal}</b> FAL cost
         </div>
       )}
 
       {/* Table */}
-      <div style={{ overflowX: 'auto', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12 }}>
+      <div style={{ overflowX: 'auto', border: '1px solid var(--crm-w08)', borderRadius: 12 }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
           <thead>
             <tr>
@@ -142,10 +142,10 @@ export default function LogsTab({ onError }) {
               <tr><td colSpan={7} style={emptyStyle}>No log entries match these filters.</td></tr>
             )}
             {rows?.map(r => {
-              const chip = ACTION_CHIP[r.action] || { label: r.action, color: '#aaa', bg: 'rgba(255,255,255,0.08)' };
+              const chip = ACTION_CHIP[r.action] || { label: r.action, color: 'var(--crm-w50)', bg: 'var(--crm-w08)' };
               const amt = Number(r.amount);
               return (
-                <tr key={r.id} style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                <tr key={r.id} style={{ borderTop: '1px solid var(--crm-w06)' }}>
                   <td style={tdStyle} title={new Date(r.created_at).toISOString()}>
                     {new Date(r.created_at).toLocaleString()}
                   </td>
@@ -159,13 +159,13 @@ export default function LogsTab({ onError }) {
                       {chip.label}
                     </span>
                   </td>
-                  <td style={{ ...tdStyle, color: amt < 0 ? '#f87171' : '#4ade80', fontWeight: 600 }}>
+                  <td style={{ ...tdStyle, color: amt < 0 ? 'var(--crm-red)' : 'var(--crm-green)', fontWeight: 600 }}>
                     {amt > 0 ? `+${amt}` : amt}
                   </td>
-                  <td style={{ ...tdStyle, color: r.kie_credits ? '#c084fc' : 'rgba(255,255,255,0.3)', fontWeight: r.kie_credits ? 600 : 400 }}>
+                  <td style={{ ...tdStyle, color: r.kie_credits ? 'var(--crm-purple)' : 'var(--crm-w30)', fontWeight: r.kie_credits ? 600 : 400 }}>
                     {r.kie_credits ? `−${Number(r.kie_credits)}` : '—'}
                   </td>
-                  <td style={{ ...tdStyle, color: r.fal_cost ? '#fb923c' : 'rgba(255,255,255,0.3)', fontWeight: r.fal_cost ? 600 : 400 }}>
+                  <td style={{ ...tdStyle, color: r.fal_cost ? 'var(--crm-orange)' : 'var(--crm-w30)', fontWeight: r.fal_cost ? 600 : 400 }}>
                     {r.fal_cost ? `−$${Number(r.fal_cost)}` : '—'}
                   </td>
                 </tr>
@@ -176,7 +176,7 @@ export default function LogsTab({ onError }) {
       </div>
 
       {/* Pagination */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 12, fontSize: 13, color: 'rgba(255,255,255,0.5)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 12, fontSize: 13, color: 'var(--crm-w50)' }}>
         <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page <= 1} style={btnStyle}>← Prev</button>
         <span>Page {page} / {pages} · {total} entries</span>
         <button onClick={() => setPage(p => Math.min(pages, p + 1))} disabled={page >= pages} style={btnStyle}>Next →</button>
@@ -187,19 +187,19 @@ export default function LogsTab({ onError }) {
 
 const inputStyle = {
   height: 36, padding: '0 12px', borderRadius: 10,
-  background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)',
-  color: '#fff', fontSize: 13, outline: 'none', fontFamily: 'inherit',
+  background: 'var(--crm-w04)', border: '1px solid var(--crm-w10)',
+  color: 'var(--crm-ink)', fontSize: 13, outline: 'none', fontFamily: 'inherit',
   colorScheme: 'dark',
 };
 const btnStyle = {
   height: 36, padding: '0 14px', borderRadius: 10, cursor: 'pointer',
-  background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)',
-  color: '#fff', fontSize: 13, fontWeight: 600, fontFamily: 'inherit',
+  background: 'var(--crm-w06)', border: '1px solid var(--crm-w12)',
+  color: 'var(--crm-ink)', fontSize: 13, fontWeight: 600, fontFamily: 'inherit',
 };
 const thStyle = {
   textAlign: 'left', padding: '10px 14px', fontSize: 12, fontWeight: 600,
-  color: 'rgba(255,255,255,0.45)', background: 'rgba(255,255,255,0.03)',
+  color: 'var(--crm-w45)', background: 'var(--crm-w03)',
   whiteSpace: 'nowrap',
 };
-const tdStyle = { padding: '10px 14px', color: 'rgba(255,255,255,0.85)', whiteSpace: 'nowrap' };
-const emptyStyle = { padding: 32, textAlign: 'center', color: 'rgba(255,255,255,0.35)' };
+const tdStyle = { padding: '10px 14px', color: 'var(--crm-w85)', whiteSpace: 'nowrap' };
+const emptyStyle = { padding: 32, textAlign: 'center', color: 'var(--crm-w35)' };

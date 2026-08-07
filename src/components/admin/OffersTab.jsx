@@ -26,13 +26,13 @@ const todayISO = () => new Date().toISOString().slice(0, 10);
 const plusDays = (n) => new Date(Date.now() + n * 864e5).toISOString().slice(0, 10);
 
 const TYPES = [
-  { key: 'pct',   label: '% discount',          icon: '%', color: '#60a5fa',
+  { key: 'pct',   label: '% discount',          icon: '%', color: 'var(--crm-blue)',
     desc: 'Percentage off the plan price — e.g. 15% off Pro.' },
-  { key: 'bonus', label: 'Bonus credits',       icon: '✦', color: '#34d399',
+  { key: 'bonus', label: 'Bonus credits',       icon: '✦', color: 'var(--crm-green)',
     desc: 'Same price, extra credits. Feels big, protects price.' },
-  { key: 'days',  label: 'Free days / upgrade', icon: '⏱', color: '#fb923c',
+  { key: 'days',  label: 'Free days / upgrade', icon: '⏱', color: 'var(--crm-orange)',
     desc: 'Extend the subscription free, or a higher plan at the same price.' },
-  { key: 'fixed', label: 'Fixed amount off',    icon: '$', color: '#a78bfa',
+  { key: 'fixed', label: 'Fixed amount off',    icon: '$', color: 'var(--crm-violet)',
     desc: 'A dollar amount off — e.g. $10 off plans $59 and up.' },
 ];
 const TYPE_BY = Object.fromEntries(TYPES.map((t) => [t.key, t]));
@@ -70,8 +70,8 @@ export default function OffersTab({ onError }) {
     <div>
       <div style={{
         padding: '10px 14px', marginBottom: 14, borderRadius: 10, fontSize: 13,
-        background: 'rgba(96,165,250,0.10)', border: '1px solid rgba(96,165,250,0.35)',
-        color: 'rgba(255,255,255,0.85)',
+        background: 'var(--crm-blue-bg)', border: '1px solid var(--crm-blue-br)',
+        color: 'var(--crm-w85)',
       }}>
         <b>Offers use the Costing engine's margin target.</b> Approving an offer records it and
         writes the audit trail — it does not itself take money or grant credits.
@@ -79,18 +79,18 @@ export default function OffersTab({ onError }) {
 
       <div style={{ display: 'grid', gap: 10, marginBottom: 14,
         gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))' }}>
-        <Stat label="Active offers" value={num(active)} note="running now" color="#4ade80" />
-        <Stat label="Scheduled" value={num(scheduled)} note="starting soon" color="#60a5fa" />
+        <Stat label="Active offers" value={num(active)} note="running now" color="var(--crm-green)" />
+        <Stat label="Scheduled" value={num(scheduled)} note="starting soon" color="var(--crm-blue)" />
         <Stat label="Redemptions" value={num(uses)} note="all time" />
-        <Stat label="Margin floor" value={pct(S.margin_floor)} note="offers below need approval" color="#fbbf24" />
+        <Stat label="Margin floor" value={pct(S.margin_floor)} note="offers below need approval" color="var(--crm-amber)" />
       </div>
 
-      <div style={{ display: 'flex', gap: 4, borderBottom: '1px solid rgba(255,255,255,0.1)', marginBottom: 12 }}>
+      <div style={{ display: 'flex', gap: 4, borderBottom: '1px solid var(--crm-w10)', marginBottom: 12 }}>
         {[['list', 'Offers'], ['create', '＋ Create offer']].map(([id, label]) => (
           <button key={id} onClick={() => { setView(id); setDetail(null); }} style={{
             border: 'none', background: 'none', padding: '9px 14px', cursor: 'pointer',
             fontFamily: 'inherit', fontSize: 14,
-            color: view === id ? '#fff' : 'rgba(255,255,255,0.45)',
+            color: view === id ? 'var(--crm-ink)' : 'var(--crm-w45)',
             fontWeight: view === id ? 700 : 500,
             borderBottom: view === id ? '2px solid #e0442c' : '2px solid transparent',
           }}>{label}</button>
@@ -147,12 +147,12 @@ function OffersList({ offers, busy, onPause, onResume, onApprove, onOpen }) {
             const t = TYPE_BY[o.type] || {};
             const st = o.effective_status;
             return (
-              <tr key={o.id} style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+              <tr key={o.id} style={{ borderTop: '1px solid var(--crm-w06)' }}>
                 <td style={{ ...td, textAlign: 'left' }}>
                   <button onClick={() => onOpen(o.id)} style={linkBtn}>{o.name}</button>
                   {o.requires_checkout && (
                     <span title="Voxel has no checkout yet, so this offer cannot be redeemed"
-                      style={badge('#fbbf24')}>NEEDS CHECKOUT</span>
+                      style={badge('var(--crm-amber)')}>NEEDS CHECKOUT</span>
                   )}
                 </td>
                 <td style={{ ...td, textAlign: 'left' }}>
@@ -205,12 +205,12 @@ function OffersList({ offers, busy, onPause, onResume, onApprove, onOpen }) {
 
 function StatusPill({ status }) {
   const c = {
-    active:    ['rgba(74,222,128,0.15)', '#4ade80'],
-    scheduled: ['rgba(96,165,250,0.15)', '#60a5fa'],
-    draft:     ['rgba(251,191,36,0.15)', '#fbbf24'],
-    paused:    ['rgba(255,255,255,0.08)', 'rgba(255,255,255,0.5)'],
-    expired:   ['rgba(255,255,255,0.08)', 'rgba(255,255,255,0.5)'],
-  }[status] || ['rgba(255,255,255,0.08)', 'rgba(255,255,255,0.5)'];
+    active:    ['var(--crm-green-bg)', 'var(--crm-green)'],
+    scheduled: ['var(--crm-blue-bg)', 'var(--crm-blue)'],
+    draft:     ['var(--crm-amber-bg)', 'var(--crm-amber)'],
+    paused:    ['var(--crm-w08)', 'var(--crm-w50)'],
+    expired:   ['var(--crm-w08)', 'var(--crm-w50)'],
+  }[status] || ['var(--crm-w08)', 'var(--crm-w50)'];
   return (
     <span style={{
       display: 'inline-flex', alignItems: 'center', gap: 5, padding: '3px 11px 3px 8px',
@@ -370,8 +370,8 @@ function CreateOffer({ data, busy, onSaved, onError }) {
                 style={{
                   textAlign: 'left', padding: '12px 14px', borderRadius: 12, cursor: 'pointer',
                   fontFamily: 'inherit', position: 'relative',
-                  background: sel ? `${t.color}14` : 'rgba(255,255,255,0.03)',
-                  border: `1.5px solid ${sel ? t.color : 'rgba(255,255,255,0.10)'}`,
+                  background: sel ? `${t.color}14` : 'var(--crm-w03)',
+                  border: `1.5px solid ${sel ? t.color : 'var(--crm-w10)'}`,
                 }}>
                 {sel && <span style={{
                   position: 'absolute', top: 9, right: 10, width: 19, height: 19, borderRadius: '50%',
@@ -383,18 +383,18 @@ function CreateOffer({ data, busy, onSaved, onError }) {
                   background: `${t.color}22`, color: t.color,
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                 }}>{t.icon}</div>
-                <div style={{ fontWeight: 650, color: '#fff' }}>
+                <div style={{ fontWeight: 650, color: 'var(--crm-ink)' }}>
                   {t.label}
-                  {(t.key === 'pct' || t.key === 'fixed') && <span style={badge('#fbbf24')}>NEEDS CHECKOUT</span>}
+                  {(t.key === 'pct' || t.key === 'fixed') && <span style={badge('var(--crm-amber)')}>NEEDS CHECKOUT</span>}
                 </div>
-                <div style={{ color: 'rgba(255,255,255,0.55)', fontSize: 12, marginTop: 2 }}>{t.desc}</div>
+                <div style={{ color: 'var(--crm-w55)', fontSize: 12, marginTop: 2 }}>{t.desc}</div>
               </button>
             );
           })}
         </div>
 
         {(type === 'pct' || type === 'fixed') && (
-          <div style={{ ...noteBox('#fbbf24'), marginTop: 12 }}>
+          <div style={{ ...noteBox('var(--crm-amber)'), marginTop: 12 }}>
             <b>This offer cannot be redeemed yet.</b> Voxel has no checkout, so there is no price
             to reduce. You can design, cost and approve it now — it will start working the day a
             payment flow exists. Bonus credits and free days work today.
@@ -475,18 +475,18 @@ function CreateOffer({ data, busy, onSaved, onError }) {
               <input value={pickQuery} onChange={(e) => setPickQuery(e.target.value)}
                 placeholder="email…" style={{ ...input, width: 280 }} />
             </Field>
-            <div style={{ maxHeight: 230, overflow: 'auto', border: '1px solid rgba(255,255,255,0.08)',
+            <div style={{ maxHeight: 230, overflow: 'auto', border: '1px solid var(--crm-w08)',
               borderRadius: 9, marginTop: 8 }}>
               {pickResults.map((u) => {
                 const on = picked.some((p) => p.id === u.id);
                 return (
                   <label key={u.id} style={{
                     display: 'flex', gap: 9, padding: '6px 11px', alignItems: 'center',
-                    borderBottom: '1px solid rgba(255,255,255,0.06)', cursor: 'pointer', fontSize: 12.5,
+                    borderBottom: '1px solid var(--crm-w06)', cursor: 'pointer', fontSize: 12.5,
                   }}>
                     <input type="checkbox" checked={on} onChange={() => setPicked((ps) =>
                       on ? ps.filter((p) => p.id !== u.id) : [...ps, u])} />
-                    <b style={{ color: '#fff' }}>{u.email}</b>
+                    <b style={{ color: 'var(--crm-ink)' }}>{u.email}</b>
                     <span style={muted}>· {u.package || 'no plan'} · {num(u.credits)} cr</span>
                   </label>
                 );
@@ -498,7 +498,7 @@ function CreateOffer({ data, busy, onSaved, onError }) {
         )}
 
         <div style={{ marginTop: 11 }}>
-          <span style={{ fontSize: 16, fontWeight: 650, color: '#fff' }}>
+          <span style={{ fontSize: 16, fontWeight: 650, color: 'var(--crm-ink)' }}>
             {aud === 'all' ? '—' : aud === 'picked' ? picked.length : (segPreview?.count ?? '…')}
           </span>{' '}
           <span style={muted}>
@@ -515,7 +515,7 @@ function CreateOffer({ data, busy, onSaved, onError }) {
               </tr></thead>
               <tbody>
                 {segPreview.sample.map((u) => (
-                  <tr key={u.id} style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                  <tr key={u.id} style={{ borderTop: '1px solid var(--crm-w06)' }}>
                     <td style={{ ...td, textAlign: 'left' }}>{u.email}</td>
                     <td style={{ ...td, textAlign: 'left' }}>{u.package || '—'}</td>
                     <td style={{ ...td, textAlign: 'left' }}>{num(u.credits)}</td>
@@ -558,7 +558,7 @@ function CreateOffer({ data, busy, onSaved, onError }) {
               for it stays visible, exactly as the prototype does. */}
           <label style={{ ...radio, opacity: 0.55, cursor: 'not-allowed' }}>
             <input type="checkbox" disabled /> Email campaign to the audience
-            <span style={badge('#fbbf24')}>ON HOLD</span>
+            <span style={badge('var(--crm-amber)')}>ON HOLD</span>
           </label>
         </div>
         <div style={{ ...muted, marginTop: 6, fontSize: 12 }}>
@@ -625,16 +625,16 @@ function CreateOffer({ data, busy, onSaved, onError }) {
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
             {(impact?.impact || []).map((r) => (
               <div key={r.plan_id} style={{
-                border: `1px solid ${r.below_floor ? 'rgba(248,113,113,0.5)' : 'rgba(255,255,255,0.10)'}`,
-                background: r.below_floor ? 'rgba(248,113,113,0.08)' : 'rgba(255,255,255,0.03)',
+                border: `1px solid ${r.below_floor ? 'var(--crm-red-br)' : 'var(--crm-w10)'}`,
+                background: r.below_floor ? 'var(--crm-red-bg)' : 'var(--crm-w03)',
                 borderRadius: 11, padding: '10px 14px 12px', minWidth: 178,
               }}>
-                <div style={{ fontWeight: 650, fontSize: 12.5, color: '#fff' }}>
+                <div style={{ fontWeight: 650, fontSize: 12.5, color: 'var(--crm-ink)' }}>
                   {r.plan_name} ${r.price_usd}
                   {r.new_price != null && <> → ${r.new_price.toFixed(2)}</>}
                 </div>
                 <div style={{ fontSize: 17, fontWeight: 700, margin: '1px 0 2px',
-                  color: r.below_floor ? '#f87171' : '#fff' }}>
+                  color: r.below_floor ? 'var(--crm-red)' : 'var(--crm-ink)' }}>
                   {type === 'days'
                     ? `~${money(r.estimated_cost)}`
                     : <>{pct(r.margin_before)} → {r.margin_after == null ? '—' : pct(r.margin_after)}</>}
@@ -650,8 +650,8 @@ function CreateOffer({ data, busy, onSaved, onError }) {
 
         <div style={{ marginTop: 10 }}>
           {belowFloor ? (
-            <div style={noteBox('#f87171')}>
-              <div style={{ color: '#f87171', fontWeight: 650 }}>
+            <div style={noteBox('var(--crm-red)')}>
+              <div style={{ color: 'var(--crm-red)', fontWeight: 650 }}>
                 ▼ This offer pushes at least one plan below your {pct(S.margin_floor)} margin floor.
               </div>
               <label style={{ ...radio, marginTop: 8 }}>
@@ -664,7 +664,7 @@ function CreateOffer({ data, busy, onSaved, onError }) {
               </div>
             </div>
           ) : type !== 'days' && impact ? (
-            <span style={{ color: '#4ade80', fontWeight: 600 }}>
+            <span style={{ color: 'var(--crm-green)', fontWeight: 600 }}>
               ✓ All selected plans stay above the {pct(S.margin_floor)} margin floor.
             </span>
           ) : null}
@@ -674,7 +674,7 @@ function CreateOffer({ data, busy, onSaved, onError }) {
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
         <button disabled={busy || (belowFloor && !confirmBelow)} onClick={() => save(true)}
           style={{
-            ...smallBtn, padding: '9px 18px', fontSize: 14, fontWeight: 700, color: '#fff',
+            ...smallBtn, padding: '9px 18px', fontSize: 14, fontWeight: 700, color: 'var(--crm-ink)',
             border: 'none', borderRadius: 10,
             background: (busy || (belowFloor && !confirmBelow))
               ? 'rgba(139,0,0,0.4)'
@@ -689,7 +689,7 @@ function CreateOffer({ data, busy, onSaved, onError }) {
         <MissingSummary count={Object.values(missing).filter(Boolean).length} extra={errs} />
       )}
       <div style={{ ...muted, marginTop: 10, fontSize: 12 }}>
-        Boxes marked <span style={{ color: '#f87171', fontWeight: 700 }}>*</span> must be filled ·
+        Boxes marked <span style={{ color: 'var(--crm-red)', fontWeight: 700 }}>*</span> must be filled ·
         press <b>ⓘ</b> beside any box to see what it expects.
         Approval writes the audit log and activates on the start date.
       </div>
@@ -711,7 +711,7 @@ function OfferDetail({ data, onBack }) {
         <Stat label="Status" value={o.effective_status} note={`${String(o.starts_at).slice(0, 10)} → ${String(o.ends_at).slice(0, 10)}`} />
       </div>
       {o.requires_checkout && (
-        <div style={{ ...noteBox('#fbbf24'), marginBottom: 14 }}>
+        <div style={{ ...noteBox('var(--crm-amber)'), marginBottom: 14 }}>
           This offer type needs a checkout to be redeemed, which Voxel does not have yet — so its
           redemption count will stay at zero for now.
         </div>
@@ -739,7 +739,7 @@ function SimpleTable({ title, head, rows, empty }) {
             <thead><tr>{head.map((h) => <th key={h} style={{ ...th, textAlign: 'left' }}>{h}</th>)}</tr></thead>
             <tbody>
               {rows.map((r, i) => (
-                <tr key={i} style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                <tr key={i} style={{ borderTop: '1px solid var(--crm-w06)' }}>
                   {r.map((c, j) => <td key={j} style={{ ...td, textAlign: 'left' }}>{c}</td>)}
                 </tr>
               ))}
@@ -755,7 +755,7 @@ function SimpleTable({ title, head, rows, empty }) {
 function Card({ step, title, why, children }) {
   return (
     <div style={{ ...panel, marginBottom: 14 }}>
-      <h3 style={{ margin: '0 0 4px', fontSize: 15, display: 'flex', alignItems: 'center', gap: 10, color: '#fff' }}>
+      <h3 style={{ margin: '0 0 4px', fontSize: 15, display: 'flex', alignItems: 'center', gap: 10, color: 'var(--crm-ink)' }}>
         <span style={{
           width: 26, height: 26, borderRadius: 8, background: '#e0442c', color: '#fff',
           display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
@@ -771,9 +771,9 @@ function Card({ step, title, why, children }) {
 function Chip({ sel, onClick, children }) {
   return (
     <button type="button" onClick={onClick} style={{
-      border: `1.5px solid ${sel ? '#e0442c' : 'rgba(255,255,255,0.12)'}`,
+      border: `1.5px solid ${sel ? '#e0442c' : 'var(--crm-w12)'}`,
       background: sel ? '#e0442c' : 'transparent',
-      color: sel ? '#fff' : 'rgba(255,255,255,0.7)',
+      color: sel ? 'var(--crm-ink)' : 'var(--crm-w70)',
       borderRadius: 16, padding: '4px 13px', cursor: 'pointer',
       fontSize: 12.5, fontFamily: 'inherit', fontWeight: sel ? 600 : 500,
     }}>{children}</button>
@@ -782,9 +782,9 @@ function Chip({ sel, onClick, children }) {
 function Stat({ label, value, note, color }) {
   return (
     <div style={panel}>
-      <div style={{ color: 'rgba(255,255,255,0.45)', fontSize: 11, textTransform: 'uppercase', letterSpacing: '.04em' }}>{label}</div>
-      <div style={{ fontSize: 21, fontWeight: 700, color: color || '#fff', lineHeight: 1.15 }}>{value}</div>
-      {note && <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: 11.5 }}>{note}</div>}
+      <div style={{ color: 'var(--crm-w45)', fontSize: 11, textTransform: 'uppercase', letterSpacing: '.04em' }}>{label}</div>
+      <div style={{ fontSize: 21, fontWeight: 700, color: color || 'var(--crm-ink)', lineHeight: 1.15 }}>{value}</div>
+      {note && <div style={{ color: 'var(--crm-w50)', fontSize: 11.5 }}>{note}</div>}
     </div>
   );
 }
@@ -795,32 +795,32 @@ const badge = (c) => ({
 });
 const noteBox = (c) => ({
   padding: '10px 13px', borderRadius: 10, fontSize: 12.5,
-  background: `${c}14`, border: `1px solid ${c}55`, color: 'rgba(255,255,255,0.85)',
+  background: `${c}14`, border: `1px solid ${c}55`, color: 'var(--crm-w85)',
 });
-const muted = { color: 'rgba(255,255,255,0.45)', fontSize: 13 };
+const muted = { color: 'var(--crm-w45)', fontSize: 13 };
 const panel = {
-  padding: 14, background: 'rgba(255,255,255,0.03)',
-  border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12,
+  padding: 14, background: 'var(--crm-w03)',
+  border: '1px solid var(--crm-w08)', borderRadius: 12,
 };
 const th = {
   padding: '9px 10px', fontSize: 11, fontWeight: 600, textTransform: 'uppercase',
-  letterSpacing: '.03em', color: 'rgba(255,255,255,0.45)', textAlign: 'right', whiteSpace: 'nowrap',
+  letterSpacing: '.03em', color: 'var(--crm-w45)', textAlign: 'right', whiteSpace: 'nowrap',
 };
-const td = { padding: '7px 10px', textAlign: 'right', color: 'rgba(255,255,255,0.85)', whiteSpace: 'nowrap' };
+const td = { padding: '7px 10px', textAlign: 'right', color: 'var(--crm-w85)', whiteSpace: 'nowrap' };
 const input = adminInput();
 // A <select> inherits the page's dark background but its <option> list is
 // painted by the OS. Without an explicit pair the dropdown renders black text
 // on a black sheet in dark mode — the bug the brief asks to verify.
-const opt = { background: '#1a1a19', color: '#fff' };
+const opt = { background: 'var(--crm-tooltip-bg)', color: 'var(--crm-ink)' };
 const radio = { display: 'inline-flex', gap: 6, alignItems: 'center', cursor: 'pointer',
-  color: 'rgba(255,255,255,0.8)', fontSize: 13 };
+  color: 'var(--crm-w80)', fontSize: 13 };
 const smallBtn = {
-  border: '1px solid rgba(255,255,255,0.14)', background: 'rgba(255,255,255,0.04)',
-  color: 'rgba(255,255,255,0.8)', borderRadius: 8, padding: '5px 12px',
+  border: '1px solid var(--crm-w14)', background: 'var(--crm-w04)',
+  color: 'var(--crm-w80)', borderRadius: 8, padding: '5px 12px',
   fontSize: 12.5, cursor: 'pointer', fontFamily: 'inherit',
 };
 const linkBtn = {
-  background: 'none', border: 'none', padding: 0, color: '#fff', fontWeight: 600,
+  background: 'none', border: 'none', padding: 0, color: 'var(--crm-ink)', fontWeight: 600,
   fontSize: 13, cursor: 'pointer', fontFamily: 'inherit', textDecoration: 'underline',
-  textUnderlineOffset: 3, textDecorationColor: 'rgba(255,255,255,0.3)',
+  textUnderlineOffset: 3, textDecorationColor: 'var(--crm-w30)',
 };
