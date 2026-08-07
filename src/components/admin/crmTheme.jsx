@@ -124,6 +124,28 @@ export const CRM_THEME_CSS = `
   --crm-w90: rgba(255,255,255,0.90);
   --crm-tooltip-bg: #15151b;
   --crm-shadow: rgba(0,0,0,0.55);
+
+  /* Status colours. The Tailwind 400 family — bright, made for a dark page. */
+  --crm-red:    #f87171;  --crm-red-bg:    rgba(248,113,113,0.12);
+  --crm-red-br: rgba(248,113,113,0.45);
+  --crm-amber:  #fbbf24;  --crm-amber-bg:  rgba(251,191,36,0.12);
+  --crm-amber-br: rgba(251,191,36,0.45);
+  --crm-green:  #4ade80;  --crm-green-bg:  rgba(74,222,128,0.12);
+  --crm-green-br: rgba(74,222,128,0.45);
+  --crm-blue:   #60a5fa;  --crm-blue-bg:   rgba(96,165,250,0.10);
+  --crm-blue-br: rgba(96,165,250,0.35);
+  --crm-violet: #a78bfa;  --crm-violet-bg: rgba(167,139,250,0.10);
+  --crm-violet-br: rgba(167,139,250,0.30);
+  --crm-orange: #fb923c;  --crm-orange-bg: rgba(251,146,60,0.12);
+  --crm-orange-br: rgba(251,146,60,0.45);
+  --crm-purple: #c084fc;  --crm-purple-bg: rgba(192,132,252,0.14);
+  --crm-pink:   #f472b6;  --crm-pink-bg:   rgba(244,114,182,0.15);
+
+  /* Solid surfaces: modals, tooltips, anything that must OCCLUDE the page
+     rather than tint it. A translucent veil is not enough here — you would
+     read the table through the dialog. */
+  --crm-surface: rgba(18,18,22,0.97);
+  --crm-overlay: rgba(0,0,0,0.60);
 }
 [data-crm-theme="light"] {
   --crm-page:  #f7f7f5;
@@ -146,6 +168,31 @@ export const CRM_THEME_CSS = `
   --crm-w90: rgba(16,16,20,0.90);
   --crm-tooltip-bg: #ffffff;
   --crm-shadow: rgba(16,16,20,0.22);
+
+  /* Same meanings, the 600/700 family. The 400s are made to glow on black; on
+     a white page amber-400 is a highlighter pen — which is exactly what the
+     owner reported about the Users tab. These are darker so they read as text
+     rather than shouting, and the tints are lighter so a badge is a soft wash
+     instead of a solid block. */
+  --crm-red:    #b91c1c;  --crm-red-bg:    rgba(185,28,28,0.09);
+  --crm-red-br: rgba(185,28,28,0.30);
+  --crm-amber:  #a16207;  --crm-amber-bg:  rgba(161,98,7,0.10);
+  --crm-amber-br: rgba(161,98,7,0.28);
+  --crm-green:  #15803d;  --crm-green-bg:  rgba(21,128,61,0.09);
+  --crm-green-br: rgba(21,128,61,0.28);
+  --crm-blue:   #1d4ed8;  --crm-blue-bg:   rgba(29,78,216,0.07);
+  --crm-blue-br: rgba(29,78,216,0.25);
+  --crm-violet: #6d28d9;  --crm-violet-bg: rgba(109,40,217,0.07);
+  --crm-violet-br: rgba(109,40,217,0.22);
+  --crm-orange: #c2410c;  --crm-orange-bg: rgba(194,65,12,0.09);
+  --crm-orange-br: rgba(194,65,12,0.28);
+  --crm-purple: #7e22ce;  --crm-purple-bg: rgba(126,34,206,0.09);
+  --crm-pink:   #be185d;  --crm-pink-bg:   rgba(190,24,93,0.09);
+
+  --crm-surface: #ffffff;
+  /* Lighter than the dark scrim: a near-black wash over a white page reads as
+     a power cut rather than a dialog. */
+  --crm-overlay: rgba(16,16,20,0.38);
 }
 /* Native controls follow the theme, so date pickers and dropdown sheets are
    readable in both — the black-on-black <option> bug, in reverse. */

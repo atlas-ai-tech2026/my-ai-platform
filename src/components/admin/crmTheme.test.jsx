@@ -40,8 +40,23 @@ describe('the conversion left nothing behind', () => {
       expect(leftovers, `these will not follow the theme: ${leftovers.join(', ')}`).toEqual([]);
     });
 
-  // The opposite mistake: white text on the red accent must STAY white,
-  // because the accent colour does not change between themes.
+  // Only the BRAND accent and text sitting on it may remain literal. Anything
+  // else hard-coded is a colour that will not follow the theme — which is how
+  // the ⓘ panel stayed black on a white page.
+  it('leaves no colour literal except the brand accent and text on it', () => {
+    const ALLOWED = /#e0442c|#CC0000|#FF2222|#E01E1E|rgba\(139,\s*0,\s*0|'#fff'|'#000'|'#0b0b0b'|error #310/i;
+    const offenders = [];
+    for (const f of FILES) {
+      for (const [i, line] of fs.readFileSync(f, 'utf8').split('\n').entries()) {
+        // ignore comment lines — they explain colours, they do not paint them
+        if (/^\s*(\/\/|\*)/.test(line)) continue;
+        const hits = line.match(/#[0-9a-fA-F]{3,8}\b|rgba?\([0-9]{1,3},\s*[0-9]{1,3},\s*[0-9]{1,3}[^)]*\)/g);
+        if (hits && !ALLOWED.test(line)) offenders.push(`${path.basename(f)}:${i + 1}  ${line.trim().slice(0, 90)}`);
+      }
+    }
+    expect(offenders, `these will not follow the theme:\n${offenders.join('\n')}`).toEqual([]);
+  });
+
   it('keeps #fff where it sits on an accent colour', () => {
     const src = FILES.map((f) => fs.readFileSync(f, 'utf8')).join('\n');
     const whites = src.split('\n').filter((l) => /'#fff'/.test(l));

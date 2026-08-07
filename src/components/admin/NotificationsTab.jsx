@@ -18,13 +18,13 @@ const num = (v) => Number(v || 0).toLocaleString('en-US');
 const pctOf = (a, b) => (!b ? '0%' : `${Math.round((a / b) * 100)}%`);
 
 const TYPE_META = {
-  announce: { label: 'Announcement / news', icon: '📣', color: '#60a5fa', desc: 'General news to everyone or a segment.' },
-  feature:  { label: 'New feature',         icon: '🚀', color: '#a78bfa', desc: 'Feature release — links to its page, optional spotlight.' },
-  promo:    { label: 'Offer / promo code',  icon: '🎁', color: '#34d399', desc: 'Attach an offer — code or auto-applied.' },
-  personal: { label: 'Personal message',    icon: '💬', color: '#fb923c', desc: 'A direct message to a few hand-picked clients.' },
-  welcome:  { icon: '👋', color: '#60a5fa' }, renewal: { icon: '🔄', color: '#60a5fa' },
-  credits:  { icon: '⚡', color: '#fb923c' }, gen: { icon: '🎬', color: '#34d399' },
-  payment:  { icon: '💳', color: '#f87171' },
+  announce: { label: 'Announcement / news', icon: '📣', color: 'var(--crm-blue)', desc: 'General news to everyone or a segment.' },
+  feature:  { label: 'New feature',         icon: '🚀', color: 'var(--crm-violet)', desc: 'Feature release — links to its page, optional spotlight.' },
+  promo:    { label: 'Offer / promo code',  icon: '🎁', color: 'var(--crm-green)', desc: 'Attach an offer — code or auto-applied.' },
+  personal: { label: 'Personal message',    icon: '💬', color: 'var(--crm-orange)', desc: 'A direct message to a few hand-picked clients.' },
+  welcome:  { icon: '👋', color: 'var(--crm-blue)' }, renewal: { icon: '🔄', color: 'var(--crm-blue)' },
+  credits:  { icon: '⚡', color: 'var(--crm-orange)' }, gen: { icon: '🎬', color: 'var(--crm-green)' },
+  payment:  { icon: '💳', color: 'var(--crm-red)' },
 };
 const MANUAL = ['announce', 'feature', 'promo', 'personal'];
 
@@ -47,13 +47,13 @@ export default function NotificationsTab({ onError }) {
     <div>
       <div style={{
         padding: '10px 14px', marginBottom: 14, borderRadius: 10, fontSize: 13,
-        background: 'rgba(96,165,250,0.10)', border: '1px solid rgba(96,165,250,0.35)',
+        background: 'var(--crm-blue-bg)', border: '1px solid var(--crm-blue-br)',
         color: 'var(--crm-w85)',
       }}>
         <b>In-app notifications.</b> Manual messages you compose here, plus automatic rules.
         Email is on hold and push is not built — everything below is the in-app bell only.
         {!S.bell_enabled && (
-          <> <b style={{ color: '#fbbf24' }}>The customer bell is currently switched off</b>, so
+          <> <b style={{ color: 'var(--crm-amber)' }}>The customer bell is currently switched off</b>, so
           messages are recorded but nobody sees them yet.</>
         )}
       </div>
@@ -238,7 +238,7 @@ function Compose({ data, busy, setBusy, onError, onSent }) {
         </div>
 
         {preview?.unresolved?.length > 0 && (
-          <div style={{ ...noteBox('#fbbf24'), marginTop: 10 }}>
+          <div style={{ ...noteBox('var(--crm-amber)'), marginTop: 10 }}>
             <b>{preview.unresolved.join(', ')} cannot be filled in.</b> Nothing in the database holds a
             renewal date — Voxel has no subscriptions yet — so this would reach your customers as
             “—”. Remove it, or write the date into the message yourself.
@@ -342,10 +342,10 @@ function Compose({ data, busy, setBusy, onError, onSent }) {
             <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
               <label style={radio}><input type="checkbox" checked disabled /> In-app bell</label>
               <label style={{ ...radio, opacity: 0.55, cursor: 'not-allowed' }}>
-                <input type="checkbox" disabled /> Email<span style={badge('#fbbf24')}>ON HOLD</span>
+                <input type="checkbox" disabled /> Email<span style={badge('var(--crm-amber)')}>ON HOLD</span>
               </label>
               <label style={{ ...radio, opacity: 0.55, cursor: 'not-allowed' }}>
-                <input type="checkbox" disabled /> Push<span style={badge('#60a5fa')}>LATER</span>
+                <input type="checkbox" disabled /> Push<span style={badge('var(--crm-blue)')}>LATER</span>
               </label>
             </div>
           </Field>
@@ -375,7 +375,7 @@ function Compose({ data, busy, setBusy, onError, onSent }) {
       </div>
       {tried && <MissingSummary count={missingCount} extra={errs} />}
       <div style={{ ...muted, marginTop: 10, fontSize: 12 }}>
-        Boxes marked <span style={{ color: '#f87171', fontWeight: 700 }}>*</span> must be filled.
+        Boxes marked <span style={{ color: 'var(--crm-red)', fontWeight: 700 }}>*</span> must be filled.
         Press <b>ⓘ</b> beside any box to see what goes in it. Sending writes the audit log.
       </div>
     </div>
@@ -398,7 +398,7 @@ function Automations({ rows, onError, onChanged }) {
   return (
     <div>
       {dead > 0 && (
-        <div style={{ ...noteBox('#fbbf24'), marginBottom: 12 }}>
+        <div style={{ ...noteBox('var(--crm-amber)'), marginBottom: 12 }}>
           <b>{dead} rules cannot run yet.</b> They depend on subscription renewals and card charges,
           and Voxel has no checkout — so nothing could ever trigger them. They are switched off and
           cannot be enabled; they will start working the day a payment flow exists.
@@ -415,14 +415,14 @@ function Automations({ rows, onError, onChanged }) {
             {rows.map((a) => (
               <tr key={a.key} style={{
                 borderTop: '1px solid var(--crm-w06)',
-                background: a.needs_checkout ? 'rgba(251,191,36,0.06)' : 'transparent',
+                background: a.needs_checkout ? 'var(--crm-amber-bg)' : 'transparent',
                 opacity: a.needs_checkout ? 0.75 : 1,
               }}>
                 <td style={{ ...td, fontSize: 16 }}>{a.icon}</td>
                 <td style={{ ...td, textAlign: 'left', color: 'var(--crm-ink)', fontWeight: 600 }}>
                   {a.name}
                   {a.is_system && <span style={{ ...muted, fontWeight: 400, fontSize: 11 }}> · system</span>}
-                  {a.needs_checkout && <span style={badge('#fbbf24')}>NEEDS CHECKOUT</span>}
+                  {a.needs_checkout && <span style={badge('var(--crm-amber)')}>NEEDS CHECKOUT</span>}
                 </td>
                 <td style={{ ...td, textAlign: 'left' }}>
                   {a.n != null && (
@@ -439,7 +439,7 @@ function Automations({ rows, onError, onChanged }) {
                   {a.template}
                 </td>
                 <td style={{ ...td, textAlign: 'left' }}>
-                  In-app<span style={badge('#fbbf24')}>EMAIL ON HOLD</span>
+                  In-app<span style={badge('var(--crm-amber)')}>EMAIL ON HOLD</span>
                 </td>
                 <td style={td}>
                   <label style={{ cursor: a.needs_checkout ? 'not-allowed' : 'pointer' }}
@@ -540,11 +540,11 @@ function Settings({ settings, onError, onChanged }) {
 
 // ─── shared bits ─────────────────────────────────────────────────────────────
 export function NotificationCard({ n }) {
-  const m = TYPE_META[n.type] || { icon: '🔔', color: '#60a5fa' };
+  const m = TYPE_META[n.type] || { icon: '🔔', color: 'var(--crm-blue)' };
   return (
     <div style={{
       display: 'flex', gap: 11, padding: '12px 14px', position: 'relative',
-      background: n.read_at ? 'transparent' : 'rgba(96,165,250,0.06)',
+      background: n.read_at ? 'transparent' : 'var(--crm-blue-bg)',
     }}>
       <div style={{
         width: 36, height: 36, borderRadius: 10, flex: 'none', fontSize: 17,

@@ -11,12 +11,12 @@ import { adminApi } from '@/lib/adminApi';
 const PAGE_SIZE = 50;
 
 const ACTION_CHIP = {
-  spend:  { label: 'success', color: '#4ade80', bg: 'rgba(74,222,128,0.12)' },
-  refund: { label: 'refunded', color: '#fbbf24', bg: 'rgba(251,191,36,0.12)' },
-  grant:  { label: 'grant', color: '#60a5fa', bg: 'rgba(96,165,250,0.12)' },
-  revoke: { label: 'revoke', color: '#f87171', bg: 'rgba(248,113,113,0.12)' },
-  promo:  { label: 'promo', color: '#c084fc', bg: 'rgba(192,132,252,0.12)' },
-  gift:   { label: 'gift card', color: '#f472b6', bg: 'rgba(244,114,182,0.12)' },
+  spend:  { label: 'success', color: 'var(--crm-green)', bg: 'var(--crm-green-bg)' },
+  refund: { label: 'refunded', color: 'var(--crm-amber)', bg: 'var(--crm-amber-bg)' },
+  grant:  { label: 'grant', color: 'var(--crm-blue)', bg: 'var(--crm-blue-bg)' },
+  revoke: { label: 'revoke', color: 'var(--crm-red)', bg: 'var(--crm-red-bg)' },
+  promo:  { label: 'promo', color: 'var(--crm-purple)', bg: 'var(--crm-purple-bg)' },
+  gift:   { label: 'gift card', color: 'var(--crm-pink)', bg: 'var(--crm-pink-bg)' },
 };
 
 export default function LogsTab({ onError }) {
@@ -142,7 +142,7 @@ export default function LogsTab({ onError }) {
               <tr><td colSpan={7} style={emptyStyle}>No log entries match these filters.</td></tr>
             )}
             {rows?.map(r => {
-              const chip = ACTION_CHIP[r.action] || { label: r.action, color: '#aaa', bg: 'var(--crm-w08)' };
+              const chip = ACTION_CHIP[r.action] || { label: r.action, color: 'var(--crm-w50)', bg: 'var(--crm-w08)' };
               const amt = Number(r.amount);
               return (
                 <tr key={r.id} style={{ borderTop: '1px solid var(--crm-w06)' }}>
@@ -159,13 +159,13 @@ export default function LogsTab({ onError }) {
                       {chip.label}
                     </span>
                   </td>
-                  <td style={{ ...tdStyle, color: amt < 0 ? '#f87171' : '#4ade80', fontWeight: 600 }}>
+                  <td style={{ ...tdStyle, color: amt < 0 ? 'var(--crm-red)' : 'var(--crm-green)', fontWeight: 600 }}>
                     {amt > 0 ? `+${amt}` : amt}
                   </td>
-                  <td style={{ ...tdStyle, color: r.kie_credits ? '#c084fc' : 'var(--crm-w30)', fontWeight: r.kie_credits ? 600 : 400 }}>
+                  <td style={{ ...tdStyle, color: r.kie_credits ? 'var(--crm-purple)' : 'var(--crm-w30)', fontWeight: r.kie_credits ? 600 : 400 }}>
                     {r.kie_credits ? `−${Number(r.kie_credits)}` : '—'}
                   </td>
-                  <td style={{ ...tdStyle, color: r.fal_cost ? '#fb923c' : 'var(--crm-w30)', fontWeight: r.fal_cost ? 600 : 400 }}>
+                  <td style={{ ...tdStyle, color: r.fal_cost ? 'var(--crm-orange)' : 'var(--crm-w30)', fontWeight: r.fal_cost ? 600 : 400 }}>
                     {r.fal_cost ? `−$${Number(r.fal_cost)}` : '—'}
                   </td>
                 </tr>

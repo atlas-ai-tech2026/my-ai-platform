@@ -41,7 +41,7 @@ export default function CreditsModal({ user, action, onClose, onSubmit }) {
     ban:    `Ban ${user.email}`,
     unban:  `Unban ${user.email}`,
   };
-  const accents = { grant: '#88ee88', revoke: '#ffaa44', ban: '#ff6666', unban: '#88ee88' };
+  const accents = { grant: 'var(--crm-green)', revoke: 'var(--crm-amber)', ban: 'var(--crm-red)', unban: 'var(--crm-green)' };
 
   return (
     <div style={overlayStyle} onClick={onClose}>
@@ -110,14 +110,14 @@ export default function CreditsModal({ user, action, onClose, onSubmit }) {
 }
 
 const overlayStyle = {
-  position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)',
+  position: 'fixed', inset: 0, background: 'var(--crm-overlay)',
   backdropFilter: 'blur(8px)', display: 'flex',
   alignItems: 'center', justifyContent: 'center', zIndex: 999,
   fontFamily: '"DM Sans", sans-serif',
 };
 const modalStyle = {
   width: 420, padding: 24,
-  background: 'rgba(18,18,22,0.95)',
+  background: 'var(--crm-surface)',
   border: '1px solid var(--crm-w10)', borderRadius: 16,
 };
 const inputStyle = {
@@ -127,8 +127,8 @@ const inputStyle = {
   fontFamily: 'inherit',
 };
 const invalidStyle = {
-  border: '1px solid #f87171',
-  background: 'rgba(248,113,113,0.08)',
+  border: '1px solid var(--crm-red)',
+  background: 'var(--crm-red-bg)',
 };
 const cancelBtnStyle = {
   padding: '8px 14px', fontSize: 13, fontWeight: 600,

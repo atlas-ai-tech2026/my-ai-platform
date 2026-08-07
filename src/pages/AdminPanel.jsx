@@ -237,7 +237,7 @@ export default function AdminPanel() {
           </button>
           {audit && audit !== 'loading' && (
             <div style={auditBoxStyle}>
-              <div style={{ marginBottom: 8, color: audit.users_with_possible_gaps ? '#fbbf24' : '#4ade80', fontWeight: 600 }}>
+              <div style={{ marginBottom: 8, color: audit.users_with_possible_gaps ? 'var(--crm-amber)' : 'var(--crm-green)', fontWeight: 600 }}>
                 {audit.users_with_possible_gaps === 0
                   ? `✅ Clean — ${audit.failed_videos_total} failed videos across ${audit.users_with_failures} users, every one covered by a refund.`
                   : `⚠ ${audit.users_with_possible_gaps} user(s) may have unrefunded failures — review below.`}
@@ -245,7 +245,7 @@ export default function AdminPanel() {
               {audit.report.filter(u => u.possible_unrefunded > 0).map(u => (
                 <div key={u.user_id} style={{ padding: '8px 0', borderTop: '1px solid var(--crm-w08)', fontSize: 13 }}>
                   <b>{u.email}</b> — {u.failed_videos} failed videos, {u.refund_count} refunds
-                  (+{u.refund_total}) → <span style={{ color: '#fbbf24' }}>{u.possible_unrefunded} possibly unrefunded</span>
+                  (+{u.refund_total}) → <span style={{ color: 'var(--crm-amber)' }}>{u.possible_unrefunded} possibly unrefunded</span>
                   <div style={{ color: 'var(--crm-w45)', marginTop: 2 }}>
                     {u.failures.slice(0, 5).map((f, i) => (
                       <span key={i}>{f.model} · {new Date(f.at).toLocaleString()}{i < Math.min(u.failures.length, 5) - 1 ? '  |  ' : ''}</span>

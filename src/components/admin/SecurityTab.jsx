@@ -105,7 +105,7 @@ export default function SecurityTab({ onError }) {
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <span style={{
             width: 8, height: 8, borderRadius: '50%',
-            background: status.enabled ? '#2ecc71' : '#e0442c',
+            background: status.enabled ? 'var(--crm-green)' : '#e0442c',
           }} />
           <span style={{ color: 'var(--crm-ink)', fontWeight: 600 }}>
             {status.enabled ? 'On' : 'Off'}
@@ -120,7 +120,7 @@ export default function SecurityTab({ onError }) {
 
       {/* ── recovery codes, shown once after confirmation ── */}
       {recoveryCodes && (
-        <div style={{ ...card, borderColor: 'rgba(46,204,113,0.4)' }}>
+        <div style={{ ...card, borderColor: 'var(--crm-green-br)' }}>
           <div style={{ color: 'var(--crm-ink)', fontWeight: 600, marginBottom: 6 }}>
             Your recovery codes
           </div>
