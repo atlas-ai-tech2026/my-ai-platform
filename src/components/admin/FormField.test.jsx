@@ -6,7 +6,7 @@
 import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import Field, { adminInput, MissingSummary, REQUIRED_MESSAGE } from './FormField';
+import Field, { adminInput, MissingSummary, REQUIRED_MESSAGE, FieldRow } from './FormField';
 
 describe('the required marker', () => {
   it('shows a * when the field is required', () => {
@@ -21,23 +21,53 @@ describe('the required marker', () => {
   });
 });
 
-describe('the ⓘ description button', () => {
-  it('is hidden until pressed, so the form stays uncluttered', () => {
+describe('the ⓘ description', () => {
+  const open = () => screen.queryByRole('tooltip');
+  const icon = () => screen.getByRole('button', { name: /What to put in/i });
+
+  it('is hidden until asked for, so the form stays uncluttered', () => {
     render(<Field label="Credits" info="How many credits each redemption grants."><input /></Field>);
-    expect(screen.queryByText(/How many credits/)).toBeNull();
+    expect(open()).toBeNull();
   });
 
-  it('reveals the description on click and hides it again', async () => {
+  it('appears on hover and goes away when the pointer leaves', async () => {
     const user = userEvent.setup();
     render(<Field label="Credits" info="How many credits each redemption grants."><input /></Field>);
-    const btn = screen.getByRole('button', { name: /What to put in Credits/i });
 
-    await user.click(btn);
-    expect(screen.getByText(/How many credits each redemption grants/)).toBeInTheDocument();
-    expect(btn).toHaveAttribute('aria-expanded', 'true');
+    await user.hover(icon());
+    expect(open()).toHaveTextContent(/How many credits each redemption grants/);
 
-    await user.click(btn);
-    expect(screen.queryByText(/How many credits/)).toBeNull();
+    await user.unhover(icon());
+    expect(open()).toBeNull();
+  });
+
+  // THE POINT OF THIS COMPONENT'S SECOND VERSION. The first one rendered the
+  // description in normal flow, so opening it shoved every neighbouring box
+  // down and sideways. The owner reported that immediately. Absolute
+  // positioning is what makes it impossible.
+  it('is lifted out of the layout, so opening it cannot move any box', async () => {
+    const user = userEvent.setup();
+    render(<Field label="Credits" info="text"><input /></Field>);
+    await user.hover(icon());
+    const style = open().getAttribute('style');
+    expect(style).toMatch(/position:\s*absolute/);
+    expect(style).toMatch(/z-index/);
+    // It must not swallow clicks meant for the box underneath it either.
+    expect(style).toMatch(/pointer-events:\s*none/);
+  });
+
+  // Hover does not exist on a phone or for a keyboard user.
+  it('can be pinned open by clicking, and survives the pointer leaving', async () => {
+    const user = userEvent.setup();
+    render(<Field label="Credits" info="text"><input /></Field>);
+
+    await user.click(icon());
+    await user.unhover(icon());
+    expect(open()).not.toBeNull();          // pinned
+
+    await user.click(icon());
+    await user.unhover(icon());
+    expect(open()).toBeNull();              // unpinned
   });
 
   it('is not rendered at all when there is nothing to explain', () => {
@@ -46,10 +76,32 @@ describe('the ⓘ description button', () => {
   });
 
   // The button sits inside a <form> on several screens; a missing type="button"
-  // would make it submit the form instead of opening the description.
+  // would make it submit the form instead of showing the description.
   it('never submits the form it lives in', () => {
     render(<Field label="Credits" info="text"><input /></Field>);
-    expect(screen.getByRole('button', { name: /What to put in/i })).toHaveAttribute('type', 'button');
+    expect(icon()).toHaveAttribute('type', 'button');
+  });
+});
+
+describe('the boxes line up', () => {
+  // A label that wraps or is simply longer must not start its input lower than
+  // its neighbour's — that is what made the rows look ragged.
+  it('gives every label row the same fixed height', () => {
+    const { container: short } = render(<Field label="Code"><input /></Field>);
+    const { container: long } = render(
+      <Field label="Credits remaining below a percentage"><input /></Field>);
+    const h = (c) => c.querySelector('label').getAttribute('style').match(/height:\s*([^;]+)/)[1];
+    expect(h(short)).toBe(h(long));
+  });
+
+  it('keeps a long label on one line rather than pushing the input down', () => {
+    const { container } = render(<Field label="A very long label indeed"><input /></Field>);
+    expect(container.querySelector('label').getAttribute('style')).toMatch(/white-space:\s*nowrap/);
+  });
+
+  it('FieldRow aligns to the top, so an error cannot shift its neighbours', () => {
+    const { container } = render(<FieldRow><span>a</span></FieldRow>);
+    expect(container.firstChild.getAttribute('style')).toMatch(/align-items:\s*flex-start/);
   });
 });
 
@@ -123,5 +175,19 @@ describe('MissingSummary', () => {
   it('renders nothing when there is nothing wrong', () => {
     const { container } = render(<MissingSummary count={0} />);
     expect(container).toBeEmptyDOMElement();
+  });
+});
+
+describe('labels are never truncated', () => {
+  // A clipped label ("Marketing notifications per client per d…") tells the
+  // admin less than no label at all. The field is allowed to be wide instead.
+  it('does not clip or ellipsis a long label', () => {
+    const { container } = render(
+      <Field label="Marketing notifications per client per day"><input /></Field>);
+    const span = container.querySelector('label span');
+    const style = span.getAttribute('style') || '';
+    expect(style).not.toMatch(/overflow:\s*hidden/);
+    expect(style).not.toMatch(/text-overflow/);
+    expect(span).toHaveTextContent('Marketing notifications per client per day');
   });
 });

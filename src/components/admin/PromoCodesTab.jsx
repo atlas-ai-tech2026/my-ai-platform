@@ -19,7 +19,7 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
-import Field from './FormField';
+import Field, { FieldRow, buttonRowOffset } from './FormField';
 import { adminApi } from '@/lib/adminApi';
 
 /** Active / expired / used up — more useful than active-or-not now that
@@ -249,7 +249,7 @@ export default function PromoCodesTab({ onError }) {
             it, and a red * when it is required. Before this the form was
             placeholder-only — and a placeholder vanishes the moment you type,
             so there was nothing left to tell you what a box was for. */}
-        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+        <FieldRow>
           <Field label="Description"
             info="A private note for you — who this code is for, or why you made it. Customers never see it. It is what you will search on later, so “Ramadan campaign — Instagram” beats “promo 3”.">
             <input placeholder="Who is this for?" value={description}
@@ -278,12 +278,12 @@ export default function PromoCodesTab({ onError }) {
             <input type="date" value={expiresAt} onChange={e => setExpiresAt(e.target.value)}
               style={inputStyle} />
           </Field>
-          <div style={{ paddingTop: 17 }}>
+          <div style={buttonRowOffset}>
             <button onClick={create} disabled={creating} style={primaryBtnStyle}>
               {creating ? 'Creating…' : '+ Create promo'}
             </button>
           </div>
-        </div>
+        </FieldRow>
         <div style={{ color: 'rgba(255,255,255,0.4)', fontSize: 11.5, marginTop: 10 }}>
           Boxes marked <span style={{ color: '#f87171', fontWeight: 700 }}>*</span> must be filled ·
           press <b>ⓘ</b> beside a box to see exactly what it expects.
