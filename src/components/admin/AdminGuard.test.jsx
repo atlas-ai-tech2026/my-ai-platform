@@ -107,3 +107,26 @@ describe('AdminGuard survives the async identity check (N3 regression)', () => {
     expect(localStorage.getItem('voxel_token')).toBeNull();
   });
 });
+
+describe('the theme variables exist on EVERY screen, including sign-in', () => {
+  // The 2026-08-07 production black screen: the login form's colours were
+  // converted to var(--crm-*), but the provider DEFINING those variables lived
+  // inside AdminPanel — which only renders after login. A signed-out admin got
+  // an invisible form on a dark page. The provider now lives here in the
+  // guard, so every path is inside it; these tests pin that.
+  it('wraps the SIGN-IN form in the theme provider', async () => {
+    api.me.mockRejectedValue(new Error('signed out'));
+    const { container } = render(<MemoryRouter><AdminGuard>panel</AdminGuard></MemoryRouter>);
+    await screen.findByPlaceholderText('Email');
+    const themed = container.querySelector('[data-crm-theme]');
+    expect(themed).not.toBeNull();
+    expect(themed.contains(screen.getByPlaceholderText('Email'))).toBe(true);
+  });
+
+  it('wraps the signed-in panel too', async () => {
+    api.me.mockResolvedValue({ user: { role: 'admin', email: 'a@b.c' } });
+    const { container } = render(<MemoryRouter><AdminGuard>panel</AdminGuard></MemoryRouter>);
+    await screen.findByText('panel');
+    expect(container.querySelector('[data-crm-theme]')).not.toBeNull();
+  });
+});
