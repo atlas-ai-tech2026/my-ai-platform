@@ -183,6 +183,45 @@ export default function PromoCodesTab({ onError }) {
     } catch (e) { onError?.(e, 'Could not load redemptions'); }
   }, [expandedId, redemptions, onError]);
 
+  /**
+   * One Excel file PER CODE: the users who redeemed this promo, with their
+   * registration date and account details. SheetJS is lazy-imported exactly
+   * like the Bulk tab does, so the admin bundle stays small until the first
+   * export — and it is a real .xlsx, not a CSV renamed.
+   */
+  const exportRedemptionsXlsx = useCallback(async (p) => {
+    const rows = redemptions[p.id];
+    if (!rows?.length) { toast.error('Nothing to export — nobody has redeemed this code'); return; }
+    try {
+      const XLSX = await import('xlsx');
+      const fmt = (v) => v ? new Date(v).toISOString().slice(0, 10) : '';
+      const sheetRows = rows.map(r => ({
+        'Email':            r.email,
+        'Name':             r.display_name || '',
+        'Plan':             r.package || 'Free',
+        'Registered':       fmt(r.registered_at),
+        'Redeemed':         fmt(r.redeemed_at || r.created_at),
+        'Credits granted':  Number(p.credits),
+        'Current balance':  r.current_credits == null ? '' : Number(r.current_credits),
+        'Last login':       fmt(r.last_login_at),
+        'Account status':   r.banned ? 'banned' : 'active',
+      }));
+      const ws = XLSX.utils.json_to_sheet(sheetRows);
+      // Readable column widths — a sheet where every email is clipped is noise.
+      ws['!cols'] = [{ wch: 32 }, { wch: 18 }, { wch: 10 }, { wch: 12 },
+                     { wch: 12 }, { wch: 14 }, { wch: 14 }, { wch: 12 }, { wch: 12 }];
+      const wb = XLSX.utils.book_new();
+      // Sheet names are capped at 31 chars and reject some symbols.
+      XLSX.utils.book_append_sheet(wb, ws, String(p.code).replace(/[\\/?*\[\]:]/g, '-').slice(0, 31));
+      XLSX.writeFile(wb, `voxel-promo-${p.code}-users-${new Date().toISOString().slice(0, 10)}.xlsx`);
+      toast.success(`Exported ${rows.length} user${rows.length === 1 ? '' : 's'} for ${p.code}`
+        + (rows.length === 1000 ? ' (first 1,000 — the list is capped)' : ''));
+    } catch (e) {
+      console.error('[promo] xlsx export failed:', e);
+      toast.error('Could not build the Excel file');
+    }
+  }, [redemptions]);
+
   const copy = (text) => {
     navigator.clipboard?.writeText(text).then(
       () => toast.success(`Copied ${text}`),
@@ -410,8 +449,14 @@ export default function PromoCodesTab({ onError }) {
                         )}
                         {rows?.length > 0 && (
                           <>
-                            <div style={{ color: 'var(--crm-w50)', fontSize: 12, marginBottom: 8 }}>
-                              {rows.length} account{rows.length === 1 ? '' : 's'} redeemed {p.code}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+                              <span style={{ color: 'var(--crm-w50)', fontSize: 12 }}>
+                                {rows.length} account{rows.length === 1 ? '' : 's'} redeemed {p.code}
+                              </span>
+                              <button onClick={() => exportRedemptionsXlsx(p)} style={btnStyle}
+                                title={`Download an Excel sheet of the users who redeemed ${p.code}`}>
+                                ⬇ Excel — {p.code}
+                              </button>
                             </div>
                             <div style={{
                               display: 'grid',
