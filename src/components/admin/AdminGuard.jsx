@@ -12,7 +12,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { adminApi, getStoredUser, VOXEL_TOKEN_KEY, ApiError } from '@/lib/adminApi';
-import { CrmThemeProvider } from './crmTheme';
+import { CrmThemeProvider, ThemeToggle } from './crmTheme';
 
 const IDLE_MS = 15 * 60 * 1000;
 
@@ -55,17 +55,25 @@ export default function AdminGuard({ children }) {
     return (
       <CrmThemeProvider>
         {children}
-        <button
-          onClick={logout}
-          style={{
-            position: 'fixed', top: 16, right: 16, zIndex: 1000,
-            padding: '6px 14px', fontSize: 12, fontWeight: 600,
-            background: 'var(--crm-w06)',
-            border: '1px solid var(--crm-w12)',
-            borderRadius: 8, color: 'var(--crm-w80)', cursor: 'pointer',
-            fontFamily: '"DM Sans", sans-serif',
-          }}
-        >Sign out</button>
+        {/* One fixed cluster. The theme toggle used to live in AdminPanel's
+            header while this button was position:fixed at the same corner —
+            they overlapped on screen. Keeping both here makes that impossible. */}
+        <div style={{
+          position: 'fixed', top: 16, right: 16, zIndex: 1000,
+          display: 'flex', gap: 8, alignItems: 'center',
+        }}>
+          <ThemeToggle />
+          <button
+            onClick={logout}
+            style={{
+              padding: '6px 14px', fontSize: 12, fontWeight: 600,
+              background: 'var(--crm-w06)',
+              border: '1px solid var(--crm-w12)',
+              borderRadius: 8, color: 'var(--crm-w80)', cursor: 'pointer',
+              fontFamily: '"DM Sans", sans-serif',
+            }}
+          >Sign out</button>
+        </div>
       </CrmThemeProvider>
     );
   }
