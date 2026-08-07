@@ -48,7 +48,7 @@ export default function NotificationsTab({ onError }) {
       <div style={{
         padding: '10px 14px', marginBottom: 14, borderRadius: 10, fontSize: 13,
         background: 'rgba(96,165,250,0.10)', border: '1px solid rgba(96,165,250,0.35)',
-        color: 'rgba(255,255,255,0.85)',
+        color: 'var(--crm-w85)',
       }}>
         <b>In-app notifications.</b> Manual messages you compose here, plus automatic rules.
         Email is on hold and push is not built — everything below is the in-app bell only.
@@ -58,13 +58,13 @@ export default function NotificationsTab({ onError }) {
         )}
       </div>
 
-      <div style={{ display: 'flex', gap: 4, borderBottom: '1px solid rgba(255,255,255,0.1)', marginBottom: 12 }}>
+      <div style={{ display: 'flex', gap: 4, borderBottom: '1px solid var(--crm-w10)', marginBottom: 12 }}>
         {[['compose', 'Compose'], ['auto', 'Automations'], ['history', 'History'], ['settings', 'Settings']]
           .map(([id, label]) => (
             <button key={id} onClick={() => setTab(id)} style={{
               border: 'none', background: 'none', padding: '9px 14px', cursor: 'pointer',
               fontFamily: 'inherit', fontSize: 14,
-              color: tab === id ? '#fff' : 'rgba(255,255,255,0.45)',
+              color: tab === id ? 'var(--crm-ink)' : 'var(--crm-w45)',
               fontWeight: tab === id ? 700 : 500,
               borderBottom: tab === id ? '2px solid #e0442c' : '2px solid transparent',
             }}>{label}</button>
@@ -198,8 +198,8 @@ function Compose({ data, busy, setBusy, onError, onSent }) {
               }} style={{
                 textAlign: 'left', padding: '12px 14px', borderRadius: 12, cursor: 'pointer',
                 fontFamily: 'inherit', position: 'relative',
-                background: sel ? `${m.color}14` : 'rgba(255,255,255,0.03)',
-                border: `1.5px solid ${sel ? m.color : 'rgba(255,255,255,0.10)'}`,
+                background: sel ? `${m.color}14` : 'var(--crm-w03)',
+                border: `1.5px solid ${sel ? m.color : 'var(--crm-w10)'}`,
               }}>
                 {sel && <span style={{
                   position: 'absolute', top: 9, right: 10, width: 19, height: 19, borderRadius: '50%',
@@ -211,8 +211,8 @@ function Compose({ data, busy, setBusy, onError, onSent }) {
                   background: `${m.color}22`, color: m.color,
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                 }}>{m.icon}</div>
-                <div style={{ fontWeight: 650, color: '#fff' }}>{m.label}</div>
-                <div style={{ color: 'rgba(255,255,255,0.55)', fontSize: 12, marginTop: 2 }}>{m.desc}</div>
+                <div style={{ fontWeight: 650, color: 'var(--crm-ink)' }}>{m.label}</div>
+                <div style={{ color: 'var(--crm-w55)', fontSize: 12, marginTop: 2 }}>{m.desc}</div>
               </button>
             );
           })}
@@ -302,18 +302,18 @@ function Compose({ data, busy, setBusy, onError, onSent }) {
               <input value={pickQuery} onChange={(e) => setPickQuery(e.target.value)}
                 placeholder="email…" style={{ ...input, width: 300 }} />
             </Field>
-            <div style={{ maxHeight: 200, overflow: 'auto', border: '1px solid rgba(255,255,255,0.08)',
+            <div style={{ maxHeight: 200, overflow: 'auto', border: '1px solid var(--crm-w08)',
               borderRadius: 9, marginTop: 8, maxWidth: 620 }}>
               {pickResults.map((u) => {
                 const on = picked.some((p) => p.id === u.id);
                 return (
                   <label key={u.id} style={{
                     display: 'flex', gap: 9, padding: '6px 11px', alignItems: 'center', fontSize: 12.5,
-                    borderBottom: '1px solid rgba(255,255,255,0.06)', cursor: 'pointer',
+                    borderBottom: '1px solid var(--crm-w06)', cursor: 'pointer',
                   }}>
                     <input type="checkbox" checked={on} onChange={() => setPicked((ps) =>
                       on ? ps.filter((p) => p.id !== u.id) : [...ps, u])} />
-                    <b style={{ color: '#fff' }}>{u.email}</b>
+                    <b style={{ color: 'var(--crm-ink)' }}>{u.email}</b>
                     <span style={muted}>· {u.package || 'no plan'}</span>
                   </label>
                 );
@@ -325,7 +325,7 @@ function Compose({ data, busy, setBusy, onError, onSent }) {
         )}
 
         <div style={{ marginTop: 11 }}>
-          <span style={{ fontSize: 16, fontWeight: 650, color: '#fff' }}>
+          <span style={{ fontSize: 16, fontWeight: 650, color: 'var(--crm-ink)' }}>
             {aud === 'picked' ? picked.length : (audience?.count ?? '…')}
           </span>{' '}
           <span style={muted}>clients will receive this</span>
@@ -358,7 +358,7 @@ function Compose({ data, busy, setBusy, onError, onSent }) {
 
       <Card step="4" title="Preview — exactly as a client sees it"
         why={preview?.sample_user ? `Variables filled with a real account (${preview.sample_user}).` : 'Variables filled with a real account.'}>
-        <div style={{ maxWidth: 440, border: '1px solid rgba(255,255,255,0.1)', borderRadius: 12, overflow: 'hidden' }}>
+        <div style={{ maxWidth: 440, border: '1px solid var(--crm-w10)', borderRadius: 12, overflow: 'hidden' }}>
           <NotificationCard n={{
             type, title: preview?.title || title || '…', body: preview?.body || body || '…',
             cta_text: ctaText, created_at: new Date().toISOString(), read_at: null,
@@ -368,7 +368,7 @@ function Compose({ data, busy, setBusy, onError, onSent }) {
 
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
         <button disabled={busy} onClick={send} style={{
-          padding: '9px 18px', fontSize: 14, fontWeight: 700, color: '#fff', border: 'none', borderRadius: 10,
+          padding: '9px 18px', fontSize: 14, fontWeight: 700, color: 'var(--crm-ink)', border: 'none', borderRadius: 10,
           background: busy ? 'rgba(139,0,0,0.4)' : 'linear-gradient(90deg,#CC0000 0%,#FF2222 50%,#E01E1E 100%)',
           cursor: busy ? 'wait' : 'pointer', fontFamily: 'inherit',
         }}>Send notification</button>
@@ -414,12 +414,12 @@ function Automations({ rows, onError, onChanged }) {
           <tbody>
             {rows.map((a) => (
               <tr key={a.key} style={{
-                borderTop: '1px solid rgba(255,255,255,0.06)',
+                borderTop: '1px solid var(--crm-w06)',
                 background: a.needs_checkout ? 'rgba(251,191,36,0.06)' : 'transparent',
                 opacity: a.needs_checkout ? 0.75 : 1,
               }}>
                 <td style={{ ...td, fontSize: 16 }}>{a.icon}</td>
-                <td style={{ ...td, textAlign: 'left', color: '#fff', fontWeight: 600 }}>
+                <td style={{ ...td, textAlign: 'left', color: 'var(--crm-ink)', fontWeight: 600 }}>
                   {a.name}
                   {a.is_system && <span style={{ ...muted, fontWeight: 400, fontSize: 11 }}> · system</span>}
                   {a.needs_checkout && <span style={badge('#fbbf24')}>NEEDS CHECKOUT</span>}
@@ -473,10 +473,10 @@ function History({ rows }) {
           </tr></thead>
           <tbody>
             {rows.map((c) => (
-              <tr key={c.id} style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+              <tr key={c.id} style={{ borderTop: '1px solid var(--crm-w06)' }}>
                 <td style={{ ...td, textAlign: 'left' }}>{String(c.sent_at || c.created_at).slice(0, 10)}</td>
                 <td style={{ ...td, textAlign: 'left', fontSize: 15 }}>{TYPE_META[c.type]?.icon || '🔔'}</td>
-                <td style={{ ...td, textAlign: 'left', color: '#fff', fontWeight: 600 }}>{c.title}</td>
+                <td style={{ ...td, textAlign: 'left', color: 'var(--crm-ink)', fontWeight: 600 }}>{c.title}</td>
                 <td style={{ ...td, textAlign: 'left' }}>
                   {c.audience_mode === 'all' ? 'Everyone' : c.audience_mode === 'picked' ? 'Hand-picked' : 'Segment'}
                 </td>
@@ -522,11 +522,11 @@ function Settings({ settings, onError, onChanged }) {
         </div>
       </div>
 
-      <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: 14 }}>
+      <div style={{ borderTop: '1px solid var(--crm-w08)', paddingTop: 14 }}>
         <label style={{ ...radio, fontSize: 14 }}>
           <input type="checkbox" checked={!!settings.bell_enabled} disabled={busy}
             onChange={(e) => save({ bell_enabled: e.target.checked })} />
-          <b style={{ color: '#fff' }}>Show the notification bell to customers</b>
+          <b style={{ color: 'var(--crm-ink)' }}>Show the notification bell to customers</b>
         </label>
         <div style={{ ...muted, fontSize: 12, marginTop: 6 }}>
           While this is off, notifications are still recorded but no customer sees the bell —
@@ -552,13 +552,13 @@ export function NotificationCard({ n }) {
         display: 'flex', alignItems: 'center', justifyContent: 'center',
       }}>{m.icon}</div>
       <div style={{ flex: 1 }}>
-        <div style={{ fontWeight: 650, fontSize: 13, color: '#fff' }}>{n.title}</div>
-        <div style={{ color: 'rgba(255,255,255,0.7)', fontSize: 12.5, marginTop: 1, whiteSpace: 'pre-wrap' }}>{n.body}</div>
+        <div style={{ fontWeight: 650, fontSize: 13, color: 'var(--crm-ink)' }}>{n.title}</div>
+        <div style={{ color: 'var(--crm-w70)', fontSize: 12.5, marginTop: 1, whiteSpace: 'pre-wrap' }}>{n.body}</div>
         {n.code && (
           <div style={{
             display: 'inline-flex', alignItems: 'center', gap: 8, marginTop: 7, padding: '4px 10px',
-            border: '1.5px dashed rgba(255,255,255,0.25)', borderRadius: 8,
-            fontWeight: 700, letterSpacing: '.06em', fontSize: 13, color: '#fff',
+            border: '1.5px dashed var(--crm-w25)', borderRadius: 8,
+            fontWeight: 700, letterSpacing: '.06em', fontSize: 13, color: 'var(--crm-ink)',
           }}>{n.code}</div>
         )}
         {n.cta_text && (
@@ -577,7 +577,7 @@ export function NotificationCard({ n }) {
 function Card({ step, title, why, children }) {
   return (
     <div style={{ ...panel, marginBottom: 14 }}>
-      <h3 style={{ margin: '0 0 4px', fontSize: 15, display: 'flex', alignItems: 'center', gap: 10, color: '#fff' }}>
+      <h3 style={{ margin: '0 0 4px', fontSize: 15, display: 'flex', alignItems: 'center', gap: 10, color: 'var(--crm-ink)' }}>
         <span style={{
           width: 26, height: 26, borderRadius: 8, background: '#e0442c', color: '#fff',
           display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
@@ -596,21 +596,21 @@ const badge = (c) => ({
 });
 const noteBox = (c) => ({
   padding: '10px 13px', borderRadius: 10, fontSize: 12.5,
-  background: `${c}14`, border: `1px solid ${c}55`, color: 'rgba(255,255,255,0.85)',
+  background: `${c}14`, border: `1px solid ${c}55`, color: 'var(--crm-w85)',
 });
-const muted = { color: 'rgba(255,255,255,0.45)', fontSize: 13 };
+const muted = { color: 'var(--crm-w45)', fontSize: 13 };
 const panel = {
-  padding: 14, background: 'rgba(255,255,255,0.03)',
-  border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12,
+  padding: 14, background: 'var(--crm-w03)',
+  border: '1px solid var(--crm-w08)', borderRadius: 12,
 };
 const th = {
   padding: '9px 10px', fontSize: 11, fontWeight: 600, textTransform: 'uppercase',
-  letterSpacing: '.03em', color: 'rgba(255,255,255,0.45)', textAlign: 'right', whiteSpace: 'nowrap',
+  letterSpacing: '.03em', color: 'var(--crm-w45)', textAlign: 'right', whiteSpace: 'nowrap',
 };
-const td = { padding: '7px 10px', textAlign: 'right', color: 'rgba(255,255,255,0.85)', whiteSpace: 'nowrap' };
+const td = { padding: '7px 10px', textAlign: 'right', color: 'var(--crm-w85)', whiteSpace: 'nowrap' };
 const input = adminInput();
 // An <option> list is painted by the OS: without an explicit pair it renders
 // black-on-black in dark mode. Same fix as the Offers screen.
-const opt = { background: '#1a1a19', color: '#fff' };
+const opt = { background: 'var(--crm-tooltip-bg)', color: 'var(--crm-ink)' };
 const radio = { display: 'inline-flex', gap: 6, alignItems: 'center', cursor: 'pointer',
-  color: 'rgba(255,255,255,0.8)', fontSize: 13 };
+  color: 'var(--crm-w80)', fontSize: 13 };

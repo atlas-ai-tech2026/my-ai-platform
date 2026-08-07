@@ -46,16 +46,16 @@ export default function StatsCards({ stats }) {
 function Card({ label, value, accent, small }) {
   return (
     <div style={{
-      padding: 16, background: 'rgba(255,255,255,0.03)',
-      border: '1px solid rgba(255,255,255,0.06)', borderRadius: 12,
+      padding: 16, background: 'var(--crm-w03)',
+      border: '1px solid var(--crm-w06)', borderRadius: 12,
       fontFamily: '"DM Sans", sans-serif',
     }}>
-      <div style={{ fontSize: 11, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.4)' }}>
+      <div style={{ fontSize: 11, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--crm-w40)' }}>
         {label}
       </div>
       <div style={{
         marginTop: 6, fontSize: small ? 18 : 26, fontWeight: 700,
-        color: accent || '#fff',
+        color: accent || 'var(--crm-ink)',
       }}>{value ?? '—'}</div>
     </div>
   );

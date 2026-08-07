@@ -79,9 +79,9 @@ export default function AdminGuard({ children }) {
           style={{
             position: 'fixed', top: 16, right: 16, zIndex: 1000,
             padding: '6px 14px', fontSize: 12, fontWeight: 600,
-            background: 'rgba(255,255,255,0.06)',
-            border: '1px solid rgba(255,255,255,0.12)',
-            borderRadius: 8, color: 'rgba(255,255,255,0.8)', cursor: 'pointer',
+            background: 'var(--crm-w06)',
+            border: '1px solid var(--crm-w12)',
+            borderRadius: 8, color: 'var(--crm-w80)', cursor: 'pointer',
             fontFamily: '"DM Sans", sans-serif',
           }}
         >Sign out</button>
@@ -146,7 +146,7 @@ function InlineLogin({ checking, setChecking, onLogin }) {
 
   return (
     <div style={{
-      minHeight: '100vh', background: '#0a0a0c',
+      minHeight: '100vh', background: 'var(--crm-page)',
       display: 'flex', alignItems: 'center', justifyContent: 'center',
       fontFamily: '"DM Sans", sans-serif',
     }}>
@@ -155,10 +155,10 @@ function InlineLogin({ checking, setChecking, onLogin }) {
         background: 'rgba(18,18,22,0.8)',
         backdropFilter: 'blur(40px) saturate(1.5)',
         WebkitBackdropFilter: 'blur(40px) saturate(1.5)',
-        border: '1px solid rgba(255,255,255,0.08)', borderRadius: 18,
+        border: '1px solid var(--crm-w08)', borderRadius: 18,
       }}>
-        <div style={{ color: '#fff', fontSize: 20, fontWeight: 700, marginBottom: 4 }}>Sign in</div>
-        <div style={{ color: 'rgba(255,255,255,0.4)', fontSize: 13, marginBottom: 24 }}>
+        <div style={{ color: 'var(--crm-ink)', fontSize: 20, fontWeight: 700, marginBottom: 4 }}>Sign in</div>
+        <div style={{ color: 'var(--crm-w40)', fontSize: 13, marginBottom: 24 }}>
           Use your account credentials.
         </div>
 
@@ -192,7 +192,7 @@ function InlineLogin({ checking, setChecking, onLogin }) {
               onClick={() => { setUseRecovery(v => !v); setCode(''); setErr(''); }}
               style={{
                 marginTop: 8, background: 'none', border: 'none', padding: 0,
-                color: 'rgba(255,255,255,0.45)', fontSize: 12, cursor: 'pointer',
+                color: 'var(--crm-w45)', fontSize: 12, cursor: 'pointer',
                 fontFamily: 'inherit', textDecoration: 'underline',
               }}
             >
@@ -212,7 +212,7 @@ function InlineLogin({ checking, setChecking, onLogin }) {
         <button type="submit" disabled={checking} style={{
           marginTop: 16, width: '100%', height: 40,
           background: checking ? 'rgba(139,0,0,0.5)' : 'linear-gradient(90deg, #CC0000 0%, #FF2222 50%, #E01E1E 100%)',
-          border: 'none', borderRadius: 10, color: '#fff', fontSize: 14, fontWeight: 700,
+          border: 'none', borderRadius: 10, color: 'var(--crm-ink)', fontSize: 14, fontWeight: 700,
           cursor: checking ? 'wait' : 'pointer',
         }}>
           {checking ? 'Signing in…' : needsCode ? 'Verify' : 'Sign in'}
@@ -224,8 +224,8 @@ function InlineLogin({ checking, setChecking, onLogin }) {
 
 const inputStyle = {
   width: '100%', height: 38, padding: '0 12px',
-  background: 'rgba(255,255,255,0.04)',
-  border: '1px solid rgba(255,255,255,0.08)',
-  borderRadius: 10, color: '#fff', fontSize: 14, outline: 'none',
+  background: 'var(--crm-w04)',
+  border: '1px solid var(--crm-w08)',
+  borderRadius: 10, color: 'var(--crm-ink)', fontSize: 14, outline: 'none',
   fontFamily: 'inherit',
 };

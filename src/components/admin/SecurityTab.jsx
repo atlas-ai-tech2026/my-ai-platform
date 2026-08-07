@@ -107,7 +107,7 @@ export default function SecurityTab({ onError }) {
             width: 8, height: 8, borderRadius: '50%',
             background: status.enabled ? '#2ecc71' : '#e0442c',
           }} />
-          <span style={{ color: '#fff', fontWeight: 600 }}>
+          <span style={{ color: 'var(--crm-ink)', fontWeight: 600 }}>
             {status.enabled ? 'On' : 'Off'}
           </span>
           {status.enabled && (
@@ -121,7 +121,7 @@ export default function SecurityTab({ onError }) {
       {/* ── recovery codes, shown once after confirmation ── */}
       {recoveryCodes && (
         <div style={{ ...card, borderColor: 'rgba(46,204,113,0.4)' }}>
-          <div style={{ color: '#fff', fontWeight: 600, marginBottom: 6 }}>
+          <div style={{ color: 'var(--crm-ink)', fontWeight: 600, marginBottom: 6 }}>
             Your recovery codes
           </div>
           <div style={{ ...muted, marginBottom: 12 }}>
@@ -132,7 +132,7 @@ export default function SecurityTab({ onError }) {
           <div style={{
             display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))',
             gap: 8, fontFamily: 'ui-monospace, Menlo, monospace', fontSize: 13,
-            color: '#fff', marginBottom: 12,
+            color: 'var(--crm-ink)', marginBottom: 12,
           }}>
             {recoveryCodes.map(c => <div key={c}>{c}</div>)}
           </div>
@@ -156,7 +156,7 @@ export default function SecurityTab({ onError }) {
 
       {enrolling && (
         <div style={card}>
-          <div style={{ color: '#fff', fontWeight: 600, marginBottom: 10 }}>
+          <div style={{ color: 'var(--crm-ink)', fontWeight: 600, marginBottom: 10 }}>
             Add this key to your authenticator
           </div>
           <ol style={{ ...muted, paddingLeft: 18, margin: '0 0 14px', lineHeight: 1.8 }}>
@@ -166,10 +166,10 @@ export default function SecurityTab({ onError }) {
           </ol>
 
           <div style={{
-            padding: '12px 14px', background: 'rgba(255,255,255,0.04)',
-            border: '1px solid rgba(255,255,255,0.1)', borderRadius: 10,
+            padding: '12px 14px', background: 'var(--crm-w04)',
+            border: '1px solid var(--crm-w10)', borderRadius: 10,
             fontFamily: 'ui-monospace, Menlo, monospace', fontSize: 15,
-            color: '#fff', letterSpacing: 1, wordBreak: 'break-all', marginBottom: 8,
+            color: 'var(--crm-ink)', letterSpacing: 1, wordBreak: 'break-all', marginBottom: 8,
           }}>
             {groupSecret(enrolling.secret)}
           </div>
@@ -191,9 +191,9 @@ export default function SecurityTab({ onError }) {
             maxLength={6}
             style={{
               width: 160, height: 38, padding: '0 12px',
-              background: 'rgba(255,255,255,0.04)',
-              border: '1px solid rgba(255,255,255,0.1)', borderRadius: 10,
-              color: '#fff', fontSize: 16, letterSpacing: 4, outline: 'none',
+              background: 'var(--crm-w04)',
+              border: '1px solid var(--crm-w10)', borderRadius: 10,
+              color: 'var(--crm-ink)', fontSize: 16, letterSpacing: 4, outline: 'none',
               fontFamily: 'inherit', marginRight: 8,
             }}
           />
@@ -222,9 +222,9 @@ export default function SecurityTab({ onError }) {
               maxLength={6}
               style={{
                 width: 160, height: 38, padding: '0 12px',
-                background: 'rgba(255,255,255,0.04)',
-                border: '1px solid rgba(255,255,255,0.1)', borderRadius: 10,
-                color: '#fff', fontSize: 16, letterSpacing: 4, outline: 'none',
+                background: 'var(--crm-w04)',
+                border: '1px solid var(--crm-w10)', borderRadius: 10,
+                color: 'var(--crm-ink)', fontSize: 16, letterSpacing: 4, outline: 'none',
                 fontFamily: 'inherit', marginRight: 8,
               }}
             />
@@ -246,24 +246,24 @@ export default function SecurityTab({ onError }) {
   );
 }
 
-const h2 = { color: '#fff', fontSize: 18, fontWeight: 700, marginBottom: 6 };
-const muted = { color: 'rgba(255,255,255,0.45)', fontSize: 13, lineHeight: 1.6 };
+const h2 = { color: 'var(--crm-ink)', fontSize: 18, fontWeight: 700, marginBottom: 6 };
+const muted = { color: 'var(--crm-w45)', fontSize: 13, lineHeight: 1.6 };
 const card = {
   padding: 16,
-  background: 'rgba(255,255,255,0.03)',
-  border: '1px solid rgba(255,255,255,0.08)',
+  background: 'var(--crm-w03)',
+  border: '1px solid var(--crm-w08)',
   borderRadius: 12,
 };
 const btn = {
   height: 38, padding: '0 18px',
   background: 'linear-gradient(90deg, #CC0000 0%, #FF2222 50%, #E01E1E 100%)',
-  border: 'none', borderRadius: 10, color: '#fff',
+  border: 'none', borderRadius: 10, color: 'var(--crm-ink)',
   fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit',
 };
 const btnGhost = {
   height: 38, padding: '0 16px', display: 'inline-flex', alignItems: 'center',
-  background: 'rgba(255,255,255,0.05)',
-  border: '1px solid rgba(255,255,255,0.12)', borderRadius: 10,
-  color: 'rgba(255,255,255,0.8)', fontSize: 13, fontWeight: 600,
+  background: 'var(--crm-w05)',
+  border: '1px solid var(--crm-w12)', borderRadius: 10,
+  color: 'var(--crm-w80)', fontSize: 13, fontWeight: 600,
   cursor: 'pointer', fontFamily: 'inherit',
 };

@@ -46,10 +46,10 @@ export default function CreditsModal({ user, action, onClose, onSubmit }) {
   return (
     <div style={overlayStyle} onClick={onClose}>
       <form onSubmit={handleSubmit} onClick={e => e.stopPropagation()} style={modalStyle}>
-        <div style={{ color: '#fff', fontSize: 18, fontWeight: 700, marginBottom: 6 }}>
+        <div style={{ color: 'var(--crm-ink)', fontSize: 18, fontWeight: 700, marginBottom: 6 }}>
           {titles[action]}
         </div>
-        <div style={{ color: 'rgba(255,255,255,0.4)', fontSize: 12, marginBottom: 18 }}>
+        <div style={{ color: 'var(--crm-w40)', fontSize: 12, marginBottom: 18 }}>
           Current balance: {Number(user.credits).toFixed(2)} credits.
           {isCredit && ' This change will be visible in the user\'s history forever.'}
         </div>
@@ -118,12 +118,12 @@ const overlayStyle = {
 const modalStyle = {
   width: 420, padding: 24,
   background: 'rgba(18,18,22,0.95)',
-  border: '1px solid rgba(255,255,255,0.1)', borderRadius: 16,
+  border: '1px solid var(--crm-w10)', borderRadius: 16,
 };
 const inputStyle = {
   width: '100%', height: 38, padding: '0 12px',
-  background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)',
-  borderRadius: 10, color: '#fff', fontSize: 14, outline: 'none',
+  background: 'var(--crm-w04)', border: '1px solid var(--crm-w08)',
+  borderRadius: 10, color: 'var(--crm-ink)', fontSize: 14, outline: 'none',
   fontFamily: 'inherit',
 };
 const invalidStyle = {
@@ -132,8 +132,8 @@ const invalidStyle = {
 };
 const cancelBtnStyle = {
   padding: '8px 14px', fontSize: 13, fontWeight: 600,
-  background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)',
-  borderRadius: 9, color: '#fff', cursor: 'pointer',
+  background: 'var(--crm-w06)', border: '1px solid var(--crm-w10)',
+  borderRadius: 9, color: 'var(--crm-ink)', cursor: 'pointer',
 };
 const confirmBtnStyle = {
   padding: '8px 16px', fontSize: 13, fontWeight: 700,
