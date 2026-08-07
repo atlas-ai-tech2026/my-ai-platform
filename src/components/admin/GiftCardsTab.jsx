@@ -6,7 +6,7 @@
 
 import React, { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
-import Field from './FormField';
+import Field, { FieldRow, buttonRowOffset } from './FormField';
 import { adminApi } from '@/lib/adminApi';
 
 export default function GiftCardsTab({ onError }) {
@@ -90,7 +90,7 @@ export default function GiftCardsTab({ onError }) {
       {/* Generate form */}
       <div style={panelStyle}>
         <div style={panelTitleStyle}>Generate gift cards</div>
-        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+        <FieldRow>
           <Field label="How many" required invalid={missCount}
             message="Enter a number between 1 and 500"
             info="How many separate gift-card codes to generate in this batch. Each one is a unique code that a single customer can redeem once. Between 1 and 500.">
@@ -117,12 +117,12 @@ export default function GiftCardsTab({ onError }) {
             <input type="date" value={expiresAt} onChange={e => setExpiresAt(e.target.value)}
               style={inputStyle} />
           </Field>
-          <div style={{ paddingTop: 17 }}>
+          <div style={buttonRowOffset}>
             <button onClick={generate} disabled={creating} style={primaryBtnStyle}>
               {creating ? 'Generating…' : '🎁 Generate'}
             </button>
           </div>
-        </div>
+        </FieldRow>
         <div style={{ color: 'rgba(255,255,255,0.4)', fontSize: 11.5, marginTop: 10 }}>
           Boxes marked <span style={{ color: '#f87171', fontWeight: 700 }}>*</span> must be filled ·
           press <b>ⓘ</b> beside a box to see exactly what it expects.
