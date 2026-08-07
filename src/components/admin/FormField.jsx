@@ -49,10 +49,13 @@ const LABEL_ROW_HEIGHT = 18;
 export default function Field({
   label, required = false, invalid = false, message, info, hint, children, style,
 }) {
-  // `hovering` follows the pointer; `pinned` survives it, for touch and keyboard.
-  const [hovering, setHovering] = useState(false);
-  const [pinned, setPinned] = useState(false);
-  const showInfo = hovering || pinned;
+  // HOVER ONLY. An earlier version let a click PIN the panel open, and the
+  // owner hit the obvious consequence: pinned panels do not close when you look
+  // away, so three or four could sit open at once. A description is a hover
+  // affordance — point at it, read it, move on. Keyboard focus opens it too and
+  // blur closes it, so it stays reachable without a pointer, and because focus
+  // can only be in one place there is still never more than one open.
+  const [showInfo, setShowInfo] = useState(false);
 
   return (
     <div style={{ ...style, position: 'relative' }}>
@@ -63,7 +66,7 @@ export default function Field({
           // when one label is longer than another and wraps.
           height: LABEL_ROW_HEIGHT,
           lineHeight: `${LABEL_ROW_HEIGHT}px`,
-          color: invalid ? '#f87171' : 'var(--crm-w45)',
+          color: invalid ? 'var(--crm-red)' : 'var(--crm-w45)',
           fontSize: 11.5, fontWeight: invalid ? 600 : 400,
           // nowrap keeps the row aligned: a label that wrapped to two lines
           // would start its input lower than its neighbours'. Deliberately NOT
@@ -76,27 +79,29 @@ export default function Field({
           {required && (
             // aria-hidden: the asterisk is decoration. Screen readers are told
             // by aria-required on the control itself, which the caller sets.
-            <span aria-hidden="true" title="Required" style={{ color: '#f87171', fontWeight: 700 }}>*</span>
+            <span aria-hidden="true" title="Required" style={{ color: 'var(--crm-red)', fontWeight: 700 }}>*</span>
           )}
           {info && (
             <span
               style={{ position: 'relative', display: 'inline-flex', flex: 'none' }}
-              onMouseEnter={() => setHovering(true)}
-              onMouseLeave={() => setHovering(false)}
+              onMouseEnter={() => setShowInfo(true)}
+              onMouseLeave={() => setShowInfo(false)}
             >
               <button
                 type="button"
                 aria-label={`What to put in ${label}`}
                 aria-expanded={showInfo}
-                onClick={() => setPinned((v) => !v)}
-                onFocus={() => setHovering(true)}
-                onBlur={() => setHovering(false)}
+                onFocus={() => setShowInfo(true)}
+                onBlur={() => setShowInfo(false)}
+                // No onClick: nothing to toggle, so a stray click cannot leave
+                // a panel stuck open.
+                tabIndex={0}
                 style={{
                   width: 15, height: 15, borderRadius: '50%', flex: 'none', padding: 0,
                   display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                  border: `1px solid ${showInfo ? '#60a5fa' : 'var(--crm-w28)'}`,
-                  background: showInfo ? 'rgba(96,165,250,0.18)' : 'transparent',
-                  color: showInfo ? '#93c5fd' : 'var(--crm-w55)',
+                  border: `1px solid ${showInfo ? 'var(--crm-blue)' : 'var(--crm-w28)'}`,
+                  background: showInfo ? 'var(--crm-blue-bg)' : 'transparent',
+                  color: showInfo ? 'var(--crm-blue)' : 'var(--crm-w55)',
                   fontSize: 10, fontWeight: 700, cursor: 'help',
                   fontFamily: 'inherit', lineHeight: 1,
                 }}
@@ -115,9 +120,9 @@ export default function Field({
                   maxWidth: '80vw',
                   padding: '9px 12px',
                   borderRadius: 9,
-                  background: '#15151b',
-                  border: '1px solid rgba(96,165,250,0.45)',
-                  boxShadow: '0 10px 30px rgba(0,0,0,0.55)',
+                  background: 'var(--crm-tooltip-bg)',
+                  border: '1px solid var(--crm-blue-br)',
+                  boxShadow: '0 10px 30px var(--crm-shadow)',
                   color: 'var(--crm-w85)',
                   fontSize: 12, lineHeight: 1.5, fontWeight: 400,
                   whiteSpace: 'normal',      // the label row is nowrap; this is not
@@ -127,9 +132,9 @@ export default function Field({
                   {/* little arrow pointing back at the ⓘ */}
                   <span aria-hidden="true" style={{
                     position: 'absolute', top: -5, left: 9, width: 8, height: 8,
-                    background: '#15151b',
-                    borderLeft: '1px solid rgba(96,165,250,0.45)',
-                    borderTop: '1px solid rgba(96,165,250,0.45)',
+                    background: 'var(--crm-tooltip-bg)',
+                    borderLeft: '1px solid var(--crm-blue-br)',
+                    borderTop: '1px solid var(--crm-blue-br)',
                     transform: 'rotate(45deg)',
                   }} />
                   {info}
@@ -148,7 +153,7 @@ export default function Field({
           neighbours sideways. */}
       {invalid && (
         <div role="alert" style={{
-          marginTop: 4, color: '#f87171', fontSize: 11.5, fontWeight: 600,
+          marginTop: 4, color: 'var(--crm-red)', fontSize: 11.5, fontWeight: 600,
           maxWidth: 260, lineHeight: 1.35,
         }}>{message || REQUIRED_MESSAGE}</div>
       )}
@@ -171,8 +176,8 @@ export function adminInput(invalid = false, extra = {}) {
     borderRadius: 8,
     fontFamily: 'inherit',
     fontSize: 13,
-    background: invalid ? 'rgba(248,113,113,0.08)' : 'var(--crm-w04)',
-    border: `1px solid ${invalid ? '#f87171' : 'var(--crm-w12)'}`,
+    background: invalid ? 'var(--crm-red-bg)' : 'var(--crm-w04)',
+    border: `1px solid ${invalid ? 'var(--crm-red)' : 'var(--crm-w12)'}`,
     color: 'var(--crm-ink)',
     outline: 'none',
     colorScheme: 'dark',
@@ -211,8 +216,8 @@ export function MissingSummary({ count, extra = [] }) {
   return (
     <div role="alert" style={{
       padding: '9px 13px', borderRadius: 10, fontSize: 12.5, marginTop: 10,
-      background: 'rgba(248,113,113,0.10)', border: '1px solid rgba(248,113,113,0.45)',
-      color: '#fca5a5', fontWeight: 600,
+      background: 'var(--crm-red-bg)', border: '1px solid var(--crm-red-br)',
+      color: 'var(--crm-red)', fontWeight: 600,
     }}>
       {count > 0 && (
         <>Fill the {count} box{count === 1 ? '' : 'es'} marked in red{extra.length ? ' — also: ' : '.'}</>

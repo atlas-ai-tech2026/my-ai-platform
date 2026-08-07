@@ -152,7 +152,7 @@ function InlineLogin({ checking, setChecking, onLogin }) {
     }}>
       <form onSubmit={handleSubmit} style={{
         width: 360, padding: 32,
-        background: 'rgba(18,18,22,0.8)',
+        background: 'var(--crm-surface)',
         backdropFilter: 'blur(40px) saturate(1.5)',
         WebkitBackdropFilter: 'blur(40px) saturate(1.5)',
         border: '1px solid var(--crm-w08)', borderRadius: 18,
@@ -204,8 +204,8 @@ function InlineLogin({ checking, setChecking, onLogin }) {
         {err && (
           <div style={{
             marginTop: 12, padding: '8px 12px',
-            background: 'rgba(224,30,30,0.1)', border: '1px solid rgba(224,30,30,0.4)',
-            borderRadius: 8, color: '#ff6666', fontSize: 12,
+            background: 'var(--crm-red-bg)', border: '1px solid var(--crm-red-br)',
+            borderRadius: 8, color: 'var(--crm-red)', fontSize: 12,
           }}>{err}</div>
         )}
 

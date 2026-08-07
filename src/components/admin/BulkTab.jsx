@@ -255,9 +255,9 @@ export default function BulkTab({ onError }) {
       {result && (
         <div style={{ marginTop: 14 }}>
           <div style={{ fontSize: 13, color: 'var(--crm-w60)', marginBottom: 8 }}>
-            <b style={{ color: '#4ade80' }}>{result.created} created</b>
-            {result.skipped_existing > 0 && <> · <span style={{ color: '#fbbf24' }}>{result.skipped_existing} already existed</span></>}
-            {result.invalid?.length > 0 && <> · <span style={{ color: '#f87171' }}>{result.invalid.length} invalid</span></>}
+            <b style={{ color: 'var(--crm-green)' }}>{result.created} created</b>
+            {result.skipped_existing > 0 && <> · <span style={{ color: 'var(--crm-amber)' }}>{result.skipped_existing} already existed</span></>}
+            {result.invalid?.length > 0 && <> · <span style={{ color: 'var(--crm-red)' }}>{result.invalid.length} invalid</span></>}
             &nbsp;— passwords are shown ONCE, export the CSV now.
           </div>
           <div style={{ overflowX: 'auto', border: '1px solid var(--crm-w08)', borderRadius: 12, maxHeight: 320, overflowY: 'auto' }}>
@@ -273,8 +273,8 @@ export default function BulkTab({ onError }) {
                     <td style={tdStyle}>
                       <span style={{
                         padding: '2px 10px', borderRadius: 999, fontSize: 12, fontWeight: 600,
-                        color: r.status === 'created' ? '#4ade80' : r.status === 'exists' ? '#fbbf24' : '#f87171',
-                        background: r.status === 'created' ? 'rgba(74,222,128,0.12)' : r.status === 'exists' ? 'rgba(251,191,36,0.12)' : 'rgba(248,113,113,0.12)',
+                        color: r.status === 'created' ? 'var(--crm-green)' : r.status === 'exists' ? 'var(--crm-amber)' : 'var(--crm-red)',
+                        background: r.status === 'created' ? 'var(--crm-green-bg)' : r.status === 'exists' ? 'var(--crm-amber-bg)' : 'var(--crm-red-bg)',
                       }}>{r.status}</span>
                     </td>
                   </tr>
@@ -288,7 +288,7 @@ export default function BulkTab({ onError }) {
   );
 }
 
-const invalidStyle = { border: '1px solid #f87171', background: 'rgba(248,113,113,0.08)' };
+const invalidStyle = { border: '1px solid var(--crm-red)', background: 'var(--crm-red-bg)' };
 const inputStyle = {
   height: 36, padding: '0 12px', borderRadius: 10,
   background: 'var(--crm-w04)', border: '1px solid var(--crm-w10)',

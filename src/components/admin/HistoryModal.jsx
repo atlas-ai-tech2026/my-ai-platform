@@ -38,7 +38,7 @@ export default function HistoryModal({ user, history, onClose }) {
                     <Td><ActionPill action={h.action} /></Td>
                     <Td>
                       <span style={{
-                        color: Number(h.amount) > 0 ? '#88ee88' : Number(h.amount) < 0 ? '#ff6666' : 'var(--crm-w50)',
+                        color: Number(h.amount) > 0 ? 'var(--crm-green)' : Number(h.amount) < 0 ? 'var(--crm-red)' : 'var(--crm-w50)',
                         fontWeight: 600,
                       }}>
                         {Number(h.amount) > 0 ? '+' : ''}{Number(h.amount).toFixed(2)}
@@ -47,13 +47,13 @@ export default function HistoryModal({ user, history, onClose }) {
                     <Td>
                       {/* Estimated KIE credits this generation burned on our
                           kie.ai balance; "—" = FAL-backed / untracked row. */}
-                      <span style={{ color: h.kie_credits ? '#c084fc' : 'var(--crm-w30)', fontWeight: h.kie_credits ? 600 : 400 }}>
+                      <span style={{ color: h.kie_credits ? 'var(--crm-purple)' : 'var(--crm-w30)', fontWeight: h.kie_credits ? 600 : 400 }}>
                         {h.kie_credits ? `−${Number(h.kie_credits).toFixed(2)}` : '—'}
                       </span>
                     </Td>
                     <Td>
                       {/* Estimated USD on our fal.ai bill; "—" = kie-backed / untracked. */}
-                      <span style={{ color: h.fal_cost ? '#fb923c' : 'var(--crm-w30)', fontWeight: h.fal_cost ? 600 : 400 }}>
+                      <span style={{ color: h.fal_cost ? 'var(--crm-orange)' : 'var(--crm-w30)', fontWeight: h.fal_cost ? 600 : 400 }}>
                         {h.fal_cost ? `−$${Number(h.fal_cost).toFixed(2)}` : '—'}
                       </span>
                     </Td>
@@ -86,14 +86,14 @@ const Td = ({ children, style }) => (
 
 function ActionPill({ action }) {
   const colors = {
-    grant:  ['#88ee88', 'rgba(136,238,136,0.15)'],
-    revoke: ['#ffaa44', 'rgba(255,170,68,0.15)'],
-    spend:  ['#88aaff', 'rgba(136,170,255,0.15)'],
-    refund: ['#aaaaff', 'rgba(170,170,255,0.15)'],
-    promo:  ['#c084fc', 'rgba(192,132,252,0.15)'],
-    gift:   ['#f472b6', 'rgba(244,114,182,0.15)'],
-    ban:    ['#ff6666', 'rgba(255,102,102,0.15)'],
-    unban:  ['#88ee88', 'rgba(136,238,136,0.15)'],
+    grant:  ['var(--crm-green)', 'var(--crm-green-bg)'],
+    revoke: ['var(--crm-amber)', 'var(--crm-amber-bg)'],
+    spend:  ['var(--crm-blue)', 'var(--crm-blue-bg)'],
+    refund: ['var(--crm-violet)', 'var(--crm-violet-bg)'],
+    promo:  ['var(--crm-purple)', 'var(--crm-purple-bg)'],
+    gift:   ['var(--crm-pink)', 'var(--crm-pink-bg)'],
+    ban:    ['var(--crm-red)', 'var(--crm-red-bg)'],
+    unban:  ['var(--crm-green)', 'var(--crm-green-bg)'],
     signup: ['var(--crm-w70)', 'var(--crm-w06)'],
   };
   const [color, bg] = colors[action] || ['var(--crm-w70)', 'var(--crm-w06)'];
@@ -106,14 +106,14 @@ function ActionPill({ action }) {
 }
 
 const overlayStyle = {
-  position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)',
+  position: 'fixed', inset: 0, background: 'var(--crm-overlay)',
   backdropFilter: 'blur(8px)', display: 'flex',
   alignItems: 'center', justifyContent: 'center', zIndex: 999,
   fontFamily: '"DM Sans", sans-serif',
 };
 const modalStyle = {
   width: 'min(820px, 92vw)', maxHeight: '85vh', padding: 24,
-  background: 'rgba(18,18,22,0.95)',
+  background: 'var(--crm-surface)',
   border: '1px solid var(--crm-w10)', borderRadius: 16,
   display: 'flex', flexDirection: 'column',
 };

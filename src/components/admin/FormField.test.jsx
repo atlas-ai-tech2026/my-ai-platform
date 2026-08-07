@@ -56,18 +56,46 @@ describe('the ⓘ description', () => {
     expect(style).toMatch(/pointer-events:\s*none/);
   });
 
-  // Hover does not exist on a phone or for a keyboard user.
-  it('can be pinned open by clicking, and survives the pointer leaving', async () => {
+  // Clicking used to PIN the panel open. The owner hit the consequence
+  // immediately: a pinned panel does not close when you look away, so three or
+  // four could sit open at once. There is no click handler at all now.
+  it('a click cannot leave it stuck open', async () => {
     const user = userEvent.setup();
     render(<Field label="Credits" info="text"><input /></Field>);
 
     await user.click(icon());
     await user.unhover(icon());
-    expect(open()).not.toBeNull();          // pinned
+    expect(open()).toBeNull();
+  });
 
-    await user.click(icon());
-    await user.unhover(icon());
-    expect(open()).toBeNull();              // unpinned
+  it('only ever shows ONE description, however many fields there are', async () => {
+    const user = userEvent.setup();
+    render(
+      <>
+        <Field label="First" info="first description"><input /></Field>
+        <Field label="Second" info="second description"><input /></Field>
+        <Field label="Third" info="third description"><input /></Field>
+      </>
+    );
+    const icons = screen.getAllByRole('button', { name: /What to put in/i });
+    await user.hover(icons[0]);
+    expect(screen.getAllByRole('tooltip')).toHaveLength(1);
+
+    await user.unhover(icons[0]);
+    await user.hover(icons[1]);
+    expect(screen.getAllByRole('tooltip')).toHaveLength(1);
+    expect(screen.getByRole('tooltip')).toHaveTextContent('second description');
+  });
+
+  // Keyboard users have no hover, and focus can only be in one place — so the
+  // "several open at once" problem cannot come back through this door.
+  it('opens on keyboard focus and closes on blur', async () => {
+    const user = userEvent.setup();
+    render(<Field label="Credits" info="text"><input /></Field>);
+    await user.tab();
+    expect(open()).not.toBeNull();
+    await user.tab();
+    expect(open()).toBeNull();
   });
 
   it('is not rendered at all when there is nothing to explain', () => {
@@ -141,8 +169,10 @@ describe('adminInput', () => {
     const ok = adminInput(false);
     const bad = adminInput(true);
     expect(ok.border).not.toBe(bad.border);
-    expect(bad.border).toContain('#f87171');
-    expect(bad.background).toContain('248,113,113');
+    // Theme variables, not literals — so the invalid state is readable in
+    // light mode too rather than a dark-mode red on a white page.
+    expect(bad.border).toContain('var(--crm-red)');
+    expect(bad.background).toContain('var(--crm-red-bg)');
   });
 
   it('keeps the dark colour scheme so date pickers stay readable', () => {
@@ -152,7 +182,7 @@ describe('adminInput', () => {
   it('accepts extra style without losing the invalid state', () => {
     const s = adminInput(true, { width: 120 });
     expect(s.width).toBe(120);
-    expect(s.border).toContain('#f87171');
+    expect(s.border).toContain('var(--crm-red)');
   });
 });
 

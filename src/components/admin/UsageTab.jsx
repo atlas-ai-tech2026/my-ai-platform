@@ -76,7 +76,7 @@ export default function UsageTab({ onError }) {
       {/* Stat cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 20 }}>
         <Card label="kie.ai balance (live)"
-          accent={balance?.credits != null && Number(balance.credits) < 3000 ? '#f87171' : '#c084fc'}
+          accent={balance?.credits != null && Number(balance.credits) < 3000 ? 'var(--crm-red)' : 'var(--crm-purple)'}
           value={
             balance === 'loading' || balance === null ? '…'
               : balance.error ? '—'
@@ -91,13 +91,13 @@ export default function UsageTab({ onError }) {
           action={<button onClick={loadBalance} style={miniBtnStyle} title="Refresh kie.ai balance">⟳</button>}
         />
         <Card label="Voxel credits spent" value={t ? t.voxel_spent.toLocaleString() : '…'}
-          sub={t ? `${t.voxel_refunded.toLocaleString()} refunded` : ''} accent="#f87171" />
+          sub={t ? `${t.voxel_refunded.toLocaleString()} refunded` : ''} accent="var(--crm-red)" />
         <Card label="KIE credits used" value={t ? t.kie_credits.toLocaleString() : '…'}
-          sub="estimated, kie-backed models only" accent="#c084fc" />
+          sub="estimated, kie-backed models only" accent="var(--crm-purple)" />
         <Card label="FAL cost" value={t ? `$${t.fal_cost.toLocaleString(undefined, { maximumFractionDigits: 2 })}` : '…'}
-          sub="estimated, FAL-backed models only" accent="#fb923c" />
+          sub="estimated, FAL-backed models only" accent="var(--crm-orange)" />
         <Card label="Generations" value={t ? t.generations.toLocaleString() : '…'}
-          sub={t ? `${t.active_users} active user(s)` : ''} accent="#4ade80" />
+          sub={t ? `${t.active_users} active user(s)` : ''} accent="var(--crm-green)" />
       </div>
 
       {/* Daily chart */}
@@ -110,16 +110,16 @@ export default function UsageTab({ onError }) {
               <XAxis dataKey="day" tick={{ fill: 'var(--crm-w45)', fontSize: 11 }}
                 tickFormatter={(d) => d.slice(5)} axisLine={false} tickLine={false} />
               <YAxis tick={{ fill: 'var(--crm-w45)', fontSize: 11 }} axisLine={false} tickLine={false} />
-              <YAxis yAxisId="usd" orientation="right" tick={{ fill: 'rgba(251,146,60,0.7)', fontSize: 11 }}
+              <YAxis yAxisId="usd" orientation="right" tick={{ fill: 'var(--crm-orange-br)', fontSize: 11 }}
                 axisLine={false} tickLine={false} tickFormatter={(v) => `$${v}`} />
               <Tooltip
-                contentStyle={{ background: '#141417', border: '1px solid var(--crm-w10)', borderRadius: 10, fontSize: 12 }}
+                contentStyle={{ background: 'var(--crm-surface)', border: '1px solid var(--crm-w10)', borderRadius: 10, fontSize: 12 }}
                 labelStyle={{ color: 'var(--crm-w60)' }}
               />
               <Legend wrapperStyle={{ fontSize: 12 }} />
               <Bar dataKey="voxel_spent" name="Voxel credits" fill="#e0442c" radius={[4, 4, 0, 0]} maxBarSize={28} />
-              <Line dataKey="kie_credits" name="KIE credits" stroke="#c084fc" strokeWidth={2} dot={false} type="monotone" />
-              <Line yAxisId="usd" dataKey="fal_cost" name="FAL cost ($)" stroke="#fb923c" strokeWidth={2} dot={false} type="monotone" />
+              <Line dataKey="kie_credits" name="KIE credits" stroke="var(--crm-purple)" strokeWidth={2} dot={false} type="monotone" />
+              <Line yAxisId="usd" dataKey="fal_cost" name="FAL cost ($)" stroke="var(--crm-orange)" strokeWidth={2} dot={false} type="monotone" />
             </ComposedChart>
           </ResponsiveContainer>
         ) : (
@@ -149,11 +149,11 @@ export default function UsageTab({ onError }) {
                 <tr key={m.model} style={{ borderTop: '1px solid var(--crm-w06)' }}>
                   <td style={tdStyle}>{m.model}</td>
                   <td style={tdStyle}>{m.generations}</td>
-                  <td style={{ ...tdStyle, color: '#f87171', fontWeight: 600 }}>{m.voxel_spent.toLocaleString()}</td>
-                  <td style={{ ...tdStyle, color: m.kie_credits ? '#c084fc' : 'var(--crm-w30)', fontWeight: m.kie_credits ? 600 : 400 }}>
+                  <td style={{ ...tdStyle, color: 'var(--crm-red)', fontWeight: 600 }}>{m.voxel_spent.toLocaleString()}</td>
+                  <td style={{ ...tdStyle, color: m.kie_credits ? 'var(--crm-purple)' : 'var(--crm-w30)', fontWeight: m.kie_credits ? 600 : 400 }}>
                     {m.kie_credits ? m.kie_credits.toLocaleString() : '—'}
                   </td>
-                  <td style={{ ...tdStyle, color: m.fal_cost ? '#fb923c' : 'var(--crm-w30)', fontWeight: m.fal_cost ? 600 : 400 }}>
+                  <td style={{ ...tdStyle, color: m.fal_cost ? 'var(--crm-orange)' : 'var(--crm-w30)', fontWeight: m.fal_cost ? 600 : 400 }}>
                     {m.fal_cost ? `$${m.fal_cost.toLocaleString(undefined, { maximumFractionDigits: 2 })}` : '—'}
                   </td>
                 </tr>

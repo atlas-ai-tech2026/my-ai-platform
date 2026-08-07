@@ -138,7 +138,7 @@ export default function CostingTab({ onError }) {
       {/* The single most important thing on this screen. */}
       <div style={{
         padding: '10px 14px', marginBottom: 14, borderRadius: 10, fontSize: 13,
-        background: 'rgba(96,165,250,0.10)', border: '1px solid rgba(96,165,250,0.35)',
+        background: 'var(--crm-blue-bg)', border: '1px solid var(--crm-blue-br)',
         color: 'var(--crm-w85)',
       }}>
         <b>This is a calculator.</b> It works out what prices should be from supplier costs.
@@ -151,17 +151,17 @@ export default function CostingTab({ onError }) {
         gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))' }}>
         <Stat label="Worst-case margin" value={pct(worst)}
           note={worst >= S.margin_target - 1e-6 ? 'every plan clears its target' : 'BELOW TARGET'}
-          color={worst >= S.margin_target - 1e-6 ? '#4ade80' : '#f87171'} />
+          color={worst >= S.margin_target - 1e-6 ? 'var(--crm-green)' : 'var(--crm-red)'} />
         <Stat label="Margin target" value={pct(S.margin_target)} note="of sale price" />
         <Stat label="Credit value" value={`$${Number(S.credit_value).toFixed(6)}`} note="$19 plan ÷ 300 credits" />
         <Stat label="Models costed" value={num(state.models.length)}
           note={`${state.models.filter((m) => m.fal_cost == null).length} KIE-only rows`} />
         <Stat label="Awaiting cost" value={num(state.models.filter((m) => m.needs_cost).length)}
           note="margin unknown until filled"
-          color={state.models.some((m) => m.needs_cost) ? '#fbbf24' : '#4ade80'} />
+          color={state.models.some((m) => m.needs_cost) ? 'var(--crm-amber)' : 'var(--crm-green)'} />
         <Stat label="Below target" value={num(belowCount)}
           note={belowCount ? 'needs re-pricing' : 'none'}
-          color={belowCount ? '#f87171' : '#4ade80'} />
+          color={belowCount ? 'var(--crm-red)' : 'var(--crm-green)'} />
       </div>
 
       {/* Global controls */}
@@ -264,7 +264,7 @@ function ModelsTable({ state, busy, onSave }) {
                   )}
                   <tr style={{
                     borderTop: '1px solid var(--crm-w06)',
-                    ...(needsCost ? { background: 'rgba(251,191,36,0.07)' } : {}),
+                    ...(needsCost ? { background: 'var(--crm-amber-bg)' } : {}),
                   }}>
                     <td style={{ ...td, textAlign: 'left', fontWeight: 600 }}>
                       {m.model_name}
@@ -273,7 +273,7 @@ function ModelsTable({ state, busy, onSave }) {
                           style={{
                             marginLeft: 6, fontSize: 10, fontWeight: 700, letterSpacing: '0.04em',
                             padding: '1px 6px', borderRadius: 999, verticalAlign: 'middle',
-                            background: 'rgba(251,191,36,0.18)', color: '#fbbf24',
+                            background: 'var(--crm-amber-bg)', color: 'var(--crm-amber)',
                           }}>COST NEEDED</span>
                       )}
                     </td>
@@ -305,13 +305,13 @@ function ModelsTable({ state, busy, onSave }) {
                       )}
                     </td>
                     <td style={td}>{money(m.sale)}</td>
-                    <td style={{ ...td, ...(below ? belowStyle : m.margin_vs_basis >= 0.5 ? { color: '#4ade80' } : {}) }}>
+                    <td style={{ ...td, ...(below ? belowStyle : m.margin_vs_basis >= 0.5 ? { color: 'var(--crm-green)' } : {}) }}>
                       {m.margin_vs_basis == null
-                        ? <span style={{ color: '#fbbf24' }}>unknown</span>
+                        ? <span style={{ color: 'var(--crm-amber)' }}>unknown</span>
                         : <>{below ? '▼ ' : ''}{pct(m.margin_vs_basis)}</>}
                     </td>
                     <td style={{ ...td, color: 'var(--crm-w55)' }}>
-                      {m.margin_vs_kie == null ? <span style={{ color: '#fbbf24' }}>unknown</span> : pct(m.margin_vs_kie)}
+                      {m.margin_vs_kie == null ? <span style={{ color: 'var(--crm-amber)' }}>unknown</span> : pct(m.margin_vs_kie)}
                     </td>
                     {m.qty_per_plan.map((q, i) => (
                       <td key={i} style={{ ...td, color: 'var(--crm-w45)' }}>{num(q)}</td>
@@ -377,7 +377,7 @@ function PlansTable({ state, plans, dirty, busy, onEdit, onApprove, onDiscard })
                   </td>
                   <td style={{ ...td, textAlign: 'left' }}>
                     {changed
-                      ? <span style={{ color: '#fbbf24', fontWeight: 600 }}>● draft — not approved</span>
+                      ? <span style={{ color: 'var(--crm-amber)', fontWeight: 600 }}>● draft — not approved</span>
                       : <span style={muted}>published</span>}
                   </td>
                 </tr>
@@ -465,7 +465,7 @@ function ProfitTable({ state, basis, setBasis }) {
                       const mg = r.margins[i];
                       const below = mg < m.target - 1e-6;
                       return (
-                        <td key={i} style={{ ...td, ...(below ? belowStyle : mg >= 0.5 ? { color: '#4ade80' } : {}) }}>
+                        <td key={i} style={{ ...td, ...(below ? belowStyle : mg >= 0.5 ? { color: 'var(--crm-green)' } : {}) }}>
                           {below ? '▼ ' : ''}{pct(mg)}
                         </td>
                       );
@@ -488,9 +488,9 @@ function ProfitTable({ state, basis, setBasis }) {
 // "COST NEEDED" rows. The two mean different things and must not look alike:
 //   amber  = we sell this, but no supplier cost is recorded → margin unknown
 //   violet = we do NOT sell this yet → nothing to have a margin on
-const VIOLET = '#a78bfa';
-const VIOLET_BG = 'rgba(167,139,250,0.10)';
-const VIOLET_LINE = 'rgba(167,139,250,0.30)';
+const VIOLET = 'var(--crm-violet)';
+const VIOLET_BG = 'var(--crm-violet-bg)';
+const VIOLET_LINE = 'var(--crm-violet-br)';
 
 function NewModels({ rows, busy, onDismiss, settings }) {
   const [showDismissed, setShowDismissed] = useState(false);
@@ -558,7 +558,7 @@ function NewModels({ rows, busy, onDismiss, settings }) {
                       <span style={{
                         marginLeft: 8, padding: '1px 6px', borderRadius: 5, fontSize: 10,
                         fontWeight: 700, letterSpacing: 0.4,
-                        background: 'rgba(167,139,250,0.20)', color: VIOLET,
+                        background: 'var(--crm-violet-bg)', color: VIOLET,
                       }}>NEW</span>
                       {r.endpoints > 1 && (
                         <span style={{ ...muted, marginLeft: 8, fontSize: 11 }}>
@@ -611,9 +611,9 @@ function Coverage({ report }) {
       <div style={{ display: 'grid', gap: 10, marginBottom: 14,
         gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))' }}>
         <Stat label="Charged in production" value={num(report.live_total)} note="models customers can use" />
-        <Stat label="Costed here" value={num(report.costed_total)} note="margin is known" color="#4ade80" />
+        <Stat label="Costed here" value={num(report.costed_total)} note="margin is known" color="var(--crm-green)" />
         <Stat label="Not costed" value={num(report.uncosted_total)} note="margin is UNKNOWN"
-          color={report.uncosted_total ? '#fbbf24' : '#4ade80'} />
+          color={report.uncosted_total ? 'var(--crm-amber)' : 'var(--crm-green)'} />
       </div>
       <div style={{ ...panel, marginBottom: 14 }}>
         <p style={{ margin: 0, fontSize: 13.5, color: 'var(--crm-w80)' }}>{report.note}</p>
@@ -632,7 +632,7 @@ function Coverage({ report }) {
             {report.uncosted.map((id) => (
               <div key={id} style={{
                 padding: '5px 10px', borderRadius: 7, fontSize: 12.5,
-                background: 'rgba(251,191,36,0.10)', color: 'var(--crm-w85)',
+                background: 'var(--crm-amber-bg)', color: 'var(--crm-w85)',
               }}>{id}</div>
             ))}
           </div>
@@ -664,7 +664,7 @@ function AuditList({ rows, onRefresh }) {
                 <td style={{ ...td, textAlign: 'left' }}>{r.entity}</td>
                 <td style={{ ...td, textAlign: 'left' }}>{r.field}</td>
                 <td style={{ ...td, textAlign: 'left', color: 'var(--crm-w50)' }}>{r.old_value ?? '—'}</td>
-                <td style={{ ...td, textAlign: 'left', color: '#4ade80' }}>{r.new_value ?? '—'}</td>
+                <td style={{ ...td, textAlign: 'left', color: 'var(--crm-green)' }}>{r.new_value ?? '—'}</td>
                 <td style={{ ...td, textAlign: 'left' }}>{r.changed_by}</td>
                 <td style={{ ...td, textAlign: 'left', color: 'var(--crm-w50)' }}>{r.note ?? ''}</td>
               </tr>
@@ -693,8 +693,8 @@ function Cell({ value, onCommit, width = 74, overridden, disabled, align = 'righ
       style={{
         width, textAlign: align, padding: '3px 6px', borderRadius: 6, fontFamily: 'inherit',
         fontVariantNumeric: 'tabular-nums', fontSize: 13, fontWeight: 600,
-        background: 'rgba(96,165,250,0.12)', color: '#93c5fd',
-        border: overridden ? '1px solid #fbbf24' : '1px solid transparent',
+        background: 'var(--crm-blue-bg)', color: 'var(--crm-blue)',
+        border: overridden ? '1px solid var(--crm-amber)' : '1px solid transparent',
       }}
     />
   );
@@ -737,10 +737,10 @@ const th = { padding: '9px 10px', fontSize: 11, fontWeight: 600, textTransform: 
 const td = { padding: '7px 10px', textAlign: 'right', color: 'var(--crm-w85)', whiteSpace: 'nowrap' };
 const catRow = { padding: '7px 10px', textAlign: 'left', background: 'var(--crm-w05)',
   color: 'var(--crm-w55)', fontWeight: 700, fontSize: 12, letterSpacing: '0.02em' };
-const belowStyle = { background: 'rgba(248,113,113,0.15)', color: '#f87171', fontWeight: 700 };
+const belowStyle = { background: 'var(--crm-red-bg)', color: 'var(--crm-red)', fontWeight: 700 };
 const note = { ...muted, marginTop: 10, maxWidth: '90ch', lineHeight: 1.6 };
 const input = { height: 34, padding: '0 10px', width: 130, borderRadius: 8, fontFamily: 'inherit',
-  background: 'rgba(96,165,250,0.12)', color: '#93c5fd', fontWeight: 600, fontSize: 13,
+  background: 'var(--crm-blue-bg)', color: 'var(--crm-blue)', fontWeight: 600, fontSize: 13,
   border: '1px solid var(--crm-w12)', fontVariantNumeric: 'tabular-nums' };
 const btn = { height: 32, padding: '0 12px', background: 'var(--crm-w06)',
   border: '1px solid var(--crm-w12)', borderRadius: 8, color: 'var(--crm-w85)',

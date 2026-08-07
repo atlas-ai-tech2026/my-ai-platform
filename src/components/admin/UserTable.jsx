@@ -40,8 +40,8 @@ export default function UserTable({ users, page, total, limit, onPage, onAction 
                 <Td>{u.package || <span style={{ color: 'var(--crm-w30)' }}>—</span>}</Td>
                 <Td>
                   {u.banned
-                    ? <span style={{ color: '#ff6666', fontWeight: 600 }}>BANNED</span>
-                    : <span style={{ color: '#88ee88' }}>active</span>}
+                    ? <span style={{ color: 'var(--crm-red)', fontWeight: 600 }}>BANNED</span>
+                    : <span style={{ color: 'var(--crm-green)' }}>active</span>}
                 </Td>
                 <Td>{new Date(u.created_at).toLocaleDateString()}</Td>
                 <Td align="right">
@@ -51,7 +51,7 @@ export default function UserTable({ users, page, total, limit, onPage, onAction 
                     {u.role !== 'admin' && (
                       <ActionBtn
                         onClick={() => onAction(u.banned ? 'unban' : 'ban', u)}
-                        accent={u.banned ? '#88ee88' : '#ff6666'}
+                        accent={u.banned ? 'var(--crm-green)' : 'var(--crm-red)'}
                       >{u.banned ? 'Unban' : 'Ban'}</ActionBtn>
                     )}
                     <ActionBtn onClick={() => onAction('history', u)}>History</ActionBtn>
@@ -96,9 +96,9 @@ function RoleBadge({ role }) {
   return (
     <span style={{
       padding: '2px 8px', borderRadius: 999, fontSize: 11, fontWeight: 600,
-      background: isAdmin ? 'rgba(224,30,30,0.15)' : 'var(--crm-w08)',
-      color: isAdmin ? '#ff8888' : 'var(--crm-w70)',
-      border: isAdmin ? '1px solid rgba(224,30,30,0.4)' : '1px solid var(--crm-w10)',
+      background: isAdmin ? 'var(--crm-red-bg)' : 'var(--crm-w08)',
+      color: isAdmin ? 'var(--crm-red)' : 'var(--crm-w70)',
+      border: isAdmin ? '1px solid var(--crm-red-br)' : '1px solid var(--crm-w10)',
     }}>{role}</span>
   );
 }

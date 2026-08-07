@@ -25,14 +25,14 @@ import { adminApi } from '@/lib/adminApi';
 /** Active / expired / used up — more useful than active-or-not now that
  *  expiry dates are something the admin manages. */
 function promoStatus(p) {
-  if (!p.active) return { label: 'off', color: '#f87171', bg: 'rgba(248,113,113,0.12)' };
+  if (!p.active) return { label: 'off', color: 'var(--crm-red)', bg: 'var(--crm-red-bg)' };
   if (p.expires_at && new Date(p.expires_at) <= new Date()) {
-    return { label: 'expired', color: '#fbbf24', bg: 'rgba(251,191,36,0.12)' };
+    return { label: 'expired', color: 'var(--crm-amber)', bg: 'var(--crm-amber-bg)' };
   }
   if (p.max_redemptions != null && p.redeemed_count >= p.max_redemptions) {
-    return { label: 'used up', color: '#fbbf24', bg: 'rgba(251,191,36,0.12)' };
+    return { label: 'used up', color: 'var(--crm-amber)', bg: 'var(--crm-amber-bg)' };
   }
-  return { label: 'active', color: '#4ade80', bg: 'rgba(74,222,128,0.12)' };
+  return { label: 'active', color: 'var(--crm-green)', bg: 'var(--crm-green-bg)' };
 }
 
 /** yyyy-mm-dd for <input type="date">, in LOCAL time. Using toISOString here
@@ -225,21 +225,21 @@ export default function PromoCodesTab({ onError }) {
         <Stat label="Promo codes created" value={promos ? fmt(totals.total) : '—'}
           note={promos ? `${fmt(totals.redemptions)} redemptions so far` : ''} />
         <Stat label="Active" value={promos ? fmt(totals.active) : '—'}
-          note={promos ? `${fmt(totals.inactive)} deactivated` : ''} color="#4ade80" />
+          note={promos ? `${fmt(totals.inactive)} deactivated` : ''} color="var(--crm-green)" />
         <Stat label="Usable right now" value={promos ? fmt(totals.usable) : '—'}
           note={promos
             ? [totals.expired ? `${totals.expired} expired` : null,
                totals.usedUp ? `${totals.usedUp} used up` : null]
               .filter(Boolean).join(' · ') || 'none expired or used up'
             : ''}
-          color="#60a5fa" />
+          color="var(--crm-blue)" />
         <Stat label="Credits outstanding" value={promos ? fmt(totals.creditsOutstanding) : '—'}
           note={promos
             ? (totals.uncappedCodes
                 ? `+ ${totals.uncappedCodes} code${totals.uncappedCodes === 1 ? '' : 's'} with no limit`
                 : 'across usable codes')
             : ''}
-          color="#fbbf24" />
+          color="var(--crm-amber)" />
       </div>
 
       {/* Create form */}
@@ -285,7 +285,7 @@ export default function PromoCodesTab({ onError }) {
           </div>
         </FieldRow>
         <div style={{ color: 'var(--crm-w40)', fontSize: 11.5, marginTop: 10 }}>
-          Boxes marked <span style={{ color: '#f87171', fontWeight: 700 }}>*</span> must be filled ·
+          Boxes marked <span style={{ color: 'var(--crm-red)', fontWeight: 700 }}>*</span> must be filled ·
           press <b>ⓘ</b> beside a box to see exactly what it expects.
         </div>
       </div>
@@ -345,7 +345,7 @@ export default function PromoCodesTab({ onError }) {
                       onClick={() => copy(p.code)} title="Click to copy">
                       {p.code}
                     </td>
-                    <td style={{ ...tdStyle, color: '#4ade80', fontWeight: 600 }}>+{Number(p.credits)}</td>
+                    <td style={{ ...tdStyle, color: 'var(--crm-green)', fontWeight: 600 }}>+{Number(p.credits)}</td>
                     <td style={tdStyle}>
                       <button
                         onClick={() => toggleRedemptions(p)}
@@ -424,7 +424,7 @@ export default function PromoCodesTab({ onError }) {
                                   padding: '6px 10px', borderRadius: 8,
                                   background: 'var(--crm-w04)', fontSize: 12,
                                 }}>
-                                  <span style={{ color: r.banned ? '#f87171' : 'var(--crm-ink)' }}>
+                                  <span style={{ color: r.banned ? 'var(--crm-red)' : 'var(--crm-ink)' }}>
                                     {r.email}{r.banned ? ' (banned)' : ''}
                                   </span>
                                   <span style={{ color: 'var(--crm-w40)', whiteSpace: 'nowrap' }}>
@@ -469,7 +469,7 @@ function Stat({ label, value, note, color }) {
   );
 }
 
-const invalidStyle = { border: '1px solid #f87171', background: 'rgba(248,113,113,0.08)' };
+const invalidStyle = { border: '1px solid var(--crm-red)', background: 'var(--crm-red-bg)' };
 const inputStyle = {
   height: 36, padding: '0 12px', background: 'var(--crm-w04)',
   border: '1px solid var(--crm-w10)', borderRadius: 8,

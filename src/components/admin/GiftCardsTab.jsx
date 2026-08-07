@@ -124,12 +124,12 @@ export default function GiftCardsTab({ onError }) {
           </div>
         </FieldRow>
         <div style={{ color: 'var(--crm-w40)', fontSize: 11.5, marginTop: 10 }}>
-          Boxes marked <span style={{ color: '#f87171', fontWeight: 700 }}>*</span> must be filled ·
+          Boxes marked <span style={{ color: 'var(--crm-red)', fontWeight: 700 }}>*</span> must be filled ·
           press <b>ⓘ</b> beside a box to see exactly what it expects.
         </div>
         {lastBatch?.length > 0 && (
-          <div style={{ marginTop: 12, padding: 12, borderRadius: 10, background: 'rgba(74,222,128,0.06)', border: '1px solid rgba(74,222,128,0.2)' }}>
-            <div style={{ fontSize: 12, color: '#4ade80', fontWeight: 600, marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ marginTop: 12, padding: 12, borderRadius: 10, background: 'var(--crm-green-bg)', border: '1px solid var(--crm-green-bg)' }}>
+            <div style={{ fontSize: 12, color: 'var(--crm-green)', fontWeight: 600, marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span>Latest batch — {lastBatch.length} card(s)</span>
               <button onClick={() => exportBatchCsv(lastBatch, 'batch')} style={btnStyle}>⬇ Export batch CSV</button>
             </div>
@@ -178,15 +178,15 @@ export default function GiftCardsTab({ onError }) {
                   onClick={() => copy(g.code)} title="Click to copy">
                   {g.code}
                 </td>
-                <td style={{ ...tdStyle, color: '#4ade80', fontWeight: 600 }}>+{Number(g.credits)}</td>
+                <td style={{ ...tdStyle, color: 'var(--crm-green)', fontWeight: 600 }}>+{Number(g.credits)}</td>
                 <td style={tdStyle}>
                   {g.redeemed_by ? (
                     <span title={g.redeemed_at ? new Date(g.redeemed_at).toLocaleString() : ''}
-                      style={{ color: '#c084fc', background: 'rgba(192,132,252,0.12)', padding: '2px 10px', borderRadius: 999, fontSize: 12, fontWeight: 600 }}>
+                      style={{ color: 'var(--crm-purple)', background: 'var(--crm-purple-bg)', padding: '2px 10px', borderRadius: 999, fontSize: 12, fontWeight: 600 }}>
                       redeemed · {g.redeemed_by_email || `user #${g.redeemed_by}`}
                     </span>
                   ) : (
-                    <span style={{ color: '#4ade80', background: 'rgba(74,222,128,0.12)', padding: '2px 10px', borderRadius: 999, fontSize: 12, fontWeight: 600 }}>
+                    <span style={{ color: 'var(--crm-green)', background: 'var(--crm-green-bg)', padding: '2px 10px', borderRadius: 999, fontSize: 12, fontWeight: 600 }}>
                       unused
                     </span>
                   )}
@@ -203,7 +203,7 @@ export default function GiftCardsTab({ onError }) {
   );
 }
 
-const invalidStyle = { border: '1px solid #f87171', background: 'rgba(248,113,113,0.08)' };
+const invalidStyle = { border: '1px solid var(--crm-red)', background: 'var(--crm-red-bg)' };
 const inputStyle = {
   height: 36, padding: '0 12px', borderRadius: 10,
   background: 'var(--crm-w04)', border: '1px solid var(--crm-w10)',

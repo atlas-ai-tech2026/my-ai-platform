@@ -26,13 +26,13 @@ const todayISO = () => new Date().toISOString().slice(0, 10);
 const plusDays = (n) => new Date(Date.now() + n * 864e5).toISOString().slice(0, 10);
 
 const TYPES = [
-  { key: 'pct',   label: '% discount',          icon: '%', color: '#60a5fa',
+  { key: 'pct',   label: '% discount',          icon: '%', color: 'var(--crm-blue)',
     desc: 'Percentage off the plan price — e.g. 15% off Pro.' },
-  { key: 'bonus', label: 'Bonus credits',       icon: '✦', color: '#34d399',
+  { key: 'bonus', label: 'Bonus credits',       icon: '✦', color: 'var(--crm-green)',
     desc: 'Same price, extra credits. Feels big, protects price.' },
-  { key: 'days',  label: 'Free days / upgrade', icon: '⏱', color: '#fb923c',
+  { key: 'days',  label: 'Free days / upgrade', icon: '⏱', color: 'var(--crm-orange)',
     desc: 'Extend the subscription free, or a higher plan at the same price.' },
-  { key: 'fixed', label: 'Fixed amount off',    icon: '$', color: '#a78bfa',
+  { key: 'fixed', label: 'Fixed amount off',    icon: '$', color: 'var(--crm-violet)',
     desc: 'A dollar amount off — e.g. $10 off plans $59 and up.' },
 ];
 const TYPE_BY = Object.fromEntries(TYPES.map((t) => [t.key, t]));
@@ -70,7 +70,7 @@ export default function OffersTab({ onError }) {
     <div>
       <div style={{
         padding: '10px 14px', marginBottom: 14, borderRadius: 10, fontSize: 13,
-        background: 'rgba(96,165,250,0.10)', border: '1px solid rgba(96,165,250,0.35)',
+        background: 'var(--crm-blue-bg)', border: '1px solid var(--crm-blue-br)',
         color: 'var(--crm-w85)',
       }}>
         <b>Offers use the Costing engine's margin target.</b> Approving an offer records it and
@@ -79,10 +79,10 @@ export default function OffersTab({ onError }) {
 
       <div style={{ display: 'grid', gap: 10, marginBottom: 14,
         gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))' }}>
-        <Stat label="Active offers" value={num(active)} note="running now" color="#4ade80" />
-        <Stat label="Scheduled" value={num(scheduled)} note="starting soon" color="#60a5fa" />
+        <Stat label="Active offers" value={num(active)} note="running now" color="var(--crm-green)" />
+        <Stat label="Scheduled" value={num(scheduled)} note="starting soon" color="var(--crm-blue)" />
         <Stat label="Redemptions" value={num(uses)} note="all time" />
-        <Stat label="Margin floor" value={pct(S.margin_floor)} note="offers below need approval" color="#fbbf24" />
+        <Stat label="Margin floor" value={pct(S.margin_floor)} note="offers below need approval" color="var(--crm-amber)" />
       </div>
 
       <div style={{ display: 'flex', gap: 4, borderBottom: '1px solid var(--crm-w10)', marginBottom: 12 }}>
@@ -152,7 +152,7 @@ function OffersList({ offers, busy, onPause, onResume, onApprove, onOpen }) {
                   <button onClick={() => onOpen(o.id)} style={linkBtn}>{o.name}</button>
                   {o.requires_checkout && (
                     <span title="Voxel has no checkout yet, so this offer cannot be redeemed"
-                      style={badge('#fbbf24')}>NEEDS CHECKOUT</span>
+                      style={badge('var(--crm-amber)')}>NEEDS CHECKOUT</span>
                   )}
                 </td>
                 <td style={{ ...td, textAlign: 'left' }}>
@@ -205,9 +205,9 @@ function OffersList({ offers, busy, onPause, onResume, onApprove, onOpen }) {
 
 function StatusPill({ status }) {
   const c = {
-    active:    ['rgba(74,222,128,0.15)', '#4ade80'],
-    scheduled: ['rgba(96,165,250,0.15)', '#60a5fa'],
-    draft:     ['rgba(251,191,36,0.15)', '#fbbf24'],
+    active:    ['var(--crm-green-bg)', 'var(--crm-green)'],
+    scheduled: ['var(--crm-blue-bg)', 'var(--crm-blue)'],
+    draft:     ['var(--crm-amber-bg)', 'var(--crm-amber)'],
     paused:    ['var(--crm-w08)', 'var(--crm-w50)'],
     expired:   ['var(--crm-w08)', 'var(--crm-w50)'],
   }[status] || ['var(--crm-w08)', 'var(--crm-w50)'];
@@ -385,7 +385,7 @@ function CreateOffer({ data, busy, onSaved, onError }) {
                 }}>{t.icon}</div>
                 <div style={{ fontWeight: 650, color: 'var(--crm-ink)' }}>
                   {t.label}
-                  {(t.key === 'pct' || t.key === 'fixed') && <span style={badge('#fbbf24')}>NEEDS CHECKOUT</span>}
+                  {(t.key === 'pct' || t.key === 'fixed') && <span style={badge('var(--crm-amber)')}>NEEDS CHECKOUT</span>}
                 </div>
                 <div style={{ color: 'var(--crm-w55)', fontSize: 12, marginTop: 2 }}>{t.desc}</div>
               </button>
@@ -394,7 +394,7 @@ function CreateOffer({ data, busy, onSaved, onError }) {
         </div>
 
         {(type === 'pct' || type === 'fixed') && (
-          <div style={{ ...noteBox('#fbbf24'), marginTop: 12 }}>
+          <div style={{ ...noteBox('var(--crm-amber)'), marginTop: 12 }}>
             <b>This offer cannot be redeemed yet.</b> Voxel has no checkout, so there is no price
             to reduce. You can design, cost and approve it now — it will start working the day a
             payment flow exists. Bonus credits and free days work today.
@@ -558,7 +558,7 @@ function CreateOffer({ data, busy, onSaved, onError }) {
               for it stays visible, exactly as the prototype does. */}
           <label style={{ ...radio, opacity: 0.55, cursor: 'not-allowed' }}>
             <input type="checkbox" disabled /> Email campaign to the audience
-            <span style={badge('#fbbf24')}>ON HOLD</span>
+            <span style={badge('var(--crm-amber)')}>ON HOLD</span>
           </label>
         </div>
         <div style={{ ...muted, marginTop: 6, fontSize: 12 }}>
@@ -625,8 +625,8 @@ function CreateOffer({ data, busy, onSaved, onError }) {
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
             {(impact?.impact || []).map((r) => (
               <div key={r.plan_id} style={{
-                border: `1px solid ${r.below_floor ? 'rgba(248,113,113,0.5)' : 'var(--crm-w10)'}`,
-                background: r.below_floor ? 'rgba(248,113,113,0.08)' : 'var(--crm-w03)',
+                border: `1px solid ${r.below_floor ? 'var(--crm-red-br)' : 'var(--crm-w10)'}`,
+                background: r.below_floor ? 'var(--crm-red-bg)' : 'var(--crm-w03)',
                 borderRadius: 11, padding: '10px 14px 12px', minWidth: 178,
               }}>
                 <div style={{ fontWeight: 650, fontSize: 12.5, color: 'var(--crm-ink)' }}>
@@ -634,7 +634,7 @@ function CreateOffer({ data, busy, onSaved, onError }) {
                   {r.new_price != null && <> → ${r.new_price.toFixed(2)}</>}
                 </div>
                 <div style={{ fontSize: 17, fontWeight: 700, margin: '1px 0 2px',
-                  color: r.below_floor ? '#f87171' : 'var(--crm-ink)' }}>
+                  color: r.below_floor ? 'var(--crm-red)' : 'var(--crm-ink)' }}>
                   {type === 'days'
                     ? `~${money(r.estimated_cost)}`
                     : <>{pct(r.margin_before)} → {r.margin_after == null ? '—' : pct(r.margin_after)}</>}
@@ -650,8 +650,8 @@ function CreateOffer({ data, busy, onSaved, onError }) {
 
         <div style={{ marginTop: 10 }}>
           {belowFloor ? (
-            <div style={noteBox('#f87171')}>
-              <div style={{ color: '#f87171', fontWeight: 650 }}>
+            <div style={noteBox('var(--crm-red)')}>
+              <div style={{ color: 'var(--crm-red)', fontWeight: 650 }}>
                 ▼ This offer pushes at least one plan below your {pct(S.margin_floor)} margin floor.
               </div>
               <label style={{ ...radio, marginTop: 8 }}>
@@ -664,7 +664,7 @@ function CreateOffer({ data, busy, onSaved, onError }) {
               </div>
             </div>
           ) : type !== 'days' && impact ? (
-            <span style={{ color: '#4ade80', fontWeight: 600 }}>
+            <span style={{ color: 'var(--crm-green)', fontWeight: 600 }}>
               ✓ All selected plans stay above the {pct(S.margin_floor)} margin floor.
             </span>
           ) : null}
@@ -689,7 +689,7 @@ function CreateOffer({ data, busy, onSaved, onError }) {
         <MissingSummary count={Object.values(missing).filter(Boolean).length} extra={errs} />
       )}
       <div style={{ ...muted, marginTop: 10, fontSize: 12 }}>
-        Boxes marked <span style={{ color: '#f87171', fontWeight: 700 }}>*</span> must be filled ·
+        Boxes marked <span style={{ color: 'var(--crm-red)', fontWeight: 700 }}>*</span> must be filled ·
         press <b>ⓘ</b> beside any box to see what it expects.
         Approval writes the audit log and activates on the start date.
       </div>
@@ -711,7 +711,7 @@ function OfferDetail({ data, onBack }) {
         <Stat label="Status" value={o.effective_status} note={`${String(o.starts_at).slice(0, 10)} → ${String(o.ends_at).slice(0, 10)}`} />
       </div>
       {o.requires_checkout && (
-        <div style={{ ...noteBox('#fbbf24'), marginBottom: 14 }}>
+        <div style={{ ...noteBox('var(--crm-amber)'), marginBottom: 14 }}>
           This offer type needs a checkout to be redeemed, which Voxel does not have yet — so its
           redemption count will stay at zero for now.
         </div>
