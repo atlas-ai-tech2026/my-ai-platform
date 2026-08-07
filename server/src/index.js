@@ -5204,8 +5204,21 @@ app.get('/api/admin/promocodes/:id/redemptions', adminGate, async (req, res) => 
   try {
     const id = parseInt(req.params.id, 10);
     if (!Number.isInteger(id)) return res.status(400).json({ error: 'Bad promo id.' });
+    // Everything the per-code Excel export needs, one row per redeeming user.
+    // `created_at` (the redemption moment) keeps its old name so the existing
+    // UI is untouched; the user's own dates get explicit aliases because a
+    // bare created_at would be ambiguous between "redeemed" and "registered".
     const { rows } = await pool.query(
-      `SELECT r.user_id, r.created_at, u.email, u.banned
+      `SELECT r.user_id,
+              r.created_at,
+              r.created_at              AS redeemed_at,
+              u.email,
+              u.display_name,
+              u.package,
+              u.banned,
+              u.created_at              AS registered_at,
+              u.credits                 AS current_credits,
+              u.last_login_at
          FROM promo_redemptions r
          JOIN users u ON u.id = r.user_id
         WHERE r.code_id = $1
