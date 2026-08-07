@@ -12,6 +12,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { adminApi, ApiError } from '@/lib/adminApi';
+import { CrmThemeProvider } from './crmTheme';
 
 const IDLE_MS = 15 * 60 * 1000;
 
@@ -67,12 +68,18 @@ export default function AdminGuard({ children }) {
   // the first render (user === undefined) ran five hooks and the next ran
   // seven, which is React error #310 — it crashed the whole panel to a black
   // screen. Hooks cannot be skipped by an early return.
-  if (user === undefined) return null;
+  //
+  // EVERY return path below is wrapped in CrmThemeProvider. The provider is
+  // what DEFINES the --crm-* variables this screen's styles read; when it
+  // lived inside AdminPanel, the LOGIN screen rendered outside it, every
+  // colour resolved to nothing, and a signed-out admin got an invisible form
+  // on a dark page — the production black screen of 2026-08-07.
+  if (user === undefined) return <CrmThemeProvider>{null}</CrmThemeProvider>;
 
   // Logged in + admin → render the panel.
   if (user && user.role === 'admin') {
     return (
-      <>
+      <CrmThemeProvider>
         {children}
         <button
           onClick={logout}
@@ -85,14 +92,18 @@ export default function AdminGuard({ children }) {
             fontFamily: '"DM Sans", sans-serif',
           }}
         >Sign out</button>
-      </>
+      </CrmThemeProvider>
     );
   }
 
   // Not logged in → inline login form. We don't render a hint that this is the
   // "admin panel" — just a generic "sign in" form. Anyone sniffing the URL
   // shouldn't be able to confirm by looking at the page that it's privileged.
-  return <InlineLogin checking={checking} setChecking={setChecking} onLogin={(u) => setUser(u)} />;
+  return (
+    <CrmThemeProvider>
+      <InlineLogin checking={checking} setChecking={setChecking} onLogin={(u) => setUser(u)} />
+    </CrmThemeProvider>
+  );
 }
 
 function InlineLogin({ checking, setChecking, onLogin }) {
