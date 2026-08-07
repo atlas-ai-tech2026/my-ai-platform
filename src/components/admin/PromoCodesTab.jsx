@@ -201,15 +201,23 @@ export default function PromoCodesTab({ onError }) {
         'Plan':             r.package || 'Free',
         'Registered':       fmt(r.registered_at),
         'Redeemed':         fmt(r.redeemed_at || r.created_at),
-        'Credits granted':  Number(p.credits),
-        'Current balance':  r.current_credits == null ? '' : Number(r.current_credits),
+        // What THIS code gave this person. The number on the code itself.
+        'Credits from this code': Number(p.credits),
+        // Every promo code of yours this person has redeemed, added up.
+        'Credits from all promo codes': r.promo_credits_all == null ? '' : Number(r.promo_credits_all),
+        'Promo codes redeemed': r.promo_codes_count == null ? '' : Number(r.promo_codes_count),
+        // The whole wallet — grants, gifts, refunds, minus everything spent.
+        // Named in full so it can never again be read as "left from this code":
+        // credits merge on arrival, so per-code remaining is not recoverable.
+        'Wallet balance (all sources)': r.current_credits == null ? '' : Number(r.current_credits),
         'Last login':       fmt(r.last_login_at),
         'Account status':   r.banned ? 'banned' : 'active',
       }));
       const ws = XLSX.utils.json_to_sheet(sheetRows);
       // Readable column widths — a sheet where every email is clipped is noise.
-      ws['!cols'] = [{ wch: 32 }, { wch: 18 }, { wch: 10 }, { wch: 12 },
-                     { wch: 12 }, { wch: 14 }, { wch: 14 }, { wch: 12 }, { wch: 12 }];
+      ws['!cols'] = [{ wch: 32 }, { wch: 18 }, { wch: 10 }, { wch: 12 }, { wch: 12 },
+                     { wch: 20 }, { wch: 24 }, { wch: 19 }, { wch: 24 },
+                     { wch: 12 }, { wch: 13 }];
       const wb = XLSX.utils.book_new();
       // Sheet names are capped at 31 chars and reject some symbols.
       XLSX.utils.book_append_sheet(wb, ws, String(p.code).replace(/[\\/?*\[\]:]/g, '-').slice(0, 31));

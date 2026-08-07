@@ -4614,7 +4614,19 @@ app.get('/api/admin/promocodes/:id/redemptions', adminGate, async (req, res) => 
               u.banned,
               u.created_at              AS registered_at,
               u.credits                 AS current_credits,
-              u.last_login_at
+              u.last_login_at,
+              -- Credits this user got from EVERY promo code, and how many codes
+              -- they redeemed. Without these the sheet showed only the wallet
+              -- total (u.credits), which is every grant, gift and refund minus
+              -- everything spent — a user with a 158-credit code read as 9,716
+              -- because of an unrelated admin grant. Owner reported it, rightly.
+              (SELECT COALESCE(SUM(c2.credits), 0)
+                 FROM promo_redemptions r2
+                 JOIN promo_codes c2 ON c2.id = r2.code_id
+                WHERE r2.user_id = u.id)          AS promo_credits_all,
+              (SELECT COUNT(*)
+                 FROM promo_redemptions r2
+                WHERE r2.user_id = u.id)::int     AS promo_codes_count
          FROM promo_redemptions r
          JOIN users u ON u.id = r.user_id
         WHERE r.code_id = $1
