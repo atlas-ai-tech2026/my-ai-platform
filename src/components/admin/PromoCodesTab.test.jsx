@@ -65,10 +65,12 @@ beforeEach(() => {
     redemptions: [
       { user_id: 11, email: 'sara@example.com', banned: false, created_at: '2026-07-02T09:00:00Z',
         redeemed_at: '2026-07-02T09:00:00Z', registered_at: '2026-06-01T10:00:00Z',
-        display_name: 'Sara', package: 'Basic', current_credits: 120.5, last_login_at: '2026-08-01T08:00:00Z' },
+        display_name: 'Sara', package: 'Basic', current_credits: 9716, last_login_at: '2026-08-01T08:00:00Z',
+        promo_credits_all: 268, promo_codes_count: 3 },
       { user_id: 12, email: 'omar@example.com', banned: true, created_at: '2026-07-03T09:00:00Z',
         redeemed_at: '2026-07-03T09:00:00Z', registered_at: '2026-05-15T10:00:00Z',
-        display_name: null, package: null, current_credits: 0, last_login_at: null },
+        display_name: null, package: null, current_credits: 0, last_login_at: null,
+        promo_credits_all: 25, promo_codes_count: 1 },
     ],
   });
 });
@@ -339,8 +341,10 @@ describe('per-code Excel export of redeeming users', () => {
       'Plan': 'Basic',
       'Registered': '2026-06-01',
       'Redeemed': '2026-07-02',
-      'Credits granted': 25,
-      'Current balance': 120.5,
+      'Credits from this code': 25,
+      'Credits from all promo codes': 268,
+      'Promo codes redeemed': 3,
+      'Wallet balance (all sources)': 9716,
       'Account status': 'active',
     });
     // Missing optional fields render as honest blanks, never "null" or 0-dates.
@@ -355,5 +359,51 @@ describe('per-code Excel export of redeeming users', () => {
     await waitFor(() => expect(xlsx.writeFile).toHaveBeenCalled());
     const name = xlsx.writeFile.mock.calls[0][1];
     expect(name).toMatch(/^voxel-promo-VOXEL-OLD-0001-users-\d{4}-\d{2}-\d{2}\.xlsx$/);
+  });
+});
+
+
+describe('the credit columns say what they mean', () => {
+  // The owner downloaded a sheet for a 158-credit code and saw 9,716 against a
+  // user. That number was the whole WALLET — an 11,000-credit admin grant plus
+  // refunds, minus spending — and nothing to do with the code. These pin the
+  // three quantities apart so they can never be confused again.
+  const exportSheet = async () => {
+    const user = userEvent.setup();
+    render(<PromoCodesTab />);
+    await waitFor(() => screen.getByText('VOXEL-OLD-0001'));
+    const row = screen.getByText('VOXEL-OLD-0001').closest('tr');
+    await user.click(within(row).getByRole('button', { name: /7 \/ 100/ }));
+    await screen.findByText('sara@example.com');
+    await user.click(screen.getByRole('button', { name: /Excel — VOXEL-OLD-0001/ }));
+    await waitFor(() => expect(xlsx.utils.json_to_sheet).toHaveBeenCalled());
+    return xlsx.utils.json_to_sheet.mock.calls[0][0];
+  };
+
+  it('separates THIS code, ALL promo codes, and the whole wallet', async () => {
+    const rows = await exportSheet();
+    expect(rows[0]['Credits from this code']).toBe(25);          // the code's own value
+    expect(rows[0]['Credits from all promo codes']).toBe(268);   // every code this user used
+    expect(rows[0]['Wallet balance (all sources)']).toBe(9716);  // grants + gifts + refunds − spend
+  });
+
+  it('no longer has a bare "Current balance" column to misread', async () => {
+    const rows = await exportSheet();
+    expect(Object.keys(rows[0])).not.toContain('Current balance');
+    expect(Object.keys(rows[0])).toContain('Wallet balance (all sources)');
+  });
+
+  it('shows how many of your codes each person redeemed', async () => {
+    const rows = await exportSheet();
+    expect(rows[0]['Promo codes redeemed']).toBe(3);
+    expect(rows[1]['Promo codes redeemed']).toBe(1);
+  });
+
+  // A user who redeemed only this code must show the same number twice — that
+  // equality is the proof the two columns are measuring what they claim.
+  it('matches per-code and all-codes when the user redeemed only one', async () => {
+    const rows = await exportSheet();
+    expect(rows[1]['Credits from this code']).toBe(25);
+    expect(rows[1]['Credits from all promo codes']).toBe(25);
   });
 });

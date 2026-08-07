@@ -19,7 +19,7 @@ import SecurityTab from '@/components/admin/SecurityTab';
 import CostingTab from '@/components/admin/CostingTab';
 import OffersTab from '@/components/admin/OffersTab';
 import NotificationsTab from '@/components/admin/NotificationsTab';
-import { ThemeToggle, ThemedToaster } from '@/components/admin/crmTheme';
+import { ThemedToaster } from '@/components/admin/crmTheme';
 
 const PAGE_SIZE = 50;
 
@@ -193,7 +193,6 @@ export default function AdminPanel() {
               Signed in as {stats?.admin_email || '—'}.
             </div>
           </div>
-          <ThemeToggle />
         </div>
 
         {/* Tab bar — kie.ai dashboard style */}
