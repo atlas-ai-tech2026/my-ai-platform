@@ -224,14 +224,44 @@ describe('sending', () => {
   });
 });
 
-describe('email stays on hold', () => {
-  it('refuses loudly rather than silently doing nothing', async () => {
-    await expect(sendNotificationEmail()).rejects.toBeInstanceOf(NotConfiguredError);
-    await expect(sendNotificationEmail()).rejects.toThrow(/on hold/i);
+describe('the email channel — three gates, all must pass', () => {
+  // The channel replaced a deliberate refusal. Each gate below fails CLOSED
+  // and says why, rather than reporting a send that never happened.
+
+  it('gate 1 — sends nothing while the channel is switched off', async () => {
+    const r = await sendNotificationEmail({ to: 'a@b.com', title: 'T', body: 'B', settings: {} });
+    expect(r).toEqual({ sent: false, reason: 'email channel is off' });
   });
 
-  it('carries a 503 so a caller can tell it apart from a bug', async () => {
-    await sendNotificationEmail().catch((e) => expect(e.status).toBe(503));
+  it('gate 2 — throws when the channel is on but Resend is not configured', async () => {
+    const saved = process.env.RESEND_API_KEY;
+    delete process.env.RESEND_API_KEY;
+    await expect(sendNotificationEmail({
+      to: 'a@b.com', title: 'T', body: 'B', settings: { email_enabled: true },
+    })).rejects.toBeInstanceOf(NotConfiguredError);
+    if (saved !== undefined) process.env.RESEND_API_KEY = saved;
+  });
+
+  // Marketing mail must respect an unsubscribe. This is the legal one.
+  it('gate 3 — skips a recipient who unsubscribed', async () => {
+    const r = await sendNotificationEmail({
+      to: 'a@b.com', title: 'T', body: 'B', kind: 'announce',
+      settings: { email_enabled: true }, suppressed: true,
+    });
+    expect(r).toEqual({ sent: false, reason: 'unsubscribed' });
+  });
+
+  // …but a password reset is not something you can opt out of.
+  it('does NOT skip system mail for an unsubscribed address', async () => {
+    const saved = process.env.RESEND_API_KEY;
+    delete process.env.RESEND_API_KEY;
+    // Reaching the mailer (and so throwing on config) proves it did not
+    // return early on the suppression check.
+    await expect(sendNotificationEmail({
+      to: 'a@b.com', title: 'T', body: 'B', kind: 'system',
+      settings: { email_enabled: true }, suppressed: true,
+    })).rejects.toBeInstanceOf(NotConfiguredError);
+    if (saved !== undefined) process.env.RESEND_API_KEY = saved;
   });
 });
 

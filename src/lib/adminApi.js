@@ -165,6 +165,9 @@ export const adminApi = {
   notificationsAutomation: (key, body) =>
     request('PATCH', `/api/admin/notifications/automations/${key}`, body),
   notificationsSettings:(body)    => request('PATCH', '/api/admin/notifications/settings', body),
+  // Sends one real email to the ADMIN address only — proof the chain works
+  // before any customer is involved.
+  notificationsTestEmail: (kind)  => request('POST', '/api/admin/notifications/test-email', { kind }),
 
   // ─── Bulk user provisioning ───────────────────────────────────────
   listModels: () => request('GET', '/api/admin/models'),
