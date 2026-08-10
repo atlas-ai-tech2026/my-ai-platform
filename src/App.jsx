@@ -8,6 +8,7 @@ import PageNotFound from './lib/PageNotFound';
 import { AuthProvider, useAuth } from '@/lib/AuthContext';
 import LoginModal from '@/components/auth/LoginModal';
 import AdminGuard from '@/components/admin/AdminGuard';
+import ResetPassword from '@/pages/ResetPassword';
 
 // Heavy standalone pages are lazy like everything in pages.config — the
 // admin panel and node canvas never ship to ordinary visitors' first load.
@@ -74,6 +75,11 @@ const AuthenticatedApp = () => {
       {/* Voxel Node — full-screen canvas, no shared Layout chrome.
           Manual routes here because the auto pages.config mapping
           doesn't support the /:spaceId dynamic segment. */}
+      {/* Password reset — PUBLIC and outside LayoutWrapper. The person using
+          it is locked out by definition, so it cannot sit behind a login, and
+          it should not show the signed-in chrome. Both steps live here: with
+          ?token= it sets a new password, without one it asks for the link. */}
+      <Route path="/reset-password" element={<ResetPassword />} />
       <Route path="/node" element={<NodeLanding />} />
       <Route path="/node/:spaceId" element={<NodeCanvas />} />
       {Object.entries(Pages).map(([path, Page]) => (

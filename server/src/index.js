@@ -5491,6 +5491,11 @@ const ROUTE_META = {
   'contact': { title: 'Contact — VOXEL.AI', desc: 'Contact the VOXEL.AI team — support, billing, privacy and partnership enquiries.' },
   'terms': { title: 'Terms of Service — VOXEL.AI', desc: 'The terms that govern your use of VOXEL.AI — accounts, credits, content ownership and acceptable use.' },
   'account': { title: 'Your Account — VOXEL.AI', desc: 'Manage your VOXEL.AI profile, subscription, credit usage, promo codes and gifts.' },
+  // The page the reset email links to. It MUST be listed here: an unlisted
+  // route answers 404, and a 404 on the link in a password-reset email is the
+  // kind of thing only a locked-out customer discovers. noindex because a
+  // reset screen has no business in search results.
+  'reset-password': { title: 'Reset your password — VOXEL.AI', desc: 'Set a new password for your VOXEL.AI account.', noindex: true },
 };
 
 // Paths that USED to exist and were deliberately removed — 410 Gone tells
@@ -5558,8 +5563,11 @@ if (existsSync(DIST_DIR)) {
     }
     const meta = ROUTE_META[route];
     if (!meta) return res.send(SHELL); // homepage — shell tags are already right
+    // A noindex route gets no canonical: pointing crawlers at a page we are
+    // simultaneously telling them to ignore is a contradiction.
     return res.send(injectMeta(SHELL, {
-      ...meta, canonical: `https://voxel-ai.ai/${route}`,
+      ...meta,
+      canonical: meta.noindex ? undefined : `https://voxel-ai.ai/${route}`,
     }));
   });
   console.log(`[voxel-api] serving static frontend from ${DIST_DIR}`);
