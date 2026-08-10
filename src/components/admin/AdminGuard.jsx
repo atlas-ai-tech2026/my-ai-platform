@@ -11,18 +11,26 @@
 
 import React, { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { adminApi, getStoredUser, VOXEL_TOKEN_KEY, ApiError } from '@/lib/adminApi';
+import { adminApi, ApiError } from '@/lib/adminApi';
 import { CrmThemeProvider, ThemeToggle } from './crmTheme';
 
 const IDLE_MS = 15 * 60 * 1000;
 
 export default function AdminGuard({ children }) {
   const navigate = useNavigate();
-  const [user, setUser] = useState(() => getStoredUser());
+  // N3: the session is an httpOnly cookie this code cannot read, so identity
+  // comes from the SERVER. `undefined` = still asking, `null` = signed out.
+  const [user, setUser] = useState(undefined);
   const [checking, setChecking] = useState(false);
 
   // Re-decode the stored token on mount in case it expired.
-  useEffect(() => { setUser(getStoredUser()); }, []);
+  useEffect(() => {
+    let cancelled = false;
+    adminApi.me()
+      .then((r) => { if (!cancelled) setUser(r?.user ?? r ?? null); })
+      .catch(() => { if (!cancelled) setUser(null); });
+    return () => { cancelled = true; };
+  }, []);
 
   // Logged in as a non-admin → bounce to home so they don't even see the URL exists.
   useEffect(() => {
@@ -33,7 +41,7 @@ export default function AdminGuard({ children }) {
 
   // Idle redirect (frontend-only; not a security boundary).
   const logout = useCallback(() => {
-    localStorage.removeItem(VOXEL_TOKEN_KEY);
+    adminApi.logout().catch(() => {});
     setUser(null);
     navigate('/', { replace: true });
   }, [navigate]);
@@ -101,13 +109,14 @@ function InlineLogin({ checking, setChecking, onLogin }) {
     setChecking(true);
     try {
       const r = await adminApi.login(email.trim().toLowerCase(), password);
-      localStorage.setItem(VOXEL_TOKEN_KEY, r.token);
-      const decoded = getStoredUser();
+      // N3: the token in this response is deliberately NOT stored — for an
+      // admin the server also set the httpOnly cookie, which is the session.
+      const decoded = r?.user ?? null;
       if (!decoded || decoded.role !== 'admin') {
         // Successful login but not an admin → drop the token and tell them
         // generically that they don't have access. Don't leak whether the
         // role check vs the credentials failed.
-        localStorage.removeItem(VOXEL_TOKEN_KEY);
+        adminApi.logout().catch(() => {});
         setErr('Sign-in successful but this account does not have access.');
         return;
       }
