@@ -67,6 +67,10 @@ import {
 import { registerCostingRoutes } from './costing-routes.js';
 import { registerOffersRoutes } from './offers-routes.js';
 import { registerNotificationsRoutes } from './notifications-routes.js';
+import {
+  createReset, consumeReset, resetUrl, resetEmailBody, passwordProblem, NEUTRAL_REPLY,
+} from './password-reset.js';
+import { sendEmail, mailConfigured, verifyUnsubscribeToken } from './mailer.js';
 import { runDailyModelSync } from './costing-sync.js';
 // H3 (audit 2026-07-28): hard deadline on synchronous provider calls.
 import { withProviderDeadline, ProviderTimeoutError } from './provider-deadline.js';
@@ -4028,6 +4032,126 @@ async function findOrCreateMicrosoftUser(identity, ip) {
 app.post('/api/auth/logout', (req, res) => {
   clearAdminSessionCookies(res);
   res.json({ ok: true });
+});
+
+// Sender addresses + the email master switch, read fresh so a change in the
+// CRM takes effect on the next message rather than the next deploy.
+async function mailSettings() {
+  if (!dbReady()) return {};
+  try {
+    const { rows } = await pool.query('SELECT * FROM notification_settings WHERE id = 1');
+    return rows[0] || {};
+  } catch { return {}; }
+}
+
+/** True when this address has unsubscribed. Marketing mail must check it. */
+async function isSuppressed(email) {
+  if (!dbReady() || !email) return false;
+  try {
+    const { rows } = await pool.query(
+      'SELECT 1 FROM email_suppressions WHERE email = $1', [String(email).trim().toLowerCase()]);
+    return rows.length > 0;
+  } catch { return false; }
+}
+
+// ─── PASSWORD RESET (2026-08-07) ────────────────────────────────────
+// Until now a forgotten password meant emailing the owner for a manual reset
+// from the CRM — the platform's biggest user-facing gap.
+//
+// Both routes answer IDENTICALLY whether or not the address exists. Finding
+// N11 was this leak on sign-up, merely slowed by a rate limit; a reset
+// endpoint is a far easier oracle, so here it is genuinely indistinguishable.
+const resetLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  keyGenerator: ipKey,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many reset requests. Try again in 15 minutes.' },
+});
+
+app.post('/api/auth/forgot-password', resetLimiter, async (req, res) => {
+  const email = String(req.body?.email || '').trim().toLowerCase();
+  // Reply first, work after: identical body and identical timing whether the
+  // account exists, the mailer is down, or the address is nonsense.
+  res.json(NEUTRAL_REPLY);
+  if (!dbReady() || !email) return;
+  try {
+    const { rows } = await pool.query(
+      'SELECT id, email FROM users WHERE lower(email) = $1 AND banned = FALSE', [email]);
+    if (!rows.length) return;                       // silent, on purpose
+    if (!mailConfigured()) {
+      console.warn('[reset] requested but email is not configured — nothing sent');
+      return;
+    }
+    const token = await createReset(pool, rows[0].id);
+    const msg = resetEmailBody(resetUrl(token));
+    const settings = await mailSettings();
+    const out = await sendEmail({ ...msg, to: rows[0].email, kind: 'system' }, { settings });
+    if (!out.sent) console.error('[reset] send failed:', out.reason);
+  } catch (e) {
+    console.error('[reset] request failed:', e.message);
+  }
+});
+
+app.post('/api/auth/reset-password', resetLimiter, async (req, res) => {
+  if (!dbReady()) return res.status(503).json({ error: 'Database not configured.' });
+  const token = String(req.body?.token || '');
+  const password = String(req.body?.password || '');
+  const problem = passwordProblem(password);
+  if (problem) return res.status(400).json({ error: problem });
+  try {
+    const claim = await consumeReset(pool, token);
+    if (!claim.ok) {
+      return res.status(400).json({ error: 'That reset link is invalid or has expired. Request a new one.' });
+    }
+    const hash = await bcrypt.hash(password, 12);
+    // N9: a password change ends every existing session, so a reset actually
+    // locks out whoever might have been in the account.
+    await pool.query(
+      `UPDATE users SET password_hash = $2, sessions_valid_from = NOW() WHERE id = $1`,
+      [claim.userId, hash]);
+    console.log(`[reset] password changed for user ${claim.userId}`);
+    res.json({ ok: true, message: 'Your password has been changed. You can sign in now.' });
+  } catch (e) {
+    console.error('[reset] apply failed:', e.message);
+    res.status(500).json({ error: 'Could not reset the password.' });
+  }
+});
+
+// ─── UNSUBSCRIBE ────────────────────────────────────────────────────
+// Reachable without login BY DESIGN — someone who was forwarded a campaign
+// has no account to sign into. The HMAC token is what authorises it, so the
+// link cannot be used to unsubscribe an address the sender did not mail.
+app.get('/api/unsubscribe', async (req, res) => {
+  const email = String(req.query?.email || '').trim().toLowerCase();
+  const token = String(req.query?.t || '');
+  const page = (title, body) => res.type('html').send(
+    `<!doctype html><meta charset="utf-8"><title>${title}</title>` +
+    `<body style="margin:0;background:#0f0f12;color:#e9e9ee;font-family:system-ui,sans-serif">` +
+    `<div style="max-width:520px;margin:14vh auto;padding:32px;background:#17171c;border-radius:16px">` +
+    `<div style="font-size:19px;font-weight:700;margin-bottom:14px">VOXEL<span style="color:#e0442c">.AI</span></div>` +
+    `<h1 style="font-size:20px;margin:0 0 10px">${title}</h1>` +
+    `<p style="color:#b6b6c0;line-height:1.6;margin:0">${body}</p></div></body>`);
+
+  if (!email || !verifyUnsubscribeToken(email, token)) {
+    return res.status(400).type('html').send(page('Link not valid',
+      'That unsubscribe link is not valid. If you keep receiving mail you did not ask for, reply to any message and we will remove you.'));
+  }
+  try {
+    if (dbReady()) {
+      await pool.query(
+        `INSERT INTO email_suppressions (email, reason) VALUES ($1, 'unsubscribed')
+         ON CONFLICT (email) DO NOTHING`, [email]);
+    }
+    console.log(`[mail] unsubscribed ${email}`);
+    return page('You are unsubscribed',
+      'You will not receive marketing email from Voxel again. Messages about your own account — password resets and security alerts — still reach you, because you cannot opt out of getting back into your account.');
+  } catch (e) {
+    console.error('[unsubscribe] failed:', e.message);
+    return res.status(500).type('html').send(page('Something went wrong',
+      'We could not record that just now. Please try the link again shortly.'));
+  }
 });
 
 // ─── /api/auth/me ──────────────────────────────────────────────────

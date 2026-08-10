@@ -430,6 +430,45 @@ export async function migrate() {
       );
     `);
 
+    // ─── EMAIL: password resets + unsubscribes (2026-08-07) ───────
+    // Password reset. The token itself is NEVER stored — only its SHA-256
+    // hash, for the same reason passwords are hashed: a leaked backup must
+    // not hand someone a working key to every account with a pending reset.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS password_resets (
+        id         BIGSERIAL   PRIMARY KEY,
+        user_id    INTEGER     NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        token_hash VARCHAR(64) NOT NULL,
+        expires_at TIMESTAMPTZ NOT NULL,
+        used_at    TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
+    // Redemption looks the token up by hash, so this index is the whole
+    // lookup path — without it every reset scans the table.
+    await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS password_resets_hash_idx ON password_resets (token_hash);`);
+    await client.query(`CREATE INDEX IF NOT EXISTS password_resets_user_idx ON password_resets (user_id) WHERE used_at IS NULL;`);
+
+    // Unsubscribes. Keyed by EMAIL, not user_id, on purpose: someone who never
+    // had an account (a forwarded campaign) must still be able to opt out, and
+    // deleting an account must not silently resubscribe that address.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS email_suppressions (
+        email      VARCHAR(255) PRIMARY KEY,
+        reason     VARCHAR(40)  NOT NULL DEFAULT 'unsubscribed',
+        created_at TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+      );
+    `);
+
+    // Which address each kind of message sends from. Editable in the CRM so
+    // changing them needs no deploy. NULL = use the code's fallback.
+    for (const col of ['from_system', 'from_announce', 'from_billing', 'from_support', 'from_legal']) {
+      await client.query(`ALTER TABLE notification_settings ADD COLUMN IF NOT EXISTS ${col} VARCHAR(120);`);
+    }
+    // Master switch for the email channel, OFF until the owner has seen a real
+    // message arrive. Same rollout shape as the customer bell.
+    await client.query(`ALTER TABLE notification_settings ADD COLUMN IF NOT EXISTS email_enabled BOOLEAN NOT NULL DEFAULT FALSE;`);
+
     // ─── NOTIFICATIONS (2026-08-07) ───────────────────────────────
     // A campaign is what the admin composed ONCE; `notifications` holds one row
     // per recipient. They are separate tables on purpose: read and click rates
