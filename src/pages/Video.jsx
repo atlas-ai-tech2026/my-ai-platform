@@ -529,7 +529,9 @@ export default function Video() {
     });
   };
 
-  // ─── Seedance character eligibility check ───
+  // ─── Seedance: add an uploaded image as a character element ───
+  // N10: this was labelled an "eligibility check" and reported approval, but
+  // nothing inspects the image. The server only confirms it is readable.
   const handleCheckEligibility = async (itemId) => {
     // Find item
     const allItems = [...seedanceMedia.images, ...seedanceMedia.videos, ...seedanceMedia.audios];
@@ -550,27 +552,30 @@ export default function Video() {
         body: JSON.stringify({ image_url: item.url }),
       });
       const data = await res.json();
-      const approved = data.approved !== false;
+      // N10: was `data.approved !== false`, so a server error or an error body
+      // counted as approval. Accept only an explicit yes.
+      const accepted = res.ok && data.accepted === true;
 
       setSeedanceMedia(prev => ({
         ...prev,
-        [typeKey]: prev[typeKey].map(i => i.id === itemId ? { ...i, status: approved ? 'approved' : 'rejected' } : i),
+        [typeKey]: prev[typeKey].map(i => i.id === itemId ? { ...i, status: accepted ? 'approved' : 'rejected' } : i),
       }));
 
-      if (approved) {
+      if (accepted) {
         const elementLabel = `@Element${seedanceElements.length + 1}`;
         setSeedanceElements(prev => [...prev, { ...item, status: 'approved', label: elementLabel }]);
         setSeedanceRightTab('elements');
-        toast.success(`Character approved as ${elementLabel}`);
+        // N10: "approved" claimed a moderation decision the server never made.
+        toast.success(`Added as ${elementLabel}`);
       } else {
-        toast.error('Character not eligible');
+        toast.error(data.reason || 'That image could not be added.');
       }
     } catch {
       setSeedanceMedia(prev => ({
         ...prev,
         [typeKey]: prev[typeKey].map(i => i.id === itemId ? { ...i, status: 'uploaded' } : i),
       }));
-      toast.error('Eligibility check failed');
+      toast.error('Could not add that image — please try again.');
     }
   };
 

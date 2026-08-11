@@ -47,6 +47,9 @@ export function verifyJwt(req, res, next) {
       id: payload.sub,
       email: payload.email,
       role: payload.role || 'user',
+      // N9: when this token was issued, compared against the account's
+      // sessions_valid_from cutoff by requireNotBanned.
+      issuedAt: payload.iat,
     };
     req.usedCookieAuth = !bearer && !!cookieToken;
     next();
@@ -67,7 +70,7 @@ export async function requireNotBanned(req, res, next) {
   try {
     if (!req.user?.id) return res.status(401).json({ error: 'Not authenticated.' });
     const { rows } = await pool.query(
-      'SELECT banned, expires_at, allowed_models FROM users WHERE id = $1',
+      'SELECT banned, expires_at, allowed_models, sessions_valid_from FROM users WHERE id = $1',
       [req.user.id]
     );
     if (!rows[0]) {
@@ -75,6 +78,26 @@ export async function requireNotBanned(req, res, next) {
     }
     if (rows[0].banned) {
       return res.status(403).json({ error: 'Account is banned.' });
+    }
+    // N9 (recheck 2026-08-03): tokens carried no version and lasted 7 days
+    // (30 min for admins), and nothing compared them against a password
+    // change. Resetting a compromised account's password therefore did NOT
+    // evict the attacker — their token kept spending credits until it expired.
+    //
+    // Rides on the query that was already here for the ban check, so this
+    // costs no extra round trip. NULL cutoff = no sessions revoked, which is
+    // every account until a password actually changes.
+    if (rows[0].sessions_valid_from && req.user.issuedAt) {
+      // ceil, not floor: `iat` is whole seconds, so a token minted in the same
+      // second as the reset would otherwise compare equal and survive. Round
+      // the cutoff up so that one-second window revokes rather than admits.
+      const cutoff = Math.ceil(new Date(rows[0].sessions_valid_from).getTime() / 1000);
+      if (req.user.issuedAt < cutoff) {
+        return res.status(401).json({
+          error: 'Your password was changed. Please sign in again.',
+          reauth: true,
+        });
+      }
     }
     // Bulk-provisioned accounts can carry a hard expiry (CRM Bulk tab).
     if (rows[0].expires_at && new Date(rows[0].expires_at) <= new Date()) {

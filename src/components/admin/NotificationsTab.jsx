@@ -50,8 +50,9 @@ export default function NotificationsTab({ onError }) {
         background: 'var(--crm-blue-bg)', border: '1px solid var(--crm-blue-br)',
         color: 'var(--crm-w85)',
       }}>
-        <b>In-app notifications.</b> Manual messages you compose here, plus automatic rules.
-        Email is on hold and push is not built — everything below is the in-app bell only.
+        <b>Notifications.</b> Manual messages you compose here, plus automatic rules —
+        delivered to the in-app bell, and by email when that channel is switched on
+        in Settings. Push is not built.
         {!S.bell_enabled && (
           <> <b style={{ color: 'var(--crm-amber)' }}>The customer bell is currently switched off</b>, so
           messages are recorded but nobody sees them yet.</>
@@ -74,7 +75,7 @@ export default function NotificationsTab({ onError }) {
       {tab === 'compose' && <Compose data={data} busy={busy} setBusy={setBusy} onError={onError} onSent={load} />}
       {tab === 'auto' && <Automations rows={data.automations || []} onError={onError} onChanged={load} />}
       {tab === 'history' && <History rows={data.history || []} />}
-      {tab === 'settings' && <Settings settings={S} onError={onError} onChanged={load} />}
+      {tab === 'settings' && <Settings settings={S} mail={data.mail} onError={onError} onChanged={load} />}
     </div>
   );
 }
@@ -99,6 +100,9 @@ function Compose({ data, busy, setBusy, onError, onSent }) {
   // Required boxes only turn red AFTER a send attempt. Painting the form red
   // before the admin has typed anything is nagging, not help.
   const [tried, setTried] = useState(false);
+  // Off by default: an email reaches people outside the app, so it is opt-in
+  // per message rather than something you can send by forgetting.
+  const [sendEmail, setSendEmail] = useState(false);
 
   // What is missing, per box. Mirrors the server's rules in
   // notifications-engine.js validateCompose() so the screen and the API agree.
@@ -171,9 +175,12 @@ function Compose({ data, busy, setBusy, onError, onSent }) {
         filters: aud === 'segment' ? filters : null,
         picked_client_ids: aud === 'picked' ? picked.map((p) => p.id) : [],
         expires_at: expires || null,
+        send_email: sendEmail,
       });
       toast.success(
         `Sent to ${r.delivered} client${r.delivered === 1 ? '' : 's'}` +
+        (r.emailed ? ` · ${r.emailed} by email` : '') +
+        (r.email_skipped ? ` · ${r.email_skipped} email skipped` : '') +
         (r.skipped_cap ? ` · ${r.skipped_cap} held by the daily cap` : ''));
       setTitle(''); setBody(''); setCtaText(''); setCtaUrl('');
       onSent?.();
@@ -341,8 +348,16 @@ function Compose({ data, busy, setBusy, onError, onSent }) {
           <Field label="Channels">
             <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
               <label style={radio}><input type="checkbox" checked disabled /> In-app bell</label>
-              <label style={{ ...radio, opacity: 0.55, cursor: 'not-allowed' }}>
-                <input type="checkbox" disabled /> Email<span style={badge('var(--crm-amber)')}>ON HOLD</span>
+              <label style={{
+                ...radio,
+                opacity: data.settings?.email_enabled ? 1 : 0.55,
+                cursor: data.settings?.email_enabled ? 'pointer' : 'not-allowed',
+              }}>
+                <input type="checkbox" checked={sendEmail} disabled={!data.settings?.email_enabled}
+                  onChange={(e) => setSendEmail(e.target.checked)} /> Email
+                {!data.settings?.email_enabled && (
+                  <span style={badge('var(--crm-amber)')}>CHANNEL OFF</span>
+                )}
               </label>
               <label style={{ ...radio, opacity: 0.55, cursor: 'not-allowed' }}>
                 <input type="checkbox" disabled /> Push<span style={badge('var(--crm-blue)')}>LATER</span>
@@ -497,7 +512,7 @@ function History({ rows }) {
 }
 
 // ─── settings ────────────────────────────────────────────────────────────────
-function Settings({ settings, onError, onChanged }) {
+function Settings({ settings, mail, onError, onChanged }) {
   const [busy, setBusy] = useState(false);
   const save = async (body) => {
     setBusy(true);
@@ -533,6 +548,87 @@ function Settings({ settings, onError, onChanged }) {
           so you can send a test message and check it before anyone else does. Turn it on when
           you are happy with what you see.
         </div>
+      </div>
+
+      <EmailSettings settings={settings} mail={mail} busy={busy} save={save} onError={onError} />
+    </div>
+  );
+}
+
+// ─── email channel ───────────────────────────────────────────────────────────
+function EmailSettings({ settings, mail, busy, save, onError }) {
+  const [testing, setTesting] = useState(false);
+  const configured = !!mail?.configured;
+
+  const sendTest = async () => {
+    setTesting(true);
+    try {
+      const r = await adminApi.notificationsTestEmail('system');
+      toast.success(`Test email sent to ${r.to}${r.test_mode ? ' (test mode)' : ''} — check your inbox`);
+    } catch (e) { onError?.(e, 'Test email failed'); }
+    finally { setTesting(false); }
+  };
+
+  const SENDERS = [
+    ['from_system',   'System — password resets, security', 'no-reply@'],
+    ['from_announce', 'Announcements, offers, welcome',     'hello@'],
+    ['from_billing',  'Invoices and credit receipts',       'billing@'],
+    ['from_support',  'Support and failure notices',        'support@'],
+    ['from_legal',    'Terms and policy changes',           'legal@'],
+  ];
+
+  return (
+    <div style={{ borderTop: '1px solid var(--crm-w08)', marginTop: 18, paddingTop: 16 }}>
+      <div style={{ fontWeight: 700, color: 'var(--crm-ink)', marginBottom: 6 }}>Email</div>
+
+      {!configured && (
+        <div style={{
+          padding: '10px 13px', borderRadius: 10, fontSize: 12.5, marginBottom: 12,
+          background: 'var(--crm-amber-bg)', border: '1px solid var(--crm-amber-br)',
+          color: 'var(--crm-ink-2)',
+        }}>
+          <b style={{ color: 'var(--crm-amber)' }}>Not configured.</b>{' '}
+          Missing {(mail?.missing || []).join(' and ')} on the app. Until that is set,
+          nothing can send and this channel cannot be switched on.
+        </div>
+      )}
+
+      <label style={{ ...radio, fontSize: 14, opacity: configured ? 1 : 0.5 }}>
+        <input type="checkbox" checked={!!settings.email_enabled} disabled={busy || !configured}
+          onChange={(e) => save({ email_enabled: e.target.checked })} />
+        <b style={{ color: 'var(--crm-ink)' }}>Send notifications by email as well as the bell</b>
+      </label>
+      <div style={{ ...muted, fontSize: 12, marginTop: 6, marginBottom: 14 }}>
+        While this is off, messages appear in the bell only. Marketing email always carries an
+        unsubscribe link and skips anyone who has opted out; password resets and security alerts
+        are never skipped — you cannot opt out of getting back into your account.
+      </div>
+
+      <div style={{ display: 'grid', gap: 10, maxWidth: 560 }}>
+        {SENDERS.map(([key, label, placeholder]) => (
+          <Field key={key} label={label}
+            info={`Which address this kind of message is sent from. It must be on ${mail?.domain || 'your sending domain'} — Resend cannot sign for any other domain, and mail from one would be rejected.`}>
+            <input defaultValue={settings[key] || ''} placeholder={placeholder}
+              disabled={busy}
+              style={{ ...input, width: '100%' }}
+              onBlur={(e) => {
+                const v = e.target.value.trim();
+                if (v !== (settings[key] || '')) save({ [key]: v });
+              }} />
+          </Field>
+        ))}
+      </div>
+
+      <div style={{ marginTop: 16, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+        <button onClick={sendTest} disabled={busy || testing || !configured} style={{
+          padding: '8px 16px', borderRadius: 9, fontFamily: 'inherit', fontSize: 13, fontWeight: 600,
+          background: 'var(--crm-w06)', border: '1px solid var(--crm-w12)', color: 'var(--crm-ink)',
+          cursor: (testing || !configured) ? 'not-allowed' : 'pointer',
+          opacity: configured ? 1 : 0.5,
+        }}>{testing ? 'Sending…' : '✉ Send a test email to myself'}</button>
+        <span style={{ ...muted, fontSize: 12 }}>
+          Goes only to the admin address. No customer is involved.
+        </span>
       </div>
     </div>
   );

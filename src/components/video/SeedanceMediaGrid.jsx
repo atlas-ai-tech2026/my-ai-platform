@@ -1,14 +1,16 @@
 import React, { useState } from 'react';
-import { X, Check, Loader2, ShieldCheck, ShieldX, Image as ImageIcon, Film, Music, ChevronDown } from 'lucide-react';
+// N10: the shield icons implied a moderation decision this flow never makes;
+// the server confirms the image is readable, nothing more.
+import { X, Check, Loader2, UserPlus, AlertCircle, Image as ImageIcon, Film, Music, ChevronDown } from 'lucide-react';
 
 const S = { font: '"DM Sans", sans-serif' };
 
 const STATUS_CONFIG = {
   uploading:  { bg: 'rgba(0,0,0,0.6)',   text: 'Uploading...',  icon: Loader2,    spin: true,  color: '#fff' },
-  uploaded:   { bg: null,                  text: 'Check eligibility', icon: ShieldCheck, spin: false, color: '#fff' },
+  uploaded:   { bg: null,                  text: 'Add as character', icon: UserPlus,   spin: false, color: '#fff' },
   checking:   { bg: 'rgba(0,0,0,0.6)',   text: 'Checking...',   icon: Loader2,    spin: true,  color: '#fbbf24' },
   approved:   { bg: null,                  text: null,            icon: Check,      spin: false, color: '#10B981' },
-  rejected:   { bg: null,                  text: null,            icon: ShieldX,    spin: false, color: '#ef4444' },
+  rejected:   { bg: null,                  text: null,            icon: AlertCircle,    spin: false, color: '#ef4444' },
 };
 
 const TYPE_ICONS = { image: ImageIcon, video: Film, audio: Music };
@@ -106,7 +108,7 @@ export default function SeedanceMediaGrid({ items = [], onCheckEligibility, onRe
                 </div>
               )}
 
-              {/* Check eligibility button */}
+              {/* Add-as-character button */}
               {item.status === 'uploaded' && onCheckEligibility && (
                 <button onClick={(e) => { e.stopPropagation(); onCheckEligibility(item.id); }}
                   style={{
@@ -120,7 +122,7 @@ export default function SeedanceMediaGrid({ items = [], onCheckEligibility, onRe
                   onMouseEnter={e => e.currentTarget.style.background = 'rgba(16,185,129,0.3)'}
                   onMouseLeave={e => e.currentTarget.style.background = 'rgba(0,0,0,0.75)'}
                 >
-                  <ShieldCheck style={{ width: compact ? 10 : 12, height: compact ? 10 : 12 }} />
+                  <UserPlus style={{ width: compact ? 10 : 12, height: compact ? 10 : 12 }} />
                   Check
                 </button>
               )}

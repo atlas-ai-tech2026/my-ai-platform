@@ -430,6 +430,45 @@ export async function migrate() {
       );
     `);
 
+    // ─── EMAIL: password resets + unsubscribes (2026-08-07) ───────
+    // Password reset. The token itself is NEVER stored — only its SHA-256
+    // hash, for the same reason passwords are hashed: a leaked backup must
+    // not hand someone a working key to every account with a pending reset.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS password_resets (
+        id         BIGSERIAL   PRIMARY KEY,
+        user_id    INTEGER     NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        token_hash VARCHAR(64) NOT NULL,
+        expires_at TIMESTAMPTZ NOT NULL,
+        used_at    TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
+    // Redemption looks the token up by hash, so this index is the whole
+    // lookup path — without it every reset scans the table.
+    await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS password_resets_hash_idx ON password_resets (token_hash);`);
+    await client.query(`CREATE INDEX IF NOT EXISTS password_resets_user_idx ON password_resets (user_id) WHERE used_at IS NULL;`);
+
+    // Unsubscribes. Keyed by EMAIL, not user_id, on purpose: someone who never
+    // had an account (a forwarded campaign) must still be able to opt out, and
+    // deleting an account must not silently resubscribe that address.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS email_suppressions (
+        email      VARCHAR(255) PRIMARY KEY,
+        reason     VARCHAR(40)  NOT NULL DEFAULT 'unsubscribed',
+        created_at TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+      );
+    `);
+
+    // Which address each kind of message sends from. Editable in the CRM so
+    // changing them needs no deploy. NULL = use the code's fallback.
+    for (const col of ['from_system', 'from_announce', 'from_billing', 'from_support', 'from_legal']) {
+      await client.query(`ALTER TABLE notification_settings ADD COLUMN IF NOT EXISTS ${col} VARCHAR(120);`);
+    }
+    // Master switch for the email channel, OFF until the owner has seen a real
+    // message arrive. Same rollout shape as the customer bell.
+    await client.query(`ALTER TABLE notification_settings ADD COLUMN IF NOT EXISTS email_enabled BOOLEAN NOT NULL DEFAULT FALSE;`);
+
     // ─── NOTIFICATIONS (2026-08-07) ───────────────────────────────
     // A campaign is what the admin composed ONCE; `notifications` holds one row
     // per recipient. They are separate tables on purpose: read and click rates
@@ -587,6 +626,11 @@ export async function migrate() {
       );
     `);
     await client.query(`CREATE INDEX IF NOT EXISTS failed_logins_ip_recent_idx ON failed_logins (ip_address, created_at DESC);`);
+    // N2 (recheck 2026-08-03): the account-wide lockout counts every failure
+    // for one email inside the window regardless of source address. Without
+    // this index that count is a sequential scan of the whole table on every
+    // single login attempt.
+    await client.query(`CREATE INDEX IF NOT EXISTS failed_logins_email_recent_idx ON failed_logins (email, created_at DESC);`);
 
     // ─── entities (generation history + any other per-user docs) ─────
     // Replaces the previous server/data/entities.json write-through file
@@ -721,6 +765,42 @@ export async function migrate() {
     await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_enabled        BOOLEAN NOT NULL DEFAULT FALSE;`);
     await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_last_step      BIGINT;`);
     await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_recovery_codes JSONB;`);
+
+    // ─── N9 (recheck 2026-08-03): session invalidation ──────────────
+    // JWTs carry no version and last 7 days for users / 30 min for admins,
+    // and nothing anywhere compared them against a password change. So
+    // resetting a compromised account's password did NOT evict the attacker:
+    // their existing token kept spending credits until it expired naturally.
+    //
+    // sessions_valid_from is the cutoff. Any token issued before it is
+    // refused. Defaults to NULL (= no cutoff), so every token in flight when
+    // this deploys stays valid and nobody is logged out by the migration.
+    await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS sessions_valid_from TIMESTAMPTZ;`);
+
+    // ─── Sign in with Google ────────────────────────────────────────
+    // google_sub is Google's own stable user id. Linking on THIS rather than
+    // on the email address matters: a person can change the address on their
+    // Google account, and Google can reassign a Workspace address to a new
+    // employee. The sub never changes and is never reused.
+    await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS google_sub VARCHAR(64);`);
+    // Microsoft. Stored separately from google_sub: a person may legitimately
+    // hold both, and the two id spaces are unrelated.
+    await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS microsoft_sub VARCHAR(64);`);
+    await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS users_microsoft_sub_idx ON users (microsoft_sub) WHERE microsoft_sub IS NOT NULL;`);
+    await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS users_google_sub_idx ON users (google_sub) WHERE google_sub IS NOT NULL;`);
+    // Google-only accounts have no password at all. Storing a fake hash would
+    // be worse than NULL: it looks like a credential and would quietly become
+    // one if anything ever compared against it.
+    await client.query(`
+      DO $$
+      BEGIN
+        IF EXISTS (SELECT 1 FROM information_schema.columns
+                   WHERE table_name='users' AND column_name='password_hash'
+                     AND is_nullable='NO') THEN
+          ALTER TABLE users ALTER COLUMN password_hash DROP NOT NULL;
+        END IF;
+      END $$;
+    `);
 
     // ─── one-shot admin promotion ───────────────────────────────────
     const promoted = await client.query(

@@ -45,12 +45,32 @@ import {
   assertSafeDownloadUrl,
   sanitizeFilename,
   DownloadRejectedError,
+  // N10: the character-element route reuses the same host allow-list rather
+  // than inventing a second, weaker idea of "a url we can read".
+  isAllowedDownloadHost,
+  buildAllowedHostSuffixes,
 } from './download-guard.js';
 // H2 (audit 2026-07-28): /api/upload content-type policy.
 import { validateUpload } from './upload-guard.js';
+import { isKnownVoice, VOICE_COUNT } from './voice-catalog.js';
+import {
+  googleConfigured, missingGoogleVars, googleRedirectUri,
+  verifyGoogleIdToken, buildGoogleAuthUrl, exchangeCodeForTokens,
+  newOauthState, stateMatches,
+  setOauthCookie, clearOauthCookie,
+  OAUTH_STATE_COOKIE, OAUTH_HANDOFF_COOKIE,
+} from './google-auth.js';
+import {
+  microsoftConfigured, missingMicrosoftVars, microsoftRedirectUri,
+  verifyMicrosoftIdToken, buildMicrosoftAuthUrl, exchangeMicrosoftCode,
+} from './microsoft-auth.js';
 import { registerCostingRoutes } from './costing-routes.js';
 import { registerOffersRoutes } from './offers-routes.js';
 import { registerNotificationsRoutes } from './notifications-routes.js';
+import {
+  createReset, consumeReset, resetUrl, resetEmailBody, passwordProblem, NEUTRAL_REPLY,
+} from './password-reset.js';
+import { sendEmail, mailConfigured, verifyUnsubscribeToken } from './mailer.js';
 import { runDailyModelSync } from './costing-sync.js';
 // H3 (audit 2026-07-28): hard deadline on synchronous provider calls.
 import { withProviderDeadline, ProviderTimeoutError } from './provider-deadline.js';
@@ -58,6 +78,7 @@ import { withProviderDeadline, ProviderTimeoutError } from './provider-deadline.
 import { buildAuditSummary } from './audit-redact.js';
 // M2 (audit 2026-07-28): trust forwarding headers only from Cloudflare.
 import { resolveClientIp } from './client-ip.js';
+import { loginThrottleVerdict } from './login-throttle.js';
 // M3 (audit 2026-07-28): encrypted second backup destination.
 import {
   encryptBackup, offsiteConfigured, uploadOffsite, missingOffsiteVars,
@@ -155,6 +176,18 @@ app.use((req, res, next) => {
 // non-text types like images automatically.
 app.use(compression());
 
+// N15: every https origin the browser legitimately connects to, derived from
+// the download allow-list so the two cannot drift apart. Suffixes become
+// wildcard origins ('fal.media' → 'https://*.fal.media' plus the bare host).
+function mediaConnectSources() {
+  const out = new Set();
+  for (const suffix of buildAllowedHostSuffixes()) {
+    out.add(`https://${suffix}`);
+    out.add(`https://*.${suffix}`);
+  }
+  return [...out];
+}
+
 app.use(helmet({
   // CSP: scripts/styles are same-origin (index.html has no inline <script>;
   // the JSON-LD block is data, not executable, so script-src 'self' is fine).
@@ -167,9 +200,23 @@ app.use(helmet({
       scriptSrc: ["'self'"],
       styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
       fontSrc: ["'self'", 'https://fonts.gstatic.com', 'data:'],
+      // N15 (recheck 2026-08-03): connect-src was 'https:' — anything on the
+      // internet — so the policy contributed nothing against exfiltration if
+      // script ever executed. Narrowed to the hosts media actually comes from,
+      // reusing the SAME list the download guard derives from production data
+      // (download-guard.js) rather than inventing a second one that drifts.
+      //
+      // It has to be a list and not just 'self': Audio.jsx fetches provider
+      // audio urls directly in the browser, and uploadToFal.js fetches image
+      // sources — narrowing this to 'self' would break playback with an opaque
+      // "Failed to fetch", the exact failure mode documented in the handover.
+      //
+      // img/media stay https:-wide. They cannot exfiltrate a response body,
+      // and old history rows point at hosts that predate every list we keep;
+      // breaking those would blank out images users can still see today.
       imgSrc: ["'self'", 'data:', 'blob:', 'https:'],
       mediaSrc: ["'self'", 'data:', 'blob:', 'https:'],
-      connectSrc: ["'self'", 'blob:', 'https:'],
+      connectSrc: ["'self'", 'blob:', 'data:', ...mediaConnectSources()],
       workerSrc: ["'self'", 'blob:'],
       objectSrc: ["'none'"],
       baseUri: ["'self'"],
@@ -182,13 +229,38 @@ app.use(helmet({
 
 // Lock CORS to known origins. Empty Origin (curl, server-to-server) is
 // allowed because admin curl + DO health probe both have no Origin header.
-const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS ||
-  // :3001 = single-process prod repro (Express serves dist/ directly);
-  // module <script crossorigin> sends Origin, so it must be allowed.
-  // www is allowed as belt-and-suspenders for tabs opened before the
-  // www→apex 301 shipped (their cached pages still send a www Origin).
-  'https://voxel-ai.ai,https://www.voxel-ai.ai,http://localhost:5173,http://localhost:8080,http://localhost:3001')
-  .split(',').map(s => s.trim()).filter(Boolean);
+// N14 (recheck 2026-08-03): ALLOWED_ORIGINS is NOT set in production —
+// verified against the live App Platform spec — so production runs on this
+// fallback, which also trusted three localhost origins. With credentials:true
+// that let software listening on a victim's own machine make credentialed
+// calls and read the responses.
+//
+// Fixed in the DEFAULT rather than by setting the env var, deliberately: an
+// env var that has to be right is one that can be cleared, mistyped, or
+// forgotten on a new app (it already was on this one, and on the dev twin).
+// The localhost entries now appear only when NODE_ENV is not 'production', so
+// local development keeps working and production cannot inherit them.
+// Setting ALLOWED_ORIGINS explicitly still overrides everything.
+const IS_PRODUCTION = process.env.NODE_ENV === 'production';
+const DEFAULT_ORIGINS = [
+  'https://voxel-ai.ai',
+  // www is belt-and-suspenders for tabs opened before the www→apex 301
+  // shipped (their cached pages still send a www Origin).
+  'https://www.voxel-ai.ai',
+  // Dev only. :3001 is the single-process prod repro (Express serves dist/
+  // directly); a module <script crossorigin> sends an Origin, so it must be
+  // allowed or the app's own bundle is refused.
+  ...(IS_PRODUCTION ? [] : [
+    'http://localhost:5173',
+    'http://localhost:8080',
+    'http://localhost:3001',
+  ]),
+];
+const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS
+  ? process.env.ALLOWED_ORIGINS.split(',')
+  : DEFAULT_ORIGINS
+).map(s => s.trim()).filter(Boolean);
+console.log(`[cors] ${process.env.ALLOWED_ORIGINS ? 'ALLOWED_ORIGINS env' : 'built-in default'} → ${ALLOWED_ORIGINS.join(', ')}`);
 app.use(cors({
   origin: (origin, cb) => {
     if (!origin) return cb(null, true);
@@ -262,6 +334,19 @@ const isAdminAuth = (req) =>
 //  • registerLimiter: more generous — many legitimate users legitimately share
 //    one IP (office/campus NAT, mobile carrier CGNAT) and must all be able to
 //    sign up. adminLimiter stays generous for the admin UI's burst of reads.
+// Sign in with Google. Separate from loginLimiter because these are top-level
+// browser NAVIGATIONS, not API calls: a single sign-in spends two of them
+// (start + callback), and a person who mistypes their Google password will
+// legitimately bounce through several times. Still per-IP, so one visitor
+// cannot spend anyone else's budget.
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 60,
+  keyGenerator: ipKey,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many sign-in attempts. Try again in a few minutes.' },
+});
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   // Generous per-IP ceiling: many legitimate users share one IP (office/campus
@@ -277,17 +362,42 @@ const loginLimiter = rateLimit({
   legacyHeaders: false,
   message: { error: 'Too many login attempts. Try again in a few minutes.' },
 });
+// N11 (recheck 2026-08-03): sign-up answers 409 "an account with that email
+// already exists", which tells an attacker exactly which addresses hold
+// accounts — the disclosure /api/auth/login deliberately avoids.
+//
+// The textbook fix ("we've emailed you either way") is NOT available: this
+// platform has no email delivery at all, so sign-up has to tell the person
+// then and there whether they got an account. The honest mitigation is to
+// make bulk probing impractical rather than to pretend the leak is closed.
+//
+// 100 per 15 minutes let one address test ~9,600 emails a day. 15 keeps real
+// sign-ups comfortable — NAT/campus/carrier traffic rarely produces more than
+// a handful — while making list enumeration far too slow to be worth running.
+// Residual risk is documented in TECH-DEBT.md.
 const registerLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 100, // generous: NAT/campus/carrier can put many real signups behind one IP
+  max: 15,
   keyGenerator: ipKey,
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many sign-up attempts. Try again in a few minutes.' },
 });
+// N8 (recheck 2026-08-03): this was the ONE limiter with no keyGenerator, so
+// it fell back to req.ip — the Cloudflare EDGE address behind `trust proxy`.
+// Because adminGate runs it BEFORE verifyJwt, any unauthenticated stranger
+// sharing that edge could spend the 60/min bucket and lock the real admin out
+// of the control panel. Keyed on the resolved client IP now, like every other
+// limiter, so a stranger can only ever exhaust their OWN bucket.
+//
+// It stays ahead of verifyJwt deliberately: an unauthenticated flood should be
+// cheap to shed. That means req.user does not exist yet, so this is per-IP and
+// not per-admin — adminUserKey degrades to ipKey here by design.
+const adminUserKey = (req) => (req.user?.id ? `admin:${req.user.id}` : ipKey(req));
 const adminLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 60,
+  keyGenerator: adminUserKey,
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many admin requests.' },
@@ -1031,6 +1141,24 @@ async function resolveReferenceUrls(rawUrls, { forKie = false, tag = 'REFS' } = 
     const contentType = m[1] || 'image/png';
     const buf = Buffer.from(m[2], 'base64');
 
+    // N6 (recheck 2026-08-03): this path skipped validateUpload entirely.
+    // /api/upload runs it on the multipart route, but references arriving as
+    // data: URIs went straight to persistBuffer — which writes to Spaces with
+    // ACL 'public-read' and the caller's OWN Content-Type. So any signed-in
+    // user could host arbitrary content (data:text/html;base64,...) on our
+    // bucket, under our domain, for free — and the object survived even when
+    // the generation then failed and the credits were refunded.
+    //
+    // Same validator, same rules as the multipart path: the declared type must
+    // be an allowed media type AND the magic bytes must actually match it.
+    // Throwing here is correct — the charge already happened above, so the
+    // route's catch refunds and the user is told why their file was rejected.
+    const verdict = validateUpload({ mimetype: contentType, buffer: buf });
+    if (!verdict.ok) {
+      console.error(`[${tag}] reference ${i + 1} rejected: ${verdict.reason}`);
+      throw new Error(`A reference file was rejected: ${verdict.reason}`);
+    }
+
     if (spacesReady()) {
       try {
         const url = await persistBuffer(buf, contentType, 'reference');
@@ -1658,6 +1786,10 @@ app.post('/api/edit-video-omni', verifyJwt, requireNotBanned, requireFalKey, asy
   if (!prompt) return res.status(400).json({ error: 'prompt required' });
 
   // C1: server-computed price (flat per clip; resolution rides in `quality`).
+  // N5: same position as /api/generate — after the model is resolved and
+  // before any charge, so a blocked attempt is never billed.
+  if (!modelAllowedForUser(req, model)) return res.status(403).json(MODEL_BLOCKED(model));
+
   const serverCost = priceOrRespond(res, {
     kind: 'video', model, resolution: req.body.quality,
     clientCost: req.body.credit_cost,
@@ -1749,6 +1881,10 @@ app.post('/api/motion-control', verifyJwt, requireNotBanned, requireFalKey, asyn
   if (!video_url) return res.status(400).json({ error: 'video_url (motion reference) required' });
 
   // C1: server-computed price (flat per clip; resolution rides in `quality`).
+  // N5: same position as /api/generate — after the model is resolved and
+  // before any charge, so a blocked attempt is never billed.
+  if (!modelAllowedForUser(req, model)) return res.status(403).json(MODEL_BLOCKED(model));
+
   const serverCost = priceOrRespond(res, {
     kind: 'video', model, resolution: req.body.quality,
     clientCost: req.body.credit_cost,
@@ -1832,6 +1968,15 @@ const TTS_MODELS = {
   'multilingual-v2': 'fal-ai/elevenlabs/tts/multilingual-v2',
 };
 
+// N5: human-facing labels for the per-user allow-list. These are the strings
+// the CRM shows and stores, so they must match GET /api/admin/models exactly —
+// model-coverage.test.js fails if the two ever drift.
+const TTS_MODEL_LABELS = {
+  'eleven-v3':       'ElevenLabs v3',
+  'multilingual-v2': 'ElevenLabs Multilingual v2',
+};
+const MUSIC_MODEL_LABEL = 'Lyria 2 (Music)';
+
 app.post('/api/tts', verifyJwt, requireNotBanned, requireFalKey, async (req, res) => {
   const {
     model,
@@ -1842,6 +1987,12 @@ app.post('/api/tts', verifyJwt, requireNotBanned, requireFalKey, async (req, res
     similarity_boost,
     style,
   } = req.body || {};
+
+  // N5: voice was ungated entirely — a restricted account could spend its
+  // whole balance here. Gate the RESOLVED label so the default path is checked
+  // too, not only an explicitly requested model.
+  const ttsLabel = TTS_MODEL_LABELS[model] || TTS_MODEL_LABELS['eleven-v3'];
+  if (!modelAllowedForUser(req, ttsLabel)) return res.status(403).json(MODEL_BLOCKED(ttsLabel));
 
   const falModel = TTS_MODELS[model] || TTS_MODELS['eleven-v3'];
   const usingV3 = falModel.endsWith('eleven-v3');
@@ -1949,6 +2100,11 @@ app.post('/api/generate-music', verifyJwt, requireNotBanned, requireFalKey, asyn
     return res.status(400).json({ error: 'prompt too long (max 4000 chars)' });
   }
 
+  // N5: music was ungated. One fixed model, so the label is a constant.
+  if (!modelAllowedForUser(req, MUSIC_MODEL_LABEL)) {
+    return res.status(403).json(MODEL_BLOCKED(MUSIC_MODEL_LABEL));
+  }
+
   let chargedKind = null;
   let chargedCost = null;
   try {
@@ -2016,46 +2172,43 @@ app.post('/api/generate-music', verifyJwt, requireNotBanned, requireFalKey, asyn
 // the URL is cached in a module-level Map; every subsequent request
 // for that voice returns the cached URL with no FAL call and no charge.
 //
-// Rate-limited per IP so a malicious caller can't burn through every
-// voice and force a fresh FAL call for each. Cap = 30 fresh previews
-// per IP per hour.
+// N7 (recheck 2026-08-03): the limiter here was a hand-rolled Map keyed on the
+// caller's IP that was NEVER evicted (unbounded growth), reset on every deploy,
+// and — with two instances in production — allowed double its stated cap.
+// Replaced with the same express-rate-limit + clientIp keying every other route
+// uses. The cache stays a Map on purpose: it is bounded by the catalogue, so at
+// most VOICE_COUNT entries can ever exist.
 const PREVIEW_TEXT = 'Hi! This is a quick voice preview. You can pick this voice to read your script.';
-const voicePreviewCache = new Map(); // voice name → audio_url
-const previewRateBucket = new Map(); // ip → { count, resetAt }
-const PREVIEW_RATE_MAX = 30;
-const PREVIEW_RATE_WINDOW_MS = 60 * 60 * 1000;
+const voicePreviewCache = new Map(); // voice id/name → audio_url (max VOICE_COUNT entries)
+const previewLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 30,
+  keyGenerator: ipKey,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many previews. Try again in an hour.' },
+});
 
-function checkPreviewRate(ip) {
-  const now = Date.now();
-  const cur = previewRateBucket.get(ip);
-  if (!cur || cur.resetAt < now) {
-    previewRateBucket.set(ip, { count: 1, resetAt: now + PREVIEW_RATE_WINDOW_MS });
-    return true;
-  }
-  if (cur.count >= PREVIEW_RATE_MAX) return false;
-  cur.count++;
-  return true;
-}
-
-app.post('/api/tts/preview', requireFalKey, async (req, res) => {
+// Deliberately public: visitors hear a sample before signing up, and the cache
+// means the first listener pays the FAL call and everyone after gets it free.
+// N7 keeps it public but bounds it — see voice-catalog.js for why validating
+// the voice is a stronger guarantee here than requiring a login.
+app.post('/api/tts/preview', previewLimiter, requireFalKey, async (req, res) => {
   const { voice } = req.body || {};
   if (!voice || typeof voice !== 'string') {
     return res.status(400).json({ error: 'voice required' });
+  }
+  // N7: only voices the picker actually offers. Without this, any made-up
+  // string missed the cache and became a billable FAL call.
+  if (!isKnownVoice(voice)) {
+    console.warn(`[TTS-PREVIEW] rejected unknown voice from ${clientIp(req)}`);
+    return res.status(400).json({ error: 'Unknown voice.' });
   }
 
   // Cache hit → free + zero FAL load.
   const cached = voicePreviewCache.get(voice);
   if (cached) {
     return res.json({ success: true, audio_url: cached, cached: true });
-  }
-
-  // Cache miss → FAL call. Gate on per-IP rate limit so it can't
-  // be abused to fill the cache from one source.
-  // clientIp(req), not req.ip: behind Cloudflare req.ip is the EDGE address,
-  // so every visitor sharing an edge shared ONE preview budget and throttled
-  // each other. clientIp resolves the real visitor (see client-ip.js, M2).
-  if (!checkPreviewRate(clientIp(req) || 'unknown')) {
-    return res.status(429).json({ error: 'Too many previews. Try again in an hour.' });
   }
 
   const falModel = TTS_MODELS['eleven-v3'];
@@ -2274,21 +2427,47 @@ app.post('/api/generate-video-ref', verifyJwt, requireNotBanned, requireModelPro
 });
 
 // ─── CHARACTER ELIGIBILITY CHECK ──────────────────────────────────
-app.post('/api/check-character-eligibility', async (req, res) => {
+// Accept an uploaded image as a reusable character element.
+//
+// N7 (recheck 2026-08-03): had no auth and no limiter, and slept 2 seconds on
+// every call — a free way for anyone to hold connections open on a single-
+// process server. It is only ever called from the video flow by a signed-in
+// user, so requiring a login costs nothing, and the artificial delay is gone.
+//
+// N10 (recheck 2026-08-03): it also RETURNED approved:true for any string
+// beginning with 'http' — it inspected nothing — while the interface presented
+// it as a moderation control: a shield icon, "Check eligibility", and
+// "Character approved". That is a false compliance record: a user could upload
+// a real person's likeness and the platform would stamp it approved.
+//
+// It now does only what it can honestly do — confirm the reference is an https
+// URL on a host we actually serve media from — and the UI no longer claims
+// moderation. Adding real content moderation is a separate decision (it needs
+// a provider, a cost, and a written policy on what gets rejected); when it
+// lands, it belongs right here.
+app.post('/api/check-character-eligibility', verifyJwt, requireNotBanned, statusLimiter, async (req, res) => {
   const { image_url } = req.body;
   if (!image_url) return res.status(400).json({ error: 'image_url required' });
 
-  console.log('[ELIGIBILITY] Checking:', image_url);
+  let accepted = false;
+  let reason = null;
+  try {
+    const u = new URL(String(image_url));
+    if (u.protocol !== 'https:') {
+      reason = 'Reference images must be served over https.';
+    } else if (!isAllowedDownloadHost(u.hostname, buildAllowedHostSuffixes())) {
+      reason = 'That image is not hosted where we can read it — re-upload it here.';
+    } else {
+      accepted = true;
+    }
+  } catch {
+    reason = 'That does not look like a valid image address.';
+  }
 
-  // Simulate a 2-second approval check
-  // In production, this could call a face detection/content moderation API
-  await new Promise(r => setTimeout(r, 2000));
-
-  // For now: always approve if the URL is valid
-  const approved = image_url.startsWith('http');
-  console.log('[ELIGIBILITY]', approved ? '✅ Approved' : '❌ Rejected');
-
-  res.json({ approved, image_url });
+  console.log(`[CHARACTER-ELEMENT] ${accepted ? 'accepted' : `rejected: ${reason}`}`);
+  // NOTE: no content inspection happens here. Do not reintroduce wording
+  // anywhere that implies this endpoint moderates or approves imagery.
+  res.json({ accepted, image_url, ...(reason ? { reason } : {}) });
 });
 
 // ─── VIDEO STATUS POLLING ─────────────────────────────────────────
@@ -2498,13 +2677,32 @@ app.get('/api/download', verifyJwt, requireNotBanned, async (req, res) => {
   if (!url) return res.status(400).json({ error: 'url required' });
 
   // A URL that appears in the CALLER'S OWN history is allowed regardless of
-  // which provider hosts it. Outputs from different eras live on different
-  // hosts (FAL, kie, supabase, base44, Spaces), and a static allow-list kept
-  // refusing legitimate downloads. This is also STRICTER than the host list
-  // against SSRF — an attacker cannot plant a URL in someone else's history,
-  // so it can never be aimed at an internal address. The DNS private-address
-  // check below still runs either way.
+  // which provider hosts it.
+  //
+  // N4 (recheck 2026-08-03): that reasoning had a hole. "An attacker cannot
+  // plant a URL in someone else's history" is true and irrelevant — they plant
+  // it in their OWN. POST /api/entities/:name persists arbitrary client JSON,
+  // so two requests (write {"result_url":"https://attacker.tld/x"}, then ask
+  // to download it) turned this route into an authenticated proxy for any host
+  // on the internet, with a 512 MB ceiling and no rate limit.
+  //
+  // The host allow-list is therefore enforced on EVERY request now, ownership
+  // or not. What made the list unworkable before was that it was written from
+  // the code that produces new URLs instead of from the URLs that actually
+  // exist; it is now derived from the production data (see download-guard.js),
+  // including the kie output host that holds 47% of all history.
+  //
+  // Ownership no longer changes WHERE we will connect. It is recorded so the
+  // logs show whether anyone actually downloads media that is not in their own
+  // history — this route has broken twice by tightening it on assumption
+  // rather than evidence, so the hard refusal waits until the data says it is
+  // safe. Everything reachable is already on the allow-list either way.
   const ownedByCaller = await userOwnsMediaUrl(req.user.id, url);
+  if (!ownedByCaller) {
+    let host = 'unparseable';
+    try { host = new URL(String(url)).hostname; } catch { /* keep placeholder */ }
+    console.warn(`[download] user ${req.user.id} fetched a url absent from their history (host=${host})`);
+  }
 
   const controller = new AbortController();
   const deadline = setTimeout(() => controller.abort(), DOWNLOAD_TIMEOUT_MS);
@@ -2515,13 +2713,17 @@ app.get('/api/download', verifyJwt, requireNotBanned, async (req, res) => {
     let target = String(url);
     let response = null;
     for (let hop = 0; hop <= DOWNLOAD_MAX_REDIRECTS; hop++) {
-      // `skipHostAllowList` only relaxes the HOST check, and only for the
-      // user's own media. https-only, no-credentials, no-IP-literal and the
-      // private/loopback/link-local DNS rejection all still apply — on the
-      // first hop and on every redirect.
-      const safeUrl = await assertSafeDownloadUrl(target, {
-        skipHostAllowList: ownedByCaller && hop === 0,
-      });
+      // N4: no skipHostAllowList. The host list, https-only, no-credentials,
+      // no-IP-literal and the private/loopback/link-local DNS rejection all
+      // apply on the first hop and on every redirect, without exception.
+      //
+      // Residual, accepted: assertSafeDownloadUrl resolves the name and fetch()
+      // resolves it again, so a DNS rebind between the two is theoretically
+      // possible. Pinning the validated address needs a custom undici
+      // dispatcher; with connections now limited to a handful of known CDNs an
+      // attacker would have to control one of THEIR zones, so the exposure is
+      // small. Tracked in TECH-DEBT.md.
+      const safeUrl = await assertSafeDownloadUrl(target);
       response = await fetch(safeUrl, { redirect: 'manual', signal: controller.signal });
       if ([301, 302, 303, 307, 308].includes(response.status)) {
         const loc = response.headers.get('location');
@@ -2581,7 +2783,11 @@ app.get('/api/download', verifyJwt, requireNotBanned, async (req, res) => {
 });
 
 // ─── LLM ENDPOINT (for Studio ScriptModule) ───────────────────────
-app.post('/api/llm', async (req, res) => {
+// N7: was unauthenticated. It returns a static placeholder today, so nothing
+// leaks and nothing is billed — but it is the wiring for a real LLM call, and
+// an endpoint that becomes expensive later should not be public now. Its only
+// caller is the app's own client, used while signed in.
+app.post('/api/llm', verifyJwt, requireNotBanned, enhanceLimiter, async (req, res) => {
   const { prompt, response_json_schema } = req.body;
   if (!prompt) return res.status(400).json({ error: 'Prompt required' });
   try {
@@ -2741,7 +2947,13 @@ app.get('/api/entities/:name', verifyJwt, async (req, res) => {
   }
 });
 
-app.post('/api/entities/:name', verifyJwt, async (req, res) => {
+// N12 (recheck 2026-08-03): create/update carried verifyJwt but NOT
+// requireNotBanned, so a banned account could still write history rows —
+// storage abuse, and the exact mechanism that lets N4 plant a result_url.
+// Reads (GET and the POST /filter query) stay open on purpose: a banned
+// user must still be able to load the app far enough to be told they are
+// banned, and DELETE stays open so they can remove their own content.
+app.post('/api/entities/:name', verifyJwt, requireNotBanned, async (req, res) => {
   if (!dbReady()) return res.status(503).json({ error: 'Database not configured.' });
   try {
     // Strip any client-supplied user_id / id / timestamps before persisting.
@@ -2761,7 +2973,7 @@ app.post('/api/entities/:name', verifyJwt, async (req, res) => {
   }
 });
 
-app.put('/api/entities/:name/:id', verifyJwt, async (req, res) => {
+app.put('/api/entities/:name/:id', verifyJwt, requireNotBanned, async (req, res) => {
   if (!dbReady()) return res.status(503).json({ error: 'Database not configured.' });
   try {
     const { user_id: _u, id: _id, created_date: _c, updated_date: _ud, ...patch } = req.body || {};
@@ -2982,6 +3194,13 @@ app.post('/api/node/run-node', verifyJwt, requireNotBanned, requireFalKey, async
   const { type, settings } = req.body || {};
   const spec = NODE_SYNC_SPECS[type];
   if (!spec) return res.status(400).json({ error: `Unsupported node type: ${type || '(missing)'}` });
+
+  // N5: the node canvas reaches the same providers as the normal pages, so it
+  // honours the same allow-list. The node's chosen model is the label when
+  // there is one; otherwise the node type itself.
+  const nodeLabel = settings?.model || type;
+  if (!modelAllowedForUser(req, nodeLabel)) return res.status(403).json(MODEL_BLOCKED(nodeLabel));
+
   const falModel = spec.resolve(settings);
 
   const prompt = settings?.prompt;
@@ -3080,6 +3299,11 @@ app.post('/api/node/run-node-async', verifyJwt, requireNotBanned, requireFalKey,
   }
 
   const modelLabel = settings?.model;
+  // N5: the async video node spends credits like every other path, so it takes
+  // the same allow-list gate — before pricing, before charging.
+  if (!modelAllowedForUser(req, modelLabel || type)) {
+    return res.status(403).json(MODEL_BLOCKED(modelLabel || type));
+  }
   // Upstream image(s). image_urls is the multi-reference array; image_url is
   // the single start frame (first reference) for back-compat.
   const imageUrls = Array.isArray(settings?.image_urls)
@@ -3301,6 +3525,20 @@ const ADMIN_JWT_EXPIRES = process.env.ADMIN_JWT_EXPIRES_IN || '30m';
 const USER_FAILED_LOGIN_MAX = Number(process.env.FAILED_LOGIN_MAX || 10);
 const ADMIN_FAILED_LOGIN_MAX = Number(process.env.ADMIN_FAILED_LOGIN_MAX || 30);
 
+// N2 (recheck 2026-08-03): the ceilings above are scoped to (IP, email), so
+// an attacker with a proxy pool got a FRESH allowance per address — 30 admin
+// guesses per IP, unlimited IPs, no lockout. These are the account-wide
+// ceilings: every failure for one email inside the window counts, whatever
+// address it came from. Deliberately well above the per-IP ceiling so a real
+// user's typos (or a household on several addresses) never trip them.
+//
+// Trade-off, accepted knowingly: an attacker who knows an email can now hold
+// that ACCOUNT locked for 15 minutes at a time. That is strictly better than
+// unlimited distributed guessing, the window self-heals with no operator
+// action, and for the admin server/scripts/reset-admin-2fa.mjs clears it.
+const USER_ACCOUNT_FAILED_LOGIN_MAX = Number(process.env.ACCOUNT_FAILED_LOGIN_MAX || 25);
+const ADMIN_ACCOUNT_FAILED_LOGIN_MAX = Number(process.env.ADMIN_ACCOUNT_FAILED_LOGIN_MAX || 50);
+
 // Best-effort record of a failed attempt — never blocks the response.
 function recordFailedLogin(email, ip, ua) {
   return pool.query(
@@ -3330,14 +3568,33 @@ app.post('/api/auth/login', loginLimiter, requireAuthInfra, async (req, res) => 
     // purely on IP let a handful of unrelated people's typos lock out
     // EVERYONE behind that IP. Per-account keying still stops brute-forcing
     // a single account, while the per-IP loginLimiter above covers spraying.
+    // One query, two counters (N2): failures from THIS address, and failures
+    // for this account from ANY address. Served by failed_logins_email_recent_idx.
     const { rows: fl } = await pool.query(
-      `SELECT count(*)::int AS c FROM failed_logins
-       WHERE ip_address = $1 AND email = $2
-         AND created_at > NOW() - INTERVAL '15 minutes'`,
+      `SELECT count(*) FILTER (WHERE ip_address = $1)::int AS from_ip,
+              count(*)::int                                AS from_anywhere
+         FROM failed_logins
+        WHERE email = $2
+          AND created_at > NOW() - INTERVAL '15 minutes'`,
       [ip, email]
     );
-    const ceiling = isAdminAuth(req) ? ADMIN_FAILED_LOGIN_MAX : USER_FAILED_LOGIN_MAX;
-    if (fl[0]?.c >= ceiling) {
+    const isAdmin = isAdminAuth(req);
+    const verdict = loginThrottleVerdict({
+      fromIp: fl[0]?.from_ip ?? 0,
+      fromAnywhere: fl[0]?.from_anywhere ?? 0,
+      isAdmin,
+      ceilings: {
+        user:  { perIp: USER_FAILED_LOGIN_MAX,  perAccount: USER_ACCOUNT_FAILED_LOGIN_MAX },
+        admin: { perIp: ADMIN_FAILED_LOGIN_MAX, perAccount: ADMIN_ACCOUNT_FAILED_LOGIN_MAX },
+      },
+    });
+    if (verdict.blocked) {
+      // The response is identical for both scopes on purpose: saying which
+      // ceiling tripped would tell an attacker whether IP rotation is working.
+      if (verdict.scope === 'account') {
+        console.warn(`[auth/login] ACCOUNT-WIDE lockout for ${email}: ` +
+          `${fl[0].from_anywhere} failures from multiple addresses in 15 min`);
+      }
       return res.status(429).json({ error: 'Too many failed attempts for this account. Try again in 15 minutes.' });
     }
   } catch (e) {
@@ -3454,6 +3711,347 @@ app.post('/api/auth/login', loginLimiter, requireAuthInfra, async (req, res) => 
   }
 });
 
+// ─── SIGN IN WITH GOOGLE ───────────────────────────────────────────
+// Server-side authorization-code flow. See google-auth.js for why this rather
+// than Google's button widget (it would require loosening script-src) and why
+// no new dependency was added.
+//
+// Three hops:
+//   GET  /api/auth/google           → bounce the browser to Google
+//   GET  /api/auth/google/callback  → Google returns here with a code
+//   POST /api/auth/google/complete  → the SPA trades a cookie for its token
+//
+// The third hop exists so the session token never appears in a URL, where it
+// would land in browser history, server logs and Referer headers.
+
+const HANDOFF_TTL_SECONDS = 120;
+
+// ─── WHICH SIGN-IN METHODS ACTUALLY WORK ────────────────────────────────────
+// The login modal used to hard-code `live: true` for Google and Microsoft, so
+// both buttons rendered whether or not the server had the credentials. On a
+// deploy that lands before the env vars do, every customer sees two prominent
+// buttons that bounce them to an error page. Same for password reset: the page
+// exists, but without a mail key a request silently sends nothing.
+//
+// So the UI asks instead of assuming. Booleans only — this is deliberately not
+// a config dump: it says WHETHER a method works, never which variable is
+// missing or what its value is.
+//
+// Public and unauthenticated on purpose: it is needed to render the sign-in
+// screen, which is by definition seen by people who are not signed in.
+app.get('/api/auth/methods', (req, res) => {
+  // Short cache: this only changes when the owner edits env vars (which
+  // restarts the app anyway), and it is hit on every sign-in screen.
+  res.set('Cache-Control', 'public, max-age=300');
+  res.json({
+    google: googleConfigured() && !!googleRedirectUri(),
+    microsoft: microsoftConfigured() && !!microsoftRedirectUri(),
+    // Reset needs BOTH a database to store the token and a mailer to send it.
+    // Either one missing means the customer would get a confirmation and no
+    // email, which is worse than not offering it.
+    password_reset: dbReady() && mailConfigured(),
+  });
+});
+
+app.get('/api/auth/google', authLimiter, (req, res) => {
+  if (!googleConfigured()) {
+    console.error(`[google] not configured — missing: ${missingGoogleVars().join(', ')}`);
+    return res.redirect('/?auth_error=google_unavailable');
+  }
+  const redirectUri = googleRedirectUri();
+  if (!redirectUri) {
+    console.error('[google] no redirect uri — set GOOGLE_REDIRECT_URI or PUBLIC_BASE_URL');
+    return res.redirect('/?auth_error=google_unavailable');
+  }
+  const state = newOauthState();
+  setOauthCookie(res, OAUTH_STATE_COOKIE, state, 600);
+  res.redirect(buildGoogleAuthUrl({
+    clientId: process.env.GOOGLE_CLIENT_ID.trim(),
+    redirectUri,
+    state,
+  }));
+});
+
+app.get('/api/auth/google/callback', authLimiter, async (req, res) => {
+  const fail = (logLine, code = 'google_failed') => {
+    console.error(`[google] ${logLine}`);
+    clearOauthCookie(res, OAUTH_STATE_COOKIE);
+    // Never echo the provider's error text to the browser: it is diagnostic,
+    // not user-facing, and can contain request identifiers.
+    return res.redirect(`/?auth_error=${code}`);
+  };
+
+  if (!googleConfigured() || !dbReady()) return fail('not configured');
+
+  // The user pressed "cancel" on Google's screen.
+  if (req.query.error) return fail(`provider returned ${req.query.error}`, 'google_cancelled');
+
+  // CSRF: the state we set must come back unchanged. Without this an attacker
+  // could complete a flow of their choosing in the victim's browser and
+  // silently sign them into an account the attacker controls.
+  const expected = req.cookies?.[OAUTH_STATE_COOKIE];
+  if (!stateMatches(String(expected || ''), String(req.query.state || ''))) {
+    return fail('state mismatch — possible CSRF, or the sign-in took too long');
+  }
+  clearOauthCookie(res, OAUTH_STATE_COOKIE);
+
+  const code = String(req.query.code || '');
+  if (!code) return fail('no authorization code returned');
+
+  try {
+    const tokens = await exchangeCodeForTokens({
+      code,
+      clientId: process.env.GOOGLE_CLIENT_ID.trim(),
+      clientSecret: process.env.GOOGLE_CLIENT_SECRET.trim(),
+      redirectUri: googleRedirectUri(),
+    });
+    const identity = await verifyGoogleIdToken(tokens.id_token);
+    const user = await findOrCreateGoogleUser(identity, clientIp(req));
+    if (!user) return fail('account is banned', 'account_banned');
+
+    // Hand the session over via a short-lived httpOnly cookie rather than the
+    // URL. The SPA immediately trades it in at /complete.
+    const handoff = jwt.sign(
+      { sub: user.id, email: user.email, role: user.role, handoff: true },
+      JWT_SECRET,
+      { expiresIn: HANDOFF_TTL_SECONDS }
+    );
+    setOauthCookie(res, OAUTH_HANDOFF_COOKIE, handoff, HANDOFF_TTL_SECONDS);
+    console.log(`[google] signed in user=${user.id} ${user.email}`);
+    return res.redirect('/?google=1');
+  } catch (e) {
+    return fail(`callback failed: ${e.message}`);
+  }
+});
+
+// The SPA calls this once, on landing with ?google=1.
+app.post('/api/auth/google/complete', authLimiter, async (req, res) => {
+  const raw = req.cookies?.[OAUTH_HANDOFF_COOKIE];
+  clearOauthCookie(res, OAUTH_HANDOFF_COOKIE);
+  if (!raw) return res.status(401).json({ error: 'Sign-in link expired. Please try again.' });
+  if (!dbReady()) return res.status(503).json({ error: 'Database not configured.' });
+
+  let payload;
+  try {
+    payload = jwt.verify(raw, JWT_SECRET);
+  } catch {
+    return res.status(401).json({ error: 'Sign-in link expired. Please try again.' });
+  }
+  if (!payload?.handoff) return res.status(401).json({ error: 'Invalid sign-in link.' });
+
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, email, credits, credit_limit, role, banned, package, display_name, created_at
+         FROM users WHERE id = $1`,
+      [payload.sub]
+    );
+    const user = rows[0];
+    if (!user) return res.status(401).json({ error: 'Account no longer exists.' });
+    if (user.banned) return res.status(403).json({ error: 'Account is banned.' });
+
+    const isAdmin = user.role === 'admin';
+    const token = jwt.sign(
+      { sub: user.id, email: user.email, role: user.role },
+      JWT_SECRET,
+      { expiresIn: isAdmin ? ADMIN_JWT_EXPIRES : JWT_EXPIRES_IN }
+    );
+    let csrfToken = null;
+    if (isAdmin) {
+      csrfToken = newCsrfToken();
+      setAdminSessionCookies(res, { token, csrfToken, maxAgeSeconds: 30 * 60 });
+    }
+    pool.query(`UPDATE users SET last_login_at = NOW(), last_login_ip = $1 WHERE id = $2`,
+      [clientIp(req), user.id]).catch(() => {});
+
+    const { banned: _b, ...safeUser } = user;
+    res.json({ token, user: safeUser, ...(csrfToken ? { csrf_token: csrfToken } : {}) });
+  } catch (e) {
+    console.error('[google/complete] error:', e.message);
+    res.status(500).json({ error: 'Sign-in failed.' });
+  }
+});
+
+/**
+ * Match a Google identity to a Voxel account, creating one if needed.
+ *
+ * Linking rule: match on google_sub first (stable and never reused), then fall
+ * back to the email address ONLY because verifyGoogleIdToken has already
+ * refused any identity Google does not report as email_verified. Without that
+ * guarantee this branch would be an account-takeover primitive — set an
+ * arbitrary address on a Google account, sign in, inherit the Voxel account.
+ *
+ * Returns null if the account is banned.
+ */
+async function findOrCreateGoogleUser(identity, ip) {
+  const bySub = await pool.query(
+    `SELECT id, email, role, banned FROM users WHERE google_sub = $1`, [identity.sub]
+  );
+  if (bySub.rows[0]) {
+    if (bySub.rows[0].banned) return null;
+    return bySub.rows[0];
+  }
+
+  const byEmail = await pool.query(
+    `SELECT id, email, role, banned, google_sub FROM users WHERE email = $1`, [identity.email]
+  );
+  if (byEmail.rows[0]) {
+    const existing = byEmail.rows[0];
+    if (existing.banned) return null;
+    // Attach Google to the existing password account. Their password keeps
+    // working — this adds a way in, it does not replace one.
+    await pool.query(`UPDATE users SET google_sub = $1 WHERE id = $2`, [identity.sub, existing.id]);
+    console.log(`[google] linked google account to existing user=${existing.id}`);
+    return existing;
+  }
+
+  // New account. Mirrors /api/auth/register exactly, including 0 credits and
+  // the 'signup' ledger row — deliberately NOT a different amount, because
+  // signup credit values are a pricing decision and not mine to make.
+  const created = await pool.query(
+    `INSERT INTO users (email, password_hash, credits, role, google_sub, display_name)
+     VALUES ($1, NULL, 0, 'user', $2, $3)
+     RETURNING id, email, role, banned`,
+    [identity.email, identity.sub, identity.name]
+  );
+  const user = created.rows[0];
+  pool.query(
+    `INSERT INTO credits_history (user_id, amount, action, ip_address)
+     VALUES ($1, 0, 'signup', $2)`,
+    [user.id, ip]
+  ).catch(err => console.error('[google] credits_history insert failed:', err.message));
+  console.log(`[google] created user=${user.id} ${user.email}`);
+  return user;
+}
+
+// ─── SIGN IN WITH MICROSOFT ────────────────────────────────────────
+// Same shape as Google, with ONE deliberate difference — see the linking rule
+// in findOrCreateMicrosoftUser. Entra ID lets a user set any email address
+// without verifying it (the nOAuth attack class), so an email collision with
+// an existing Voxel account is REFUSED here rather than linked. Google's
+// email_verified makes linking safe there; Microsoft has no equivalent.
+
+app.get('/api/auth/microsoft', authLimiter, (req, res) => {
+  if (!microsoftConfigured()) {
+    console.error(`[microsoft] not configured — missing: ${missingMicrosoftVars().join(', ')}`);
+    return res.redirect('/?auth_error=microsoft_unavailable');
+  }
+  const redirectUri = microsoftRedirectUri();
+  if (!redirectUri) {
+    console.error('[microsoft] no redirect uri — set MICROSOFT_REDIRECT_URI or PUBLIC_BASE_URL');
+    return res.redirect('/?auth_error=microsoft_unavailable');
+  }
+  const state = newOauthState();
+  setOauthCookie(res, OAUTH_STATE_COOKIE, state, 600);
+  res.redirect(buildMicrosoftAuthUrl({
+    clientId: process.env.MICROSOFT_CLIENT_ID.trim(),
+    redirectUri,
+    state,
+  }));
+});
+
+app.get('/api/auth/microsoft/callback', authLimiter, async (req, res) => {
+  const fail = (logLine, code = 'microsoft_failed') => {
+    console.error(`[microsoft] ${logLine}`);
+    clearOauthCookie(res, OAUTH_STATE_COOKIE);
+    return res.redirect(`/?auth_error=${code}`);
+  };
+
+  if (!microsoftConfigured() || !dbReady()) return fail('not configured');
+  if (req.query.error) return fail(`provider returned ${req.query.error}`, 'microsoft_cancelled');
+
+  const expected = req.cookies?.[OAUTH_STATE_COOKIE];
+  if (!stateMatches(String(expected || ''), String(req.query.state || ''))) {
+    return fail('state mismatch — possible CSRF, or the sign-in took too long');
+  }
+  clearOauthCookie(res, OAUTH_STATE_COOKIE);
+
+  const code = String(req.query.code || '');
+  if (!code) return fail('no authorization code returned');
+
+  try {
+    const tokens = await exchangeMicrosoftCode({
+      code,
+      clientId: process.env.MICROSOFT_CLIENT_ID.trim(),
+      clientSecret: process.env.MICROSOFT_CLIENT_SECRET.trim(),
+      redirectUri: microsoftRedirectUri(),
+    });
+    const identity = await verifyMicrosoftIdToken(tokens.id_token);
+    const outcome = await findOrCreateMicrosoftUser(identity, clientIp(req));
+    if (outcome.error === 'banned') return fail('account is banned', 'account_banned');
+    if (outcome.error === 'email_taken') {
+      // Deliberately NOT linked. Tell them how to proceed instead of failing
+      // silently: sign in the existing way, and we can attach Microsoft later.
+      return fail(
+        `refused to link ${identity.email} to an existing account (nOAuth risk)`,
+        'microsoft_email_taken'
+      );
+    }
+
+    const handoff = jwt.sign(
+      { sub: outcome.user.id, email: outcome.user.email, role: outcome.user.role, handoff: true },
+      JWT_SECRET,
+      { expiresIn: HANDOFF_TTL_SECONDS }
+    );
+    setOauthCookie(res, OAUTH_HANDOFF_COOKIE, handoff, HANDOFF_TTL_SECONDS);
+    console.log(`[microsoft] signed in user=${outcome.user.id} ${outcome.user.email}`);
+    return res.redirect('/?google=1');
+  } catch (e) {
+    return fail(`callback failed: ${e.message}`);
+  }
+});
+
+/**
+ * Match a Microsoft identity to a Voxel account.
+ *
+ * THE LINKING RULE IS STRICTER THAN GOOGLE'S, ON PURPOSE.
+ *
+ * Entra ID permits a user to set an arbitrary, UNVERIFIED email address on
+ * their account. That is the nOAuth attack: create a tenant, set the address to
+ * a victim's, sign in, and any app matching on email hands over the account.
+ * Google's email_verified is a real guarantee; Microsoft offers none, so:
+ *
+ *   - identity is the (immutable) subject alone;
+ *   - an email that already belongs to another account is REFUSED, never
+ *     silently attached. The person signs in their existing way instead.
+ *
+ * xms_edov, when a tenant enables it, does assert domain ownership — but most
+ * tenants do not emit it, so its absence must never be read as "fine".
+ */
+async function findOrCreateMicrosoftUser(identity, ip) {
+  const bySub = await pool.query(
+    `SELECT id, email, role, banned FROM users WHERE microsoft_sub = $1`, [identity.sub]
+  );
+  if (bySub.rows[0]) {
+    if (bySub.rows[0].banned) return { error: 'banned' };
+    return { user: bySub.rows[0] };
+  }
+
+  const byEmail = await pool.query(
+    `SELECT id, banned FROM users WHERE email = $1`, [identity.email]
+  );
+  if (byEmail.rows[0]) {
+    if (byEmail.rows[0].banned) return { error: 'banned' };
+    // The account exists and belongs to someone who signed up another way.
+    // Attaching on an unverifiable address is exactly the nOAuth takeover.
+    return { error: 'email_taken' };
+  }
+
+  const created = await pool.query(
+    `INSERT INTO users (email, password_hash, credits, role, microsoft_sub, display_name)
+     VALUES ($1, NULL, 0, 'user', $2, $3)
+     RETURNING id, email, role, banned`,
+    [identity.email, identity.sub, identity.name]
+  );
+  const user = created.rows[0];
+  pool.query(
+    `INSERT INTO credits_history (user_id, amount, action, ip_address)
+     VALUES ($1, 0, 'signup', $2)`,
+    [user.id, ip]
+  ).catch(err => console.error('[microsoft] credits_history insert failed:', err.message));
+  console.log(`[microsoft] created user=${user.id} ${user.email} (personal=${identity.isPersonalAccount})`);
+  return { user };
+}
+
 // ─── /api/auth/logout (H7) ─────────────────────────────────────────
 // Clears the admin session cookies server-side. The client still drops its
 // own localStorage copy; this makes sure the httpOnly cookie — which the
@@ -3461,6 +4059,126 @@ app.post('/api/auth/login', loginLimiter, requireAuthInfra, async (req, res) => 
 app.post('/api/auth/logout', (req, res) => {
   clearAdminSessionCookies(res);
   res.json({ ok: true });
+});
+
+// Sender addresses + the email master switch, read fresh so a change in the
+// CRM takes effect on the next message rather than the next deploy.
+async function mailSettings() {
+  if (!dbReady()) return {};
+  try {
+    const { rows } = await pool.query('SELECT * FROM notification_settings WHERE id = 1');
+    return rows[0] || {};
+  } catch { return {}; }
+}
+
+/** True when this address has unsubscribed. Marketing mail must check it. */
+async function isSuppressed(email) {
+  if (!dbReady() || !email) return false;
+  try {
+    const { rows } = await pool.query(
+      'SELECT 1 FROM email_suppressions WHERE email = $1', [String(email).trim().toLowerCase()]);
+    return rows.length > 0;
+  } catch { return false; }
+}
+
+// ─── PASSWORD RESET (2026-08-07) ────────────────────────────────────
+// Until now a forgotten password meant emailing the owner for a manual reset
+// from the CRM — the platform's biggest user-facing gap.
+//
+// Both routes answer IDENTICALLY whether or not the address exists. Finding
+// N11 was this leak on sign-up, merely slowed by a rate limit; a reset
+// endpoint is a far easier oracle, so here it is genuinely indistinguishable.
+const resetLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  keyGenerator: ipKey,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many reset requests. Try again in 15 minutes.' },
+});
+
+app.post('/api/auth/forgot-password', resetLimiter, async (req, res) => {
+  const email = String(req.body?.email || '').trim().toLowerCase();
+  // Reply first, work after: identical body and identical timing whether the
+  // account exists, the mailer is down, or the address is nonsense.
+  res.json(NEUTRAL_REPLY);
+  if (!dbReady() || !email) return;
+  try {
+    const { rows } = await pool.query(
+      'SELECT id, email FROM users WHERE lower(email) = $1 AND banned = FALSE', [email]);
+    if (!rows.length) return;                       // silent, on purpose
+    if (!mailConfigured()) {
+      console.warn('[reset] requested but email is not configured — nothing sent');
+      return;
+    }
+    const token = await createReset(pool, rows[0].id);
+    const msg = resetEmailBody(resetUrl(token));
+    const settings = await mailSettings();
+    const out = await sendEmail({ ...msg, to: rows[0].email, kind: 'system' }, { settings });
+    if (!out.sent) console.error('[reset] send failed:', out.reason);
+  } catch (e) {
+    console.error('[reset] request failed:', e.message);
+  }
+});
+
+app.post('/api/auth/reset-password', resetLimiter, async (req, res) => {
+  if (!dbReady()) return res.status(503).json({ error: 'Database not configured.' });
+  const token = String(req.body?.token || '');
+  const password = String(req.body?.password || '');
+  const problem = passwordProblem(password);
+  if (problem) return res.status(400).json({ error: problem });
+  try {
+    const claim = await consumeReset(pool, token);
+    if (!claim.ok) {
+      return res.status(400).json({ error: 'That reset link is invalid or has expired. Request a new one.' });
+    }
+    const hash = await bcrypt.hash(password, 12);
+    // N9: a password change ends every existing session, so a reset actually
+    // locks out whoever might have been in the account.
+    await pool.query(
+      `UPDATE users SET password_hash = $2, sessions_valid_from = NOW() WHERE id = $1`,
+      [claim.userId, hash]);
+    console.log(`[reset] password changed for user ${claim.userId}`);
+    res.json({ ok: true, message: 'Your password has been changed. You can sign in now.' });
+  } catch (e) {
+    console.error('[reset] apply failed:', e.message);
+    res.status(500).json({ error: 'Could not reset the password.' });
+  }
+});
+
+// ─── UNSUBSCRIBE ────────────────────────────────────────────────────
+// Reachable without login BY DESIGN — someone who was forwarded a campaign
+// has no account to sign into. The HMAC token is what authorises it, so the
+// link cannot be used to unsubscribe an address the sender did not mail.
+app.get('/api/unsubscribe', async (req, res) => {
+  const email = String(req.query?.email || '').trim().toLowerCase();
+  const token = String(req.query?.t || '');
+  const page = (title, body) => res.type('html').send(
+    `<!doctype html><meta charset="utf-8"><title>${title}</title>` +
+    `<body style="margin:0;background:#0f0f12;color:#e9e9ee;font-family:system-ui,sans-serif">` +
+    `<div style="max-width:520px;margin:14vh auto;padding:32px;background:#17171c;border-radius:16px">` +
+    `<div style="font-size:19px;font-weight:700;margin-bottom:14px">VOXEL<span style="color:#e0442c">.AI</span></div>` +
+    `<h1 style="font-size:20px;margin:0 0 10px">${title}</h1>` +
+    `<p style="color:#b6b6c0;line-height:1.6;margin:0">${body}</p></div></body>`);
+
+  if (!email || !verifyUnsubscribeToken(email, token)) {
+    return res.status(400).type('html').send(page('Link not valid',
+      'That unsubscribe link is not valid. If you keep receiving mail you did not ask for, reply to any message and we will remove you.'));
+  }
+  try {
+    if (dbReady()) {
+      await pool.query(
+        `INSERT INTO email_suppressions (email, reason) VALUES ($1, 'unsubscribed')
+         ON CONFLICT (email) DO NOTHING`, [email]);
+    }
+    console.log(`[mail] unsubscribed ${email}`);
+    return page('You are unsubscribed',
+      'You will not receive marketing email from Voxel again. Messages about your own account — password resets and security alerts — still reach you, because you cannot opt out of getting back into your account.');
+  } catch (e) {
+    console.error('[unsubscribe] failed:', e.message);
+    return res.status(500).type('html').send(page('Something went wrong',
+      'We could not record that just now. Please try the link again shortly.'));
+  }
 });
 
 // ─── /api/auth/me ──────────────────────────────────────────────────
@@ -3638,7 +4356,31 @@ function requireCsrf(req, res, next) {
 
 // One handy gate to apply to every admin route: rate limit, auth, role,
 // CSRF (state-changing cookie requests only), audit.
-const adminGate = [adminLimiter, verifyJwt, requireAdmin, requireCsrf, adminAudit];
+// N3 (recheck 2026-08-03): admin routes accept the httpOnly cookie ONLY.
+//
+// H7 moved the admin session into a cookie page JavaScript cannot read, but
+// left bearer auth accepted "during the transition" — and the transition never
+// finished. Two protections were bypassed at once: the admin JWT stayed in
+// localStorage where any XSS could read it, and a bearer-authenticated request
+// skips CSRF entirely (admin-session.js: `if (!usedCookieAuth) return ok`).
+//
+// Refusing bearer here closes both. A stolen token is no longer usable against
+// /api/admin/* even if something does manage to read localStorage, and every
+// admin write is forced back through the double-submit CSRF check.
+//
+// Expected fallout, once: an admin tab opened before this deploy sends a bearer
+// and gets 401 → the panel drops to its sign-in form. Signing in again fixes it.
+function requireCookieAuth(req, res, next) {
+  if (!req.usedCookieAuth) {
+    return res.status(401).json({
+      error: 'Admin session required. Please sign in again.',
+      reauth: true,
+    });
+  }
+  next();
+}
+
+const adminGate = [adminLimiter, verifyJwt, requireCookieAuth, requireAdmin, requireCsrf, adminAudit];
 
 // ─── CRM COSTING (2026-08-06) ──────────────────────────────────────
 // Own module: index.js is past the ~1500-line split threshold in CLAUDE.md and
@@ -3861,7 +4603,13 @@ app.post('/api/admin/users/:id/reset-password', adminGate, async (req, res) => {
     }
 
     const hash = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
-    await pool.query(`UPDATE users SET password_hash = $1 WHERE id = $2`, [hash, targetId]);
+    // N9: stamp the session cutoff in the SAME statement as the new hash, so
+    // a reset always evicts existing tokens. Previously the attacker whose
+    // compromise prompted the reset kept a working session for up to 7 days.
+    await pool.query(
+      `UPDATE users SET password_hash = $1, sessions_valid_from = NOW() WHERE id = $2`,
+      [hash, targetId]
+    );
 
     // Audit trail alongside the other moderation actions.
     pool.query(
@@ -4401,9 +5149,16 @@ app.post('/api/admin/2fa/disable', adminGate, async (req, res) => {
 // Server is the source of truth for model labels — the same keys the
 // generate routes resolve and the allow-list gate compares against.
 app.get('/api/admin/models', adminGate, (req, res) => {
+  // N5: this used to offer only image + video, while the server gated only
+  // those three routes. Now that voice, music, editing, motion control and the
+  // node canvas are gated too, they have to be grantable — otherwise
+  // restricting an account would silently remove them with no way back.
   res.json({
     image: Object.keys(MODEL_CONFIG),
     video: Object.keys(VIDEO_DIRECT_MAP),
+    audio: [...Object.values(TTS_MODEL_LABELS), MUSIC_MODEL_LABEL],
+    editing: [...Object.keys(EDIT_VIDEO_MODELS), ...Object.keys(MOTION_CONTROL_MODELS)],
+    node: Object.keys(NODE_SYNC_SPECS),
   });
 });
 
@@ -4763,6 +5518,11 @@ const ROUTE_META = {
   'contact': { title: 'Contact — VOXEL.AI', desc: 'Contact the VOXEL.AI team — support, billing, privacy and partnership enquiries.' },
   'terms': { title: 'Terms of Service — VOXEL.AI', desc: 'The terms that govern your use of VOXEL.AI — accounts, credits, content ownership and acceptable use.' },
   'account': { title: 'Your Account — VOXEL.AI', desc: 'Manage your VOXEL.AI profile, subscription, credit usage, promo codes and gifts.' },
+  // The page the reset email links to. It MUST be listed here: an unlisted
+  // route answers 404, and a 404 on the link in a password-reset email is the
+  // kind of thing only a locked-out customer discovers. noindex because a
+  // reset screen has no business in search results.
+  'reset-password': { title: 'Reset your password — VOXEL.AI', desc: 'Set a new password for your VOXEL.AI account.', noindex: true },
 };
 
 // Paths that USED to exist and were deliberately removed — 410 Gone tells
@@ -4830,8 +5590,11 @@ if (existsSync(DIST_DIR)) {
     }
     const meta = ROUTE_META[route];
     if (!meta) return res.send(SHELL); // homepage — shell tags are already right
+    // A noindex route gets no canonical: pointing crawlers at a page we are
+    // simultaneously telling them to ignore is a contradiction.
     return res.send(injectMeta(SHELL, {
-      ...meta, canonical: `https://voxel-ai.ai/${route}`,
+      ...meta,
+      canonical: meta.noindex ? undefined : `https://voxel-ai.ai/${route}`,
     }));
   });
   console.log(`[voxel-api] serving static frontend from ${DIST_DIR}`);

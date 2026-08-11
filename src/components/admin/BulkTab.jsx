@@ -14,6 +14,14 @@ import { CREDIT_PLANS } from '@/lib/creditPricing';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
+const MODEL_GROUP_LABELS = {
+  image: 'Image models',
+  video: 'Video models',
+  audio: 'Voice & music',
+  editing: 'Editing & motion',
+  node: 'Node canvas',
+};
+
 export default function BulkTab({ onError }) {
   // Emails (from file or pasted)
   const [emails, setEmails] = useState([]);
@@ -146,9 +154,15 @@ export default function BulkTab({ onError }) {
     URL.revokeObjectURL(a.href);
   }, [result, plan, credits, expiresAt]);
 
-  const modelGroups = useMemo(() => catalog
-    ? [['Image models', catalog.image || []], ['Video models', catalog.video || []]]
-    : [], [catalog]);
+  // N5: derived from whatever the server offers, not a hardcoded pair. The
+  // server now gates voice, music, editing, motion control and node models
+  // too, so all of them must be grantable here — a category the server
+  // enforces but this screen cannot grant would silently lock users out.
+  const modelGroups = useMemo(() => (catalog
+    ? Object.entries(catalog)
+        .filter(([, models]) => Array.isArray(models) && models.length)
+        .map(([key, models]) => [MODEL_GROUP_LABELS[key] || key, models])
+    : []), [catalog]);
 
   return (
     <div>

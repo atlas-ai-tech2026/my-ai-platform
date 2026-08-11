@@ -18,6 +18,10 @@ import {
   validateCompose, isSafeCtaUrl, DEFAULT_DAILY_MARKETING_CAP,
 } from './notifications-engine.js';
 import { previewSegment, buildSegmentQuery, UnknownFilterError } from './offers-segments.js';
+import {
+  sendEmail, mailConfigured, missingMailConfig, sendingDomain,
+  isOwnDomainAddress, escapeHtml, MAIL_KINDS,
+} from './mailer.js';
 
 /** Email has no sender behind it. Single integration point, and it refuses. */
 export class NotConfiguredError extends Error {
@@ -28,12 +32,48 @@ export class NotConfiguredError extends Error {
   }
 }
 
-// TODO(email-on-hold): the owner will ask for the email channel once his mail
-// server is ready and he has supplied the requirements. Until then this must
-// stay a refusal — never a silent no-op, which would make a campaign look
-// delivered when nobody was reached. Push notifications are not built at all.
-export async function sendNotificationEmail() {
-  throw new NotConfiguredError();
+/**
+ * Send one notification by email. Replaces the deliberate refusal that stood
+ * here while the mail server was on hold.
+ *
+ * THREE GATES, all of which must pass. Any one of them failing means the bell
+ * notification is still written — only the email is skipped, and the reason is
+ * returned rather than swallowed.
+ *
+ *   1. the email channel is switched ON (default OFF)
+ *   2. Resend is actually configured
+ *   3. the recipient has NOT unsubscribed — marketing only; a password reset
+ *      is not something you can opt out of
+ */
+export async function sendNotificationEmail({
+  to, title, body, ctaText, ctaUrl, kind = 'announce', settings = {}, suppressed = false,
+} = {}) {
+  if (!settings.email_enabled) return { sent: false, reason: 'email channel is off' };
+  // CONSENT BEFORE CONFIGURATION. Someone who unsubscribed is skipped whether
+  // or not the mail server is set up — their choice is a property of them, not
+  // of our infrastructure, and we should never reach the mailer on their behalf.
+  const spec = MAIL_KINDS[kind] || MAIL_KINDS.announce;
+  if (spec.marketing && suppressed) return { sent: false, reason: 'unsubscribed' };
+  if (!mailConfigured()) throw new NotConfiguredError();
+  return sendEmail({
+    to,
+    subject: title,
+    title,
+    // The bell stores plain text; email needs paragraphs, and the text is
+    // admin-authored so it must be escaped rather than trusted as markup.
+    body: String(body || '').split(/\n{2,}/)
+      .map((para) => `<p style="margin:0 0 14px">${escapeHtml(para).replace(/\n/g, '<br>')}</p>`)
+      .join(''),
+    ctaText, ctaUrl, kind,
+  }, { settings });
+}
+
+/** A path like /pricing is dead in an email; make it absolute. */
+function absoluteUrl(path) {
+  const p = String(path || '');
+  if (/^https?:\/\//i.test(p)) return p;
+  const base = String(process.env.PUBLIC_BASE_URL || 'https://voxel-ai.ai').replace(/\/+$/, '');
+  return base + (p.startsWith('/') ? p : '/' + p);
 }
 
 export function registerNotificationsRoutes(app, { pool, dbReady, adminGate, userGate }) {
@@ -49,6 +89,12 @@ export function registerNotificationsRoutes(app, { pool, dbReady, adminGate, use
     return {
       daily_marketing_cap: s.daily_marketing_cap ?? DEFAULT_DAILY_MARKETING_CAP,
       bell_enabled: s.bell_enabled ?? false,
+      email_enabled: s.email_enabled ?? false,
+      from_system: s.from_system || null,
+      from_announce: s.from_announce || null,
+      from_billing: s.from_billing || null,
+      from_support: s.from_support || null,
+      from_legal: s.from_legal || null,
     };
   }
 
@@ -104,6 +150,11 @@ export function registerNotificationsRoutes(app, { pool, dbReady, adminGate, use
         offers: offers.rows,
         settings: await settings(),
         types: TYPES,
+        mail: {
+          configured: mailConfigured(),
+          missing: missingMailConfig(),
+          domain: sendingDomain(),
+        },
       });
     } catch (e) {
       console.error('[notifications/list]', e);
@@ -185,7 +236,16 @@ export function registerNotificationsRoutes(app, { pool, dbReady, adminGate, use
       if (!isSafeCtaUrl(b.cta_url)) errs.push('the button link must be a path on this site, like /pricing');
       if (errs.length) return res.status(400).json({ error: errs.join(' · '), errors: errs });
 
-      const { daily_marketing_cap } = await settings();
+      const settingsRow = await settings();
+      const { daily_marketing_cap } = settingsRow;
+      // One query for the whole audience rather than one per recipient.
+      const suppressedSet = new Set(
+        (await pool.query(
+          `SELECT email FROM email_suppressions WHERE email = ANY($1)`,
+          [recipients.map((r) => String(r.email).toLowerCase())]
+        ).catch(() => ({ rows: [] }))).rows.map((r) => r.email)
+      );
+      let emailed = 0, emailSkipped = 0;
       // How many MARKETING notifications each recipient already got today.
       const capRows = recipients.length
         ? (await pool.query(
@@ -222,13 +282,35 @@ export function registerNotificationsRoutes(app, { pool, dbReady, adminGate, use
            renderTemplate(b.body, u),
            b.cta_text || null, b.cta_url || null, b.code || null, b.expires_at || null]
         ).catch((e) => console.error('[notifications] delivery failed for user', u.id, e.message));
+
+        // The bell row is written FIRST and always. Email is an extra channel:
+        // if it is off, unconfigured, or the person unsubscribed, they still
+        // get the notification in the app — they just do not get a copy by
+        // mail. A failed send must never cost someone the notification itself.
+        if (settingsRow.email_enabled && b.send_email) {
+          const out = await sendNotificationEmail({
+            to: u.email,
+            title: renderTemplate(b.title, u),
+            body: renderTemplate(b.body, u),
+            ctaText: b.cta_text || null,
+            ctaUrl: b.cta_url ? absoluteUrl(b.cta_url) : null,
+            kind: type === 'promo' ? 'promo' : 'announce',
+            settings: settingsRow,
+            suppressed: suppressedSet.has(String(u.email).toLowerCase()),
+          }).catch((e) => ({ sent: false, reason: e.message }));
+          if (out.sent) emailed++; else emailSkipped++;
+        }
       }
 
       await audit('sent', null, campaign.title, who(req),
         `${send.length} delivered, ${skipped.length} held by the daily cap`, campaign.id);
 
       res.json({
-        campaign, delivered: send.length, skipped_cap: skipped.length,
+        campaign,
+        delivered: send.length,
+        skipped_cap: skipped.length,
+        emailed,
+        email_skipped: emailSkipped,
       });
     } catch (e) {
       if (e instanceof UnknownFilterError) return res.status(400).json({ error: e.message });
@@ -281,15 +363,78 @@ export function registerNotificationsRoutes(app, { pool, dbReady, adminGate, use
         ? cur.daily_marketing_cap
         : Math.max(0, parseInt(req.body.daily_marketing_cap, 10) || 0);
       const bell = req.body?.bell_enabled === undefined ? cur.bell_enabled : !!req.body.bell_enabled;
+      const emailOn = req.body?.email_enabled === undefined ? cur.email_enabled : !!req.body.email_enabled;
+
+      // Sender addresses. An address off our verified domain is REFUSED rather
+      // than saved: Resend cannot sign for it, and its rejection would look
+      // exactly like a delivered campaign.
+      const senders = {};
+      for (const key of ['from_system', 'from_announce', 'from_billing', 'from_support', 'from_legal']) {
+        if (req.body?.[key] === undefined) { senders[key] = cur[key] ?? null; continue; }
+        const value = String(req.body[key] || '').trim();
+        if (!value) { senders[key] = null; continue; }
+        if (!isOwnDomainAddress(value)) {
+          return res.status(400).json({
+            error: `${value} is not on your sending domain — mail from it would be rejected.`,
+          });
+        }
+        senders[key] = value;
+      }
+      // Turning the channel ON with nothing configured would look like it
+      // worked while every message failed.
+      if (emailOn && !mailConfigured()) {
+        return res.status(400).json({
+          error: 'Email is not configured yet — set RESEND_API_KEY and MAIL_FROM first.',
+        });
+      }
       await pool.query(
-        `UPDATE notification_settings SET daily_marketing_cap = $1, bell_enabled = $2, updated_at = NOW() WHERE id = 1`,
-        [cap, bell]);
+        `UPDATE notification_settings
+            SET daily_marketing_cap = $1, bell_enabled = $2, email_enabled = $3,
+                from_system = $4, from_announce = $5, from_billing = $6,
+                from_support = $7, from_legal = $8, updated_at = NOW()
+          WHERE id = 1`,
+        [cap, bell, emailOn, senders.from_system, senders.from_announce,
+         senders.from_billing, senders.from_support, senders.from_legal]);
       if (cur.bell_enabled !== bell) await audit('bell_enabled', cur.bell_enabled, bell, who(req), null);
+      if (cur.email_enabled !== emailOn) await audit('email_enabled', cur.email_enabled, emailOn, who(req), null);
       if (cur.daily_marketing_cap !== cap) await audit('daily_marketing_cap', cur.daily_marketing_cap, cap, who(req), null);
       res.json({ settings: await settings() });
     } catch (e) {
       console.error('[notifications/settings]', e);
       res.status(500).json({ error: 'Could not update the settings.' });
+    }
+  });
+
+  /**
+   * Send one real email to the ADMIN, to prove the whole chain works before
+   * any customer is involved. Deliberately cannot target anyone else.
+   */
+  app.post('/api/admin/notifications/test-email', adminGate, async (req, res) => {
+    if (guard(res)) return;
+    if (!mailConfigured()) {
+      return res.status(400).json({
+        error: `Email is not configured — missing ${missingMailConfig().join(' and ')}.`,
+      });
+    }
+    const to = String(process.env.ADMIN_EMAIL || 'info@voxel-ai.ai').trim();
+    try {
+      const s = await settings();
+      const kind = MAIL_KINDS[req.body?.kind] ? req.body.kind : 'system';
+      const out = await sendEmail({
+        to,
+        subject: 'Voxel test email',
+        title: 'Email is working',
+        body: '<p style="margin:0 0 14px">If you are reading this, Voxel can send email.</p>'
+            + `<p style="margin:0">Sent from the <b>${escapeHtml(kind)}</b> address. `
+            + 'Nothing was sent to any customer.</p>',
+        kind,
+      }, { settings: s });
+      await audit('test_email', null, out.sent ? 'sent' : 'failed', who(req), out.reason || null);
+      if (!out.sent) return res.status(502).json({ error: out.reason || 'Send failed.' });
+      res.json({ ok: true, to: out.to, from: out.from, test_mode: out.testMode });
+    } catch (e) {
+      console.error('[notifications/test-email]', e);
+      res.status(500).json({ error: e.message || 'Could not send the test email.' });
     }
   });
 
