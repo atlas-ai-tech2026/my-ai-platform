@@ -5830,20 +5830,26 @@ async function checkKieBalance() {
 // is what makes the refund survive a deploy — the case the old in-memory
 // Map lost silently. Runs shortly after boot so it never delays listening,
 // and hourly after that to catch jobs abandoned mid-poll.
+// Returns {verdict, reason}. The reason exists because every give-up path here
+// used to return a bare 'pending' and log nothing, so the hourly pass reported
+// "still pending 124" for days without saying why (see reconcilePendingCharges).
 async function videoJobVerdict(row) {
   const modelId = String(row.model_id || '');
   if (modelId.startsWith('kie:')) {
     const family = modelId.startsWith('kie:jobs:') ? 'jobs' : 'veo';
     const t = await kieGetTask(family, row.job_id, { tag: 'KIE-RECONCILE' });
-    if (t.state === 'fail') return 'failed';
-    if (t.state === 'success') return 'completed';
-    return 'pending';
+    if (t.state === 'fail') return { verdict: 'failed', reason: null };
+    if (t.state === 'success') return { verdict: 'completed', reason: null };
+    return { verdict: 'pending', reason: `kie-state:${t.state || 'none'}` };
   }
-  if (!modelId) return 'pending'; // no provider recorded — leave it alone
+  // No provider recorded: nothing to ask, so this row can NEVER resolve on its
+  // own. It is the prime suspect for the stuck backlog — surface it by name
+  // rather than silently counting it as "still working".
+  if (!modelId) return { verdict: 'pending', reason: 'no-model-id' };
   const status = await fal.queue.status(modelId, { requestId: row.job_id, logs: false });
-  if (status.status === 'FAILED' || status.status === 'ERROR') return 'failed';
-  if (status.status === 'COMPLETED') return 'completed';
-  return 'pending';
+  if (status.status === 'FAILED' || status.status === 'ERROR') return { verdict: 'failed', reason: null };
+  if (status.status === 'COMPLETED') return { verdict: 'completed', reason: null };
+  return { verdict: 'pending', reason: `fal-status:${status.status || 'none'}` };
 }
 
 function scheduleVideoChargeReconcile() {

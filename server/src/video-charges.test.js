@@ -198,3 +198,63 @@ describe('H4 — degrades safely without a database', () => {
     expect(await reconcilePendingCharges(vi.fn())).toMatchObject({ checked: 0 });
   });
 });
+
+// ─── WHY a charge stays pending (added 2026-08-11) ───────────────────────────
+// Production had been logging "refunded 0, settled 0, still pending 124" on
+// every boot for days, with no errors anywhere. The cause was structural: every
+// give-up path in the verdict function returned the bare string 'pending' and
+// logged nothing, so a pass that resolved NOTHING looked identical to one that
+// was working normally. 124 charges — real, paid-for subscription credits —
+// sat behind that silence.
+//
+// The verdict function may now answer {verdict, reason}, and the summary
+// aggregates the reasons. These tests exist so the diagnosis cannot go quiet
+// again.
+describe('a pass that resolves nothing must say why', () => {
+  it('counts each distinct reason', async () => {
+    await trackVideoCharge('j1', { userId: 1, cost: 5, modelId: '' });
+    await trackVideoCharge('j2', { userId: 1, cost: 5, modelId: '' });
+    await trackVideoCharge('j3', { userId: 1, cost: 5, modelId: 'fal-ai/x' });
+
+    const summary = await reconcilePendingCharges(async (row) =>
+      row.model_id
+        ? { verdict: 'pending', reason: 'fal-status:IN_QUEUE' }
+        : { verdict: 'pending', reason: 'no-model-id' });
+
+    expect(summary.stillPending).toBe(3);
+    expect(summary.reasons).toEqual({ 'no-model-id': 2, 'fal-status:IN_QUEUE': 1 });
+  });
+
+  // The exact shape of the production mystery: a full pass, nothing resolved,
+  // no errors. The summary must name the cause instead of shrugging.
+  it('names the cause when NOTHING resolves — the production case', async () => {
+    for (let i = 0; i < 5; i++) await trackVideoCharge(`stuck-${i}`, { userId: 1, cost: 5, modelId: '' });
+
+    const summary = await reconcilePendingCharges(async () =>
+      ({ verdict: 'pending', reason: 'no-model-id' }));
+
+    expect(summary).toMatchObject({ refunded: 0, settled: 0, stillPending: 5 });
+    expect(summary.reasons).toEqual({ 'no-model-id': 5 });
+    // Never an empty explanation for a pass that achieved nothing.
+    expect(Object.keys(summary.reasons).length).toBeGreaterThan(0);
+  });
+
+  it('records a thrown provider error as a reason too, not just a log line', async () => {
+    await trackVideoCharge('boom', { userId: 1, cost: 5, modelId: 'fal-ai/x' });
+    const summary = await reconcilePendingCharges(vi.fn().mockRejectedValue(new Error('provider 503')));
+    expect(Object.keys(summary.reasons).join()).toMatch(/threw:provider 503/);
+  });
+
+  // Backward compatibility: the old bare-string contract must keep working, or
+  // this change would break the very refunds it is meant to protect.
+  it('still accepts a bare string verdict', async () => {
+    await trackVideoCharge('old-fail', { userId: 2, cost: 9, modelId: 'fal-ai/x' });
+    expect(await reconcilePendingCharges(vi.fn().mockResolvedValue('failed')))
+      .toMatchObject({ refunded: 1 });
+
+    await trackVideoCharge('old-pending', { userId: 2, cost: 9, modelId: 'fal-ai/x' });
+    const s = await reconcilePendingCharges(vi.fn().mockResolvedValue('pending'));
+    expect(s.stillPending).toBe(1);
+    expect(s.reasons).toEqual({ unknown: 1 });   // unexplained, but counted
+  });
+});

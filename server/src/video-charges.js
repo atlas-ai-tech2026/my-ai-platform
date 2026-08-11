@@ -227,23 +227,42 @@ export async function reconcilePendingCharges(checkStatus, { minAgeMinutes = 10 
 
   console.log(`[video-reconcile] ${rows.length} charge(s) unresolved across restart — checking with the provider`);
   let refunded = 0, settled = 0, stillPending = 0;
+  // WHY a row stayed pending. Added 2026-08-11: this pass had been reporting
+  // "refunded 0, settled 0, still pending 124" on every boot for days, with no
+  // errors — because EVERY path that gives up returns the bare string
+  // 'pending' and logs nothing. A loop that resolves nothing and explains
+  // nothing is indistinguishable from one that is working, which is exactly
+  // what CLAUDE.md means by "silent failures are bugs".
+  const reasons = new Map();
+  const note = (r) => reasons.set(r, (reasons.get(r) || 0) + 1);
+
   for (const row of rows) {
     let verdict = 'pending';
     try {
       verdict = await checkStatus(row);
     } catch (e) {
       console.error(`[video-reconcile] status check failed for ${row.job_id}:`, e.message);
+      note(`threw:${e.message.slice(0, 40)}`);
       continue; // leave pending; next boot retries
     }
-    if (verdict === 'failed') {
+    // checkStatus may answer with a bare verdict or {verdict, reason}.
+    const outcome = typeof verdict === 'string' ? verdict : verdict?.verdict;
+    const why = typeof verdict === 'string' ? null : verdict?.reason;
+
+    if (outcome === 'failed') {
       if (await refundFailedVideo(row.job_id, 'reconciled after restart: provider reports failed')) refunded++;
-    } else if (verdict === 'completed') {
+    } else if (outcome === 'completed') {
       await settleVideoCharge(row.job_id);
       settled++;
     } else {
       stillPending++;
+      note(why || 'unknown');
     }
   }
-  console.log(`[video-reconcile] done — refunded ${refunded}, settled ${settled}, still pending ${stillPending}`);
-  return { checked: rows.length, refunded, settled, stillPending };
+  const breakdown = reasons.size
+    ? ` — why still pending: ${[...reasons].map(([r, n]) => `${r}=${n}`).join(', ')}`
+    : '';
+  console.log(
+    `[video-reconcile] done — refunded ${refunded}, settled ${settled}, still pending ${stillPending}${breakdown}`);
+  return { checked: rows.length, refunded, settled, stillPending, reasons: Object.fromEntries(reasons) };
 }
