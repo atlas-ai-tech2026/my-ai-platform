@@ -4420,7 +4420,7 @@ app.get('/api/admin/users', adminGate, async (req, res) => {
 
     const [usersRes, totalRes] = await Promise.all([
       pool.query(
-        `SELECT id, email, credits, credit_limit, role, banned, package, created_at, last_login_at, last_login_ip
+        `SELECT id, email, credits, credit_limit, role, banned, package, created_at, last_login_at, last_login_ip, expires_at
            FROM users ORDER BY id DESC LIMIT $1 OFFSET $2`,
         [limit, offset]
       ),
@@ -4585,6 +4585,63 @@ app.post('/api/admin/users/:id/ban', adminGate, async (req, res) => {
 // Passwords are bcrypt-hashed and unrecoverable by design — "forgot my
 // password" is resolved by an admin setting a NEW one here and handing it
 // to the user. Refuses to touch other admins (self-reset is allowed).
+// ─── BULK ACCOUNT EXPIRY ─────────────────────────────────────────────────────
+// Close access for a whole cohort at once — the end of a workshop.
+//
+// Expiry is the ONLY thing this touches. It writes users.expires_at and nothing
+// else: the account, its balance, its credit history and every image and video
+// it generated all stay exactly where they are, and the CRM keeps showing them
+// (the user list has no expiry filter). Clearing the date restores access
+// instantly. That is why this is expiry and not deletion.
+//
+// ADMINS ARE EXCLUDED IN THE SQL, not by asking the caller to remember. An
+// "expire everyone" that included admins would lock the owner out of the very
+// panel needed to undo it, recoverable only by editing the database directly.
+app.post('/api/admin/users/expiry', adminGate, async (req, res) => {
+  try {
+    const mode = String(req.body?.mode || '');       // 'set' | 'clear'
+    const scope = String(req.body?.scope || 'all');  // 'all' | 'existing'
+    if (!['set', 'clear'].includes(mode)) {
+      return res.status(400).json({ error: "mode must be 'set' or 'clear'." });
+    }
+
+    let expiresAt = null;
+    if (mode === 'set') {
+      expiresAt = req.body?.expires_at ? new Date(req.body.expires_at) : null;
+      if (!expiresAt || isNaN(expiresAt)) {
+        return res.status(400).json({ error: 'A valid expiry date is required.' });
+      }
+    }
+
+    // 'existing' = accounts registered before this call, so a cohort closed
+    // today does not sweep up someone who signs up an hour later.
+    const cutoff = scope === 'existing' ? new Date() : null;
+
+    const { rows } = await pool.query(
+      `UPDATE users
+          SET expires_at = $1
+        WHERE role <> 'admin'
+          AND ($2::timestamptz IS NULL OR created_at <= $2)
+          AND expires_at IS DISTINCT FROM $1
+        RETURNING id`,
+      [expiresAt, cutoff]
+    );
+
+    const skipped = await pool.query(`SELECT COUNT(*)::int AS n FROM users WHERE role = 'admin'`);
+    console.log(`[admin/expiry] ${mode} → ${rows.length} account(s) by ${req.user?.email}` +
+      (expiresAt ? ` until ${expiresAt.toISOString().slice(0, 10)}` : ''));
+    res.json({
+      ok: true,
+      changed: rows.length,
+      admins_skipped: skipped.rows[0].n,
+      expires_at: expiresAt,
+    });
+  } catch (err) {
+    console.error('[admin/expiry] error:', err);
+    res.status(500).json({ error: 'Could not update account expiry.' });
+  }
+});
+
 app.post('/api/admin/users/:id/reset-password', adminGate, async (req, res) => {
   try {
     const targetId = parseInt(req.params.id, 10);
@@ -4997,7 +5054,7 @@ app.post('/api/redeem-code', redeemLimiter, verifyJwt, requireNotBanned, async (
     // Promo code: lock the row, enforce active/expiry/global cap, then a
     // UNIQUE(code_id,user_id) insert enforces once-per-user.
     const promo = await client.query(
-      `SELECT id, credits, max_redemptions, redeemed_count, active, expires_at
+      `SELECT id, credits, max_redemptions, redeemed_count, active, expires_at, access_days
          FROM promo_codes WHERE code = $1 FOR UPDATE`,
       [code]
     );
@@ -5025,9 +5082,34 @@ app.post('/api/redeem-code', redeemLimiter, verifyJwt, requireNotBanned, async (
     const balance = await grantRedeemedCredits(client, {
       userId: req.user.id, credits, action: 'promo', reason: `promo: ${code}`,
     });
+
+    // ACCESS PERIOD. The code's own expires_at governs when it may be redeemed;
+    // access_days governs how long the person can then USE what it granted.
+    // Without this a "2-week workshop code" handed out credits that never
+    // expired — how 584 of 587 accounts ended up open-ended.
+    //
+    // Extends, never shortens: someone holding a 30-day code who redeems a
+    // 7-day one must not lose three weeks they already have. NULL = no change,
+    // which keeps every existing code behaving exactly as before.
+    let accessUntil = null;
+    if (p.access_days != null && Number(p.access_days) > 0) {
+      const { rows: acc } = await client.query(
+        `UPDATE users
+            SET expires_at = GREATEST(
+                  COALESCE(expires_at, NOW()),
+                  NOW() + ($2 || ' days')::INTERVAL)
+          WHERE id = $1
+          RETURNING expires_at`,
+        [req.user.id, String(Number(p.access_days))]
+      );
+      accessUntil = acc[0]?.expires_at || null;
+    }
+
     await client.query('COMMIT');
-    console.log(`[redeem] promo ${code} → user ${req.user.email} (+${credits})`);
-    return res.json({ kind: 'promo', credits, balance });
+    console.log(
+      `[redeem] promo ${code} → user ${req.user.email} (+${credits})` +
+      (accessUntil ? ` access until ${new Date(accessUntil).toISOString().slice(0, 10)}` : ''));
+    return res.json({ kind: 'promo', credits, balance, access_until: accessUntil });
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
     console.error('[redeem] error:', err);
@@ -5269,10 +5351,21 @@ app.post('/api/admin/promocodes', adminGate, async (req, res) => {
     // keep the table readable; no format is imposed.
     const description = String(req.body?.description || '').trim().slice(0, 500) || null;
 
+    // How many days of ACCESS redeeming this code buys. Distinct from
+    // expires_at above, which is the last day the code may be redeemed.
+    // Blank = open-ended, the historical behaviour.
+    let accessDays = null;
+    if (req.body?.access_days != null && req.body.access_days !== '') {
+      accessDays = parseInt(req.body.access_days, 10);
+      if (!Number.isInteger(accessDays) || accessDays < 1 || accessDays > 3650) {
+        return res.status(400).json({ error: 'Access days must be a whole number between 1 and 3650, or blank for open-ended.' });
+      }
+    }
+
     const { rows } = await pool.query(
-      `INSERT INTO promo_codes (code, credits, max_redemptions, expires_at, created_by, description)
-       VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
-      [code, credits, maxRedemptions, expiresAt, req.user?.email || ADMIN_EMAIL, description]
+      `INSERT INTO promo_codes (code, credits, max_redemptions, expires_at, created_by, description, access_days)
+       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+      [code, credits, maxRedemptions, expiresAt, req.user?.email || ADMIN_EMAIL, description, accessDays]
     );
     res.json({ promo: rows[0] });
   } catch (err) {

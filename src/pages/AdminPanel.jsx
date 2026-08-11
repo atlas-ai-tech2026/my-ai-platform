@@ -8,6 +8,7 @@ import { toast } from 'sonner';
 import { adminApi, ApiError, readCsrfCookie } from '@/lib/adminApi';
 import StatsCards from '@/components/admin/StatsCards';
 import UserTable from '@/components/admin/UserTable';
+import BulkExpiryPanel from '@/components/admin/BulkExpiryPanel';
 import CreditsModal from '@/components/admin/CreditsModal';
 import HistoryModal from '@/components/admin/HistoryModal';
 import LogsTab from '@/components/admin/LogsTab';
@@ -223,6 +224,10 @@ export default function AdminPanel() {
 
         {tab === 'users' && (<>
         <StatsCards stats={stats} />
+
+        {/* Close access for a finished cohort. Deletes nothing; admins are
+            excluded server-side so this cannot lock the owner out. */}
+        <BulkExpiryPanel onDone={reload} onError={handleError} />
 
         {/* Refund audit — cross-references failed videos vs refunds. */}
         <div style={{ marginBottom: 16 }}>

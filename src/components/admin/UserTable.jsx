@@ -24,6 +24,7 @@ export default function UserTable({ users, page, total, limit, onPage, onAction 
               <Th>Role</Th>
               <Th>Package</Th>
               <Th>Status</Th>
+              <Th>Access</Th>
               <Th>Joined</Th>
               <Th align="right">Actions</Th>
             </tr>
@@ -43,6 +44,7 @@ export default function UserTable({ users, page, total, limit, onPage, onAction 
                     ? <span style={{ color: 'var(--crm-red)', fontWeight: 600 }}>BANNED</span>
                     : <span style={{ color: 'var(--crm-green)' }}>active</span>}
                 </Td>
+                <Td><AccessCell expiresAt={u.expires_at} /></Td>
                 <Td>{new Date(u.created_at).toLocaleDateString()}</Td>
                 <Td align="right">
                   <div style={{ display: 'inline-flex', gap: 6 }}>
@@ -116,5 +118,28 @@ function ActionBtn({ children, onClick, disabled, accent }) {
         fontFamily: '"DM Sans", sans-serif',
       }}
     >{children}</button>
+  );
+}
+
+// Whether this account can still sign in, and until when.
+//
+// Before 2026-08-11 the CRM showed nothing about expiry at all, so 584 of 587
+// accounts sat open-ended and nobody could see it. Expiring accounts without
+// showing their state would just move the invisibility somewhere else.
+function AccessCell({ expiresAt }) {
+  if (!expiresAt) return <span style={{ color: 'var(--crm-w30)' }}>open</span>;
+  const when = new Date(expiresAt);
+  const expired = when <= new Date();
+  const days = Math.ceil((when - new Date()) / 86400000);
+  return (
+    <span
+      title={when.toLocaleString()}
+      style={{ color: expired ? 'var(--crm-red)' : 'var(--crm-ink)', fontWeight: expired ? 600 : 400 }}
+    >
+      {expired ? 'EXPIRED' : `${days}d left`}
+      <span style={{ display: 'block', fontSize: 11, color: 'var(--crm-w35)', fontWeight: 400 }}>
+        {when.toLocaleDateString()}
+      </span>
+    </span>
   );
 }

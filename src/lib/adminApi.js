@@ -95,6 +95,12 @@ export const adminApi = {
   setBan:      (id, banned, reason)  => request('POST', `/api/admin/users/${id}/ban`, { banned, reason }),
   resetPassword: (id, newPassword)   => request('POST', `/api/admin/users/${id}/reset-password`, { new_password: newPassword }),
   history:     (id, limit = 10000)   => request('GET', `/api/admin/users/${id}/history?limit=${limit}`),
+  // Close (or reopen) access for a whole cohort. Admin accounts are excluded
+  // server-side, so this can never lock the owner out of the panel.
+  // mode 'set' + expires_at, or mode 'clear'. scope 'existing' spares anyone
+  // who registers after the call.
+  setBulkExpiry: ({ mode, expires_at, scope = 'existing' }) =>
+    request('POST', '/api/admin/users/expiry', { mode, expires_at, scope }),
   auditRefunds: ()                   => request('GET', '/api/admin/audit/refunds'),
   stats:       ()                    => request('GET', '/api/admin/stats'),
 

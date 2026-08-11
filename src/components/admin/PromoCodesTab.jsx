@@ -99,6 +99,7 @@ export default function PromoCodesTab({ onError }) {
   const [credits, setCredits] = useState('');
   const [maxRedemptions, setMaxRedemptions] = useState('');
   const [expiresAt, setExpiresAt] = useState('');
+  const [accessDays, setAccessDays] = useState('');
 
   // Per-row edit + expanded redemption list
   const [editingId, setEditingId] = useState(null);
@@ -130,6 +131,7 @@ export default function PromoCodesTab({ onError }) {
         description: description.trim() || undefined,
         credits: c,
         max_redemptions: maxRedemptions.trim() || undefined,
+        access_days: accessDays.trim() || undefined,
         expires_at: expiresAt || undefined,
       });
       toast.success(`Promo created: ${r.promo.code} (+${r.promo.credits} credits per redemption)`);
@@ -137,7 +139,7 @@ export default function PromoCodesTab({ onError }) {
       load();
     } catch (e) { onError?.(e, 'Promo creation failed'); }
     finally { setCreating(false); }
-  }, [code, description, credits, maxRedemptions, expiresAt, load, onError]);
+  }, [code, description, credits, maxRedemptions, expiresAt, accessDays, load, onError]);
 
   const toggle = useCallback(async (p) => {
     try {
@@ -321,9 +323,14 @@ export default function PromoCodesTab({ onError }) {
               onChange={e => setMaxRedemptions(e.target.value)} style={{ ...inputStyle, width: 200 }} />
           </Field>
           <Field label="Expires"
-            info="The last day the code works. Leave it empty and it never expires. You can change this later from the table below.">
+            info="The last day the code can be REDEEMED. Leave it empty and it never expires. You can change this later from the table below.">
             <input type="date" value={expiresAt} onChange={e => setExpiresAt(e.target.value)}
               style={inputStyle} />
+          </Field>
+          <Field label="Access days"
+            info="How long the customer can USE the account after redeeming — 7, 14, 30. This is different from Expires above, which is the last day the code can be redeemed. Leave it empty for open-ended access (the old behaviour).">
+            <input placeholder="Blank = open-ended" type="number" min="1" max="3650" value={accessDays}
+              onChange={e => setAccessDays(e.target.value)} style={{ ...inputStyle, width: 200 }} />
           </Field>
           <div style={buttonRowOffset}>
             <button onClick={create} disabled={creating} style={primaryBtnStyle}>

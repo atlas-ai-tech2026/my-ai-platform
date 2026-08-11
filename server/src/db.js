@@ -212,6 +212,16 @@ export async function migrate() {
     // ADDITIVE AND OPTIONAL: existing codes get NULL and keep working exactly
     // as before. Nothing about redemption reads this column.
     await client.query(`ALTER TABLE promo_codes ADD COLUMN IF NOT EXISTS description TEXT;`);
+    // How long the ACCESS lasts, not how long the code is redeemable.
+    //
+    // promo_codes.expires_at already existed and controls when a code may be
+    // redeemed. It says nothing about the credits, so a "2-week code" granted
+    // credits that lived forever — the opposite of what a workshop needs, and
+    // the reason 584 of 587 accounts had no expiry at all (2026-08-11).
+    //
+    // NULL = open-ended access, which is the old behaviour and stays the
+    // default. A number sets users.expires_at to redemption + N days.
+    await client.query(`ALTER TABLE promo_codes ADD COLUMN IF NOT EXISTS access_days INTEGER;`);
     // Searching by description across a few hundred codes needs no index, but
     // redemption lookups by code_id do — this is what makes the "who redeemed
     // it" list instant rather than a scan.
