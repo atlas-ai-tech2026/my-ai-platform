@@ -3726,6 +3726,33 @@ app.post('/api/auth/login', loginLimiter, requireAuthInfra, async (req, res) => 
 
 const HANDOFF_TTL_SECONDS = 120;
 
+// ─── WHICH SIGN-IN METHODS ACTUALLY WORK ────────────────────────────────────
+// The login modal used to hard-code `live: true` for Google and Microsoft, so
+// both buttons rendered whether or not the server had the credentials. On a
+// deploy that lands before the env vars do, every customer sees two prominent
+// buttons that bounce them to an error page. Same for password reset: the page
+// exists, but without a mail key a request silently sends nothing.
+//
+// So the UI asks instead of assuming. Booleans only — this is deliberately not
+// a config dump: it says WHETHER a method works, never which variable is
+// missing or what its value is.
+//
+// Public and unauthenticated on purpose: it is needed to render the sign-in
+// screen, which is by definition seen by people who are not signed in.
+app.get('/api/auth/methods', (req, res) => {
+  // Short cache: this only changes when the owner edits env vars (which
+  // restarts the app anyway), and it is hit on every sign-in screen.
+  res.set('Cache-Control', 'public, max-age=300');
+  res.json({
+    google: googleConfigured() && !!googleRedirectUri(),
+    microsoft: microsoftConfigured() && !!microsoftRedirectUri(),
+    // Reset needs BOTH a database to store the token and a mailer to send it.
+    // Either one missing means the customer would get a confirmation and no
+    // email, which is worse than not offering it.
+    password_reset: dbReady() && mailConfigured(),
+  });
+});
+
 app.get('/api/auth/google', authLimiter, (req, res) => {
   if (!googleConfigured()) {
     console.error(`[google] not configured — missing: ${missingGoogleVars().join(', ')}`);

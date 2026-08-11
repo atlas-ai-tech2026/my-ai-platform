@@ -54,24 +54,34 @@ export default function LoginModal({ onClose, onSuccess, initialMode = 'login' }
   const [successMsg, setSuccessMsg] = useState('');
 
   // Apple sign-in removed per product decision (single mobile-keyboard
-  // owner, no Apple Developer account). Google is live; Microsoft is still a
-  // placeholder — it is free to add, but each provider brings its own
-  // account-linking edge cases, so they go in one at a time.
+  // owner, no Apple Developer account).
+  //
+  // Which of these WORK is the server's answer, not a constant here. These
+  // were previously hard-coded `live: true`, so on any deploy that landed
+  // before the OAuth credentials did, every customer saw two buttons that
+  // bounced them to an error page. Default to hiding: a missing button is a
+  // smaller failure than a broken one, and this also covers the request
+  // failing outright.
+  const [methods, setMethods] = useState({ google: false, microsoft: false, password_reset: false });
+  useEffect(() => {
+    let alive = true;
+    fetch('/api/auth/methods')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((m) => { if (alive && m) setMethods(m); })
+      .catch(() => {});   // stay hidden
+    return () => { alive = false; };
+  }, []);
+
   const providers = [
-    { label: 'Continue with Google',    icon: <GoogleIcon />,    provider: 'google',    live: true },
-    { label: 'Continue with Microsoft', icon: <MicrosoftIcon />, provider: 'microsoft', live: true },
-  ];
+    { label: 'Continue with Google',    icon: <GoogleIcon />,    provider: 'google' },
+    { label: 'Continue with Microsoft', icon: <MicrosoftIcon />, provider: 'microsoft' },
+  ].filter((p) => methods[p.provider]);
 
   const handleProviderLogin = (provider) => {
-    const live = providers.find(p => p.provider === provider)?.live;
-    if (live) {
-      // Full-page navigation, not fetch(): this is an OAuth redirect, and the
-      // browser has to actually land on the provider's own domain so the person
-      // can see the address bar they are typing their password into.
-      window.location.assign(`/api/auth/${provider}`);
-      return;
-    }
-    setErrorMsg(`${provider[0].toUpperCase() + provider.slice(1)} sign-in is coming soon.`);
+    // Full-page navigation, not fetch(): this is an OAuth redirect, and the
+    // browser has to actually land on the provider's own domain so the person
+    // can see the address bar they are typing their password into.
+    window.location.assign(`/api/auth/${provider}`);
   };
 
   // Show the email form. The previous version called base44.auth.redirectToLogin
@@ -218,6 +228,22 @@ export default function LoginModal({ onClose, onSuccess, initialMode = 'login' }
                       {showPass ? <EyeOff size={16} /> : <Eye size={16} />}
                     </button>
                   </div>
+                  {/* The reset page existed with nothing linking to it, so a
+                      customer who forgot their password had to guess the URL.
+                      Only shown when the server can actually send the mail —
+                      and never on signup, where there is nothing to reset. */}
+                  {!isSignup && methods.password_reset && (
+                    <div style={{ textAlign: 'right', marginTop: 8 }}>
+                      <a
+                        href="/reset-password"
+                        style={{ fontSize: 12, color: 'rgba(255,255,255,0.45)', textDecoration: 'none', fontFamily: font }}
+                        onMouseEnter={e => e.currentTarget.style.color = 'rgba(255,255,255,0.8)'}
+                        onMouseLeave={e => e.currentTarget.style.color = 'rgba(255,255,255,0.45)'}
+                      >
+                        Forgot your password?
+                      </a>
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -276,12 +302,16 @@ export default function LoginModal({ onClose, onSuccess, initialMode = 'login' }
                 </button>
               ))}
 
-              {/* Divider */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '4px 0' }}>
-                <div style={{ flex: 1, height: 1, background: 'rgba(255,255,255,0.08)' }} />
-                <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.25)' }}>or</span>
-                <div style={{ flex: 1, height: 1, background: 'rgba(255,255,255,0.08)' }} />
-              </div>
+              {/* Divider — only when there is something above it to divide
+                  from. With no provider configured it rendered a dangling
+                  "or" above a single button. */}
+              {providers.length > 0 && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '4px 0' }}>
+                  <div style={{ flex: 1, height: 1, background: 'rgba(255,255,255,0.08)' }} />
+                  <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.25)' }}>or</span>
+                  <div style={{ flex: 1, height: 1, background: 'rgba(255,255,255,0.08)' }} />
+                </div>
+              )}
 
               {/* Email option */}
               <button
