@@ -1446,7 +1446,7 @@ app.post('/api/generate', verifyJwt, requireNotBanned, requireModelProviderKey, 
           prompt, frames: readyUrls.slice(0, 2), duration, aspectRatio: ratio,
         });
         const taskId = await kieCreateTask(family, body, { tag: 'KIE-VIDEO' });
-        await trackVideoCharge(taskId, { userId: req.user.id, kind: chargedKind, cost: chargedCost });
+        await trackVideoCharge(taskId, { userId: req.user.id, kind: chargedKind, cost: chargedCost, modelId: modelIdTag });
         return res.json({ success: true, type: 'video', job_id: taskId, model_id: modelIdTag });
       }
 
@@ -1472,7 +1472,7 @@ app.post('/api/generate', verifyJwt, requireNotBanned, requireModelProviderKey, 
       };
 
       const submitted = await fal.queue.submit(modelId, { input });
-      await trackVideoCharge(submitted.request_id, { userId: req.user.id, kind: chargedKind, cost: chargedCost });
+      await trackVideoCharge(submitted.request_id, { userId: req.user.id, kind: chargedKind, cost: chargedCost, modelId: modelId });
       return res.json({ success: true, type: 'video', job_id: submitted.request_id, model_id: modelId });
     }
 
@@ -1673,7 +1673,7 @@ app.post('/api/generate-video', verifyJwt, requireNotBanned, requireModelProvide
       console.log('[KIE-VIDEO] payload:', JSON.stringify(body));
       const taskId = await kieCreateTask(family, body, { tag: 'KIE-VIDEO' });
       console.log(`[KIE-VIDEO] ✅ Submitted ${model} taskId: ${taskId}`);
-      await trackVideoCharge(taskId, { userId: req.user.id, kind: chargedKind, cost: chargedCost });
+      await trackVideoCharge(taskId, { userId: req.user.id, kind: chargedKind, cost: chargedCost, modelId: modelIdTag });
       return res.json({ success: true, job_id: taskId, model_id: modelIdTag, model });
     } catch (error) {
       console.error('[KIE-VIDEO] Error:', error.message);
@@ -1743,7 +1743,7 @@ app.post('/api/generate-video', verifyJwt, requireNotBanned, requireModelProvide
     const submitted = await fal.queue.submit(falModel, { input });
     const requestId = submitted.request_id;
     console.log(`[VIDEO] ✅ Submitted, request_id: ${requestId}`);
-    await trackVideoCharge(requestId, { userId: req.user.id, kind: chargedKind, cost: chargedCost });
+    await trackVideoCharge(requestId, { userId: req.user.id, kind: chargedKind, cost: chargedCost, modelId: falModel });
 
     return res.json({
       success: true,
@@ -1842,7 +1842,7 @@ app.post('/api/edit-video-omni', verifyJwt, requireNotBanned, requireFalKey, asy
     const submitted = await fal.queue.submit(falModel, { input });
     const requestId = submitted.request_id;
     console.log(`[VIDEO-EDIT-OMNI] ✅ Submitted, request_id: ${requestId}`);
-    await trackVideoCharge(requestId, { userId: req.user.id, kind: chargedKind, cost: chargedCost });
+    await trackVideoCharge(requestId, { userId: req.user.id, kind: chargedKind, cost: chargedCost, modelId: falModel });
 
     return res.json({ success: true, job_id: requestId, model_id: falModel, model });
   } catch (error) {
@@ -1935,7 +1935,7 @@ app.post('/api/motion-control', verifyJwt, requireNotBanned, requireFalKey, asyn
     const submitted = await fal.queue.submit(falModel, { input });
     const requestId = submitted.request_id;
     console.log(`[MOTION-CONTROL] ✅ Submitted, request_id: ${requestId}`);
-    await trackVideoCharge(requestId, { userId: req.user.id, kind: chargedKind, cost: chargedCost });
+    await trackVideoCharge(requestId, { userId: req.user.id, kind: chargedKind, cost: chargedCost, modelId: falModel });
 
     return res.json({ success: true, job_id: requestId, model_id: falModel, model });
   } catch (error) {
@@ -2352,7 +2352,7 @@ app.post('/api/generate-video-ref', verifyJwt, requireNotBanned, requireModelPro
       console.log(`[SEEDANCE] [KIE] Variant: ${modelLabel} →`, seedanceMapping.kieModel);
       const taskId = await kieCreateTask('jobs', body, { tag: 'KIE-SEEDANCE' });
       console.log(`[SEEDANCE] [KIE] ✅ Submitted taskId: ${taskId}`);
-      await trackVideoCharge(taskId, { userId: req.user.id, kind: chargedKind, cost: chargedCost });
+      await trackVideoCharge(taskId, { userId: req.user.id, kind: chargedKind, cost: chargedCost, modelId: 'kie:jobs:' + seedanceMapping.kieModel });
       return res.json({
         success: true,
         job_id: taskId,
@@ -2406,7 +2406,7 @@ app.post('/api/generate-video-ref', verifyJwt, requireNotBanned, requireModelPro
   try {
     const submitted = await fal.queue.submit(falModel, { input });
     console.log(`[SEEDANCE] ✅ Submitted, request_id: ${submitted.request_id}`);
-    await trackVideoCharge(submitted.request_id, { userId: req.user.id, kind: chargedKind, cost: chargedCost });
+    await trackVideoCharge(submitted.request_id, { userId: req.user.id, kind: chargedKind, cost: chargedCost, modelId: falModel });
 
     return res.json({
       success: true,
