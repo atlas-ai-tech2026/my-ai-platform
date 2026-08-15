@@ -18,6 +18,7 @@
 import { IMAGE_CREDITS, VIDEO_CREDITS, VOICE_CREDITS_PER_1K } from './pricing.js';
 import { LIVE_ID_TO_COSTING_MODEL } from './costing-coverage.js';
 import { fetchFalCatalog, newModelFamilies } from './fal-catalog.js';
+import { proposeChange, describe as describeChange } from './price-watch.js';
 
 /** A readable name for a model id we only know by its slug. */
 function titleise(id) {
@@ -196,6 +197,60 @@ export function alreadySold(family, known) {
  * dismissal is never undone), and it never deletes: a model vanishing from one
  * page of the API should not silently erase the owner's queue.
  */
+/**
+ * Record what a supplier is charging today and notice when it moves.
+ *
+ * The sweep below is insert-only by design (a dismissal must never be undone),
+ * which meant an EXISTING model's price was written once and never looked at
+ * again. A supplier could double a price and nothing would say so — the margin
+ * would just erode. This closes that without changing the insert-only rule:
+ * the catalogue row keeps its first-seen price, while every observation goes to
+ * history and any material move is queued for the owner.
+ *
+ * Nothing here applies a price. See price-watch.js for why that gate exists.
+ */
+async function recordObservedPrice(pool, { provider, family, usd, unit }) {
+  await pool.query(
+    `INSERT INTO pricing_supplier_history (provider, family, price_usd, price_unit)
+     VALUES ($1,$2,$3,$4)`, [provider, family, usd ?? null, unit ?? null]);
+
+  const { rows: prev } = await pool.query(
+    `SELECT price_usd FROM pricing_supplier_history
+      WHERE provider = $1 AND family = $2 AND price_usd IS NOT NULL
+      ORDER BY observed_at DESC OFFSET 1 LIMIT 1`, [provider, family]);
+  const oldUsd = prev[0]?.price_usd;
+  if (oldUsd == null || usd == null) return null;
+
+  // The costing row this family maps to, if we sell it — that is what carries
+  // the OTHER supplier's price, and the margin rule is MAX(fal, kie).
+  const { rows: model } = await pool.query(
+    `SELECT id, kie_cost, fal_cost, credits_override
+       FROM pricing_models
+      WHERE lower(model_name) = lower($1) LIMIT 1`, [family]);
+  const m = model[0];
+  const other = m ? Number(provider === 'fal' ? m.kie_cost : m.fal_cost) : null;
+  const basisBefore = Math.max(Number(oldUsd), Number.isFinite(other) ? other : 0);
+  const basisAfter  = Math.max(Number(usd),    Number.isFinite(other) ? other : 0);
+
+  const change = proposeChange({
+    provider, family, modelId: m?.id ?? null,
+    oldUsd, newUsd: usd, basisBefore, basisAfter,
+    currentCredits: m?.credits_override ?? null,
+  });
+  if (!change) return null;
+
+  await pool.query(
+    `INSERT INTO pricing_change_queue
+       (provider, family, model_id, old_price_usd, new_price_usd, pct_change,
+        old_credits, new_credits, status)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+    [change.provider, change.family, change.model_id, change.old_price_usd,
+     change.new_price_usd, change.pct_change, change.old_credits,
+     change.new_credits, change.status]);
+  console.log(`[price-watch] ${describeChange(change)} [${change.status}]`);
+  return change;
+}
+
 export async function syncProviderCatalog(pool, {
   fetchCatalog, since = null, provider = 'fal',
 } = {}) {
@@ -207,6 +262,7 @@ export async function syncProviderCatalog(pool, {
     .filter((f) => !alreadySold(f.family, known));
 
   let added = 0;
+  const changes = [];
   for (const f of families) {
     const res = await pool.query(
       `INSERT INTO pricing_catalog_models
@@ -218,8 +274,21 @@ export async function syncProviderCatalog(pool, {
        f.price ? f.price.usd : null, f.price ? f.price.unit : null, f.first_seen]
     );
     if (res.rowCount) added++;
+    // Observe the price whether or not the row was new — this is the half that
+    // was missing, and it is why an existing model's price never moved.
+    if (f.price) {
+      try {
+        const c = await recordObservedPrice(pool, {
+          provider, family: f.family, usd: f.price.usd, unit: f.price.unit });
+        if (c) changes.push(c);
+      } catch (e) {
+        // A watch failure must never abort the sweep — discovering new models
+        // is the more important half.
+        console.error(`[price-watch] ${f.family}: ${e.message}`);
+      }
+    }
   }
-  return { found: families.length, added };
+  return { found: families.length, added, changes };
 }
 
 /** Daily check. Adds anything new and logs plainly; the CRM shows the result. */

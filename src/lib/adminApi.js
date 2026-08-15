@@ -150,6 +150,12 @@ export const adminApi = {
     request('POST', `/api/costing/catalog/${id}/dismiss`, { dismissed }),
   costingSaveDraft:(plans)       => request('PUT',    '/api/costing/plans/draft', { plans }),
   costingApprove:  ()            => request('POST',   '/api/costing/plans/approve'),
+  // Run the supplier sweep now rather than waiting for midnight.
+  costingSync:     ()            => request('POST',   '/api/costing/sync'),
+  // Supplier price moves waiting on the owner. Nothing here has changed a
+  // customer's price — approving is what does that.
+  priceChanges:    (status = 'open') => request('GET', `/api/costing/price-changes?status=${status}`),
+  resolvePriceChange: (id, action)   => request('POST', `/api/costing/price-changes/${id}`, { action }),
   costingDiscard:  ()            => request('DELETE', '/api/costing/plans/draft'),
 
   // ─── Offers (2026-08-07) ──────────────────────────────────────────

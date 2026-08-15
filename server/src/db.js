@@ -350,6 +350,63 @@ export async function migrate() {
         ON pricing_catalog_models (provider, family);
     `);
 
+    // ─── SUPPLIER PRICE CHANGES (2026-08-16) ──────────────────────────
+    // Until now the catalogue sweep was insert-only: it discovered NEW models
+    // and never noticed an existing one changing price. A supplier raising a
+    // price quietly eats the margin, and nothing anywhere would have said so.
+    //
+    // Every observed price lands here, so a change is provable after the fact
+    // rather than being a number that silently became a different number.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS pricing_supplier_history (
+        id          BIGSERIAL     PRIMARY KEY,
+        provider    VARCHAR(10)   NOT NULL,
+        family      VARCHAR(120)  NOT NULL,
+        price_usd   NUMERIC(12,6),
+        price_unit  VARCHAR(12),
+        observed_at TIMESTAMPTZ   NOT NULL DEFAULT NOW()
+      );
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS pricing_supplier_history_idx
+      ON pricing_supplier_history (provider, family, observed_at DESC);`);
+
+    // The review queue. A detected rise NEVER changes what a customer pays on
+    // its own — it is computed, parked here, and waits for the owner.
+    //
+    // WHY A GATE AT ALL: fal states prices in prose mixing per-second,
+    // per-megapixel and token billing, and it has produced confidently wrong
+    // numbers before. An unattended 40%-margin rule would happily multiply a
+    // customer's price by ten off one bad parse, overnight, with nobody
+    // watching. One click is a small price for that not happening.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS pricing_change_queue (
+        id             BIGSERIAL     PRIMARY KEY,
+        provider       VARCHAR(10)   NOT NULL,
+        family         VARCHAR(120)  NOT NULL,
+        model_id       INT           REFERENCES pricing_models(id) ON DELETE CASCADE,
+        old_price_usd  NUMERIC(12,6),
+        new_price_usd  NUMERIC(12,6),
+        pct_change     NUMERIC(8,2),
+        -- What the 40% rule says the sale price should become. Computed at
+        -- detection so the owner reviews a decision, not a maths problem.
+        old_credits    NUMERIC(8,1),
+        new_credits    NUMERIC(8,1),
+        -- 'pending' | 'approved' | 'skipped' | 'needs_check'
+        -- needs_check = the jump is too large to trust; almost always a parse
+        -- error rather than a real price move.
+        status         VARCHAR(16)   NOT NULL DEFAULT 'pending',
+        detected_at    TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
+        resolved_at    TIMESTAMPTZ,
+        resolved_by    VARCHAR(120)
+      );
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS pricing_change_queue_open_idx
+      ON pricing_change_queue (status, detected_at DESC) WHERE status IN ('pending','needs_check');`);
+
+    // When the catalogue sweep last completed, so the screen can show it and
+    // a stale sync is visible instead of being assumed fresh.
+    await client.query(`ALTER TABLE pricing_settings ADD COLUMN IF NOT EXISTS catalog_synced_at TIMESTAMPTZ;`);
+
     // ─── OFFERS (2026-08-07) ──────────────────────────────────────
     // Promotions with live margin impact from the Costing engine.
     //

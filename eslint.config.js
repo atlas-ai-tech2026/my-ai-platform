@@ -5,6 +5,26 @@ import pluginReactHooks from "eslint-plugin-react-hooks";
 import pluginUnusedImports from "eslint-plugin-unused-imports";
 
 export default [
+  // ─── server ────────────────────────────────────────────────────────────
+  // server/ was linted by NOTHING until 2026-08-16. A missing import in
+  // costing-sync.js passed `node --check` (syntax is fine) and passed the test
+  // suite (the function was not called), and would have thrown ReferenceError
+  // the first time the nightly sync ran — at midnight, unattended.
+  //
+  // This is the third time an unlinted server file has hidden a real fault:
+  // the db.js template literal that crashed production on boot, and the
+  // undefined variables in the CRM before no-undef was switched on. The rule
+  // that matters here is no-undef; the rest is noise on a 5,900-line file.
+  {
+    files: ["server/src/**/*.js"],
+    languageOptions: {
+      globals: globals.node,
+      parserOptions: { ecmaVersion: 2022, sourceType: "module" },
+    },
+    rules: {
+      "no-undef": "error",
+    },
+  },
   {
     files: [
       "src/components/**/*.{js,mjs,cjs,jsx}",

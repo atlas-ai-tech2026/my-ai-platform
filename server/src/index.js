@@ -4402,15 +4402,143 @@ registerNotificationsRoutes(app, {
   userGate: [verifyJwt, requireNotBanned],
 });
 
+// ─── COSTING: MANUAL REFRESH + THE PRICE REVIEW QUEUE ────────────────────────
+// The sweep runs nightly, but "wait until midnight" is not an answer when the
+// owner wants to know NOW — and until this existed there was no way to make it
+// run at all.
+app.post('/api/costing/sync', adminGate, async (req, res) => {
+  try {
+    const out = await runDailyModelSync(pool, dbReady);
+    await pool.query(`UPDATE pricing_settings SET catalog_synced_at = NOW()`);
+    console.log(`[costing-sync] manual run by ${req.user?.email}`);
+    res.json({
+      ok: true,
+      missing_costs: out.added || [],
+      catalog: out.catalog || null,
+      catalog_error: out.catalogError || null,
+      synced_at: new Date().toISOString(),
+    });
+  } catch (err) {
+    console.error('[costing/sync] error:', err);
+    res.status(500).json({ error: 'Sync failed.' });
+  }
+});
+
+// What the supplier sweep wants the owner to look at.
+app.get('/api/costing/price-changes', adminGate, async (req, res) => {
+  try {
+    const status = String(req.query.status || 'open');
+    const filter = status === 'open'
+      ? `status IN ('pending','needs_check')`
+      : `status = $1`;
+    const params = status === 'open' ? [] : [status];
+    const [changes, settings] = await Promise.all([
+      pool.query(
+        `SELECT q.*, m.model_name, m.variant, m.resolution
+           FROM pricing_change_queue q
+           LEFT JOIN pricing_models m ON m.id = q.model_id
+          WHERE ${filter}
+          ORDER BY q.detected_at DESC LIMIT 200`, params),
+      pool.query(`SELECT catalog_synced_at FROM pricing_settings LIMIT 1`),
+    ]);
+    res.json({
+      changes: changes.rows,
+      synced_at: settings.rows[0]?.catalog_synced_at || null,
+    });
+  } catch (err) {
+    console.error('[costing/price-changes] error:', err);
+    res.status(500).json({ error: 'Could not load price changes.' });
+  }
+});
+
+// Approve or skip. THIS is the gate — a supplier price never reaches a
+// customer without passing through here, on purpose (see price-watch.js).
+//
+// Approving writes the new supplier cost onto the costing row and sets the
+// credit override. It still does NOT charge anybody: pricing.js remains the
+// charging authority (C1), and carrying a costing number into it stays a
+// separate, deliberate act.
+app.post('/api/costing/price-changes/:id', adminGate, async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const id = parseInt(req.params.id, 10);
+    const action = String(req.body?.action || '');
+    if (!['approve', 'skip'].includes(action)) {
+      return res.status(400).json({ error: "action must be 'approve' or 'skip'." });
+    }
+
+    await client.query('BEGIN');
+    // Claim it in the same statement that reads it, so two admins clicking at
+    // once cannot both apply the same change.
+    const { rows } = await client.query(
+      `UPDATE pricing_change_queue
+          SET status = $2, resolved_at = NOW(), resolved_by = $3
+        WHERE id = $1 AND status IN ('pending','needs_check')
+        RETURNING *`,
+      [id, action === 'approve' ? 'approved' : 'skipped', req.user?.email || 'admin']);
+    if (!rows.length) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'Already handled.' });
+    }
+    const c = rows[0];
+
+    if (action === 'approve' && c.model_id) {
+      const col = c.provider === 'fal' ? 'fal_cost' : 'kie_cost';
+      await client.query(
+        `UPDATE pricing_models
+            SET ${col} = $2, credits_override = $3, updated_at = NOW(), updated_by = $4
+          WHERE id = $1`,
+        [c.model_id, c.new_price_usd, c.new_credits, req.user?.email || 'admin']);
+      await client.query(
+        `INSERT INTO pricing_audit_log (actor, action, detail)
+         VALUES ($1, 'price-change-approved', $2)`,
+        [req.user?.email || 'admin',
+         `${c.family}: ${c.old_price_usd} → ${c.new_price_usd} (${c.pct_change}%), credits ${c.old_credits} → ${c.new_credits}`]);
+    }
+    await client.query('COMMIT');
+    console.log(`[price-watch] ${action} #${id} ${c.family} by ${req.user?.email}`);
+    res.json({ ok: true, change: c });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('[costing/price-changes/:id] error:', err);
+    res.status(500).json({ error: 'Could not update the change.' });
+  } finally {
+    client.release();
+  }
+});
+
 // Daily check for models that ship into production without a costing row. A
 // model nobody has costed is one nobody is checking the margin on, and that
 // failure is silent — so it runs on a timer rather than relying on memory.
 // Insert-only: it can never overwrite a cost the owner has entered.
-const MODEL_SYNC_INTERVAL_MS = 24 * 60 * 60 * 1000;
-setTimeout(() => {
-  runDailyModelSync(pool, dbReady);
-  setInterval(() => runDailyModelSync(pool, dbReady), MODEL_SYNC_INTERVAL_MS);
-}, 90_000).unref?.();
+//
+// SCHEDULED ON THE CLOCK, NOT ON BOOT. It used to be `setTimeout(90s)` then
+// `setInterval(24h)`, which meant it ran 24 hours after the last RESTART — and
+// every deploy reset the timer. On a day with fifteen deploys it could complete
+// no cycle at all, which is exactly why the New Models queue looked stale.
+// Anchoring to 00:00 UTC makes the schedule survive deploys.
+const SYNC_HOUR_UTC = 0;
+
+function msUntilNextRun() {
+  const now = new Date();
+  const next = new Date(now);
+  next.setUTCHours(SYNC_HOUR_UTC, 0, 0, 0);
+  if (next <= now) next.setUTCDate(next.getUTCDate() + 1);
+  return next - now;
+}
+
+function scheduleModelSync() {
+  const wait = msUntilNextRun();
+  console.log(`[costing-sync] next run in ${Math.round(wait / 3600000)}h (daily at ${SYNC_HOUR_UTC}:00 UTC)`);
+  setTimeout(() => {
+    runDailyModelSync(pool, dbReady).catch((e) =>
+      console.error('[costing-sync] scheduled run failed:', e.message));
+    // Re-arm from the clock each time rather than a fixed interval, so drift
+    // and DST can never walk the run time away from midnight.
+    scheduleModelSync();
+  }, wait).unref?.();
+}
+scheduleModelSync();
 
 // ─── ADMIN: LIST USERS (paginated) ──────────────────────────────────
 app.get('/api/admin/users', adminGate, async (req, res) => {

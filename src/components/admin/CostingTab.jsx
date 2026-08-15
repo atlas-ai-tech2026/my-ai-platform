@@ -14,6 +14,7 @@
 // each write, so this component renders rather than calculates. That is why the
 // numbers here can never disagree with the backend.
 
+import PriceChangesPanel from './PriceChangesPanel';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { adminApi } from '@/lib/adminApi';
@@ -226,7 +227,8 @@ export default function CostingTab({ onError }) {
 
       {tab === 'new' && (
         <NewModels rows={state.catalog || []} busy={busy}
-          onDismiss={dismissCatalog} settings={S} />
+          onDismiss={dismissCatalog} settings={S}
+          onError={onError} onRefresh={load} />
       )}
 
       {tab === 'coverage' && <Coverage report={state.coverage} />}
@@ -492,7 +494,7 @@ const VIOLET = 'var(--crm-violet)';
 const VIOLET_BG = 'var(--crm-violet-bg)';
 const VIOLET_LINE = 'var(--crm-violet-br)';
 
-function NewModels({ rows, busy, onDismiss, settings }) {
+function NewModels({ rows, busy, onDismiss, settings, onError, onRefresh }) {
   const [showDismissed, setShowDismissed] = useState(false);
   const priced = rows.filter((r) => r.price_usd != null);
 
@@ -509,6 +511,11 @@ function NewModels({ rows, busy, onDismiss, settings }) {
 
   return (
     <div>
+      {/* Supplier price moves + the manual sweep. Sits above the discovery
+          list because "did a price change?" is the more urgent question — a
+          rise erodes margin on models already being sold. */}
+      <PriceChangesPanel onError={onError} onApplied={onRefresh} />
+
       <div style={{
         padding: '10px 14px', marginBottom: 14, borderRadius: 10, fontSize: 13,
         background: VIOLET_BG, border: `1px solid ${VIOLET_LINE}`, color: 'var(--crm-w85)',
