@@ -14,7 +14,12 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { adminApi } from '@/lib/adminApi';
 
-export default function PriceChangesPanel({ onError, onApplied }) {
+// `scope` only changes the wording. The sweep is one job covering both
+// providers and both questions — "what is new" and "what changed price" — so
+// splitting it into two buttons would mean two network calls doing identical
+// work and two "last checked" times that could disagree.
+export default function PriceChangesPanel({ onError, onApplied, scope = 'models' }) {
+  const onModels = scope === 'models';
   const [data, setData] = useState(null);
   const [busy, setBusy] = useState(null);      // id being resolved
   const [syncing, setSyncing] = useState(false);
@@ -61,7 +66,9 @@ export default function PriceChangesPanel({ onError, onApplied }) {
   return (
     <div style={wrap}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
-        <div style={{ fontWeight: 700, color: 'var(--crm-ink)', fontSize: 14 }}>Supplier price changes</div>
+        <div style={{ fontWeight: 700, color: 'var(--crm-ink)', fontSize: 14 }}>
+          {onModels ? 'Supplier price changes' : 'Provider catalogue'}
+        </div>
         <button onClick={sync} disabled={syncing} style={btn}>
           {syncing ? 'Checking…' : '⟳ Check now'}
         </button>
@@ -73,21 +80,38 @@ export default function PriceChangesPanel({ onError, onApplied }) {
       </div>
 
       <div style={{ fontSize: 12, color: 'var(--crm-w55)', lineHeight: 1.6, marginBottom: 12 }}>
-        Checked nightly at <b>00:00 UTC</b>. A supplier <b>rise</b> is priced back to the 40% margin
-        and waits here; a <b>fall</b> is recorded but never lowers what you charge.
-        Approving updates the costing row — it does not change what customers are charged until
-        that number is carried into pricing.
+        {onModels ? (
+          <>
+            Did a supplier put its price up on a model <b>you already sell</b>? Checked nightly at
+            <b> 00:00 UTC</b>, and whenever you press Check now. A <b>rise</b> is priced back to the
+            40% margin and waits below for your approval; a <b>fall</b> is recorded but never lowers
+            what you charge. Approving updates the costing row — it does not change what customers
+            pay until that number is carried into pricing.
+            <br />
+            <span style={{ color: 'var(--crm-w45)' }}>
+              A change needs two readings to exist: the first check records today's prices, and
+              movement shows from the next one. fal publishes a price for most models; kie for only
+              9 of 98 — the rest read “no published price”, never as free.
+            </span>
+          </>
+        ) : (
+          <>
+            The same nightly sweep that finds these models also watches prices — price movement on
+            models you <b>sell</b> is reviewed on the <b>Models</b> tab. Checked at <b>00:00 UTC</b>,
+            or press Check now.
+          </>
+        )}
       </div>
 
       {data === null && <div style={{ color: 'var(--crm-w50)' }}>Loading…</div>}
 
-      {data && !changes.length && (
+      {data && !changes.length && onModels && (
         <div style={{ color: 'var(--crm-w45)', fontSize: 13 }}>
           No supplier price changes waiting. ✅
         </div>
       )}
 
-      {suspect.length > 0 && (
+      {onModels && suspect.length > 0 && (
         <div style={{ ...banner, borderColor: 'var(--crm-amber-br)', background: 'var(--crm-amber-bg)', color: 'var(--crm-amber)' }}>
           ⚠️ {suspect.length} change(s) are too large to trust automatically (over 50%). A jump that
           size is usually the provider stating a different unit, not a real price move —
@@ -95,7 +119,7 @@ export default function PriceChangesPanel({ onError, onApplied }) {
         </div>
       )}
 
-      {[...suspect, ...pending].map((c) => (
+      {onModels && [...suspect, ...pending].map((c) => (
         <div key={c.id} style={row}>
           <div style={{ flex: 1, minWidth: 240 }}>
             <div style={{ color: 'var(--crm-ink)', fontWeight: 600 }}>
@@ -131,7 +155,7 @@ export default function PriceChangesPanel({ onError, onApplied }) {
         </div>
       ))}
 
-      {pending.length > 1 && (
+      {onModels && pending.length > 1 && (
         <div style={{ marginTop: 10 }}>
           <button
             style={approveBtn}

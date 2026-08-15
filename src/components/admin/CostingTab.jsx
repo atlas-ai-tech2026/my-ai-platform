@@ -211,7 +211,14 @@ export default function CostingTab({ onError }) {
       </div>
 
       {tab === 'models' && (
-        <ModelsTable state={state} busy={busy} onSave={saveModel} />
+        <>
+          {/* Supplier cost movement on the models you SELL. This lived under
+              New Models, which was wrong: New Models is about things you do
+              NOT sell, while a price rise threatens the margin on what
+              customers are using right now. */}
+          <PriceChangesPanel onError={onError} onApplied={load} scope="models" />
+          <ModelsTable state={state} busy={busy} onSave={saveModel} />
+        </>
       )}
 
       {tab === 'plans' && (
@@ -511,10 +518,9 @@ function NewModels({ rows, busy, onDismiss, settings, onError, onRefresh }) {
 
   return (
     <div>
-      {/* Supplier price moves + the manual sweep. Sits above the discovery
-          list because "did a price change?" is the more urgent question — a
-          rise erodes margin on models already being sold. */}
-      <PriceChangesPanel onError={onError} onApplied={onRefresh} />
+      {/* Discovery only. Price review lives on the Models tab, with the
+          models it actually affects. */}
+      <PriceChangesPanel onError={onError} onApplied={onRefresh} scope="discovery" />
 
       <div style={{
         padding: '10px 14px', marginBottom: 14, borderRadius: 10, fontSize: 13,

@@ -8,6 +8,8 @@
 // override markers, the draft → approve gate, and the coverage gap being
 // visible rather than hidden.
 
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -346,5 +348,24 @@ describe('New Models', () => {
     await waitFor(() => expect(api.costingState).toHaveBeenCalled());
     await user.click(await screen.findByRole('button', { name: /New Models/i }));
     expect(await screen.findByText(/Nothing new/i)).toBeInTheDocument();
+  });
+});
+
+// ─── where the price review lives (2026-08-16) ───────────────────────────────
+// The owner looked for supplier price movement under New Models, found only a
+// discovery sweep, and concluded the feature was broken. It was in the wrong
+// tab. New Models is about models you do NOT sell; a price rise threatens the
+// margin on the ones customers are using right now.
+describe('supplier price review sits with the models it affects', () => {
+  const src = readFileSync(resolve(process.cwd(), 'src/components/admin/CostingTab.jsx'), 'utf8');
+
+  it('renders the price panel on the Models tab', () => {
+    const models = src.slice(src.indexOf("{tab === 'models' &&"), src.indexOf("{tab === 'plans' &&"));
+    expect(models).toContain('PriceChangesPanel');
+    expect(models).toMatch(/scope="models"/);
+  });
+
+  it('leaves New Models as discovery only', () => {
+    expect(src).toMatch(/scope="discovery"/);
   });
 });
