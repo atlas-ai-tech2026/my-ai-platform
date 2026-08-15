@@ -103,9 +103,24 @@ export default function ProviderDashboard({ provider = 'kie', onClose, onError }
 
             {mode === 'spend' && (
               <div style={note}>
-                Estimated at ${data.usd_rate}/credit — <b>not the billed figure</b>. Check the
-                real total on {provider === 'kie' ? 'kie.ai' : 'fal.ai'}; the two should be close,
-                and if they are not the rate needs correcting here.
+                {data.calibration ? (
+                  <>
+                    ${Number(data.usd_rate).toFixed(6)}/credit, <b>calibrated against the real
+                    invoice</b> — {data.calibration.window} ({data.calibration.measured_on}), where
+                    our ${data.calibration.our_estimate_usd.toLocaleString()} estimate met a billed
+                    ${data.calibration.billed_usd.toLocaleString()} (×{data.calibration.factor}).
+                    List rate is ${data.list_rate}/credit; our per-model costs run high, so charges
+                    stay deliberately conservative and real margins are better than the Costing tab
+                    shows. <b>Re-measure on the next invoice</b> — one window, mostly Kling 3.0, so
+                    this drifts if kie.ai discounts by volume.
+                  </>
+                ) : (
+                  <>
+                    Estimated at ${data.usd_rate}/credit — <b>not the billed figure</b>. Check the
+                    real total on {provider === 'kie' ? 'kie.ai' : 'fal.ai'}; if they differ, the
+                    rate needs calibrating.
+                  </>
+                )}
               </div>
             )}
 

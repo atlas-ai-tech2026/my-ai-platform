@@ -16,6 +16,42 @@
 
 export const KIE_USD_PER_CREDIT = 0.005;
 
+// ─── CALIBRATION AGAINST THE REAL INVOICE ────────────────────────────────────
+// DISPLAY ONLY. This must never touch usdToCredits() or the costing engine.
+//
+// KIE_USD_PER_CREDIT above is used in BOTH directions — credits are derived
+// from our per-model USD table on the way in, and multiplied back out on the
+// way to a screen — so it cancels itself and cannot correct a reporting error.
+// Changing it would appear to fix rows already stored and leave every future
+// row exactly as wrong.
+//
+// The real gap is that our per-model KIE prices are high. Measured 2026-08-15
+// against kie.ai's own dashboard for 2–15 Aug 2026:
+//
+//     our 361,087.30 credits × $0.005 = $1,805.44
+//     kie.ai actually billed          = $1,559.068
+//     ratio                           = 0.863541  (≈ $0.004318/credit)
+//
+// Applied only where we REPORT what a supplier cost us. The recorded credits,
+// the customer's charge, and the ≥40% margin rule are all untouched — pricing
+// stays deliberately conservative, so real margins run BETTER than the CRM
+// shows, which is the safe direction to be wrong in.
+//
+// ⚠️ ONE INVOICE, ONE WINDOW, dominated by Kling 3.0. If kie.ai gives volume
+// discounts this drifts with the model mix. Re-measure on the next invoice and
+// update the three numbers below together — never the ratio alone, or the
+// provenance stops meaning anything.
+export const KIE_CALIBRATION = {
+  factor: 0.863541,
+  measured_on: '2026-08-15',
+  window: '2026-08-02..2026-08-15',
+  our_estimate_usd: 1805.44,
+  billed_usd: 1559.068,
+};
+
+/** What a recorded KIE credit really costs, per the last invoice. */
+export const kieBilledUsdPerCredit = () => KIE_USD_PER_CREDIT * KIE_CALIBRATION.factor;
+
 // Keyed by the app's model label (what charge notes carry, e.g.
 // "video: Kling 3.0"). Three unit shapes:
 //   { perImage: { '1K': usd, '2K': usd, '4K': usd } }         → images

@@ -15,7 +15,8 @@ import jwt from 'jsonwebtoken';
 import { pool, isReady as dbReady, migrate, ADMIN_EMAIL } from './db.js';
 import { persistOrFallback, persistBuffer, isReady as spacesReady, uploadPrivate, listKeys, deleteKey } from './storage.js';
 import { configureKie, kieCreateTask, kieGetTask, kiePollUntilDone, kieUploadBuffer, kieGetCredits } from './kie.js';
-import { estimateKieCredits, backfillKieEstimate, KIE_USD_PER_CREDIT } from './kie-pricing.js';
+import { estimateKieCredits, backfillKieEstimate, KIE_USD_PER_CREDIT,
+         KIE_CALIBRATION, kieBilledUsdPerCredit } from './kie-pricing.js';
 import { estimateFalCost, backfillFalEstimate } from './fal-pricing.js';
 import { publicReason } from './sanitize.js';
 import { normalizeBulkEmails, generateBulkPassword } from './bulk-helpers.js';
@@ -5004,7 +5005,9 @@ app.get('/api/admin/usage/provider', adminGate, async (req, res) => {
 
     // kie is counted in credits and converted; fal is already USD.
     const col = provider === 'kie' ? 'kie_credits' : 'fal_cost';
-    const rate = provider === 'kie' ? KIE_USD_PER_CREDIT : 1;
+    // Calibrated against the last real invoice — see KIE_CALIBRATION. Display
+    // only; the recorded credits and the margin rules are untouched.
+    const rate = provider === 'kie' ? kieBilledUsdPerCredit() : 1;
     const params = [from, to];
     const inRange = `created_at >= $1 AND created_at < $2::timestamptz + INTERVAL '1 day'`;
     const mine = `action = 'spend' AND ${col} IS NOT NULL`;
@@ -5065,6 +5068,10 @@ app.get('/api/admin/usage/provider', adminGate, async (req, res) => {
       usd_rate: rate,
       // Named so the screen cannot present a derived figure as a billed one.
       usd_is_estimated: true,
+      // Where the rate came from, so the screen can show its provenance rather
+      // than a bare number nobody can audit.
+      calibration: provider === 'kie' ? KIE_CALIBRATION : null,
+      list_rate: provider === 'kie' ? KIE_USD_PER_CREDIT : null,
       from: from.toISOString().slice(0, 10),
       to: to.toISOString().slice(0, 10),
       totals: withUsd(totals.rows[0]),
