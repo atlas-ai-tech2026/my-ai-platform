@@ -117,6 +117,13 @@ export const adminApi = {
     return request('GET', `/api/admin/usage${qs ? '?' + qs : ''}`);
   },
   kieBalance: () => request('GET', '/api/admin/kie-balance'),
+  // One supplier's spend, shaped like that supplier's own console so the two
+  // can be read side by side. Returns coverage + usd_rate so the screen can
+  // say what is estimated rather than implying it is billed.
+  providerUsage: ({ provider = 'kie', from, to } = {}) => {
+    const qs = new URLSearchParams({ provider, ...(from && { from }), ...(to && { to }) }).toString();
+    return request('GET', `/api/admin/usage/provider?${qs}`);
+  },
 
   // ─── Promo codes + gift cards ─────────────────────────────────────
   createPromo: (body)   => request('POST', '/api/admin/promocodes', body),

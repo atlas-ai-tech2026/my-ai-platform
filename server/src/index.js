@@ -15,7 +15,7 @@ import jwt from 'jsonwebtoken';
 import { pool, isReady as dbReady, migrate, ADMIN_EMAIL } from './db.js';
 import { persistOrFallback, persistBuffer, isReady as spacesReady, uploadPrivate, listKeys, deleteKey } from './storage.js';
 import { configureKie, kieCreateTask, kieGetTask, kiePollUntilDone, kieUploadBuffer, kieGetCredits } from './kie.js';
-import { estimateKieCredits, backfillKieEstimate } from './kie-pricing.js';
+import { estimateKieCredits, backfillKieEstimate, KIE_USD_PER_CREDIT } from './kie-pricing.js';
 import { estimateFalCost, backfillFalEstimate } from './fal-pricing.js';
 import { publicReason } from './sanitize.js';
 import { normalizeBulkEmails, generateBulkPassword } from './bulk-helpers.js';
@@ -4972,6 +4972,112 @@ app.get('/api/admin/logs', adminGate, async (req, res) => {
 // summed side by side; kie_credits is NULL on FAL rows and on rows from
 // before per-transaction KIE tracking began, so the KIE series starts at
 // that deploy date.
+// ─── PROVIDER SPEND DASHBOARD ────────────────────────────────────────────────
+// What one supplier actually costs us, laid out the way the provider's own
+// console shows it: a headline total, a daily bar chart, and a card per model
+// with its own sparkline. The owner compares this against kie.ai's dashboard
+// directly, so the shapes deliberately match.
+//
+// TWO HONESTY RULES, because a cost dashboard that quietly under-reports is
+// worse than none at all:
+//
+//   1. It reports COVERAGE. Charges from 10 Jun – 22 Jul 2026 (13,736 rows,
+//      45% of all credits ever spent) carry no provider attribution — labelling
+//      was added on 22 Jul. Without saying so, every historical total here
+//      reads as complete when it is not.
+//
+//   2. USD is derived, not billed. We multiply recorded credits by a constant.
+//      Against kie.ai's own figure for 2–15 Aug ($1,559.068 vs our 361,087
+//      credits) the real rate was ~$0.004318, not the $0.005 we assume — so
+//      our dollars run ~14% high. Returned as `usd_rate` so the screen can say
+//      where the number came from instead of implying it is an invoice.
+app.get('/api/admin/usage/provider', adminGate, async (req, res) => {
+  try {
+    const provider = String(req.query.provider || 'kie').toLowerCase();
+    if (!['kie', 'fal'].includes(provider)) {
+      return res.status(400).json({ error: "provider must be 'kie' or 'fal'." });
+    }
+    const to = req.query.to ? new Date(req.query.to) : new Date();
+    const from = req.query.from ? new Date(req.query.from)
+      : new Date(Date.now() - 13 * 24 * 3600 * 1000);
+    if (isNaN(from) || isNaN(to)) return res.status(400).json({ error: 'Bad date range' });
+
+    // kie is counted in credits and converted; fal is already USD.
+    const col = provider === 'kie' ? 'kie_credits' : 'fal_cost';
+    const rate = provider === 'kie' ? KIE_USD_PER_CREDIT : 1;
+    const params = [from, to];
+    const inRange = `created_at >= $1 AND created_at < $2::timestamptz + INTERVAL '1 day'`;
+    const mine = `action = 'spend' AND ${col} IS NOT NULL`;
+
+    const [totals, daily, models, modelDaily, coverage] = await Promise.all([
+      pool.query(
+        `SELECT COALESCE(SUM(${col}),0)::float AS units,
+                COUNT(*)::int AS generations,
+                COUNT(DISTINCT user_id)::int AS users,
+                COALESCE(SUM(-amount),0)::float AS voxel_credits
+           FROM credits_history WHERE ${mine} AND ${inRange}`, params),
+      pool.query(
+        `SELECT to_char(date_trunc('day', created_at),'YYYY-MM-DD') AS day,
+                COALESCE(SUM(${col}),0)::float AS units,
+                COUNT(*)::int AS generations
+           FROM credits_history WHERE ${mine} AND ${inRange}
+          GROUP BY 1 ORDER BY 1`, params),
+      pool.query(
+        `SELECT COALESCE(reason,'(unlabeled)') AS model,
+                COALESCE(SUM(${col}),0)::float AS units,
+                COUNT(*)::int AS generations,
+                COALESCE(SUM(-amount),0)::float AS voxel_credits
+           FROM credits_history WHERE ${mine} AND ${inRange}
+          GROUP BY 1 ORDER BY units DESC LIMIT 12`, params),
+      // One row per (model, day) for the per-card sparklines. Bounded to the
+      // same top models the cards show, so this cannot fan out.
+      pool.query(
+        `WITH top AS (
+           SELECT COALESCE(reason,'(unlabeled)') AS model
+             FROM credits_history WHERE ${mine} AND ${inRange}
+            GROUP BY 1 ORDER BY COALESCE(SUM(${col}),0) DESC LIMIT 12)
+         SELECT COALESCE(reason,'(unlabeled)') AS model,
+                to_char(date_trunc('day', created_at),'YYYY-MM-DD') AS day,
+                COALESCE(SUM(${col}),0)::float AS units
+           FROM credits_history
+          WHERE ${mine} AND ${inRange}
+            AND COALESCE(reason,'(unlabeled)') IN (SELECT model FROM top)
+          GROUP BY 1,2 ORDER BY 1,2`, params),
+      // Rule 1: how much spend in this window has NO provider recorded.
+      pool.query(
+        `SELECT COUNT(*) FILTER (WHERE kie_credits IS NULL AND fal_cost IS NULL)::int AS unattributed_rows,
+                COUNT(*)::int AS total_rows,
+                COALESCE(SUM(-amount) FILTER (WHERE kie_credits IS NULL AND fal_cost IS NULL),0)::float
+                  AS unattributed_voxel_credits
+           FROM credits_history WHERE action='spend' AND ${inRange}`, params),
+    ]);
+
+    const withUsd = (r) => ({ ...r, usd: Math.round(r.units * rate * 10000) / 10000 });
+    const byModel = new Map();
+    for (const r of modelDaily.rows) {
+      if (!byModel.has(r.model)) byModel.set(r.model, []);
+      byModel.get(r.model).push({ day: r.day, units: r.units, usd: Math.round(r.units * rate * 10000) / 10000 });
+    }
+
+    res.json({
+      provider,
+      unit: provider === 'kie' ? 'credits' : 'usd',
+      usd_rate: rate,
+      // Named so the screen cannot present a derived figure as a billed one.
+      usd_is_estimated: true,
+      from: from.toISOString().slice(0, 10),
+      to: to.toISOString().slice(0, 10),
+      totals: withUsd(totals.rows[0]),
+      daily: daily.rows.map(withUsd),
+      models: models.rows.map((m) => ({ ...withUsd(m), daily: byModel.get(m.model) || [] })),
+      coverage: coverage.rows[0],
+    });
+  } catch (err) {
+    console.error('[admin/usage/provider] error:', err);
+    res.status(500).json({ error: 'Provider usage fetch failed.' });
+  }
+});
+
 app.get('/api/admin/usage', adminGate, async (req, res) => {
   try {
     const to = req.query.to ? new Date(req.query.to) : new Date();

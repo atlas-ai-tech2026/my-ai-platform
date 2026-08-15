@@ -5,6 +5,7 @@
 // KIE credits (estimated cost on our kie.ai balance; "—" = FAL-backed or no
 // kie price on file / row predates KIE tracking).
 
+import ProviderDashboard from './ProviderDashboard';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { adminApi } from '@/lib/adminApi';
 
@@ -20,6 +21,9 @@ const ACTION_CHIP = {
 };
 
 export default function LogsTab({ onError }) {
+  // The provider spend dashboard replaces the log table when open — it is a
+  // different question (what a supplier costs us) about the same rows.
+  const [showDashboard, setShowDashboard] = useState(false);
   const [rows, setRows] = useState(null);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -84,6 +88,13 @@ export default function LogsTab({ onError }) {
     return { voxel: voxel.toFixed(2), kie: kie.toFixed(2), fal: fal.toFixed(2) };
   }, [rows]);
 
+  // The dashboard answers a different question about the same rows — what a
+  // supplier costs us, rather than what each user did — so it takes the whole
+  // pane rather than sitting squashed above the table.
+  if (showDashboard) {
+    return <ProviderDashboard provider="kie" onClose={() => setShowDashboard(false)} onError={onError} />;
+  }
+
   return (
     <div>
       <div style={{ color: 'var(--crm-w40)', fontSize: 13, marginBottom: 16 }}>
@@ -110,6 +121,10 @@ export default function LogsTab({ onError }) {
           onChange={e => setEmail(e.target.value)} style={{ ...inputStyle, minWidth: 180 }} />
         <input type="date" value={from} onChange={e => setFrom(e.target.value)} style={inputStyle} title="From" />
         <input type="date" value={to} onChange={e => setTo(e.target.value)} style={inputStyle} title="To" />
+        <button onClick={() => setShowDashboard(true)} style={btnStyle}
+          title="KIE spend, laid out like kie.ai's own dashboard">
+          📊 Dashboard
+        </button>
         <button onClick={() => load(page)} disabled={loading} style={btnStyle}>
           {loading ? 'Loading…' : '⟳ Refresh'}
         </button>
