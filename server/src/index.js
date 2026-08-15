@@ -4617,22 +4617,81 @@ app.post('/api/admin/users/expiry', adminGate, async (req, res) => {
     // today does not sweep up someone who signs up an hour later.
     const cutoff = scope === 'existing' ? new Date() : null;
 
+    // ── The cohort that must KEEP working ────────────────────────────────
+    // Ending one workshop while another is still running is the normal case,
+    // not the exception. `keep_codes` names the live workshops by promo code;
+    // anyone who redeemed one is spared.
+    const keepCodes = Array.isArray(req.body?.keep_codes)
+      ? req.body.keep_codes.map((s) => String(s).trim().toUpperCase()).filter(Boolean)
+      : [];
+
+    // A code that matches nothing protects nobody, so a typo would expire the
+    // very workshop it was meant to save. Refuse rather than run: the caller
+    // gets the bad codes back and can fix them.
+    if (keepCodes.length) {
+      const { rows: known } = await pool.query(
+        `SELECT code FROM promo_codes WHERE upper(code) = ANY($1)`, [keepCodes]);
+      const missing = keepCodes.filter((c) => !known.some((k) => k.code.toUpperCase() === c));
+      if (missing.length) {
+        return res.status(400).json({
+          error: `These promo codes do not exist: ${missing.join(', ')}. Nothing was changed.`,
+          unknown_codes: missing,
+        });
+      }
+    }
+
+    // Optional: give the spared cohort a window of their own, counted from
+    // each person's OWN redemption day rather than one shared date — the whole
+    // point of an access period. Applied in the same call so a workshop can
+    // never be closed without its replacement being given its window.
+    const keepDays = req.body?.keep_access_days != null && req.body.keep_access_days !== ''
+      ? parseInt(req.body.keep_access_days, 10) : null;
+    if (keepDays != null && (!Number.isInteger(keepDays) || keepDays < 1 || keepDays > 3650)) {
+      return res.status(400).json({ error: 'keep_access_days must be between 1 and 3650.' });
+    }
+
+    const PROTECTED = `SELECT DISTINCT r.user_id
+                         FROM promo_redemptions r JOIN promo_codes p ON p.id = r.code_id
+                        WHERE upper(p.code) = ANY($3)`;
+
     const { rows } = await pool.query(
       `UPDATE users
           SET expires_at = $1
         WHERE role <> 'admin'
           AND ($2::timestamptz IS NULL OR created_at <= $2)
+          AND ($3::text[] IS NULL OR id NOT IN (${PROTECTED}))
           AND expires_at IS DISTINCT FROM $1
         RETURNING id`,
-      [expiresAt, cutoff]
+      [expiresAt, cutoff, keepCodes.length ? keepCodes : null]
     );
 
+    // The spared cohort: each gets their redemption date + keepDays. GREATEST
+    // so a second, shorter code can never cut short a window already granted.
+    let kept = 0;
+    if (keepCodes.length && keepDays != null) {
+      const { rows: k } = await pool.query(
+        `UPDATE users u
+            SET expires_at = GREATEST(COALESCE(u.expires_at, 'epoch'::timestamptz), w.until)
+           FROM (SELECT r.user_id, MAX(r.created_at) + ($2 || ' days')::INTERVAL AS until
+                   FROM promo_redemptions r JOIN promo_codes p ON p.id = r.code_id
+                  WHERE upper(p.code) = ANY($1)
+                  GROUP BY r.user_id) w
+          WHERE u.id = w.user_id AND u.role <> 'admin'
+          RETURNING u.id`,
+        [keepCodes, String(keepDays)]
+      );
+      kept = k.length;
+    }
+
     const skipped = await pool.query(`SELECT COUNT(*)::int AS n FROM users WHERE role = 'admin'`);
-    console.log(`[admin/expiry] ${mode} → ${rows.length} account(s) by ${req.user?.email}` +
+    console.log(`[admin/expiry] ${mode} → ${rows.length} expired, ${kept} kept` +
+      (keepCodes.length ? ` (codes: ${keepCodes.join(',')})` : '') +
+      ` by ${req.user?.email}` +
       (expiresAt ? ` until ${expiresAt.toISOString().slice(0, 10)}` : ''));
     res.json({
       ok: true,
       changed: rows.length,
+      kept_by_promo_code: kept,
       admins_skipped: skipped.rows[0].n,
       expires_at: expiresAt,
     });

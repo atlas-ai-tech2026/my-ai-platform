@@ -30,6 +30,9 @@ function defaultDate() {
 
 export default function BulkExpiryPanel({ onDone, onError }) {
   const [date, setDate] = useState(defaultDate());
+  // Promo codes whose people must KEEP working — the workshop still running.
+  const [keepCodes, setKeepCodes] = useState('');
+  const [keepDays, setKeepDays] = useState('30');
   const [busy, setBusy] = useState(false);
   const [open, setOpen] = useState(false);
 
@@ -44,12 +47,21 @@ export default function BulkExpiryPanel({ onDone, onError }) {
 
     setBusy(true);
     try {
+      const codes = keepCodes.split(/[\s,]+/).map(c => c.trim()).filter(Boolean);
       const r = await adminApi.setBulkExpiry(
-        mode === 'clear' ? { mode: 'clear' } : { mode: 'set', expires_at: date, scope: 'existing' });
+        mode === 'clear'
+          ? { mode: 'clear' }
+          : {
+              mode: 'set', expires_at: date, scope: 'existing',
+              keep_codes: codes.length ? codes : undefined,
+              keep_access_days: codes.length && keepDays ? keepDays : undefined,
+            });
       toast.success(
         mode === 'clear'
           ? `Access reopened for ${r.changed} account(s).`
-          : `${r.changed} account(s) will lose access on ${date}. ${r.admins_skipped} admin account(s) untouched.`);
+          : `${r.changed} account(s) will lose access on ${date}.` +
+            (r.kept_by_promo_code ? ` ${r.kept_by_promo_code} kept by promo code.` : '') +
+            ` ${r.admins_skipped} admin account(s) untouched.`);
       onDone?.();
     } catch (e) {
       onError?.(e);
@@ -82,6 +94,19 @@ export default function BulkExpiryPanel({ onDone, onError }) {
         table. <strong>Admin accounts are never affected.</strong> Reversible at any time.
       </div>
 
+      <FieldRow>
+        <Field label="Keep these promo codes working"
+          info="Anyone who redeemed one of these codes is NOT expired — use this for a workshop that is still running. Paste the codes separated by spaces, commas or new lines. If a code does not exist the whole operation is refused and nothing changes, so a typo cannot expire the workshop you meant to protect.">
+          <textarea rows={3} value={keepCodes} onChange={e => setKeepCodes(e.target.value)}
+            placeholder="VOXEL-XXXX-XXXX, VOXEL-YYYY-YYYY"
+            style={{ ...inputStyle, width: 340, resize: 'vertical' }} />
+        </Field>
+        <Field label="Days for those kept"
+          info="How long the spared people keep access, counted from THEIR OWN redemption day — not from today. Someone who redeemed on the 3rd gets a different end date from someone who redeemed on the 9th. It only ever extends an existing window, never shortens one.">
+          <input type="number" min="1" max="3650" value={keepDays}
+            onChange={e => setKeepDays(e.target.value)} style={{ ...inputStyle, width: 140 }} />
+        </Field>
+      </FieldRow>
       <FieldRow>
         <Field label="Access ends on" required
           info="The day existing customers stop being able to sign in. Defaults to a week ahead so nobody is cut off mid-session. Accounts created AFTER you press the button are not affected — they arrive on their own promo code.">

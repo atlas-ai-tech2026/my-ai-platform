@@ -101,3 +101,61 @@ describe('an expired account is hidden from nobody', () => {
     expect(q[0]).not.toMatch(/WHERE/);
   });
 });
+
+// ─── keeping one cohort alive while closing another ──────────────────────────
+// Added 2026-08-12. Ending a workshop while a newer one is still running is the
+// normal case. The owner supplied 7 promo codes to spare, covering 194 of 592
+// accounts — so a mistake here is not academic: a single mistyped code protects
+// nobody and expires the workshop it was meant to save.
+describe('sparing the live workshop', () => {
+  it('refuses the whole operation if any promo code is unknown', () => {
+    // Fail closed and change NOTHING, rather than half-apply and expire people.
+    expect(expiryRoute).toMatch(/do not exist:/);
+    expect(expiryRoute).toMatch(/Nothing was changed/);
+    expect(expiryRoute).toMatch(/return res\.status\(400\)/);
+  });
+
+  it('checks the codes BEFORE any UPDATE runs', () => {
+    const guard = expiryRoute.indexOf('do not exist:');
+    const firstUpdate = expiryRoute.indexOf('UPDATE users');
+    expect(guard).toBeGreaterThan(-1);
+    expect(guard).toBeLessThan(firstUpdate);
+  });
+
+  it('matches codes case-insensitively, so a lowercase paste still protects', () => {
+    expect(expiryRoute).toMatch(/toUpperCase\(\)/);
+    expect(expiryRoute).toMatch(/upper\(p\.code\) = ANY/);
+  });
+
+  it('excludes anyone who redeemed a spared code', () => {
+    expect(expiryRoute).toMatch(/id NOT IN \(/);
+    expect(expiryRoute).toMatch(/FROM promo_redemptions r JOIN promo_codes p/);
+  });
+
+  // With no keep list the behaviour must be exactly what it was before.
+  it('is a no-op on the query when no codes are given', () => {
+    expect(expiryRoute).toMatch(/\$3::text\[\] IS NULL OR/);
+    expect(expiryRoute).toMatch(/keepCodes\.length \? keepCodes : null/);
+  });
+
+  // The spared cohort gets time from THEIR OWN redemption day, not one shared
+  // date — that is what "one month from activation" means.
+  it('dates the kept window from each person\'s own redemption', () => {
+    expect(expiryRoute).toMatch(/MAX\(r\.created_at\) \+ \(\$2 \|\| ' days'\)::INTERVAL/);
+  });
+
+  it('never shortens a window someone already has', () => {
+    expect(expiryRoute).toMatch(/GREATEST\(COALESCE\(u\.expires_at, 'epoch'::timestamptz\), w\.until\)/);
+  });
+
+  // Belt and braces: the second statement must not be able to resurrect an
+  // admin either.
+  it('keeps admins out of the second statement too', () => {
+    const second = expiryRoute.slice(expiryRoute.indexOf('UPDATE users u'));
+    expect(second).toMatch(/u\.role <> 'admin'/);
+  });
+
+  it('reports how many were kept, not just how many were expired', () => {
+    expect(expiryRoute).toMatch(/kept_by_promo_code/);
+  });
+});

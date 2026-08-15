@@ -99,8 +99,9 @@ export const adminApi = {
   // server-side, so this can never lock the owner out of the panel.
   // mode 'set' + expires_at, or mode 'clear'. scope 'existing' spares anyone
   // who registers after the call.
-  setBulkExpiry: ({ mode, expires_at, scope = 'existing' }) =>
-    request('POST', '/api/admin/users/expiry', { mode, expires_at, scope }),
+  setBulkExpiry: ({ mode, expires_at, scope = 'existing', keep_codes, keep_access_days }) =>
+    request('POST', '/api/admin/users/expiry',
+      { mode, expires_at, scope, keep_codes, keep_access_days }),
   auditRefunds: ()                   => request('GET', '/api/admin/audit/refunds'),
   stats:       ()                    => request('GET', '/api/admin/stats'),
 
