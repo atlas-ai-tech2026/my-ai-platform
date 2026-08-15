@@ -9,6 +9,8 @@
 // The rest cover the four requested features: description, editing description
 // and expiry, search, and the list of accounts that redeemed a code.
 
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -405,5 +407,46 @@ describe('the credit columns say what they mean', () => {
     const rows = await exportSheet();
     expect(rows[1]['Credits from this code']).toBe(25);
     expect(rows[1]['Credits from all promo codes']).toBe(25);
+  });
+});
+
+// ─── the two expiry settings must be readable side by side ───────────────────
+// Added 2026-08-15 at the owner's request: they need to compare, per code and
+// per person, "created / redeem-by / access period / when access actually ends".
+// Getting these two confused is what left 584 of 587 accounts open-ended — the
+// code's expires_at was read as if it limited the credits, which it never did.
+describe('Expires and Access days are shown as a pair', () => {
+  it('the table has both columns, plus Created to compare against', () => {
+    const src = readFileSync(
+      resolve(process.cwd(), 'src/components/admin/PromoCodesTab.jsx'), 'utf8');
+    const header = src.match(/\{\[('.*?')\]\.map\(\(h, i\)/s)?.[0] || src;
+    for (const col of ['Expires', 'Access days', 'Created']) {
+      expect(header).toContain(col);
+    }
+  });
+
+  it('the column count matches the number of headers', () => {
+    const src = readFileSync(resolve(process.cwd(), 'src/components/admin/PromoCodesTab.jsx'), 'utf8');
+    const header = src.match(/\{\[(.*?)\]\.map\(\(h, i\)/s)[1];
+    const count = header.split(',').length;
+    const cols = Number(src.match(/const COLS = (\d+)/)[1]);
+    // A mismatch silently shifts every cell one column left — the kind of bug
+    // that looks like bad data rather than bad markup.
+    expect(cols).toBe(count);
+  });
+
+  it('a code with no access period reads as open-ended, not blank or zero', () => {
+    const src = readFileSync(resolve(process.cwd(), 'src/components/admin/PromoCodesTab.jsx'), 'utf8');
+    // the ternary on access_days must fall through to a readable label
+    expect(src).toMatch(/p\.access_days/);
+    expect(src).toMatch(/open-ended/);
+    expect(src).not.toMatch(/\{p\.access_days \|\| 0\}/);
+  });
+
+  it('the export carries activation AND expiry so they can be compared', () => {
+    const src = readFileSync(resolve(process.cwd(), 'src/components/admin/PromoCodesTab.jsx'), 'utf8');
+    expect(src).toMatch(/'Redeemed':/);
+    expect(src).toMatch(/'Access ends':/);
+    expect(src).toMatch(/'Days left':/);
   });
 });

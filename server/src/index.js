@@ -5520,6 +5520,10 @@ app.get('/api/admin/promocodes/:id/redemptions', adminGate, async (req, res) => 
               u.package,
               u.banned,
               u.created_at              AS registered_at,
+              -- When THIS person's access ends. Sits next to redeemed_at so the
+              -- owner can read "activated on X, expires on Y" in one line and
+              -- confirm an access period landed as intended.
+              u.expires_at              AS access_ends_at,
               u.credits                 AS current_credits,
               u.last_login_at,
               -- Credits this user got from EVERY promo code, and how many codes

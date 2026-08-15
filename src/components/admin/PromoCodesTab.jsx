@@ -203,6 +203,12 @@ export default function PromoCodesTab({ onError }) {
         'Plan':             r.package || 'Free',
         'Registered':       fmt(r.registered_at),
         'Redeemed':         fmt(r.redeemed_at || r.created_at),
+        // Activation and expiry next to each other, so "30 days from activation"
+        // can be read off a single row instead of worked out by hand.
+        'Access ends':      fmt(r.access_ends_at) || 'open-ended',
+        'Days left':        r.access_ends_at
+                              ? Math.ceil((new Date(r.access_ends_at) - new Date()) / 86400000)
+                              : '',
         // What THIS code gave this person. The number on the code itself.
         'Credits from this code': Number(p.credits),
         // Every promo code of yours this person has redeemed, added up.
@@ -218,6 +224,7 @@ export default function PromoCodesTab({ onError }) {
       const ws = XLSX.utils.json_to_sheet(sheetRows);
       // Readable column widths — a sheet where every email is clipped is noise.
       ws['!cols'] = [{ wch: 32 }, { wch: 18 }, { wch: 10 }, { wch: 12 }, { wch: 12 },
+                     { wch: 13 }, { wch: 10 },
                      { wch: 20 }, { wch: 24 }, { wch: 19 }, { wch: 24 },
                      { wch: 12 }, { wch: 13 }];
       const wb = XLSX.utils.book_new();
@@ -256,7 +263,7 @@ export default function PromoCodesTab({ onError }) {
   // as you typed a search would be misleading.
   const totals = useMemo(() => promoTotals(promos), [promos]);
 
-  const COLS = 8;
+  const COLS = 9;   // +1 for Access days
 
   return (
     <div>
@@ -365,7 +372,7 @@ export default function PromoCodesTab({ onError }) {
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
           <thead>
             <tr>
-              {['Description', 'Code', 'Credits', 'Redemptions', 'Expires', 'Status', 'Created', ''].map((h, i) => (
+              {['Description', 'Code', 'Credits', 'Redemptions', 'Expires', 'Access days', 'Status', 'Created', ''].map((h, i) => (
                 <th key={i} style={thStyle}>{h}</th>
               ))}
             </tr>
@@ -421,6 +428,14 @@ export default function PromoCodesTab({ onError }) {
                       ) : (
                         p.expires_at ? new Date(p.expires_at).toLocaleDateString() : 'never'
                       )}
+                    </td>
+                    {/* Access days — how long someone keeps working AFTER they
+                        redeem. Sits next to Expires (the redeem deadline) so the
+                        two are read as the pair they are, not confused. */}
+                    <td style={tdStyle}>
+                      {p.access_days
+                        ? <span style={{ color: 'var(--crm-ink)' }}>{p.access_days} days</span>
+                        : <span style={{ color: 'var(--crm-w30)' }}>open-ended</span>}
                     </td>
                     <td style={tdStyle}>
                       <span style={{
