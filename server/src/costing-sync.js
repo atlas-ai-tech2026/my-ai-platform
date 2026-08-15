@@ -188,7 +188,21 @@ export function alreadySold(family, known) {
   // contains the other, which catches version-format differences without the
   // false matches a looser fuzzy test would produce.
   for (const k of known) {
-    if (k.length >= 6 && (n.includes(k) || k.includes(n))) return true;
+    if (k.length < 6) continue;
+    const [longer, shorter] = n.length >= k.length ? [n, k] : [k, n];
+    if (!longer.startsWith(shorter) && !longer.includes(shorter)) continue;
+    // A bare substring match treats a DIFFERENT VERSION as the same model:
+    // "Seedance 2.0" normalises to "seedance2", which is a prefix of
+    // "seedance25", so Seedance 2.5 was hidden as already-sold. That is the
+    // exact model the owner was looking for and could not find.
+    //
+    // If the extra characters begin with a digit, it is a version number and
+    // these are different products. "kling3" vs "kling3turbo" still matches,
+    // because "turbo" is a variant of the same family — which is what this
+    // rule was written for.
+    const extra = longer.slice(longer.indexOf(shorter) + shorter.length);
+    if (/^\d/.test(extra)) continue;
+    return true;
   }
   return false;
 }
@@ -259,8 +273,21 @@ export async function syncProviderCatalog(pool, {
   const known = knownNameSet(rows.map((r) => r.model_name));
 
   const items = await fetchCatalog();
-  const families = newModelFamilies(items, new Set(), { since })
-    .filter((f) => !alreadySold(f.family, known));
+
+  // fal's fetcher returns RAW endpoint items that still need grouping; kie's
+  // returns finished families. Running the latter through newModelFamilies()
+  // silently discarded all 98 kie groups, because sellableModels() requires
+  // `status === 'public'` and a fal category — fields kie data has never had.
+  // The sweep reported "0 model group(s) we do not sell" and looked like it
+  // had worked, which is how Seedance 2.5 stayed missing after the fix that
+  // was supposed to find it.
+  //
+  // Detect the shape rather than adding a flag the caller must remember to set.
+  const preGrouped = items.length > 0 && items[0] && 'family' in items[0];
+  let families = preGrouped
+    ? (since ? items.filter((f) => f.first_seen && f.first_seen >= since) : items)
+    : newModelFamilies(items, new Set(), { since });
+  families = families.filter((f) => !alreadySold(f.family, known));
 
   let added = 0;
   const changes = [];

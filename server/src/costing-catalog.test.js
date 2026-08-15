@@ -143,3 +143,59 @@ describe('defaultCatalogCutoff', () => {
     expect(cutoff.toISOString().slice(0, 7)).toBe('2026-05');
   });
 });
+
+// ─── the two bugs that hid kie models (2026-08-16) ───────────────────────────
+// The owner reported Seedance 2.5, Seedance 2.0 and Flux 3 missing from New
+// Models after kie support shipped. Both causes were mine, and both LOOKED
+// like success in the logs — "kie catalogue: 0 model group(s) we do not sell"
+// reads exactly like a clean sweep with nothing new.
+describe('kie groups survive the sweep', () => {
+  // BUG 1: fal's fetcher returns raw endpoint items needing grouping; kie's
+  // returns finished families. Passing the latter through newModelFamilies()
+  // dropped all 98, because sellableModels() demands status==='public' and a
+  // fal category — fields kie data has never had.
+  it('accepts already-grouped families without running fal grouping over them', async () => {
+    const kieShaped = [
+      { family: 'Flux 3', lab: 'BFL', category: 'text-to-image', first_seen: '2026-07-24',
+        endpoints: [{ id: 'flux-3#0' }], price: null, path: 'flux-3' },
+    ];
+    // Own pool: fakePool above is scoped to another describe block.
+    const pool = {
+      query: vi.fn(async (sql) => {
+        if (/SELECT model_name FROM pricing_models/.test(sql)) {
+          return { rows: [{ model_name: 'Kling 3.0' }] };
+        }
+        if (/INSERT INTO pricing_catalog_models/.test(sql)) {
+          return { rowCount: 1, rows: [{ id: 1 }] };
+        }
+        return { rows: [], rowCount: 0 };
+      }),
+    };
+    const out = await syncProviderCatalog(pool, {
+      fetchCatalog: async () => kieShaped, provider: 'kie',
+    });
+    // Before the fix this was 0 — every kie group was discarded by fal's
+    // grouping, and the log line read like a clean sweep.
+    expect(out.found).toBe(1);
+  });
+
+  // BUG 2: normaliseName turns "Seedance 2.0" into "seedance2", which is a
+  // PREFIX of "seedance25" — so the substring rule hid Seedance 2.5 as
+  // already-sold. Different version, different product.
+  it('does not treat a different VERSION as the same model', () => {
+    const known = new Set(['seedance2']);            // we sell Seedance 2.0
+    expect(alreadySold('Seedance 2.5', known)).toBe(false);
+    expect(alreadySold('Seedance 2.0', known)).toBe(true);
+  });
+
+  it('still folds a VARIANT of a model we sell', () => {
+    const known = new Set(['kling3']);
+    expect(alreadySold('Kling 3.0 Turbo', known)).toBe(true);   // variant, not version
+    expect(alreadySold('Kling 4.0', known)).toBe(false);        // version
+  });
+
+  it('keeps Nano Banana 2 separate from Nano Banana Pro', () => {
+    const known = new Set(['nanobananapro']);
+    expect(alreadySold('Nano Banana 2', known)).toBe(false);
+  });
+});
