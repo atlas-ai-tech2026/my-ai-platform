@@ -30,13 +30,14 @@ export default function PriceChangesPanel({ onError, onApplied }) {
     setSyncing(true);
     try {
       const r = await adminApi.costingSync();
-      const found = r.catalog?.found ?? 0;
-      toast.success(
-        `Sync complete — ${found} model family(ies) checked` +
-        (r.catalog_error ? '; the provider catalogue could not be reached' : ''));
-      // A provider outage must be visible: a "successful" sync that silently
-      // checked nothing is how a stale queue looks fresh.
-      if (r.catalog_error) toast.error(`Catalogue: ${r.catalog_error}`);
+      const fal = r.catalog?.found ?? 0;
+      const kie = r.kie_catalog?.found ?? 0;
+      toast.success(`Sync complete — fal: ${fal} · kie: ${kie} model group(s) not sold yet`);
+      // A provider outage must be visible and NAMED. A "successful" sync that
+      // silently checked nothing is how a stale queue looks fresh — and with
+      // two providers, "the catalogue failed" is not enough to act on.
+      if (r.catalog_error) toast.error(`fal catalogue: ${r.catalog_error}`);
+      if (r.kie_catalog_error) toast.error(`kie catalogue: ${r.kie_catalog_error}`);
       await load();
     } catch (e) { onError?.(e); toast.error(e?.message || 'Sync failed.'); }
     finally { setSyncing(false); }

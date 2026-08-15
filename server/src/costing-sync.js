@@ -19,6 +19,7 @@ import { IMAGE_CREDITS, VIDEO_CREDITS, VOICE_CREDITS_PER_1K } from './pricing.js
 import { LIVE_ID_TO_COSTING_MODEL } from './costing-coverage.js';
 import { fetchFalCatalog, newModelFamilies } from './fal-catalog.js';
 import { proposeChange, describe as describeChange } from './price-watch.js';
+import { fetchKieCatalog } from './kie-catalog.js';
 
 /** A readable name for a model id we only know by its slug. */
 function titleise(id) {
@@ -321,6 +322,23 @@ export async function runDailyModelSync(pool, dbReady, { fetchCatalog = null, si
     // prevent, so it is always reported.
     console.error('[costing-sync] fal catalogue check failed:', e.message);
     out.catalogError = e.message;
+  }
+
+  // ── kie, swept the same way ────────────────────────────────────────────
+  // Added 2026-08-16. Until now only fal was swept, so a model landing on kie
+  // — where nearly all our spend goes — was invisible until someone noticed by
+  // hand. Seedance 2.5 sat on kie for seven weeks unlisted, which is how this
+  // was found. Separate try: one provider being down must not blind us to the
+  // other.
+  try {
+    const r = await syncProviderCatalog(pool, {
+      fetchCatalog: fetchKieCatalog, since, provider: 'kie',
+    });
+    out.kieCatalog = r;
+    console.log(`[costing-sync] kie catalogue: ${r.found} model group(s) we do not sell, ${r.added} newly recorded`);
+  } catch (e) {
+    console.error('[costing-sync] kie catalogue check failed:', e.message);
+    out.kieCatalogError = e.message;
   }
   return out;
 }

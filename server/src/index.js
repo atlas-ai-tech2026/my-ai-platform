@@ -4416,6 +4416,8 @@ app.post('/api/costing/sync', adminGate, async (req, res) => {
       missing_costs: out.added || [],
       catalog: out.catalog || null,
       catalog_error: out.catalogError || null,
+      kie_catalog: out.kieCatalog || null,
+      kie_catalog_error: out.kieCatalogError || null,
       synced_at: new Date().toISOString(),
     });
   } catch (err) {
