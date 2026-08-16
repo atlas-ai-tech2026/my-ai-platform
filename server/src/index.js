@@ -70,6 +70,7 @@ import { registerOffersRoutes } from './offers-routes.js';
 import { registerNotificationsRoutes } from './notifications-routes.js';
 import { registerAlertsRoutes, runAlertChecks } from './alerts-routes.js';
 import { registerPnlRoutes } from './pnl-routes.js';
+import { registerReliabilityRoutes } from './reliability-routes.js';
 import {
   createReset, consumeReset, resetUrl, resetEmailBody, passwordProblem, NEUTRAL_REPLY,
 } from './password-reset.js';
@@ -4427,6 +4428,11 @@ registerAlertsRoutes(app, {
 // INVOICED lived only on the owner's laptop, so "did we make money?" had no
 // answer inside the system. Reads only — pricing.js still does all charging.
 registerPnlRoutes(app, { pool, dbReady, adminGate });
+
+// ─── RELIABILITY (Tier 1.3) ──────────────────────────────────────────────────
+// Which models can be trusted in front of a room. Read-only; the failure
+// attribution is an inference and the endpoint reports its own confidence.
+registerReliabilityRoutes(app, { pool, dbReady, adminGate });
 
 // ─── COSTING: MANUAL REFRESH + THE PRICE REVIEW QUEUE ────────────────────────
 // The sweep runs nightly, but "wait until midnight" is not an answer when the

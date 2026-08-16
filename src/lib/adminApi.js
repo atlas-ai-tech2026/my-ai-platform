@@ -179,6 +179,11 @@ export const adminApi = {
   organisations:   ()            => request('GET',    '/api/admin/organisations'),
   organisationCreate: (body)     => request('POST',   '/api/admin/organisations', body),
 
+  // ─── Reliability (Tier 1.3, 2026-08-16) ───────────────────────────
+  // How often each model fails. The failure count is INFERRED — refunds
+  // never name the model — so the response carries its own confidence.
+  reliability:     (days = 30)   => request('GET', `/api/costing/reliability?days=${days}`),
+
   // ─── Offers (2026-08-07) ──────────────────────────────────────────
   // Promotions with margin impact from the Costing engine. Like costing,
   // these never charge a customer — approval writes offers + an audit row.

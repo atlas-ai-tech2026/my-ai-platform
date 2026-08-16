@@ -19,6 +19,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { adminApi } from '@/lib/adminApi';
 import WorkshopsPanel from './WorkshopsPanel';
+import ReliabilityPanel from './ReliabilityPanel';
 
 const pct = (v) => v == null ? '—' : `${(v * 100).toFixed(1)}%`;
 const money = (v) => v == null ? '—' : `$${Number(v).toFixed(Number(v) < 1 ? 4 : 3)}`;
@@ -200,6 +201,8 @@ export default function CostingTab({ onError }) {
           // Tier 1.2. Distinct from 'Profit Check' above: that one asks what
           // margin a price WOULD give; this one asks what we actually earned.
           ['workshops', 'Workshops & P&L'],
+          // Tier 1.3. Which models are safe to demonstrate live.
+          ['reliability', 'Reliability'],
           ['new', `New Models${state.catalog?.length ? ` (${state.catalog.length})` : ''}`],
           ['coverage', `Coverage${state.coverage.uncosted_total ? ` (${state.coverage.uncosted_total})` : ''}`],
           ['audit', 'Audit'],
@@ -237,6 +240,8 @@ export default function CostingTab({ onError }) {
       )}
 
       {tab === 'workshops' && <WorkshopsPanel onError={onError} />}
+
+      {tab === 'reliability' && <ReliabilityPanel onError={onError} />}
 
       {tab === 'new' && (
         <NewModels rows={state.catalog || []} busy={busy}
