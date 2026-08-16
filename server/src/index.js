@@ -3842,13 +3842,23 @@ app.post('/api/auth/google/complete', authLimiter, async (req, res) => {
 
   try {
     const { rows } = await pool.query(
-      `SELECT id, email, credits, credit_limit, role, banned, package, display_name, created_at
+      `SELECT id, email, credits, credit_limit, role, banned, package, display_name, created_at,
+              expires_at
          FROM users WHERE id = $1`,
       [payload.sub]
     );
     const user = rows[0];
     if (!user) return res.status(401).json({ error: 'Account no longer exists.' });
     if (user.banned) return res.status(403).json({ error: 'Account is banned.' });
+    // Same hard-stop the password path applies at index.js:3633. Without it an
+    // expired account completes social sign-in, lands in the app looking signed
+    // in, and only discovers its access ended when the first generation is
+    // refused by requireNotBanned. No credits could ever be spent either way —
+    // this is about telling the truth at the door rather than three clicks in.
+    // Microsoft redirects through this same endpoint, so it is covered too.
+    if (user.expires_at && new Date(user.expires_at) <= new Date()) {
+      return res.status(403).json({ error: 'Account has expired — contact support to renew.' });
+    }
 
     const isAdmin = user.role === 'admin';
     const token = jwt.sign(

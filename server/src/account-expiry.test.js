@@ -159,3 +159,64 @@ describe('sparing the live workshop', () => {
     expect(expiryRoute).toMatch(/kept_by_promo_code/);
   });
 });
+
+// ─── every door must give the same answer ────────────────────────────────────
+// Found 2026-08-16, checking what "expired" actually blocks before closing 397
+// accounts. Password login refused an expired account; social sign-in did not —
+// it read `banned` and never `expires_at`. Nothing could be SPENT either way
+// (requireNotBanned re-reads the row on every request), so this was never a
+// credit leak. But the person landed inside the app looking signed in and only
+// learned their access had ended when a generation failed.
+//
+// Microsoft's callback redirects through google/complete, so one fix covers it.
+describe('an expired account is refused at every sign-in path', () => {
+  const guard = /Account has expired — contact support to renew\./g;
+  const complete = source.slice(
+    source.indexOf("app.post('/api/auth/google/complete'"),
+    source.indexOf("app.get('/api/auth/microsoft'")
+  );
+
+  it('refuses at password login', () => {
+    const login = source.slice(
+      source.indexOf("app.post('/api/auth/login'"),
+      source.indexOf("app.get('/api/auth/google'")
+    );
+    expect(login).toMatch(guard);
+  });
+
+  it('refuses at social sign-in completion', () => {
+    expect(complete.length).toBeGreaterThan(200);
+    expect(complete).toMatch(guard);
+  });
+
+  // A check against a column the query never selected reads as "not expired"
+  // for everyone — passing tests, guard silently dead.
+  it('actually selects expires_at there, or the check is always false', () => {
+    expect(complete).toMatch(/SELECT[^`]*expires_at[^`]*FROM users WHERE id = \$1/);
+  });
+
+  it('blocks on every spending request, not just at login', () => {
+    const mw = readFileSync(path.join(here, 'middleware', 'auth.js'), 'utf8');
+    expect(mw).toMatch(/SELECT banned, expires_at/);
+    expect(mw).toMatch(guard);
+  });
+
+  // The reason expiry bites immediately instead of at the next sign-in: the
+  // row is re-read per request rather than trusted from the 7-day token.
+  it('re-reads the account rather than trusting the token', () => {
+    const mw = readFileSync(path.join(here, 'middleware', 'auth.js'), 'utf8');
+    expect(mw).toMatch(/FROM users WHERE id = \$1/);
+  });
+
+  // If a new generation route ships without this guard, an expired account
+  // could spend. Assert the gate on every route that charges.
+  it('guards every credit-spending route', () => {
+    const spending = [...source.matchAll(
+      /app\.(?:post|put)\('(\/api\/(?:generate[\w-]*|edit-video-omni|node\/run-[\w-]+))',([^)]*?)async/g
+    )];
+    expect(spending.length).toBeGreaterThanOrEqual(8);
+    for (const [, route, guards] of spending) {
+      expect(guards, `${route} is missing requireNotBanned`).toMatch(/requireNotBanned/);
+    }
+  });
+});
