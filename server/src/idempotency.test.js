@@ -269,6 +269,22 @@ describe('the guard is wired where it can actually run', () => {
     }
   });
 
+  // The bug that actually shipped to dev: the two housekeeping functions on
+  // the same 5-minute timer took their arguments in OPPOSITE orders, so the
+  // scheduler called sweep(26) and made 26 the pool. It failed silently into a
+  // log every five minutes — exactly the failure the Alerts work exists to end.
+  it('takes the same argument shape as its sibling sweeper', () => {
+    const idem = readFileSync(path.join(here, 'idempotency.js'), 'utf8');
+    const events = readFileSync(path.join(here, 'generation-events.js'), 'utf8');
+    expect(idem).toMatch(/export async function sweep\(hours = \d+, client = pool\)/);
+    expect(events).toMatch(/export async function sweepStale\(hours = \d+, client = pool\)/);
+  });
+
+  it('is called with hours, not a pool', () => {
+    expect(source).toMatch(/sweepIdempotency\(\d+\)/);
+    expect(source).not.toMatch(/sweepIdempotency\(pool/);
+  });
+
   it('runs after auth, so it always has a user to key on', () => {
     const m = source.match(/app\.post\('\/api\/generate',([^)]*)/);
     expect(m[1].indexOf('requireNotBanned')).toBeLessThan(m[1].indexOf('noDoubleCharge'));
