@@ -10,8 +10,49 @@
 
 import { describe, it, expect } from 'vitest';
 import {
-  verdict, confidenceOf, buildReport, summarise, MIN_ATTEMPTS, BANDS,
+  verdict, confidenceOf, buildReport, summarise, splitFailures, MIN_ATTEMPTS, BANDS,
 } from './reliability-engine.js';
+
+describe('never blaming a model for OUR empty account', () => {
+  // The first run of this report said "avoid live — Nano Banana Pro, 28.2%".
+  // But 1,234 platform failures came from fal and kie refusing because our own
+  // balance was exhausted, which fails whatever model happens to be running.
+  // Acting on that verdict would mean dropping the best image model from the
+  // syllabus over a billing problem.
+  it('subtracts account-dry failures from the model’s own count', () => {
+    const [r] = splitFailures([{ model: 'Nano Banana Pro', attempts: 3216, failures: 906, account_dry_failures: 870 }]);
+    expect(r.failures).toBe(36);
+    expect(r.account_dry_failures).toBe(870);
+    expect(r.total_failures).toBe(906);
+  });
+
+  it('changes the verdict from avoid to teach when the fault was ours', () => {
+    const rows = [{ model: 'Nano Banana Pro', attempts: 3216, failures: 906, account_dry_failures: 870 }];
+    expect(buildReport(rows)[0].verdict.key).toBe('teach');
+    // …and would have said otherwise without the split.
+    expect(verdict(3216, 906).key).toBe('avoid');
+  });
+
+  it('keeps the account-dry count visible rather than discarding it', () => {
+    const rep = buildReport([{ model: 'X', attempts: 100, failures: 40, account_dry_failures: 40 }]);
+    expect(rep[0].account_dry_failures).toBe(40);
+    expect(summarise(rep).account_dry_failures).toBe(40);
+  });
+
+  // A genuinely flaky model must still be caught.
+  it('still condemns a model that fails on its own account', () => {
+    const rep = buildReport([{ model: 'Kling 3.0 Omni', attempts: 86, failures: 27, account_dry_failures: 0 }]);
+    expect(rep[0].verdict.key).toBe('avoid');
+  });
+
+  it('never produces a negative count if the data disagrees', () => {
+    expect(splitFailures([{ attempts: 10, failures: 2, account_dry_failures: 5 }])[0].failures).toBe(0);
+  });
+
+  it('treats a missing account-dry count as zero, not as undefined', () => {
+    expect(splitFailures([{ model: 'X', attempts: 10, failures: 3 }])[0].failures).toBe(3);
+  });
+});
 
 describe('the verdict a workshop actually needs', () => {
   it('endorses a model that rarely fails', () => {

@@ -34,8 +34,13 @@ export function bySeverity(a, b) {
 // Read off 4,335 real refund rows on 2026-08-16. Order matters: "Credits
 // insufficient" from the PROVIDER means our account, and must never be
 // confused with a customer running out of voxel credits.
-const OUR_ACCOUNT_DRY =
-  /exhausted balance|credits? insufficient|user is locked|top ?up|insufficient balance|quota exceeded/i;
+// Exported as a plain string as well, because reliability-routes.js needs the
+// SAME test inside SQL. Two copies of this pattern would drift, and the day
+// they drift is the day a billing problem starts being reported as a model
+// quality problem. Postgres ARE (`~*`) understands this syntax as written.
+export const OUR_ACCOUNT_DRY_SOURCE =
+  'exhausted balance|credits? insufficient|user is locked|top ?up|insufficient balance|quota exceeded';
+const OUR_ACCOUNT_DRY = new RegExp(OUR_ACCOUNT_DRY_SOURCE, 'i');
 
 /**
  * Did this failure happen because OUR supplier account was empty or locked?

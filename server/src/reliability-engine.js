@@ -35,6 +35,9 @@ export function verdict(attempts, failures, { minAttempts = MIN_ATTEMPTS } = {})
     return { key: 'too_few', label: 'too few', tone: 'dim',
       note: `only ${attempts || 0} attempt(s) — not enough to judge` };
   }
+  // NOTE: `failures` here must already EXCLUDE failures caused by our own
+  // supplier account being empty. See splitFailures below — judging a model on
+  // those would be the difference between useful advice and harmful advice.
   const rate = (failures / attempts) * 100;
   if (rate < BANDS.GOOD) {
     return { key: 'teach', label: 'teach it', tone: 'ok', note: 'reliable enough for a live demo' };
@@ -66,20 +69,42 @@ export function confidenceOf(matchedFailures, totalFailuresInWindow) {
 }
 
 /**
+ * Separate "the model failed" from "our account was empty".
+ *
+ * THE MISTAKE THIS EXISTS TO PREVENT. The first run of this report said
+ * "avoid live — Nano Banana Pro, 28.2% failure". But 1,234 of the platform's
+ * failures came from fal and kie refusing because OUR OWN balance was
+ * exhausted — which fails whatever model happens to be running. Judging a
+ * model on those is not merely inaccurate; it is advice to stop teaching your
+ * best image model because of a billing problem.
+ *
+ * So the verdict is computed from model failures ONLY, and the account-dry
+ * count is shown separately — where it is a prompt to top up, not to change
+ * the syllabus.
+ */
+export function splitFailures(rows = []) {
+  return rows.map((r) => {
+    const ours = Number(r.account_dry_failures) || 0;
+    const total = Number(r.failures) || 0;
+    return { ...r, failures: Math.max(0, total - ours), account_dry_failures: ours, total_failures: total };
+  });
+}
+
+/**
  * Build the table the screen renders.
  *
- * `rows` are { model, kind, attempts, failures, credits } already aggregated.
- * `wastedUsd` needs a per-attempt supplier cost, which many models still lack —
- * so it is null rather than zero when unknown, for the same reason as the P&L:
- * a free-looking failure is a flattering lie.
+ * `rows` are { model, kind, attempts, failures, account_dry_failures } already
+ * aggregated. `wastedUsd` needs a per-attempt supplier cost, which many models
+ * still lack — so it is null rather than zero when unknown, for the same
+ * reason as the P&L: a free-looking failure is a flattering lie.
  */
 export function buildReport(rows = [], costIdx = new Map(), opts = {}) {
   const norm = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
-  const out = rows
+  const out = splitFailures(rows)
     .filter((r) => r.model && String(r.model).trim())
     .map((r) => {
       const attempts = Number(r.attempts) || 0;
-      const failures = Number(r.failures) || 0;
+      const failures = Number(r.failures) || 0;      // model's own failures
       const unit = costIdx.get(norm(r.model));
       const rate = attempts ? (failures / attempts) * 100 : null;
       return {
@@ -87,6 +112,10 @@ export function buildReport(rows = [], costIdx = new Map(), opts = {}) {
         kind: r.kind || null,
         attempts,
         failures,
+        // Shown in its own column: a prompt to top up, not to change the
+        // syllabus. Never folded into the verdict.
+        account_dry_failures: r.account_dry_failures,
+        total_failures: r.total_failures,
         rate_pct: attempts >= (opts.minAttempts ?? MIN_ATTEMPTS)
           ? Math.round(rate * 10) / 10
           : null,
@@ -113,6 +142,7 @@ export function summarise(report = []) {
   const avoid = judged.filter((r) => r.verdict.key === 'avoid');
   const attempts = report.reduce((s, r) => s + r.attempts, 0);
   const failures = report.reduce((s, r) => s + r.failures, 0);
+  const accountDry = report.reduce((s, r) => s + (r.account_dry_failures || 0), 0);
   const wasted = report.reduce((s, r) => s + (r.wasted_usd || 0), 0);
   return {
     models: report.length,
@@ -121,6 +151,11 @@ export function summarise(report = []) {
     worst: avoid[0]?.model || null,
     attempts,
     failures,
+    // Reported separately and prominently: this is the number that is fixable
+    // by topping up an account, and the only one that is nobody's model's
+    // fault. Rolling it into the headline rate hides a billing problem inside
+    // what looks like a quality problem.
+    account_dry_failures: accountDry,
     overall_rate_pct: attempts ? Math.round((failures / attempts) * 1000) / 10 : null,
     wasted_usd: Math.round(wasted * 100) / 100,
   };

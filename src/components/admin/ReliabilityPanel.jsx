@@ -91,6 +91,11 @@ export default function ReliabilityPanel({ onError }) {
             tone={s.overall_rate_pct === null ? '' : s.overall_rate_pct < 5 ? 'ok' : s.overall_rate_pct < 15 ? 'warn' : 'crit'} />
           <Card k="Avoid live" v={s.avoid_live} n={s.worst || 'none'}
             tone={s.avoid_live ? 'crit' : 'ok'} />
+          {/* Separated deliberately. This one is fixed by topping up an
+              account, not by changing what you teach. */}
+          <Card k="Your account was empty" v={(s.account_dry_failures || 0).toLocaleString()}
+            n={s.account_dry_failures ? 'not any model’s fault' : 'none'}
+            tone={s.account_dry_failures ? 'warn' : 'ok'} />
         </div>
       )}
 
@@ -106,8 +111,8 @@ export default function ReliabilityPanel({ onError }) {
         <div style={{ overflowX: 'auto' }}>
           <table style={table}>
             <thead>
-              <tr>{['Model', 'Type', 'Attempts', 'Failed', 'Rate', 'Wasted', 'Live demo?']
-                .map((h, i) => <th key={i} style={{ ...th, textAlign: i >= 2 && i <= 5 ? 'right' : 'left' }}>{h}</th>)}</tr>
+              <tr>{['Model', 'Type', 'Attempts', 'Model failed', 'Rate', 'Our account empty', 'Wasted', 'Live demo?']
+                .map((h, i) => <th key={i} style={{ ...th, textAlign: i >= 2 && i <= 6 ? 'right' : 'left' }}>{h}</th>)}</tr>
             </thead>
             <tbody>
               {rows.map((r) => {
@@ -123,6 +128,13 @@ export default function ReliabilityPanel({ onError }) {
                         ? <b style={{ color: t.fg }}>{r.rate_pct}%</b>
                         // Never a bare dash, and never 0% — both read as "perfect".
                         : <span style={{ fontSize: 11, color: 'var(--crm-w40)' }}>not enough data</span>}
+                    </td>
+                    <td style={{ ...td, textAlign: 'right' }}>
+                      {r.account_dry_failures
+                        ? <span style={{ color: 'var(--crm-amber)' }} title="Your supplier account was empty — not this model's fault, and excluded from the rate">
+                            {r.account_dry_failures.toLocaleString()}
+                          </span>
+                        : <span style={{ color: 'var(--crm-w40)' }}>—</span>}
                     </td>
                     <td style={{ ...td, textAlign: 'right' }}>
                       {r.wasted_usd !== null
@@ -146,6 +158,11 @@ export default function ReliabilityPanel({ onError }) {
           <b>“too few”</b> means fewer than {data.min_attempts} attempts — not that the model is
           unreliable, and not that it is perfect. A rate from a handful of tries is a guess wearing
           a number’s clothes, and this table decides what you demonstrate to a room.
+          <br />
+          <b>“Our account empty”</b> is failures where fal or kie refused because <b>your</b>
+          balance was exhausted — those fail whatever model is running, so they are excluded from
+          the rate and the verdict. The first version of this screen did not separate them and
+          told you to stop teaching Nano Banana Pro because of a billing problem.
           <br />
           <b>“Wasted”</b> is what the failures cost you in supplier fees. It reads “no cost on file”
           rather than $0.00 where the model’s supplier cost has not been entered yet.

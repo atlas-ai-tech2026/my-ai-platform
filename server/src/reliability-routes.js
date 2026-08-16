@@ -18,6 +18,10 @@
 
 import { buildReport, summarise, confidenceOf, MIN_ATTEMPTS } from './reliability-engine.js';
 import { costIndex } from './pnl-engine.js';
+// The SAME pattern the Alerts tab uses to spot "our supplier account is
+// empty". Imported rather than retyped: two copies would drift, and the day
+// they drift is the day a billing problem is reported as a model-quality one.
+import { OUR_ACCOUNT_DRY_SOURCE } from './alerts-engine.js';
 
 const WINDOW_DAYS = 30;
 
@@ -37,14 +41,15 @@ export function registerReliabilityRoutes(app, { pool, dbReady, adminGate }) {
                  AND created_at > NOW() - ($1 || ' days')::INTERVAL
                GROUP BY 1, 2),
             refunds AS (
-              SELECT r.user_id, r.amount, r.created_at
+              SELECT r.user_id, r.amount, r.created_at, r.reason
                 FROM credits_history r
                WHERE r.action = 'refund'
                  AND r.created_at > NOW() - ($1 || ' days')::INTERVAL),
             -- CROSS JOIN LATERAL, so a refund with no plausible spend simply
             -- drops out rather than being pinned on an arbitrary model.
             matched AS (
-              SELECT regexp_replace(m.reason, '^(image|video|audio): ', '') AS model
+              SELECT regexp_replace(m.reason, '^(image|video|audio): ', '') AS model,
+                     r.reason AS refund_reason
                 FROM refunds r
                 CROSS JOIN LATERAL (
                   SELECT h.reason
@@ -56,10 +61,19 @@ export function registerReliabilityRoutes(app, { pool, dbReady, adminGate }) {
                      AND ABS(h.amount) = ABS(r.amount)
                    ORDER BY h.created_at DESC
                    LIMIT 1) m),
-            fails AS (SELECT model, COUNT(*)::int AS failures FROM matched GROUP BY 1)
-           SELECT a.model, a.kind, a.attempts, COALESCE(f.failures, 0)::int AS failures
+            -- Split at the source. A failure caused by OUR account being empty
+            -- says nothing about the model — it fails whatever happens to be
+            -- running — so it must never reach the verdict.
+            fails AS (
+              SELECT model,
+                     COUNT(*)::int AS failures,
+                     COUNT(*) FILTER (WHERE refund_reason ~* $2)::int AS account_dry_failures
+                FROM matched GROUP BY 1)
+           SELECT a.model, a.kind, a.attempts,
+                  COALESCE(f.failures, 0)::int             AS failures,
+                  COALESCE(f.account_dry_failures, 0)::int AS account_dry_failures
              FROM attempts a LEFT JOIN fails f ON f.model = a.model
-            ORDER BY a.attempts DESC`, [days]),
+            ORDER BY a.attempts DESC`, [days, OUR_ACCOUNT_DRY_SOURCE]),
 
         // How much of the picture is inferred — the honesty figure.
         pool.query(
