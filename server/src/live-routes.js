@@ -25,8 +25,35 @@
 // Everyone was auto-refunded, so nothing surfaced it as a problem — it just
 // looked, from the room, like the platform did not work.
 
-const ACTIVE_WINDOW_MIN = 20;   // "here right now"
-const FAIL_WINDOW_MIN = 10;     // short enough to catch a fault as it starts
+// DEFAULTS, not fixed values. 20 minutes is the right default because during
+// a session "active" should mean RIGHT NOW — stretch it to an hour and it
+// counts people who left twenty minutes ago, which is precisely when you want
+// to notice the room going quiet. But slow video work can undercount at 20,
+// so the owner can widen it. The fail window stays short deliberately: a fault
+// smoothed over an hour is a fault you find out about too late.
+const DEFAULT_ACTIVE_WINDOW_MIN = 20;
+const FAIL_WINDOW_MIN = 10;
+const ALLOWED_WINDOWS = [20, 60, 180];
+
+/**
+ * Days that actually had a session, newest first.
+ *
+ * A threshold rather than "any activity at all": one person generating twice
+ * on a Tuesday is not a session, and offering it as one makes the list useless.
+ */
+async function recentSessions(pool, days = 90) {
+  const { rows } = await pool.query(
+    `SELECT to_char(date_trunc('day', created_at), 'YYYY-MM-DD') AS day,
+            COUNT(*)::int AS generations,
+            COUNT(DISTINCT user_id)::int AS people,
+            MAX(created_at) AS busiest_end
+       FROM credits_history
+      WHERE action = 'spend' AND created_at > NOW() - ($1 || ' days')::INTERVAL
+      GROUP BY 1
+     HAVING COUNT(*) >= 25
+      ORDER BY 1 DESC LIMIT 20`, [days]);
+  return rows;
+}
 
 /** The busiest hour in the recent past — the most interesting thing to replay. */
 async function busiestPast(pool, days = 45) {
@@ -45,16 +72,37 @@ export function registerLiveRoutes(app, { pool, dbReady, adminGate }) {
     try {
       // `replay` points the whole screen at a past moment. Explicit anchor
       // wins; otherwise the busiest hour we can find.
+      // Only the offered windows are accepted — an arbitrary number from a
+      // query string would quietly change what every figure on the screen
+      // means, with nothing on the page saying so.
+      const wantWindow = parseInt(req.query.window, 10);
+      const ACTIVE_WINDOW_MIN = ALLOWED_WINDOWS.includes(wantWindow)
+        ? wantWindow : DEFAULT_ACTIVE_WINDOW_MIN;
+
       let anchor = null;
       if (req.query.replay) {
-        anchor = req.query.at ? new Date(req.query.at) : await busiestPast(pool);
+        // A day picked from the list replays ITS busiest hour, not midnight —
+        // otherwise every session replays as empty.
+        if (req.query.day) {
+          const { rows } = await pool.query(
+            `SELECT date_trunc('hour', created_at) + INTERVAL '1 hour' AS anchor
+               FROM credits_history
+              WHERE action = 'spend' AND created_at::date = $1::date
+              GROUP BY 1 ORDER BY COUNT(*) DESC LIMIT 1`, [req.query.day]);
+          anchor = rows[0]?.anchor || null;
+        } else if (req.query.at) {
+          anchor = new Date(req.query.at);
+        } else {
+          anchor = await busiestPast(pool);
+        }
         if (anchor && Number.isNaN(anchor.getTime())) anchor = null;
         if (!anchor) {
           return res.json({ live: false, replay: true, no_history: true,
             active_window_min: ACTIVE_WINDOW_MIN, fail_window_min: FAIL_WINDOW_MIN,
             active_now: 0, generating_now: { n: 0, video: 0, image: 0 }, failed_recent: 0,
             generations_recent: 0, credits_per_min: 0, per_minute: [], top_models: [],
-            workshop: null, attention: [] });
+            workshop: null, attention: [], sessions: await recentSessions(pool),
+            allowed_windows: ALLOWED_WINDOWS });
         }
       }
       // One expression used everywhere below, so live and replay cannot drift
@@ -68,7 +116,7 @@ export function registerLiveRoutes(app, { pool, dbReady, adminGate }) {
         ? [ACTIVE_WINDOW_MIN, FAIL_WINDOW_MIN, anchor]
         : [ACTIVE_WINDOW_MIN, FAIL_WINDOW_MIN]);
 
-      const [pulse, generating, perMinute, byModel, cohort] = await Promise.all([
+      const [pulse, generating, perMinute, byModel, cohort, sessions] = await Promise.all([
         pool.query(
           `SELECT
              (SELECT COUNT(DISTINCT user_id)::int FROM credits_history
@@ -143,6 +191,10 @@ export function registerLiveRoutes(app, { pool, dbReady, adminGate }) {
             WHERE a.code IS NOT NULL
             GROUP BY a.code, w.title, w.seats
             ORDER BY 2 DESC LIMIT 1`, anchor ? [anchor] : []),
+
+        // Always returned, so the session picker is populated whether or not
+        // you are currently replaying.
+        recentSessions(pool),
       ]);
 
       const p = pulse.rows[0] || {};
@@ -193,6 +245,8 @@ export function registerLiveRoutes(app, { pool, dbReady, adminGate }) {
         top_models: byModel.rows,
         workshop: cohort.rows[0] || null,
         attention,
+        sessions,
+        allowed_windows: ALLOWED_WINDOWS,
       });
     } catch (err) {
       console.error('[live] failed:', err);

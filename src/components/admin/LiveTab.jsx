@@ -33,21 +33,26 @@ export default function LiveTab({ onError }) {
   // a screen labelled "8 August" that quietly refreshes to now would be the
   // worst of both, and you would not notice it had moved.
   const [replay, setReplay] = useState(false);
+  const [day, setDay] = useState('');        // '' = live, otherwise a past day
+  const [win, setWin] = useState(20);        // minutes counted as "active"
   const timer = useRef(null);
 
-  const load = useCallback(async (asReplay) => {
+  const load = useCallback(async (opts) => {
     try {
-      setData(await adminApi.live(asReplay));
+      setData(await adminApi.live(opts));
       setLastAt(new Date());
     } catch (e) { onError?.(e); }
   }, [onError]);
 
   useEffect(() => {
-    load(replay);
-    if (replay) return undefined;
-    timer.current = setInterval(() => load(false), REFRESH_MS);
+    const past = !!day || replay;
+    load({ replay: past, day: day || undefined, window: win });
+    // Polling only makes sense on the live view. Refreshing a screen labelled
+    // "5 August" would silently drag it to now.
+    if (past) return undefined;
+    timer.current = setInterval(() => load({ window: win }), REFRESH_MS);
     return () => clearInterval(timer.current);
-  }, [load, replay]);
+  }, [load, replay, day, win]);
 
   if (data === null) return <div style={{ color: 'var(--crm-w50)' }}>Reading activity…</div>;
 
@@ -71,9 +76,29 @@ export default function LiveTab({ onError }) {
             ? `showing ${new Date(data.replay_at).toLocaleString()} · not live`
             : `${lastAt ? `updated ${lastAt.toLocaleTimeString()}` : ''} · refreshes every 10s`}
         </span>
-        <button onClick={() => setReplay((r) => !r)} style={btn}>
-          {data.replay ? '← Back to live' : 'Show the last busy session'}
-        </button>
+        {/* Two filters, and both change what the numbers MEAN, so they sit
+            next to the numbers rather than hidden behind a menu. */}
+        <select value={win} onChange={(e) => setWin(Number(e.target.value))} style={sel}
+          title="How far back counts as “active”">
+          {(data.allowed_windows || [20, 60, 180]).map((m) => (
+            <option key={m} value={m}>{m < 60 ? `last ${m} min` : `last ${m / 60}h`}</option>
+          ))}
+        </select>
+        <select value={day} style={sel}
+          onChange={(e) => { setDay(e.target.value); setReplay(false); }}
+          title="Show a past session instead of right now">
+          <option value="">Live — right now</option>
+          {(data.sessions || []).map((s) => (
+            <option key={s.day} value={s.day}>
+              {s.day} · {s.generations.toLocaleString()} generations · {s.people} people
+            </option>
+          ))}
+        </select>
+        {!day && (
+          <button onClick={() => setReplay((r) => !r)} style={btn}>
+            {data.replay ? '← Back to live' : 'Busiest session'}
+          </button>
+        )}
       </div>
 
       {/* A replayed screen must never be mistaken for a live one. */}
@@ -103,8 +128,14 @@ export default function LiveTab({ onError }) {
       {data.live && (
         <>
           <div style={cards}>
-            <Card k="Active now" v={data.active_now}
-              n={w?.cohort_size ? `of ${w.cohort_size} in this cohort` : `generated in the last ${data.active_window_min} min`} />
+            {/* Renamed on the owner's point: it counts people who GENERATED,
+                not people signed in and watching. "Active now" overstated that
+                — in a room of 170 where 40 follow along without generating it
+                would read low against a label promising attendance. */}
+            <Card k="Generating recently" v={data.active_now}
+              n={w?.cohort_size
+                ? `of ${w.cohort_size} in this cohort · last ${data.active_window_min} min`
+                : `generated in the last ${data.active_window_min} min`} />
             <Card k="Generating" v={data.generating_now?.n ?? 0}
               n={`${data.generating_now?.video ?? 0} video · ${data.generating_now?.image ?? 0} image`} />
             <Card k={`Failed / ${data.fail_window_min} min`} v={data.failed_recent}
@@ -183,6 +214,11 @@ function Card({ k, v, n, tone }) {
   );
 }
 
+const sel = {
+  padding: '5px 9px', fontSize: 11.5, borderRadius: 8, fontFamily: 'inherit',
+  background: 'var(--crm-w06)', border: '1px solid var(--crm-w10)',
+  color: 'var(--crm-w85)', cursor: 'pointer',
+};
 const btn = {
   padding: '5px 11px', fontSize: 11.5, fontWeight: 600, borderRadius: 8,
   background: 'var(--crm-w06)', border: '1px solid var(--crm-w10)',

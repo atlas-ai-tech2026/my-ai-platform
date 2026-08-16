@@ -195,7 +195,13 @@ export const adminApi = {
   // `replay` points the same screen at the busiest past hour — the only way
   // to see it populated when nothing is running, and the natural way to
   // review how a finished workshop actually went.
-  live:            (replay = false) => request('GET', `/api/admin/live${replay ? '?replay=1' : ''}`),
+  live:            (opts = {}) => {
+    const q = new URLSearchParams();
+    if (opts.replay) q.set('replay', '1');
+    if (opts.day) { q.set('replay', '1'); q.set('day', opts.day); }
+    if (opts.window) q.set('window', String(opts.window));
+    return request('GET', `/api/admin/live${q.toString() ? `?${q}` : ''}`);
+  },
 
   // ─── Offers (2026-08-07) ──────────────────────────────────────────
   // Promotions with margin impact from the Costing engine. Like costing,

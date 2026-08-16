@@ -33,6 +33,8 @@ const RUNNING = {
   per_minute: [{ minute: '10:04', n: 12 }, { minute: '10:05', n: 31 }],
   top_models: [{ model: 'Kling 3.0', attempts: 44 }],
   workshop: { code: 'VOXEL-7UMD-Z66C', title: 'Riyadh · August', cohort_size: 169, active: 143 },
+  allowed_windows: [20, 60, 180],
+  sessions: [{ day: '2026-08-05', generations: 2391, people: 160 }],
   attention: [
     { severity: 'warn', title: '6 failure(s) in the last 10 minutes',
       detail: 'Most activity is on Kling 3.0. If failures cluster there, switch the demo.' },
@@ -44,6 +46,8 @@ const QUIET = {
   active_now: 0, generating_now: { n: 0, video: 0, image: 0 }, failed_recent: 0,
   generations_recent: 0, credits_per_min: 0, per_minute: [], top_models: [],
   workshop: null, attention: [],
+  allowed_windows: [20, 60, 180],
+  sessions: [{ day: '2026-08-05', generations: 2391, people: 160 }],
 };
 
 beforeEach(() => { vi.useFakeTimers({ shouldAdvanceTime: true }); live.mockReset(); });
@@ -68,7 +72,7 @@ describe('a quiet platform must not look like a broken one', () => {
     live.mockResolvedValue(QUIET);
     render(<LiveTab onError={vi.fn()} />);
     await screen.findByText('Nothing running');
-    expect(screen.queryByText('Active now')).toBeNull();
+    expect(screen.queryByText('Generating recently')).toBeNull();
     expect(screen.queryByText('Credits / min')).toBeNull();
   });
 });
@@ -91,10 +95,23 @@ describe('during a session', () => {
     expect(screen.getByText(/≈ \$7\.47\/min/)).toBeInTheDocument();
   });
 
-  it('puts active attendance against the size of the cohort', async () => {
+  it('puts activity against the size of the cohort, and names the window', async () => {
     live.mockResolvedValue(RUNNING);
     render(<LiveTab onError={vi.fn()} />);
-    await waitFor(() => expect(screen.getByText('of 169 in this cohort')).toBeInTheDocument());
+    // The window is stated beside the number because the number's MEANING
+    // changes with it — 143 over 20 minutes is not 143 over three hours.
+    await waitFor(() =>
+      expect(screen.getByText(/of 169 in this cohort · last 20 min/)).toBeInTheDocument());
+  });
+
+  // The label was "Active now", which promised attendance and delivered
+  // something narrower: people who generated. In a room of 170 where 40 follow
+  // along without generating, it read low against a label that said otherwise.
+  it('says what it actually counts — generating, not merely present', async () => {
+    live.mockResolvedValue(RUNNING);
+    render(<LiveTab onError={vi.fn()} />);
+    expect(await screen.findByText('Generating recently')).toBeInTheDocument();
+    expect(screen.queryByText('Active now')).toBeNull();
   });
 
   // A list of things needing a DECISION, not a list of facts.
@@ -152,7 +169,7 @@ describe('replay — seeing the screen when nothing is running', () => {
   it('offers a way to see a past session when the platform is quiet', async () => {
     live.mockResolvedValue(QUIET);
     render(<LiveTab onError={vi.fn()} />);
-    expect(await screen.findByText('Show the last busy session')).toBeInTheDocument();
+    expect(await screen.findByText('Busiest session')).toBeInTheDocument();
   });
 
   // The dangerous confusion: a screen showing 5 August that looks live.
@@ -170,9 +187,9 @@ describe('replay — seeing the screen when nothing is running', () => {
   it('stops polling while replaying', async () => {
     live.mockResolvedValue(QUIET);
     render(<LiveTab onError={vi.fn()} />);
-    await screen.findByText('Show the last busy session');
+    await screen.findByText('Busiest session');
     live.mockResolvedValue(REPLAYED);
-    await userEvent.click(screen.getByText('Show the last busy session'));
+    await userEvent.click(screen.getByText('Busiest session'));
     await screen.findByText(/Replay — this is not live/);
     const callsAfterSwitch = live.mock.calls.length;
     await act(async () => { await vi.advanceTimersByTimeAsync(30000); });
