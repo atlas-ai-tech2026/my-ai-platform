@@ -109,13 +109,22 @@ export async function persist(pool, alerts, { now = new Date() } = {}) {
   // Anything previously open that no longer fires has fixed itself. Kept, not
   // deleted — "it resolved on its own" is information, and a condition that
   // keeps returning is a pattern worth being able to see.
+  //
+  // Two things this statement got wrong the first time, both invisible to the
+  // unit tests and both immediate on real Postgres:
+  //   · the "nothing firing" branch still referenced $2 while binding one
+  //     parameter, so a HEALTHY system threw on every pass — the failure mode
+  //     you would notice last;
+  //   · `key = ANY($1)` with a JS array has no inferable type. The cast is
+  //     required, not decorative.
+  // Kept as ONE statement with a constant parameter list so the two branches
+  // cannot drift apart again.
   const resolved = await pool.query(
-    seen.size
-      ? `UPDATE alerts SET status='resolved', resolved_at=$2
-          WHERE status <> 'resolved' AND NOT (key = ANY($1)) RETURNING key`
-      : `UPDATE alerts SET status='resolved', resolved_at=$2
-          WHERE status <> 'resolved' RETURNING key`,
-    seen.size ? [[...seen], now] : [now]);
+    `UPDATE alerts SET status = 'resolved', resolved_at = $2
+      WHERE status <> 'resolved'
+        AND NOT (key = ANY($1::text[]))
+      RETURNING key`,
+    [[...seen], now]);
   return { opened, resolved: resolved.rows.map((r) => r.key) };
 }
 
@@ -140,7 +149,12 @@ export async function notify(pool, opened, settings, { send = sendEmail, now = n
       ctaUrl: `${(env.PUBLIC_BASE_URL || 'https://voxel-ai.ai').replace(/\/+$/, '')}/x7k9-control-panel-mh2024`,
       footerNote: 'You are receiving this because alert emails are switched on in the control panel.',
     }, { env });
-    await pool.query(`UPDATE alerts SET notified_at = $2 WHERE id = ANY($1)`, [due.map((a) => a.id), now]);
+    // ::bigint[] for the same reason as the resolve statement — an untyped JS
+    // array gives Postgres nothing to infer from. This one would only have
+    // thrown on the path that matters most: when an alert actually emails.
+    await pool.query(
+      `UPDATE alerts SET notified_at = $2 WHERE id = ANY($1::bigint[])`,
+      [due.map((a) => a.id), now]);
     return { sent: due.length, skipped: opened.length - due.length };
   } catch (e) {
     // A mailer failure must never take the check down — the alert is already
