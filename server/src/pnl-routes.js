@@ -12,21 +12,39 @@
 
 import { costIndex, attributeCost, workshopPnl, summarise } from './pnl-engine.js';
 
-/** Spend per model for everyone who redeemed a given code. */
+/**
+ * Spend per model, attributed to ONE workshop per generation.
+ *
+ * The naive version — "everyone who redeemed this code" — double counts. 194
+ * people hold 461 redemptions between them, so anyone who redeemed two codes
+ * had their spend charged against both workshops. Summing the seven August
+ * cohorts that way produced $5,247 of supplier cost for a fortnight in which
+ * the whole platform only spent $2,040: an impossible number that would have
+ * made every workshop look unprofitable.
+ *
+ * So each generation is attributed to the code the user had redeemed MOST
+ * RECENTLY BEFORE it. Someone who genuinely attended two workshops has their
+ * early work counted against the first and their later work against the
+ * second, and no credit is ever counted twice.
+ */
 async function cohortSpend(pool, code) {
   const { rows } = await pool.query(
-    `WITH cohort AS (
-        SELECT DISTINCT r.user_id
-          FROM promo_redemptions r
-          JOIN promo_codes p ON p.id = r.code_id
-         WHERE upper(p.code) = upper($1))
-     SELECT regexp_replace(h.reason, '^(image|video|audio): ', '') AS model,
-            ABS(SUM(h.amount))::numeric AS credits,
-            COUNT(*)::int              AS uses
-       FROM credits_history h
-      WHERE h.action = 'spend'
-        AND h.reason IS NOT NULL
-        AND h.user_id IN (SELECT user_id FROM cohort)
+    `WITH attributed AS (
+        SELECT h.reason, h.amount,
+               (SELECT upper(p.code)
+                  FROM promo_redemptions r
+                  JOIN promo_codes p ON p.id = r.code_id
+                 WHERE r.user_id = h.user_id
+                   AND r.created_at <= h.created_at
+                 ORDER BY r.created_at DESC
+                 LIMIT 1) AS code
+          FROM credits_history h
+         WHERE h.action = 'spend' AND h.reason IS NOT NULL)
+     SELECT regexp_replace(reason, '^(image|video|audio): ', '') AS model,
+            ABS(SUM(amount))::numeric AS credits,
+            COUNT(*)::int             AS uses
+       FROM attributed
+      WHERE code = upper($1)
       GROUP BY 1
       ORDER BY 2 DESC`, [code]);
   return rows;

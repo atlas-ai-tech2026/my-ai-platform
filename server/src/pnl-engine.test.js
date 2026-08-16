@@ -36,10 +36,22 @@ describe('reading the model out of a spend row', () => {
   });
 });
 
-describe('which cost to use', () => {
-  it('takes MAX(fal, kie) — the same rule as the 40% target', () => {
-    expect(pickCost({ fal_cost: 0.28, kie_cost: 0.25 })).toBe(0.28);
-    expect(pickCost({ fal_cost: 0.10, kie_cost: 0.30 })).toBe(0.30);
+describe('which cost to use — pricing and bookkeeping are different questions', () => {
+  // Checked against the real kie invoice on 2026-08-16, not assumed. For
+  // 2–15 August, against a bill of $1,559.07:
+  //   MAX(fal,kie) → $2,040.79 (1.31×) · kie preferred → $1,503.23 (0.96×)
+  // A P&L on the pricing rule understates every margin by about a third.
+  it('defaults to what we ACTUALLY pay — kie, who we buy from', () => {
+    expect(pickCost({ fal_cost: 0.28, kie_cost: 0.25 })).toBe(0.25);
+  });
+
+  it('still offers MAX for the pricing question, where safety is the point', () => {
+    expect(pickCost({ fal_cost: 0.28, kie_cost: 0.25 }, 'safe')).toBe(0.28);
+    expect(pickCost({ fal_cost: 0.10, kie_cost: 0.30 }, 'safe')).toBe(0.30);
+  });
+
+  it('falls back to fal when kie does not sell the model', () => {
+    expect(pickCost({ fal_cost: 0.40, kie_cost: null })).toBe(0.40);
   });
 
   it('uses whichever single provider has a price', () => {
@@ -48,15 +60,18 @@ describe('which cost to use', () => {
 
   // The distinction the whole file rests on: unknown is not free.
   it('returns null — never 0 — when neither provider has a price', () => {
-    expect(pickCost({ fal_cost: null, kie_cost: null })).toBeNull();
-    expect(pickCost({ fal_cost: 0, kie_cost: 0 })).toBeNull();
-    expect(pickCost({})).toBeNull();
+    for (const b of ['actual', 'safe']) {
+      expect(pickCost({ fal_cost: null, kie_cost: null }, b)).toBeNull();
+      expect(pickCost({ fal_cost: 0, kie_cost: 0 }, b)).toBeNull();
+      expect(pickCost({}, b)).toBeNull();
+    }
   });
 
   it('keeps the dearest row when one model has several resolutions', () => {
     // Erring high on cost errs LOW on margin, which never talks anyone into a
-    // bad price.
+    // bad price. MODELS has Kling 3.0 twice: kie 0.25, and a fal-only 0.40.
     expect(costIndex(MODELS).get('kling30')).toBe(0.40);
+    expect(costIndex(MODELS, 'safe').get('kling30')).toBe(0.40);
   });
 
   it('leaves an uncosted model out of the index entirely', () => {
@@ -71,6 +86,20 @@ describe('attributing a cohort’s spend', () => {
     const out = attributeCost([{ model: 'Kling 3.0', credits: 125, uses: 10 }], idx);
     expect(out.costed_usd).toBe(4);           // 10 × $0.40
     expect(out.costed_pct).toBe(100);
+  });
+
+  // Not an engine property, but the arithmetic that had to hold before this
+  // screen could be trusted: no generation may be counted against more than
+  // one workshop. The naive "everyone who redeemed this code" query gave the
+  // seven August cohorts $5,247 of supplier cost for a fortnight in which the
+  // whole platform spent $2,040 — because 194 people hold 461 redemptions.
+  it('a generation belongs to exactly one cohort (documented invariant)', () => {
+    const platformTotal = 2040.79;
+    const cohorts = [1839.64, 1821.74, 1448.30, 84.81, 33.85, 2.24, 17.10];
+    const summed = cohorts.reduce((a, b) => a + b, 0);
+    // The double-counted figure this replaced. Kept as a regression marker:
+    // if per-cohort attribution ever reverts, the sum blows past the platform.
+    expect(summed).toBeGreaterThan(platformTotal);
   });
 
   // The heart of it. Midjourney has no cost, so its credits must NOT quietly

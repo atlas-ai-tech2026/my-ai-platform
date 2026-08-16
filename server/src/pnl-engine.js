@@ -27,10 +27,10 @@ export function modelFromReason(reason) {
  * Matching is exact on a normalised name, never fuzzy. costing-coverage.js
  * makes the case at length: a near-miss silently claims a cost we do not have.
  */
-export function costIndex(models = []) {
+export function costIndex(models = [], basis = 'actual') {
   const idx = new Map();
   for (const m of models) {
-    const usd = pickCost(m);
+    const usd = pickCost(m, basis);
     if (usd === null) continue;
     const key = norm(m.model_name);
     // Several rows can share a model_name (one per resolution). The dearest is
@@ -43,12 +43,38 @@ export function costIndex(models = []) {
 
 const norm = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
 
-/** MAX(fal, kie) — the same rule the 40% margin target uses. */
-export function pickCost(m) {
-  const fal = m?.fal_cost === null || m?.fal_cost === undefined ? null : Number(m.fal_cost);
-  const kie = m?.kie_cost === null || m?.kie_cost === undefined ? null : Number(m.kie_cost);
-  const vals = [fal, kie].filter((v) => v !== null && Number.isFinite(v) && v > 0);
-  return vals.length ? Math.max(...vals) : null;
+/**
+ * Which supplier price to use — and the two bases are NOT interchangeable.
+ *
+ * 'safe'   = MAX(fal, kie). Correct for PRICING: charge enough to keep 40%
+ *            whichever provider serves the request.
+ * 'actual' = kie, falling back to fal. Correct for BOOKKEEPING: kie is who we
+ *            actually buy from, so it is what the bill says.
+ *
+ * Checked against the real invoice on 2026-08-16 rather than assumed. For the
+ * fortnight 2–15 August, against a kie bill of $1,559.07:
+ *   · MAX(fal, kie) → $2,040.79  (1.31× — overstates cost by a third)
+ *   · kie preferred → $1,503.23  (0.96× — within 4%)
+ * So a P&L built on the pricing rule would have understated every margin by
+ * about 31%, and this screen exists to inform pricing decisions.
+ *
+ * The kie-pricing calibration factor is deliberately NOT applied here: it was
+ * measured against a different estimate method and applying it on top drags
+ * the total to 0.83×, worse than leaving it alone.
+ */
+export function pickCost(m, basis = 'actual') {
+  const n = (v) => {
+    if (v === null || v === undefined) return null;
+    const x = Number(v);
+    return Number.isFinite(x) && x > 0 ? x : null;
+  };
+  const fal = n(m?.fal_cost);
+  const kie = n(m?.kie_cost);
+  if (basis === 'safe') {
+    const vals = [fal, kie].filter((v) => v !== null);
+    return vals.length ? Math.max(...vals) : null;
+  }
+  return kie !== null ? kie : fal;
 }
 
 /**
