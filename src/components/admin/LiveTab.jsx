@@ -29,20 +29,25 @@ const TONE = {
 export default function LiveTab({ onError }) {
   const [data, setData] = useState(null);
   const [lastAt, setLastAt] = useState(null);
+  // Replay points the same screen at a past session. Polling STOPS in replay —
+  // a screen labelled "8 August" that quietly refreshes to now would be the
+  // worst of both, and you would not notice it had moved.
+  const [replay, setReplay] = useState(false);
   const timer = useRef(null);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (asReplay) => {
     try {
-      setData(await adminApi.live());
+      setData(await adminApi.live(asReplay));
       setLastAt(new Date());
     } catch (e) { onError?.(e); }
   }, [onError]);
 
   useEffect(() => {
-    load();
-    timer.current = setInterval(load, REFRESH_MS);
+    load(replay);
+    if (replay) return undefined;
+    timer.current = setInterval(() => load(false), REFRESH_MS);
     return () => clearInterval(timer.current);
-  }, [load]);
+  }, [load, replay]);
 
   if (data === null) return <div style={{ color: 'var(--crm-w50)' }}>Reading activity…</div>;
 
@@ -62,12 +67,32 @@ export default function LiveTab({ onError }) {
             : 'Nothing running'}
         </h2>
         <span style={{ marginLeft: 'auto', fontSize: 11.5, color: 'var(--crm-w45)' }}>
-          {lastAt ? `updated ${lastAt.toLocaleTimeString()}` : ''} · refreshes every 10s
+          {data.replay
+            ? `showing ${new Date(data.replay_at).toLocaleString()} · not live`
+            : `${lastAt ? `updated ${lastAt.toLocaleTimeString()}` : ''} · refreshes every 10s`}
         </span>
+        <button onClick={() => setReplay((r) => !r)} style={btn}>
+          {data.replay ? '← Back to live' : 'Show the last busy session'}
+        </button>
       </div>
 
+      {/* A replayed screen must never be mistaken for a live one. */}
+      {data.replay && !data.no_history && (
+        <div style={{ ...box, borderColor: 'var(--crm-amber-br)', background: 'var(--crm-amber-bg)',
+          color: 'var(--crm-amber)', marginBottom: 12, fontSize: 12.5 }}>
+          <b>Replay — this is not live.</b> Showing the busiest hour on record, as the screen would
+          have looked at <b>{new Date(data.replay_at).toLocaleString()}</b>. Refreshing is paused.
+        </div>
+      )}
+
+      {data.replay && data.no_history && (
+        <div style={{ ...box, color: 'var(--crm-w55)', marginBottom: 12 }}>
+          Nothing to replay — no generations recorded in the last 45 days.
+        </div>
+      )}
+
       {/* Quiet must look quiet, not broken. */}
-      {!data.live && (
+      {!data.live && !data.replay && (
         <div style={{ ...box, color: 'var(--crm-w55)', lineHeight: 1.6 }}>
           <b style={{ color: 'var(--crm-ink)' }}>No generations in the last {data.active_window_min} minutes.</b>
           {' '}That is not a fault — it is what a quiet platform looks like. This screen fills in on
@@ -158,6 +183,11 @@ function Card({ k, v, n, tone }) {
   );
 }
 
+const btn = {
+  padding: '5px 11px', fontSize: 11.5, fontWeight: 600, borderRadius: 8,
+  background: 'var(--crm-w06)', border: '1px solid var(--crm-w10)',
+  color: 'var(--crm-w85)', cursor: 'pointer', fontFamily: 'inherit',
+};
 const box = {
   background: 'var(--crm-w03)', border: '1px solid var(--crm-w08)',
   borderRadius: 10, padding: '12px 14px',

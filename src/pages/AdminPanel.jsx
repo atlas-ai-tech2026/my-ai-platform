@@ -29,30 +29,48 @@ const PAGE_SIZE = 50;
 
 // kie.ai-style sections: Users (the original CRM), API Usage (aggregates +
 // kie balance), Logs (per-transaction ledger with voxel + KIE credits).
+// Every tab carries a one-line `desc`, shown under the tab bar the moment it
+// is opened. Twelve tabs had accumulated with nothing saying what any of them
+// was for — obvious to whoever built them, opaque to anyone else, and to the
+// owner after a month away. The descriptions say what the screen is FOR, and
+// where two screens sound alike (Costing vs Offers, Logs vs API Usage) they
+// say what the difference is, because that is the actually confusing part.
 const TABS = [
   // FIRST on purpose. Every other tab answers a question you thought to ask;
   // this one is the only screen that speaks first. It exists because a kie
   // balance check ran hourly into console.error while 415 generations failed
   // mid-workshop on 8 August — the system knew and had nowhere to say it.
-  { id: 'alerts', label: 'Alerts' },
+  { id: 'alerts', label: 'Alerts',
+    desc: 'What needs your attention right now — supplier balance running low, charges taken with nothing delivered, failure spikes. This is the only screen that speaks first; every other tab waits to be asked. Anything serious also emails you once.' },
   // Tier 2.1 — for use DURING a session, not after it. Second only to
   // Alerts because it is the other screen you open without being asked to.
-  { id: 'live', label: 'Live' },
-  { id: 'users', label: 'Users' },
-  { id: 'usage', label: 'API Usage' },
-  { id: 'logs',  label: 'Logs' },
-  { id: 'promos', label: 'Promo Codes' },
-  { id: 'gifts',  label: 'Gift Cards' },
-  { id: 'bulk',   label: 'Bulk' },
+  { id: 'live', label: 'Live',
+    desc: 'For while a workshop is actually running. Who is generating right now, what is failing in the last ten minutes, and what it is costing per minute. Refreshes itself every 10 seconds — do not reload it.' },
+  { id: 'users', label: 'Users',
+    desc: 'Every customer. Search, grant or remove credits, ban, reset a password. "Details" opens one person’s full story — every generation, whether it worked, and what they were charged.' },
+  { id: 'usage', label: 'API Usage',
+    desc: 'What you are spending with kie.ai: totals, your remaining balance, and which models consumed it. Money OUT to your supplier — as opposed to Logs, which is credits moving between you and customers.' },
+  { id: 'logs',  label: 'Logs',
+    desc: 'Every credit transaction, newest first — spends, refunds, grants, promo redemptions. The raw ledger everything else on this panel is calculated from.' },
+  { id: 'promos', label: 'Promo Codes',
+    desc: 'The access codes you hand out at workshops. Create them, see who redeemed each one, set how long the code can be used and how long access lasts afterwards.' },
+  { id: 'gifts',  label: 'Gift Cards',
+    desc: 'Prepaid credit codes, redeemed once each. Unlike promo codes these carry a credit value rather than granting access to a workshop cohort.' },
+  { id: 'bulk',   label: 'Bulk',
+    desc: 'Create many accounts at once before a workshop, and close their access when it ends. The expiry switch here excludes admins and can be reversed in one click.' },
   // N1: 2FA enrolment had no screen anywhere — the server side shipped with H5.
-  { id: 'security', label: 'Security' },
+  { id: 'security', label: 'Security',
+    desc: 'Your own admin account: two-factor authentication, recovery codes, and recent sign-ins. Nothing here affects customers.' },
   // Costing calculator — works out what prices SHOULD be. It does not charge
   // anybody; pricing.js remains the charging authority (finding C1).
-  { id: 'costing', label: 'Costing' },
+  { id: 'costing', label: 'Costing',
+    desc: 'What each model costs you and what it should sell for at your margin target — plus workshop profit and which models are reliable enough to demonstrate live. A CALCULATOR: nothing here changes what customers are charged until you deliberately carry a number across.' },
   // Offers — promotions priced against the Costing engine's margin target.
-  { id: 'offers', label: 'Offers' },
+  { id: 'offers', label: 'Offers',
+    desc: 'Discounts and bonus-credit promotions, each priced against the margin target from Costing so you can see what it costs before approving it.' },
   // Notifications — manual messages + automatic rules, in-app bell only.
-  { id: 'notifications', label: 'Notifications' },
+  { id: 'notifications', label: 'Notifications',
+    desc: 'Messages to customers — one-off announcements and automatic rules such as "credits running low". In-app only for now; email campaigns are deliberately switched off.' },
 ];
 
 export default function AdminPanel() {
@@ -227,6 +245,17 @@ export default function AdminPanel() {
             </button>
           ))}
         </div>
+
+        {/* What this tab is FOR, in one line, right where you land. Twelve
+            tabs had accumulated with nothing explaining any of them — obvious
+            to whoever built them, opaque to anyone else and to the owner after
+            a month away. */}
+        <p style={{
+          margin: '12px 0 18px', maxWidth: '92ch', fontSize: 13, lineHeight: 1.65,
+          color: 'var(--crm-w55)', fontFamily: 'inherit',
+        }}>
+          {TABS.find(t => t.id === tab)?.desc}
+        </p>
 
         {tab === 'usage' && <UsageTab onError={handleError} />}
         {tab === 'logs' && <LogsTab onError={handleError} />}

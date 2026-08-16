@@ -14,6 +14,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor, act } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import LiveTab from './LiveTab';
 
 const live = vi.fn();
@@ -142,5 +143,58 @@ describe('it keeps itself current', () => {
     live.mockRejectedValue(new Error('boom'));
     render(<LiveTab onError={onError} />);
     await waitFor(() => expect(onError).toHaveBeenCalled());
+  });
+});
+
+describe('replay — seeing the screen when nothing is running', () => {
+  const REPLAYED = { ...RUNNING, replay: true, replay_at: '2026-08-05T14:00:00Z' };
+
+  it('offers a way to see a past session when the platform is quiet', async () => {
+    live.mockResolvedValue(QUIET);
+    render(<LiveTab onError={vi.fn()} />);
+    expect(await screen.findByText('Show the last busy session')).toBeInTheDocument();
+  });
+
+  // The dangerous confusion: a screen showing 5 August that looks live.
+  it('says loudly that a replay is NOT live', async () => {
+    live.mockResolvedValue(REPLAYED);
+    render(<LiveTab onError={vi.fn()} />);
+    await waitFor(() => expect(screen.getByText(/Replay — this is not live/)).toBeInTheDocument());
+    // Said in two places on purpose: the banner and the header timestamp.
+    // Whichever one you glance at, it should be unmistakable.
+    expect(screen.getAllByText(/not live/).length).toBeGreaterThanOrEqual(2);
+  });
+
+  // Auto-refreshing a screen labelled "5 August" would silently drag it to
+  // now, and you would not notice it had moved.
+  it('stops polling while replaying', async () => {
+    live.mockResolvedValue(QUIET);
+    render(<LiveTab onError={vi.fn()} />);
+    await screen.findByText('Show the last busy session');
+    live.mockResolvedValue(REPLAYED);
+    await userEvent.click(screen.getByText('Show the last busy session'));
+    await screen.findByText(/Replay — this is not live/);
+    const callsAfterSwitch = live.mock.calls.length;
+    await act(async () => { await vi.advanceTimersByTimeAsync(30000); });
+    expect(live).toHaveBeenCalledTimes(callsAfterSwitch);
+  });
+
+  it('offers the way back', async () => {
+    live.mockResolvedValue(REPLAYED);
+    render(<LiveTab onError={vi.fn()} />);
+    expect(await screen.findByText('← Back to live')).toBeInTheDocument();
+  });
+
+  it('says plainly when there is nothing to replay', async () => {
+    live.mockResolvedValue({ ...QUIET, replay: true, no_history: true, replay_at: null });
+    render(<LiveTab onError={vi.fn()} />);
+    await waitFor(() => expect(screen.getByText(/Nothing to replay/)).toBeInTheDocument());
+  });
+
+  it('does not show the quiet-platform notice while replaying', async () => {
+    live.mockResolvedValue(REPLAYED);
+    render(<LiveTab onError={vi.fn()} />);
+    await screen.findByText(/Replay — this is not live/);
+    expect(screen.queryByText(/That is not a fault/)).toBeNull();
   });
 });

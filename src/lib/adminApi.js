@@ -192,7 +192,10 @@ export const adminApi = {
   // ─── Live monitor (Tier 2.1, 2026-08-16) ──────────────────────────
   // What is happening RIGHT NOW, for use during a session. Short absolute
   // windows, never rolling averages — a fault four minutes old matters.
-  live:            ()            => request('GET', '/api/admin/live'),
+  // `replay` points the same screen at the busiest past hour — the only way
+  // to see it populated when nothing is running, and the natural way to
+  // review how a finished workshop actually went.
+  live:            (replay = false) => request('GET', `/api/admin/live${replay ? '?replay=1' : ''}`),
 
   // ─── Offers (2026-08-07) ──────────────────────────────────────────
   // Promotions with margin impact from the Costing engine. Like costing,

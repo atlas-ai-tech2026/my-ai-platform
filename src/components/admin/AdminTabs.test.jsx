@@ -1,4 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import { render, screen, waitFor } from '@testing-library/react';
 import LogsTab from './LogsTab';
 import UsageTab from './UsageTab';
@@ -47,5 +49,49 @@ describe('UsageTab', () => {
     expect(screen.getByText('video: Kling 3.0')).toBeInTheDocument();
     // stat card + table column header both say "Generations"
     expect(screen.getAllByText('Generations').length).toBe(2);
+  });
+});
+
+// ─── tab descriptions (2026-08-16) ───────────────────────────────────────────
+// Twelve tabs had accumulated with nothing saying what any of them was for.
+// Obvious to whoever built them; opaque to anyone else, and to the owner after
+// a month away. Each tab now carries a one-line description shown the moment
+// it opens.
+describe('every tab explains itself', () => {
+  const source = readFileSync(
+    path.join(process.cwd(), 'src/pages/AdminPanel.jsx'), 'utf8');
+
+  // \s+ because several entries are column-aligned with extra spaces — a
+  // single-space regex silently found 9 of 12 and would have "passed" while
+  // three tabs went unchecked.
+  const tabIds = [...source.matchAll(/\{\s*id:\s*'([a-z]+)',\s+label:\s*'[^']+',/g)].map((m) => m[1]);
+  const descs = [...source.matchAll(/desc: '((?:[^'\\]|\\.)+)'/g)].map((m) => m[1]);
+
+  it('found the tabs', () => {
+    expect(tabIds.length).toBeGreaterThanOrEqual(12);
+  });
+
+  it('gives every single one a description — no tab left unexplained', () => {
+    expect(descs.length).toBe(tabIds.length);
+  });
+
+  it('renders the description of whichever tab is open', () => {
+    expect(source).toMatch(/TABS\.find\(t => t\.id === tab\)\?\.desc/);
+  });
+
+  // A label restated as a sentence teaches nothing. Each should say what the
+  // screen is FOR.
+  it('writes something longer than a restated label', () => {
+    for (const d of descs) expect(d.length).toBeGreaterThan(60);
+  });
+
+  // The genuinely confusing pairs. Costing and Offers both talk about margin;
+  // Logs and API Usage both look like "money". Saying what the DIFFERENCE is
+  // is the part that actually helps.
+  it('distinguishes the screens that sound alike', () => {
+    const usage = descs.find((d) => /kie\.ai/.test(d));
+    expect(usage).toMatch(/as opposed to Logs/);
+    const costing = descs.find((d) => /CALCULATOR/.test(d));
+    expect(costing).toMatch(/nothing here changes what customers are charged/);
   });
 });
