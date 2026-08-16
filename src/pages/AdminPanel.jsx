@@ -21,6 +21,7 @@ import CostingTab from '@/components/admin/CostingTab';
 import OffersTab from '@/components/admin/OffersTab';
 import NotificationsTab from '@/components/admin/NotificationsTab';
 import AlertsTab from '@/components/admin/AlertsTab';
+import CustomerPanel from '@/components/admin/CustomerPanel';
 import { ThemedToaster } from '@/components/admin/crmTheme';
 
 const PAGE_SIZE = 50;
@@ -62,6 +63,10 @@ export default function AdminPanel() {
   // Credits / ban modal
   const [pendingAction, setPendingAction] = useState(null); // { action, user }
   const [historyFor, setHistoryFor] = useState(null);       // user
+  // Tier 2.2 — the whole person on one screen, with each charge paired to
+  // its outcome. The history modal shows the raw ledger; this answers
+  // "my video didn't work" without you reading it.
+  const [customerFor, setCustomerFor] = useState(null);
   const [historyRows, setHistoryRows] = useState(null);
 
   // Refund audit report (null = not run, 'loading', or the report object)
@@ -145,6 +150,7 @@ export default function AdminPanel() {
 
   // Action dispatch
   const onAction = useCallback(async (action, user) => {
+    if (action === 'details') { setCustomerFor(user); return; }
     if (action === 'history') {
       setHistoryFor(user);
       setHistoryRows(null);
@@ -224,6 +230,10 @@ export default function AdminPanel() {
         {tab === 'gifts' && <GiftCardsTab onError={handleError} />}
         {tab === 'bulk' && <BulkTab onError={handleError} />}
         {tab === 'security' && <SecurityTab onError={handleError} />}
+        {customerFor && (
+          <CustomerPanel user={customerFor} onClose={() => setCustomerFor(null)} onError={handleError} />
+        )}
+
         {tab === 'alerts' && <AlertsTab onError={handleError} />}
         {tab === 'costing' && <CostingTab onError={handleError} />}
         {tab === 'offers' && <OffersTab onError={handleError} />}

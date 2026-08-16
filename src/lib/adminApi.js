@@ -184,6 +184,11 @@ export const adminApi = {
   // never name the model — so the response carries its own confidence.
   reliability:     (days = 30)   => request('GET', `/api/costing/reliability?days=${days}`),
 
+  // ─── Customer lookup (Tier 2.2, 2026-08-16) ───────────────────────
+  // Everything about one person, with each charge PAIRED to its outcome.
+  // Rows say whether that outcome was recorded or inferred.
+  customerOverview: (id)         => request('GET', `/api/admin/customers/${id}/overview`),
+
   // ─── Offers (2026-08-07) ──────────────────────────────────────────
   // Promotions with margin impact from the Costing engine. Like costing,
   // these never charge a customer — approval writes offers + an audit row.

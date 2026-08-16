@@ -71,6 +71,7 @@ import { registerNotificationsRoutes } from './notifications-routes.js';
 import { registerAlertsRoutes, runAlertChecks } from './alerts-routes.js';
 import { registerPnlRoutes } from './pnl-routes.js';
 import { registerReliabilityRoutes } from './reliability-routes.js';
+import { registerCustomerRoutes } from './customer-routes.js';
 import { settleAttempt, sweepStale } from './generation-events.js';
 import {
   createReset, consumeReset, resetUrl, resetEmailBody, passwordProblem, NEUTRAL_REPLY,
@@ -4443,6 +4444,11 @@ registerPnlRoutes(app, { pool, dbReady, adminGate });
 // Which models can be trusted in front of a room. Read-only; the failure
 // attribution is an inference and the endpoint reports its own confidence.
 registerReliabilityRoutes(app, { pool, dbReady, adminGate });
+
+// ─── CUSTOMER LOOKUP (Tier 2.2) ──────────────────────────────────────────────
+// "My video didn't work" → one screen. Read-only; the work is PAIRING each
+// charge with its outcome, which the raw ledger has never done.
+registerCustomerRoutes(app, { pool, dbReady, adminGate });
 
 // ─── COSTING: MANUAL REFRESH + THE PRICE REVIEW QUEUE ────────────────────────
 // The sweep runs nightly, but "wait until midnight" is not an answer when the
