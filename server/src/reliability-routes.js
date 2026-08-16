@@ -18,6 +18,7 @@
 
 import { buildReport, summarise, confidenceOf, MIN_ATTEMPTS } from './reliability-engine.js';
 import { costIndex } from './pnl-engine.js';
+import { buildReport as buildSpeed, summarise as summariseSpeed } from './speed-engine.js';
 // The SAME pattern the Alerts tab uses to spot "our supplier account is
 // empty". Imported rather than retyped: two copies would drift, and the day
 // they drift is the day a billing problem is reported as a model-quality one.
@@ -30,7 +31,7 @@ export function registerReliabilityRoutes(app, { pool, dbReady, adminGate }) {
     if (!dbReady()) return res.status(503).json({ error: 'Database not configured.' });
     const days = Math.min(365, Math.max(1, parseInt(req.query.days, 10) || WINDOW_DAYS));
     try {
-      const [rows, refundTotals, models] = await Promise.all([
+      const [rows, refundTotals, models, speedRows, speedSince] = await Promise.all([
         pool.query(
           `WITH attempts AS (
               SELECT regexp_replace(reason, '^(image|video|audio): ', '') AS model,
@@ -95,6 +96,30 @@ export function registerReliabilityRoutes(app, { pool, dbReady, adminGate }) {
                 ORDER BY h.created_at DESC LIMIT 1) m ON TRUE`, [days]),
 
         pool.query(`SELECT model_name, fal_cost, kie_cost FROM pricing_models WHERE is_active`),
+
+        // ── Tier 2.3, model speed ──────────────────────────────────────────
+        // PERCENTILE_DISC, not _CONT: discrete returns a duration that a run
+        // ACTUALLY took, where continuous would interpolate a value between
+        // two real runs. This screen is read as a statement about what
+        // happened, so it should only ever report what happened.
+        //
+        // Only DELIVERED runs are timed. A failed run's duration measures how
+        // long it took to give up, which is a different question and would
+        // drag a good model's median down for the wrong reason.
+        pool.query(
+          `SELECT model_label AS model, kind,
+                  COUNT(duration_ms)::int AS timed,
+                  PERCENTILE_DISC(0.5) WITHIN GROUP (ORDER BY duration_ms) AS median_ms,
+                  PERCENTILE_DISC(0.9) WITHIN GROUP (ORDER BY duration_ms) AS slow_ms
+             FROM generation_events
+            WHERE duration_ms IS NOT NULL AND outcome = 'delivered'
+              AND model_label IS NOT NULL
+              AND created_at > NOW() - ($1 || ' days')::INTERVAL
+            GROUP BY 1, 2`, [days]),
+
+        // When recording began — so an empty speed table reads as "too early
+        // to say", never as "nothing is slow".
+        pool.query(`SELECT MIN(created_at) AS since FROM generation_events`),
       ]);
 
       const report = buildReport(rows.rows, costIndex(models.rows));
@@ -113,6 +138,12 @@ export function registerReliabilityRoutes(app, { pool, dbReady, adminGate }) {
         min_attempts: MIN_ATTEMPTS,
         models: report,
         summary: summarise(report),
+        speed: {
+          models: buildSpeed(speedRows.rows),
+          summary: summariseSpeed(buildSpeed(speedRows.rows), {
+            since: speedSince.rows[0]?.since || null,
+          }),
+        },
         confidence: {
           ...confidenceOf(t.matched, t.total),
           matched: t.matched,

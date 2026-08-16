@@ -153,6 +153,16 @@ export default function ReliabilityPanel({ onError }) {
         </div>
       )}
 
+      {/* ── Tier 2.3 · speed ─────────────────────────────────────────────
+          Same screen as reliability on purpose: "can I demonstrate this model"
+          is one question with two halves — does it work, and is it fast enough
+          to stand in front of. A model that succeeds every time and takes four
+          minutes still kills a session. */}
+      {/* data?. — this panel renders its whole tree while the fetch is still
+          in flight (the loading state is a conditional, not an early return),
+          so a bare data.speed crashes on first paint. */}
+      <SpeedSection speed={data?.speed} />
+
       {rows.length > 0 && (
         <div style={{ fontSize: 11.5, color: 'var(--crm-w45)', marginTop: 10, lineHeight: 1.6, maxWidth: '76ch' }}>
           <b>“too few”</b> means fewer than {data.min_attempts} attempts — not that the model is
@@ -167,6 +177,84 @@ export default function ReliabilityPanel({ onError }) {
           <b>“Wasted”</b> is what the failures cost you in supplier fees. It reads “no cost on file”
           rather than $0.00 where the model’s supplier cost has not been entered yet.
         </div>
+      )}
+    </div>
+  );
+}
+
+function SpeedSection({ speed }) {
+  if (!speed) return null;
+  const rows = speed.models || [];
+  const s = speed.summary || {};
+  const since = s.collecting_since
+    ? new Date(s.collecting_since).toLocaleDateString() : null;
+
+  return (
+    <div style={{ marginTop: 26 }}>
+      <div style={{ fontWeight: 700, color: 'var(--crm-ink)', fontSize: 14, marginBottom: 4 }}>
+        How long each model takes
+      </div>
+      <div style={{ fontSize: 12.5, color: 'var(--crm-w55)', lineHeight: 1.6, marginBottom: 12, maxWidth: '76ch' }}>
+        A model that works every time but takes four minutes still kills a session — 170 people
+        waiting three minutes is a different room from 170 waiting twenty seconds. The column that
+        matters is <b>slowest 1 in 10</b>, not the typical time: an average hides exactly the run
+        that derails a demo.
+      </div>
+
+      {/* Empty here means recording only just began — NOT that nothing is slow. */}
+      {!rows.length && (
+        <div style={{ ...box, color: 'var(--crm-w55)' }}>
+          <b style={{ color: 'var(--crm-ink)' }}>Nothing timed yet.</b>{' '}
+          {since
+            ? <>Timing started on <b>{since}</b> and there is no history before it — this fills in as
+              generations happen, and needs a busy session before it says anything useful.</>
+            : <>Timing has only just been switched on. This fills in as generations happen.</>}
+        </div>
+      )}
+
+      {rows.length > 0 && (
+        <>
+          <div style={{ ...cards, marginBottom: 12 }}>
+            <Card k="Models timed" v={s.measured} n={`of ${s.models} used`} />
+            <Card k="Timed runs" v={(s.timed_runs || 0).toLocaleString()}
+              n={since ? `since ${since}` : ''} />
+            <Card k="Too slow for live" v={s.not_live}
+              n={s.slowest ? `slowest: ${s.slowest} (${s.slowest_label})` : 'none'}
+              tone={s.not_live ? 'crit' : 'ok'} />
+          </div>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={table}>
+              <thead>
+                <tr>{['Model', 'Type', 'Timed runs', 'Typical', 'Slowest 1 in 10', 'Live demo?']
+                  .map((h, i) => <th key={i} style={{ ...th, textAlign: i >= 2 && i <= 4 ? 'right' : 'left' }}>{h}</th>)}</tr>
+              </thead>
+              <tbody>
+                {rows.map((r) => {
+                  const t = TONE[r.verdict.tone] || TONE.dim;
+                  return (
+                    <tr key={r.model}>
+                      <td style={{ ...td, color: 'var(--crm-ink)', fontWeight: 600 }}>{r.model}</td>
+                      <td style={{ ...td, color: 'var(--crm-w45)', fontSize: 11.5 }}>{r.kind || '—'}</td>
+                      <td style={{ ...td, textAlign: 'right' }}>{r.timed.toLocaleString()}</td>
+                      <td style={{ ...td, textAlign: 'right' }}>
+                        {r.median_label || <span style={{ fontSize: 11, color: 'var(--crm-w40)' }}>not enough runs</span>}
+                      </td>
+                      <td style={{ ...td, textAlign: 'right' }}>
+                        {r.slow_label
+                          ? <b style={{ color: t.fg }}>{r.slow_label}</b>
+                          : <span style={{ fontSize: 11, color: 'var(--crm-w40)' }}>—</span>}
+                      </td>
+                      <td style={td}>
+                        <span style={{ ...pill, background: t.bg, color: t.fg, border: `1px solid ${t.br}` }}
+                          title={r.verdict.note}>{r.verdict.label}</span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </>
       )}
     </div>
   );

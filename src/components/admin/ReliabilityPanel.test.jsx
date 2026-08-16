@@ -131,3 +131,78 @@ describe('an empty or failing panel', () => {
     await waitFor(() => expect(onError).toHaveBeenCalled());
   });
 });
+
+// ─── Tier 2.3 · speed ────────────────────────────────────────────────────────
+// Same screen as reliability because "can I demonstrate this model" is one
+// question with two halves: does it work, and is it fast enough to stand in
+// front of. A model that succeeds every time and takes four minutes still
+// kills a session.
+//
+// There is NO history here — duration recording began 2026-08-16 — so the
+// empty state carries most of the weight: it must read as "too early to say",
+// never as "nothing is slow".
+describe('how long each model takes', () => {
+  const SPEED = {
+    models: [
+      { model: 'Seedance 2.0', kind: 'video', timed: 40, median_ms: 252000, slow_ms: 545000,
+        median_label: '4m 12s', slow_label: '9m 5s',
+        verdict: { key: 'no', label: 'not live', tone: 'crit', note: 'set as homework' } },
+      { model: 'Nano Banana Pro', kind: 'image', timed: 400, median_ms: 8000, slow_ms: 14000,
+        median_label: '8s', slow_label: '14s',
+        verdict: { key: 'ideal', label: 'ideal', tone: 'ok', note: 'fast enough on stage' } },
+      { model: 'GPT Image 2', kind: 'image', timed: 3, median_ms: null, slow_ms: null,
+        median_label: null, slow_label: null,
+        verdict: { key: 'unmeasured', label: 'not measured yet', tone: 'dim', note: '3 timed run(s)' } },
+    ],
+    summary: { models: 3, measured: 2, not_live: 1, slowest: 'Seedance 2.0',
+      slowest_label: '4m 12s', timed_runs: 443, collecting_since: '2026-08-16T17:00:00Z' },
+  };
+
+  it('shows the slow tail, which is the number that decides it', async () => {
+    serverHas({ speed: SPEED });
+    render(<ReliabilityPanel onError={vi.fn()} />);
+    expect(await screen.findByText('9m 5s')).toBeInTheDocument();
+    expect(screen.getByText('4m 12s')).toBeInTheDocument();
+  });
+
+  // An average hides exactly the run that derails a demo.
+  it('says why the tail matters more than the typical time', async () => {
+    serverHas({ speed: SPEED });
+    render(<ReliabilityPanel onError={vi.fn()} />);
+    await waitFor(() =>
+      expect(screen.getByText(/an average hides exactly the run that derails a demo/i))
+        .toBeInTheDocument());
+  });
+
+  it('names the model most likely to derail a session', async () => {
+    serverHas({ speed: SPEED });
+    render(<ReliabilityPanel onError={vi.fn()} />);
+    await waitFor(() =>
+      expect(screen.getByText(/slowest: Seedance 2\.0 \(4m 12s\)/)).toBeInTheDocument());
+  });
+
+  // Printing "9s" beside three runs reads as an endorsement.
+  it('withholds a figure computed from too few runs', async () => {
+    serverHas({ speed: SPEED });
+    render(<ReliabilityPanel onError={vi.fn()} />);
+    // Named in both tables — reliability and speed — so match all, not one.
+    expect((await screen.findAllByText('GPT Image 2')).length).toBe(2);
+    expect(screen.getByText('not enough runs')).toBeInTheDocument();
+    expect(screen.getByText('not measured yet')).toBeInTheDocument();
+  });
+
+  // The state it will actually be in for a while: empty must not read as good.
+  it('reads as "too early", not "nothing is slow", when nothing is timed', async () => {
+    serverHas({ speed: { models: [], summary: { collecting_since: '2026-08-16T17:00:00Z' } } });
+    render(<ReliabilityPanel onError={vi.fn()} />);
+    await waitFor(() => expect(screen.getByText('Nothing timed yet.')).toBeInTheDocument());
+    expect(screen.getByText(/no history before it/i)).toBeInTheDocument();
+  });
+
+  it('does not break when the server sends no speed block at all', async () => {
+    serverHas({ speed: undefined });
+    render(<ReliabilityPanel onError={vi.fn()} />);
+    await waitFor(() => expect(screen.getByText(/worked out, not recorded/i)).toBeInTheDocument());
+    expect(screen.queryByText('Nothing timed yet.')).toBeNull();
+  });
+});
