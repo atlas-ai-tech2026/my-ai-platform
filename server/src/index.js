@@ -74,6 +74,7 @@ import { registerReliabilityRoutes } from './reliability-routes.js';
 import { registerCustomerRoutes } from './customer-routes.js';
 import { registerLiveRoutes } from './live-routes.js';
 import { settleAttempt, sweepStale } from './generation-events.js';
+import { idempotencyGuard, sweep as sweepIdempotency } from './idempotency.js';
 import {
   createReset, consumeReset, resetUrl, resetEmailBody, passwordProblem, NEUTRAL_REPLY,
 } from './password-reset.js';
@@ -148,6 +149,15 @@ const _envSummary = ['FAL_KEY', 'KIE_KEY', 'JWT_SECRET', 'DATABASE_URL', 'PORT',
 console.log(`[voxel-api] env summary: ${_envSummary}`);
 
 const app = express();
+
+// ─── DUPLICATE-CHARGE PROTECTION (Tier 3.2) ─────────────────────────────────
+// Applied to the routes that CHARGE, and only those. A double-clicked Generate
+// or a network retry sends the same request twice and both are billed; this
+// replays the first answer instead. Fails OPEN — if the guard cannot run, the
+// generation proceeds, because a rare double charge is a far better outcome
+// than an outage.
+const noDoubleCharge = idempotencyGuard({ pool, dbReady });
+
 const PORT = process.env.PORT || 3001;
 // 100 MB so /api/upload can accept the 3–30 s motion reference videos
 // for the Motion Control tab and the 3–10 s edit clips for the Edit
@@ -1240,7 +1250,7 @@ function priceOrRespond(res, opts) {
   }
 }
 
-app.post('/api/generate', verifyJwt, requireNotBanned, requireModelProviderKey, async (req, res) => {
+app.post('/api/generate', verifyJwt, requireNotBanned, noDoubleCharge, requireModelProviderKey, async (req, res) => {
   const { model, prompt, type, duration, ratio, imageUrls, negativePrompt, quality, numImages, safetyTolerance } = req.body;
 
   console.log('=== REQUEST ===', { model, type, imageUrls: (imageUrls || []).length, quality, ratio, numImages, user: req.user?.email });
@@ -1616,7 +1626,7 @@ app.post('/api/checkStatus', verifyJwt, requireNotBanned, statusLimiter, async (
 });
 
 // ─── GENERATE VIDEO (new endpoint with polling) ───────────────────
-app.post('/api/generate-video', verifyJwt, requireNotBanned, requireModelProviderKey, async (req, res) => {
+app.post('/api/generate-video', verifyJwt, requireNotBanned, noDoubleCharge, requireModelProviderKey, async (req, res) => {
   const { model, prompt, image_url, tail_image_url, duration, aspect_ratio, resolution, audio, multi_shots } = req.body;
 
   if (!model) return res.status(400).json({ error: 'model name required' });
@@ -1792,7 +1802,7 @@ const EDIT_VIDEO_MODELS = {
   'Kling O1 Video Edit': 'fal-ai/kling-video/o1/video-to-video/reference',
 };
 
-app.post('/api/edit-video-omni', verifyJwt, requireNotBanned, requireFalKey, async (req, res) => {
+app.post('/api/edit-video-omni', verifyJwt, requireNotBanned, noDoubleCharge, requireFalKey, async (req, res) => {
   const { model, video_url, image_urls, prompt, duration, aspect_ratio, keep_audio } = req.body || {};
 
   if (!model || !EDIT_VIDEO_MODELS[model]) {
@@ -2106,7 +2116,7 @@ app.post('/api/tts', verifyJwt, requireNotBanned, requireFalKey, async (req, res
 //
 // Outputs 48kHz WAV, 30s. Same charge/refund pattern as /api/tts.
 
-app.post('/api/generate-music', verifyJwt, requireNotBanned, requireFalKey, async (req, res) => {
+app.post('/api/generate-music', verifyJwt, requireNotBanned, noDoubleCharge, requireFalKey, async (req, res) => {
   const { prompt, negative_prompt, seed } = req.body || {};
 
   if (!prompt || typeof prompt !== 'string' || !prompt.trim()) {
@@ -2252,7 +2262,7 @@ app.post('/api/tts/preview', previewLimiter, requireFalKey, async (req, res) => 
 // Supports both:
 //   - "Seedance 2.0"      → bytedance/seedance-2.0/*       (start_frame/end_frame)
 //   - "Seedance 2.0 Fast" → bytedance/seedance-2.0/fast/*  (image_url/end_image_url)
-app.post('/api/generate-video-ref', verifyJwt, requireNotBanned, requireModelProviderKey, async (req, res) => {
+app.post('/api/generate-video-ref', verifyJwt, requireNotBanned, noDoubleCharge, requireModelProviderKey, async (req, res) => {
   const { model, prompt, mode, image_urls, video_urls, audio_urls, start_frame, end_frame, duration, aspect_ratio, resolution, generate_audio } = req.body;
 
   if (!prompt) return res.status(400).json({ error: 'prompt required' });
@@ -3204,7 +3214,7 @@ app.put('/api/node/spaces/:id', verifyJwt, requireNotBanned, async (req, res) =>
 
 // Run a single node. Charges credits, calls FAL, refunds on failure.
 // Synchronous (fal.subscribe) for the slice — async queue is P3.
-app.post('/api/node/run-node', verifyJwt, requireNotBanned, requireFalKey, async (req, res) => {
+app.post('/api/node/run-node', verifyJwt, requireNotBanned, noDoubleCharge, requireFalKey, async (req, res) => {
   if (!dbReady()) return res.status(503).json({ error: 'Database not configured.' });
 
   const { type, settings } = req.body || {};
@@ -3298,7 +3308,7 @@ app.post('/api/node/run-node', verifyJwt, requireNotBanned, requireFalKey, async
 // /api/video-status route until COMPLETED/FAILED. Used by the Video
 // Generator node, which can run text-to-video or — when an upstream
 // image is connected — image-to-video (start frame).
-app.post('/api/node/run-node-async', verifyJwt, requireNotBanned, requireFalKey, async (req, res) => {
+app.post('/api/node/run-node-async', verifyJwt, requireNotBanned, noDoubleCharge, requireFalKey, async (req, res) => {
   if (!dbReady()) return res.status(503).json({ error: 'Database not configured.' });
 
   const { type, settings } = req.body || {};
@@ -6319,6 +6329,7 @@ migrate()
       // about as either success or failure would be a guess, and this is the
       // same root cause as the 124 stuck charges.
       sweepStale(6).catch(() => {});
+      sweepIdempotency(26).catch(() => {});
       return runAlertChecks(pool, dbReady, { getKieCredits: KIE_KEY ? () => kieGetCredits() : null })
         .catch((e) => console.error('[alerts] scheduled check failed:', e.message));
     };

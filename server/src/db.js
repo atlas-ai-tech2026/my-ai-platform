@@ -555,6 +555,33 @@ export async function migrate() {
     await client.query(`CREATE INDEX IF NOT EXISTS generation_events_open_idx
       ON generation_events (user_id, created_at DESC) WHERE outcome = 'pending';`);
 
+    // ── Duplicate-charge protection (Tier 3.2) ─────────────────────────────
+    // A double-clicked Generate button, or a network retry on a slow
+    // connection, sends the same request twice and both are charged. Against
+    // credits that is an annoyance you fix by hand; against a card it is a
+    // CHARGEBACK — the customer's bank decides, you pay a fee either way, and
+    // it counts against your merchant account. Cheaper to build now than to
+    // retrofit after the first dispute, and testable without a gateway.
+    //
+    // The INSERT on `key` is the lock: whoever wins it does the work, exactly
+    // as the video refund uses its status transition.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS request_idempotency (
+        key         VARCHAR(220) PRIMARY KEY,
+        user_id     INTEGER      REFERENCES users(id) ON DELETE CASCADE,
+        path        VARCHAR(160),
+        -- 'in_flight' | 'done'. A FAILED request deletes its row rather than
+        -- marking it done — otherwise the customer is told "already
+        -- processing" for the whole window on a request that produced nothing.
+        state       VARCHAR(16)  NOT NULL DEFAULT 'in_flight',
+        status_code INTEGER,
+        response    JSONB,
+        created_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+      );
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS request_idempotency_age_idx
+      ON request_idempotency (created_at);`);
+
     // ─── OFFERS (2026-08-07) ──────────────────────────────────────
     // Promotions with live margin impact from the Costing engine.
     //
