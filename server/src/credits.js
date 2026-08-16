@@ -10,6 +10,7 @@
 // (e.g. image=1.5 once that decision is made) without redeploying code.
 
 import { pool } from './db.js';
+import { recordAttempt, settleAttempt } from './generation-events.js';
 
 export const CREDIT_COSTS = {
   image: parseFloat(process.env.CREDIT_COST_IMAGE || '2'),
@@ -113,7 +114,14 @@ export async function chargeCredits({ userId, kind, ip, cost: costOverride, note
     );
 
     await client.query('COMMIT');
-    return { newBalance: Number(u.rows[0].credits), cost };
+
+    // Telemetry AFTER the commit, on the pool rather than this client. Inside
+    // the transaction a failed insert would abort it and take the customer's
+    // charge down with it — a missing analytics row must never cost someone a
+    // generation. recordAttempt swallows its own errors for the same reason.
+    const eventId = await recordAttempt({ userId, kind, note, provider, credits: cost });
+
+    return { newBalance: Number(u.rows[0].credits), cost, eventId };
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
     throw err;
@@ -151,6 +159,11 @@ export async function refundCredits({ userId, kind, ip, reason, cost: costOverri
       [userId, cost, reason || 'fal call failed', ip || null]
     );
     await client.query('COMMIT');
+
+    // A refund IS the failure signal — it is the only moment the platform
+    // knows a generation did not deliver. Recorded here so the Reliability
+    // screen can stop inferring which model failed from timing and amount.
+    await settleAttempt({ userId, outcome: 'failed', reason });
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
     console.error('[credits] refund FAILED for user', userId, err.message);

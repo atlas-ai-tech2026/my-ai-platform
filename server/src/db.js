@@ -518,6 +518,43 @@ export async function migrate() {
     await client.query(`CREATE INDEX IF NOT EXISTS workshops_code_idx
       ON workshops (upper(promo_code));`);
 
+    // ── Generation events (Tier 2 groundwork) ──────────────────────────────
+    // One row per attempt: which model, whether it worked, how long it took.
+    // Nothing has ever recorded any of the three.
+    //
+    // The Reliability screen currently INFERS which model failed by matching a
+    // refund to the generation it probably reverses (91% recoverable, and
+    // honest about it). Model Speed has nothing at all — no duration exists
+    // anywhere, so that screen would launch empty and stay empty.
+    //
+    // Written from chargeCredits()/refundCredits() rather than from each
+    // route, because instrumenting fifteen routes is exactly how the
+    // 124-stuck-charge bug happened: eight of ten call sites silently forgot
+    // to pass modelId.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS generation_events (
+        id             BIGSERIAL    PRIMARY KEY,
+        user_id        INTEGER      REFERENCES users(id) ON DELETE CASCADE,
+        kind           VARCHAR(24),
+        model_label    VARCHAR(160),
+        provider       VARCHAR(10),
+        -- 'pending' | 'delivered' | 'failed' | 'unknown'
+        -- 'unknown' is deliberate: a customer who closed the tab never reports
+        -- back, and counting that as either success or failure would be a
+        -- guess. "We never found out" is its own answer.
+        outcome        VARCHAR(16)  NOT NULL DEFAULT 'pending',
+        failure_reason TEXT,
+        duration_ms    INTEGER,
+        credits        NUMERIC(10,2),
+        created_at     TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+        settled_at     TIMESTAMPTZ
+      );
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS generation_events_model_idx
+      ON generation_events (model_label, created_at DESC);`);
+    await client.query(`CREATE INDEX IF NOT EXISTS generation_events_open_idx
+      ON generation_events (user_id, created_at DESC) WHERE outcome = 'pending';`);
+
     // ─── OFFERS (2026-08-07) ──────────────────────────────────────
     // Promotions with live margin impact from the Costing engine.
     //

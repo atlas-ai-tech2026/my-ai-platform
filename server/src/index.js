@@ -71,6 +71,7 @@ import { registerNotificationsRoutes } from './notifications-routes.js';
 import { registerAlertsRoutes, runAlertChecks } from './alerts-routes.js';
 import { registerPnlRoutes } from './pnl-routes.js';
 import { registerReliabilityRoutes } from './reliability-routes.js';
+import { settleAttempt, sweepStale } from './generation-events.js';
 import {
   createReset, consumeReset, resetUrl, resetEmailBody, passwordProblem, NEUTRAL_REPLY,
 } from './password-reset.js';
@@ -1432,6 +1433,15 @@ app.post('/api/generate', verifyJwt, requireNotBanned, requireModelProviderKey, 
       // survives in history after FAL purges its link. Falls back to the FAL
       // url if Spaces isn't configured or the copy fails.
       const durableUrl = await persistOrFallback(imageUrl, 'image');
+      // Image generation is synchronous, so reaching here IS delivery. Video
+      // is not — a 200 there only means the job was accepted, which is why
+      // video is settled from settleVideoCharge() instead.
+      // By user rather than by event id: the charge is made in an outer scope
+      // and threading its id down here is precisely the kind of parameter that
+      // gets forgotten at the next call site. settleAttempt closes this user's
+      // most recent open attempt, which inside a single synchronous request is
+      // unambiguous.
+      settleAttempt({ userId: req.user.id, outcome: 'delivered' }).catch(() => {});
       return res.json({ success: true, type: 'image', result_url: durableUrl, mode });
     }
 
@@ -6290,9 +6300,15 @@ migrate()
     // correctly for weeks and reported to a log nobody opens. Hourly was also
     // too slow: a busy workshop can go from above the threshold to empty
     // between two checks, which is what appears to have happened on 8 August.
-    const alertsTick = () =>
-      runAlertChecks(pool, dbReady, { getKieCredits: KIE_KEY ? () => kieGetCredits() : null })
+    const alertsTick = () => {
+      // Attempts whose browser tab was closed never report back. Marked
+      // 'unknown' rather than failed — counting a generation we never heard
+      // about as either success or failure would be a guess, and this is the
+      // same root cause as the 124 stuck charges.
+      sweepStale(6).catch(() => {});
+      return runAlertChecks(pool, dbReady, { getKieCredits: KIE_KEY ? () => kieGetCredits() : null })
         .catch((e) => console.error('[alerts] scheduled check failed:', e.message));
+    };
     alertsTick();
     setInterval(alertsTick, 5 * 60 * 1000).unref?.();
     scheduleVideoChargeReconcile();

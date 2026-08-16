@@ -16,6 +16,7 @@
 // from process memory into the database where it survives a restart.
 
 import { pool, isReady as dbReady } from './db.js';
+import { settleAttempt } from './generation-events.js';
 import { refundCredits } from './credits.js';
 
 /** Record a charge for an in-flight async video job. Never throws — a
@@ -42,12 +43,20 @@ export async function trackVideoCharge(jobId, { userId, kind = 'video', cost, mo
 export async function settleVideoCharge(jobId) {
   if (!jobId || !dbReady()) return false;
   try {
-    const { rowCount } = await pool.query(
+    const { rowCount, rows } = await pool.query(
       `UPDATE pending_video_charges
           SET status = 'settled', settled_at = NOW()
-        WHERE job_id = $1 AND status = 'pending'`,
+        WHERE job_id = $1 AND status = 'pending'
+      RETURNING user_id`,
       [String(jobId)]
     );
+    // The one moment the platform learns a video actually arrived. Without
+    // this the attempt would sit 'pending' and later be swept to 'unknown',
+    // and the Reliability screen would show every successful video as a
+    // question mark.
+    if (rows[0]?.user_id) {
+      await settleAttempt({ userId: rows[0].user_id, outcome: 'delivered' });
+    }
     return rowCount > 0;
   } catch (e) {
     console.error(`[video-charge] settle failed for job ${jobId}:`, e.message);
