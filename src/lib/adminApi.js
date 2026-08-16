@@ -168,6 +168,17 @@ export const adminApi = {
   alertAck:        (id)          => request('POST', `/api/admin/alerts/${id}/ack`),
   alertSettings:   (body)        => request('PUT',  '/api/admin/alerts/settings', body),
 
+  // ─── Workshops + P&L (Tier 1.2, 2026-08-16) ───────────────────────
+  // Invoiced revenue against supplier cost. The promo code is the join:
+  // attendees are known by the code they redeemed, which is what makes a
+  // workshop's supplier cost attributable at all.
+  workshops:       ()            => request('GET',    '/api/admin/workshops'),
+  workshopCreate:  (body)        => request('POST',   '/api/admin/workshops', body),
+  workshopUpdate:  (id, body)    => request('PUT',    `/api/admin/workshops/${id}`, body),
+  workshopDelete:  (id)          => request('DELETE', `/api/admin/workshops/${id}`),
+  organisations:   ()            => request('GET',    '/api/admin/organisations'),
+  organisationCreate: (body)     => request('POST',   '/api/admin/organisations', body),
+
   // ─── Offers (2026-08-07) ──────────────────────────────────────────
   // Promotions with margin impact from the Costing engine. Like costing,
   // these never charge a customer — approval writes offers + an audit row.

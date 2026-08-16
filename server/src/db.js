@@ -466,6 +466,58 @@ export async function migrate() {
     `);
     await client.query(`INSERT INTO alert_settings (id) VALUES (1) ON CONFLICT (id) DO NOTHING;`);
 
+    // ── Organisations + workshops (Tier 1.2) ───────────────────────────────
+    // The revenue half of the business has never existed in the database.
+    // Supplier cost is known to the cent — August's kie bill was $1,559.07 —
+    // but what the workshops that consumed it were INVOICED lives only in
+    // documents on the owner's laptop. So the panel cannot answer the one
+    // question that decides next quarter's pricing: did we make money?
+    //
+    // Deliberately modelled as organisation → workshop rather than a flat
+    // "invoice" row, because the customer is a company that books repeatedly
+    // and the promo code is what ties a workshop to the people who attended
+    // it. That link is what makes supplier cost attributable per workshop.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS organisations (
+        id            SERIAL       PRIMARY KEY,
+        name          VARCHAR(200) NOT NULL,
+        contact_name  VARCHAR(200),
+        contact_email VARCHAR(255),
+        notes         TEXT,
+        created_at    TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+      );
+    `);
+    await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS organisations_name_key
+      ON organisations (lower(name));`);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS workshops (
+        id              SERIAL        PRIMARY KEY,
+        organisation_id INTEGER       REFERENCES organisations(id) ON DELETE SET NULL,
+        title           VARCHAR(200),
+        workshop_date   DATE,
+        seats           INTEGER,
+        -- The join to reality. Attendees are identified by the code they
+        -- redeemed, so this is what makes "what did this workshop cost us"
+        -- answerable at all.
+        promo_code      VARCHAR(64),
+        invoiced_amount NUMERIC(12,2),
+        currency        VARCHAR(8)    NOT NULL DEFAULT 'USD',
+        invoice_ref     VARCHAR(64),
+        -- 'draft' | 'issued' | 'paid'. Payment is by bank transfer today, so
+        -- this is recorded by hand rather than by a gateway callback.
+        invoice_status  VARCHAR(16)   NOT NULL DEFAULT 'issued',
+        paid_at         DATE,
+        notes           TEXT,
+        created_at      TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
+        updated_at      TIMESTAMPTZ   NOT NULL DEFAULT NOW()
+      );
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS workshops_date_idx
+      ON workshops (workshop_date DESC);`);
+    await client.query(`CREATE INDEX IF NOT EXISTS workshops_code_idx
+      ON workshops (upper(promo_code));`);
+
     // ─── OFFERS (2026-08-07) ──────────────────────────────────────
     // Promotions with live margin impact from the Costing engine.
     //

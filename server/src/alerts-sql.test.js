@@ -21,6 +21,12 @@ import { fileURLToPath } from 'node:url';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const source = readFileSync(path.join(here, 'alerts-routes.js'), 'utf8');
 
+// The placeholder/cast guards below are not specific to alerts — they catch a
+// class of bug that any hand-written query can have, and one of them already
+// escaped review twice in a single file. Applied to every route module that
+// builds SQL by hand.
+const GUARDED = ['alerts-routes.js', 'pnl-routes.js'];
+
 /** Every pool.query(...) call, as (sql, argsText) pairs. */
 function queries(src) {
   const out = [];
@@ -41,14 +47,24 @@ function queries(src) {
 
 const CALLS = queries(source);
 
+// Every guarded module's queries, tagged with which file they came from so a
+// failure names the file.
+const ALL_CALLS = GUARDED.flatMap((file) =>
+  queries(readFileSync(path.join(here, file), 'utf8')).map((sql) => ({ file, sql })));
+
 describe('every query binds what it references', () => {
-  it('found the queries to check', () => {
+  it('found the queries to check, across every guarded module', () => {
     expect(CALLS.length).toBeGreaterThan(5);
+    for (const file of GUARDED) {
+      expect(ALL_CALLS.filter((c) => c.file === file).length, `${file} has no queries`)
+        .toBeGreaterThan(0);
+    }
   });
 
   // The exact bug: $2 referenced, one argument bound.
   it('never references a higher $N than it passes arguments', () => {
-    for (const call of CALLS) {
+    for (const { file, sql: call } of ALL_CALLS) {
+      void file;
       const highest = Math.max(0, ...[...call.matchAll(/\$(\d+)/g)].map((m) => Number(m[1])));
       if (!highest) continue;
 
@@ -74,9 +90,9 @@ describe('every query binds what it references', () => {
   // The other half of the same failure. A JS array reaching ANY() without a
   // cast gives Postgres nothing to infer from.
   it('casts every array parameter passed to ANY()', () => {
-    for (const call of CALLS) {
+    for (const { file, sql: call } of ALL_CALLS) {
       for (const m of call.matchAll(/ANY\(\s*(\$\d+)([^)]*)\)/g)) {
-        expect(m[2], `ANY(${m[1]}) needs an explicit ::type[] cast:\n${call.slice(0, 160)}`)
+        expect(m[2], `${file}: ANY(${m[1]}) needs an explicit ::type[] cast:\n${call.slice(0, 160)}`)
           .toMatch(/::\w+\[\]/);
       }
     }
