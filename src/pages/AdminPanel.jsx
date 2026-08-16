@@ -20,6 +20,7 @@ import SecurityTab from '@/components/admin/SecurityTab';
 import CostingTab from '@/components/admin/CostingTab';
 import OffersTab from '@/components/admin/OffersTab';
 import NotificationsTab from '@/components/admin/NotificationsTab';
+import AlertsTab from '@/components/admin/AlertsTab';
 import { ThemedToaster } from '@/components/admin/crmTheme';
 
 const PAGE_SIZE = 50;
@@ -27,6 +28,11 @@ const PAGE_SIZE = 50;
 // kie.ai-style sections: Users (the original CRM), API Usage (aggregates +
 // kie balance), Logs (per-transaction ledger with voxel + KIE credits).
 const TABS = [
+  // FIRST on purpose. Every other tab answers a question you thought to ask;
+  // this one is the only screen that speaks first. It exists because a kie
+  // balance check ran hourly into console.error while 415 generations failed
+  // mid-workshop on 8 August — the system knew and had nowhere to say it.
+  { id: 'alerts', label: 'Alerts' },
   { id: 'users', label: 'Users' },
   { id: 'usage', label: 'API Usage' },
   { id: 'logs',  label: 'Logs' },
@@ -218,6 +224,7 @@ export default function AdminPanel() {
         {tab === 'gifts' && <GiftCardsTab onError={handleError} />}
         {tab === 'bulk' && <BulkTab onError={handleError} />}
         {tab === 'security' && <SecurityTab onError={handleError} />}
+        {tab === 'alerts' && <AlertsTab onError={handleError} />}
         {tab === 'costing' && <CostingTab onError={handleError} />}
         {tab === 'offers' && <OffersTab onError={handleError} />}
         {tab === 'notifications' && <NotificationsTab onError={handleError} />}

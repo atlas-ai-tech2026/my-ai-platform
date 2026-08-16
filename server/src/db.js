@@ -407,6 +407,65 @@ export async function migrate() {
     // a stale sync is visible instead of being assumed fresh.
     await client.query(`ALTER TABLE pricing_settings ADD COLUMN IF NOT EXISTS catalog_synced_at TIMESTAMPTZ;`);
 
+    // ── Alerts (Tier 1.1) ──────────────────────────────────────────────────
+    // A hourly kie-balance check already existed before this table; its entire
+    // output was console.error. On 8 August 415 generations failed with the
+    // provider saying "Credits insufficient" during a live workshop, everyone
+    // was auto-refunded, and the only record was a log line that has since
+    // rotated away. These two tables are the missing half: a condition that
+    // persists, is acknowledgeable, and can email once without nagging.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS alerts (
+        id          BIGSERIAL    PRIMARY KEY,
+        -- Stable identity for "the same problem, still happening". One OPEN
+        -- row per key (enforced by the partial unique index below), so a check
+        -- running every 5 minutes updates rather than accumulates.
+        key         VARCHAR(120) NOT NULL,
+        kind        VARCHAR(60)  NOT NULL,
+        severity    VARCHAR(16)  NOT NULL,
+        title       TEXT         NOT NULL,
+        detail      TEXT,
+        value       NUMERIC(14,2),
+        -- 'open' | 'resolved' | 'acknowledged'
+        status      VARCHAR(16)  NOT NULL DEFAULT 'open',
+        first_seen  TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+        last_seen   TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+        seen_count  INTEGER      NOT NULL DEFAULT 1,
+        resolved_at TIMESTAMPTZ,
+        -- Last time this alert was emailed. NULL = never; drives the
+        -- once-then-daily policy in alerts-engine.shouldEmail.
+        notified_at TIMESTAMPTZ
+      );
+    `);
+    // Resolved rows are kept: "it fixed itself" is information, and a
+    // recurring-then-resolving alert is a pattern worth seeing.
+    await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS alerts_one_open_per_key
+      ON alerts (key) WHERE status <> 'resolved';`);
+    await client.query(`CREATE INDEX IF NOT EXISTS alerts_recent_idx
+      ON alerts (status, last_seen DESC);`);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS alert_settings (
+        id                    SMALLINT     PRIMARY KEY DEFAULT 1,
+        -- Higher than the 3000 the log-only check used: 3000 was low enough
+        -- that a busy workshop could cross it and reach zero between two
+        -- hourly runs, which is precisely what appears to have happened.
+        kie_balance_min       NUMERIC(12,2) NOT NULL DEFAULT 8000,
+        stuck_charge_hours    INTEGER       NOT NULL DEFAULT 2,
+        failure_rate_pct      NUMERIC(6,2)  NOT NULL DEFAULT 15,
+        -- Below this many attempts no rate is computed at all. 3 failures out
+        -- of 4 is 75% and means nothing.
+        failure_min_attempts  INTEGER       NOT NULL DEFAULT 25,
+        catalogue_stale_hours INTEGER       NOT NULL DEFAULT 30,
+        email_enabled         BOOLEAN       NOT NULL DEFAULT TRUE,
+        email_to              VARCHAR(255),
+        last_check_at         TIMESTAMPTZ,
+        updated_at            TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
+        CONSTRAINT alert_settings_singleton CHECK (id = 1)
+      );
+    `);
+    await client.query(`INSERT INTO alert_settings (id) VALUES (1) ON CONFLICT (id) DO NOTHING;`);
+
     // ─── OFFERS (2026-08-07) ──────────────────────────────────────
     // Promotions with live margin impact from the Costing engine.
     //

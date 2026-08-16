@@ -68,6 +68,7 @@ import {
 import { registerCostingRoutes } from './costing-routes.js';
 import { registerOffersRoutes } from './offers-routes.js';
 import { registerNotificationsRoutes } from './notifications-routes.js';
+import { registerAlertsRoutes, runAlertChecks } from './alerts-routes.js';
 import {
   createReset, consumeReset, resetUrl, resetEmailBody, passwordProblem, NEUTRAL_REPLY,
 } from './password-reset.js';
@@ -4412,6 +4413,14 @@ registerNotificationsRoutes(app, {
   userGate: [verifyJwt, requireNotBanned],
 });
 
+// ─── ALERTS (Tier 1.1) ───────────────────────────────────────────────────────
+// The balance check that used to log and stop. kieGetCredits is injected so a
+// provider outage surfaces as its own alert instead of as an absence of them.
+registerAlertsRoutes(app, {
+  pool, dbReady, adminGate,
+  getKieCredits: KIE_KEY ? () => kieGetCredits() : null,
+});
+
 // ─── COSTING: MANUAL REFRESH + THE PRICE REVIEW QUEUE ────────────────────────
 // The sweep runs nightly, but "wait until midnight" is not an answer when the
 // owner wants to know NOW — and until this existed there was no way to make it
@@ -6221,18 +6230,6 @@ async function runAutomatedBackup() {
 // Generations for every user fail the moment the kie.ai balance hits zero.
 // Hourly check; loud log line when low so DO log alerts can catch it. The
 // CRM's API Usage tab shows the same number with a red state.
-const KIE_ALERT_THRESHOLD = Number(process.env.KIE_ALERT_THRESHOLD || 3000);
-async function checkKieBalance() {
-  if (!KIE_KEY) return;
-  try {
-    const credits = await kieGetCredits();
-    if (credits < KIE_ALERT_THRESHOLD) {
-      console.error(`[ALERT][kie-balance] LOW: ${credits} credits (≈$${(credits * 0.005).toFixed(2)}) — below ${KIE_ALERT_THRESHOLD}. Top up at kie.ai or generations will start failing.`);
-    }
-  } catch (e) {
-    console.error('[kie-balance] check failed:', e.message);
-  }
-}
 
 // H4 (audit 2026-07-28): ask the provider what happened to every video
 // charge left 'pending' across a restart, and refund the failed ones. This
@@ -6275,8 +6272,16 @@ migrate()
     // then every 24h; balance check hourly starting now.
     setTimeout(runAutomatedBackup, 5 * 60 * 1000).unref?.();
     setInterval(runAutomatedBackup, 24 * 60 * 60 * 1000).unref?.();
-    checkKieBalance();
-    setInterval(checkKieBalance, 60 * 60 * 1000).unref?.();
+    // Alerts, every 5 minutes. This REPLACES the hourly checkKieBalance()
+    // whose only output was console.error — the condition was being detected
+    // correctly for weeks and reported to a log nobody opens. Hourly was also
+    // too slow: a busy workshop can go from above the threshold to empty
+    // between two checks, which is what appears to have happened on 8 August.
+    const alertsTick = () =>
+      runAlertChecks(pool, dbReady, { getKieCredits: KIE_KEY ? () => kieGetCredits() : null })
+        .catch((e) => console.error('[alerts] scheduled check failed:', e.message));
+    alertsTick();
+    setInterval(alertsTick, 5 * 60 * 1000).unref?.();
     scheduleVideoChargeReconcile();
     startListening();
   })

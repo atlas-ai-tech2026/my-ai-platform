@@ -367,6 +367,21 @@ export async function runDailyModelSync(pool, dbReady, { fetchCatalog = null, si
     console.error('[costing-sync] kie catalogue check failed:', e.message);
     out.kieCatalogError = e.message;
   }
+
+  // Stamp WHEN the sweep last completed.
+  //
+  // This was written only by the manual "Check now" route, never by the
+  // nightly job — so on 16 Aug the catalogue held 49 fal + 62 kie groups
+  // recorded at 00:00:00.209Z while the screen still read "Never checked
+  // manually". A working feature that looks broken sends you hunting for a
+  // bug that is not there, which is exactly what happened with the price
+  // review queue. Stamped here so BOTH paths get it, rather than at one
+  // call site that the other path can forget.
+  try {
+    await pool.query(`UPDATE pricing_settings SET catalog_synced_at = NOW() WHERE id = 1`);
+  } catch (e) {
+    console.error('[costing-sync] could not record the sweep time:', e.message);
+  }
   return out;
 }
 

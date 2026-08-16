@@ -158,6 +158,16 @@ export const adminApi = {
   resolvePriceChange: (id, action)   => request('POST', `/api/costing/price-changes/${id}`, { action }),
   costingDiscard:  ()            => request('DELETE', '/api/costing/plans/draft'),
 
+  // ─── Alerts (Tier 1.1, 2026-08-16) ────────────────────────────────
+  // The system telling you, instead of you going to look. Replaces an
+  // hourly balance check whose only output was console.error.
+  alerts:          ()            => request('GET',  '/api/admin/alerts'),
+  alertsCheck:     ()            => request('POST', '/api/admin/alerts/check'),
+  // Acknowledge ≠ resolve: the condition is still true and the row still
+  // shows. It only stops emailing.
+  alertAck:        (id)          => request('POST', `/api/admin/alerts/${id}/ack`),
+  alertSettings:   (body)        => request('PUT',  '/api/admin/alerts/settings', body),
+
   // ─── Offers (2026-08-07) ──────────────────────────────────────────
   // Promotions with margin impact from the Costing engine. Like costing,
   // these never charge a customer — approval writes offers + an audit row.
