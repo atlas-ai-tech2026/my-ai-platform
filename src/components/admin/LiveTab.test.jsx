@@ -1,0 +1,146 @@
+// ─── LiveTab.test.jsx ────────────────────────────────────────────────────────
+// A live screen fails in ways an ordinary report cannot.
+//
+// The worst is a quiet moment rendering as a wall of zeros: that reads as an
+// outage and sends you looking for a fault mid-session, which is exactly when
+// you have no attention to spare. The second worst is going stale without
+// saying so — a frozen number is more dangerous than a missing one, because
+// you act on it.
+//
+// The reason this screen exists at all: on 8 August roughly 415 generations
+// failed in front of a live cohort because the supplier account was empty.
+// Everyone was auto-refunded, so nothing flagged it — from the room it simply
+// looked like the platform didn't work.
+
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { render, screen, waitFor, act } from '@testing-library/react';
+import LiveTab from './LiveTab';
+
+const live = vi.fn();
+vi.mock('@/lib/adminApi', () => ({ adminApi: { live: (...a) => live(...a) } }));
+
+const RUNNING = {
+  live: true,
+  session_started: '2026-08-16T10:04:00Z',
+  active_now: 143,
+  generating_now: { n: 28, video: 21, image: 7 },
+  failed_recent: 6,
+  fail_window_min: 10,
+  active_window_min: 20,
+  generations_recent: 812,
+  credits_per_min: 118,
+  per_minute: [{ minute: '10:04', n: 12 }, { minute: '10:05', n: 31 }],
+  top_models: [{ model: 'Kling 3.0', attempts: 44 }],
+  workshop: { code: 'VOXEL-7UMD-Z66C', title: 'Riyadh · August', cohort_size: 169, active: 143 },
+  attention: [
+    { severity: 'warn', title: '6 failure(s) in the last 10 minutes',
+      detail: 'Most activity is on Kling 3.0. If failures cluster there, switch the demo.' },
+  ],
+};
+
+const QUIET = {
+  live: false, active_window_min: 20, fail_window_min: 10,
+  active_now: 0, generating_now: { n: 0, video: 0, image: 0 }, failed_recent: 0,
+  generations_recent: 0, credits_per_min: 0, per_minute: [], top_models: [],
+  workshop: null, attention: [],
+};
+
+beforeEach(() => { vi.useFakeTimers({ shouldAdvanceTime: true }); live.mockReset(); });
+afterEach(() => vi.useRealTimers());
+
+describe('a quiet platform must not look like a broken one', () => {
+  // The failure mode that matters most. Zeros everywhere reads as an outage.
+  it('says nothing is running instead of showing a wall of zeros', async () => {
+    live.mockResolvedValue(QUIET);
+    render(<LiveTab onError={vi.fn()} />);
+    expect(await screen.findByText('Nothing running')).toBeInTheDocument();
+    expect(screen.getByText(/No generations in the last 20 minutes/)).toBeInTheDocument();
+  });
+
+  it('says plainly that quiet is not a fault', async () => {
+    live.mockResolvedValue(QUIET);
+    render(<LiveTab onError={vi.fn()} />);
+    await waitFor(() => expect(screen.getByText(/That is not a fault/)).toBeInTheDocument());
+  });
+
+  it('hides the numbers entirely when nothing is running', async () => {
+    live.mockResolvedValue(QUIET);
+    render(<LiveTab onError={vi.fn()} />);
+    await screen.findByText('Nothing running');
+    expect(screen.queryByText('Active now')).toBeNull();
+    expect(screen.queryByText('Credits / min')).toBeNull();
+  });
+});
+
+describe('during a session', () => {
+  it('names the workshop in the room', async () => {
+    live.mockResolvedValue(RUNNING);
+    render(<LiveTab onError={vi.fn()} />);
+    expect(await screen.findByText('Riyadh · August')).toBeInTheDocument();
+  });
+
+  // Four numbers, readable from a lectern.
+  it('shows the four numbers that matter, and what they cost', async () => {
+    live.mockResolvedValue(RUNNING);
+    render(<LiveTab onError={vi.fn()} />);
+    await screen.findByText('143');
+    expect(screen.getByText('28')).toBeInTheDocument();
+    expect(screen.getByText('21 video · 7 image')).toBeInTheDocument();
+    expect(screen.getByText('118')).toBeInTheDocument();
+    expect(screen.getByText(/≈ \$7\.47\/min/)).toBeInTheDocument();
+  });
+
+  it('puts active attendance against the size of the cohort', async () => {
+    live.mockResolvedValue(RUNNING);
+    render(<LiveTab onError={vi.fn()} />);
+    await waitFor(() => expect(screen.getByText('of 169 in this cohort')).toBeInTheDocument());
+  });
+
+  // A list of things needing a DECISION, not a list of facts.
+  it('tells you what to do about the failures, not just that they happened', async () => {
+    live.mockResolvedValue(RUNNING);
+    render(<LiveTab onError={vi.fn()} />);
+    await waitFor(() => expect(screen.getByText(/switch the demo/i)).toBeInTheDocument());
+  });
+
+  it('says so explicitly when nothing needs a decision', async () => {
+    live.mockResolvedValue({ ...RUNNING, attention: [], failed_recent: 0 });
+    render(<LiveTab onError={vi.fn()} />);
+    await waitFor(() => expect(screen.getByText(/Nothing needs a decision/)).toBeInTheDocument());
+  });
+});
+
+describe('it keeps itself current', () => {
+  // A screen you must remember to reload is not a live screen.
+  it('refreshes on its own', async () => {
+    live.mockResolvedValue(RUNNING);
+    render(<LiveTab onError={vi.fn()} />);
+    await screen.findByText('Riyadh · August');
+    expect(live).toHaveBeenCalledTimes(1);
+    await act(async () => { await vi.advanceTimersByTimeAsync(10000); });
+    expect(live).toHaveBeenCalledTimes(2);
+  });
+
+  // A frozen number is worse than a missing one, because you act on it.
+  it('shows when it last updated', async () => {
+    live.mockResolvedValue(RUNNING);
+    render(<LiveTab onError={vi.fn()} />);
+    await waitFor(() => expect(screen.getByText(/updated .* · refreshes every 10s/)).toBeInTheDocument());
+  });
+
+  it('stops polling when the tab goes away', async () => {
+    live.mockResolvedValue(RUNNING);
+    const { unmount } = render(<LiveTab onError={vi.fn()} />);
+    await screen.findByText('Riyadh · August');
+    unmount();
+    await act(async () => { await vi.advanceTimersByTimeAsync(30000); });
+    expect(live).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports a failure rather than freezing on stale numbers', async () => {
+    const onError = vi.fn();
+    live.mockRejectedValue(new Error('boom'));
+    render(<LiveTab onError={onError} />);
+    await waitFor(() => expect(onError).toHaveBeenCalled());
+  });
+});

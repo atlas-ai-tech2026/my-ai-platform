@@ -22,6 +22,7 @@ import OffersTab from '@/components/admin/OffersTab';
 import NotificationsTab from '@/components/admin/NotificationsTab';
 import AlertsTab from '@/components/admin/AlertsTab';
 import CustomerPanel from '@/components/admin/CustomerPanel';
+import LiveTab from '@/components/admin/LiveTab';
 import { ThemedToaster } from '@/components/admin/crmTheme';
 
 const PAGE_SIZE = 50;
@@ -34,6 +35,9 @@ const TABS = [
   // balance check ran hourly into console.error while 415 generations failed
   // mid-workshop on 8 August — the system knew and had nowhere to say it.
   { id: 'alerts', label: 'Alerts' },
+  // Tier 2.1 — for use DURING a session, not after it. Second only to
+  // Alerts because it is the other screen you open without being asked to.
+  { id: 'live', label: 'Live' },
   { id: 'users', label: 'Users' },
   { id: 'usage', label: 'API Usage' },
   { id: 'logs',  label: 'Logs' },
@@ -235,6 +239,8 @@ export default function AdminPanel() {
         )}
 
         {tab === 'alerts' && <AlertsTab onError={handleError} />}
+
+        {tab === 'live' && <LiveTab onError={handleError} />}
         {tab === 'costing' && <CostingTab onError={handleError} />}
         {tab === 'offers' && <OffersTab onError={handleError} />}
         {tab === 'notifications' && <NotificationsTab onError={handleError} />}

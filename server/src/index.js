@@ -72,6 +72,7 @@ import { registerAlertsRoutes, runAlertChecks } from './alerts-routes.js';
 import { registerPnlRoutes } from './pnl-routes.js';
 import { registerReliabilityRoutes } from './reliability-routes.js';
 import { registerCustomerRoutes } from './customer-routes.js';
+import { registerLiveRoutes } from './live-routes.js';
 import { settleAttempt, sweepStale } from './generation-events.js';
 import {
   createReset, consumeReset, resetUrl, resetEmailBody, passwordProblem, NEUTRAL_REPLY,
@@ -4449,6 +4450,12 @@ registerReliabilityRoutes(app, { pool, dbReady, adminGate });
 // "My video didn't work" → one screen. Read-only; the work is PAIRING each
 // charge with its outcome, which the raw ledger has never done.
 registerCustomerRoutes(app, { pool, dbReady, adminGate });
+
+// ─── LIVE MONITOR (Tier 2.1) ─────────────────────────────────────────────────
+// For the two hours you are standing in a room. Read-only, short absolute
+// windows, and it says "quiet" rather than rendering zeros that read as an
+// outage.
+registerLiveRoutes(app, { pool, dbReady, adminGate });
 
 // ─── COSTING: MANUAL REFRESH + THE PRICE REVIEW QUEUE ────────────────────────
 // The sweep runs nightly, but "wait until midnight" is not an answer when the

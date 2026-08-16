@@ -189,6 +189,11 @@ export const adminApi = {
   // Rows say whether that outcome was recorded or inferred.
   customerOverview: (id)         => request('GET', `/api/admin/customers/${id}/overview`),
 
+  // ─── Live monitor (Tier 2.1, 2026-08-16) ──────────────────────────
+  // What is happening RIGHT NOW, for use during a session. Short absolute
+  // windows, never rolling averages — a fault four minutes old matters.
+  live:            ()            => request('GET', '/api/admin/live'),
+
   // ─── Offers (2026-08-07) ──────────────────────────────────────────
   // Promotions with margin impact from the Costing engine. Like costing,
   // these never charge a customer — approval writes offers + an audit row.
