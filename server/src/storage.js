@@ -24,7 +24,8 @@
 //                     (if unset we derive a URL from endpoint + bucket)
 
 import crypto from 'node:crypto';
-import { S3Client, PutObjectCommand, ListObjectsV2Command, DeleteObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, PutObjectCommand, ListObjectsV2Command, DeleteObjectCommand,
+         GetObjectCommand } from '@aws-sdk/client-s3';
 
 const ENDPOINT = (process.env.SPACES_ENDPOINT || '').trim();
 const REGION = (process.env.SPACES_REGION || '').trim();
@@ -65,6 +66,16 @@ export async function uploadPrivate(key, body, contentType = 'application/gzip')
     Bucket: BUCKET, Key: key, Body: body, ContentType: contentType, ACL: 'private',
   }));
   return key;
+}
+
+/**
+ * Read a private object back. Added for the restore verification: writing a
+ * backup and never reading one is how a backup system convinces you it works.
+ */
+export async function downloadPrivate(key) {
+  if (!configured) throw new Error('Spaces not configured');
+  const out = await client.send(new GetObjectCommand({ Bucket: BUCKET, Key: key }));
+  return Buffer.from(await out.Body.transformToByteArray());
 }
 
 export async function listKeys(prefix) {

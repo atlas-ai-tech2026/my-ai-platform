@@ -200,6 +200,29 @@ export async function fetchLatestOffsite(env = process.env, { client = null } = 
   return { key: newest.Key, size: body.length, lastModified: newest.LastModified, body };
 }
 
+/**
+ * Newest archive in the PRIMARY copy (DigitalOcean Spaces).
+ *
+ * Used only when the offsite copy cannot be reached. Two different questions
+ * hide inside "can we restore?":
+ *   (a) is there a readable archive at all — is the passphrase right?
+ *   (b) is there a readable archive OUTSIDE DigitalOcean?
+ * Only (b) needs the offsite copy. Letting a bandwidth cap block (a) as well
+ * means a transient billing limit stops us answering the question that
+ * actually keeps the business alive — which is what happened on 2026-08-17.
+ *
+ * The offsite failure is still recorded as a problem. This does not paper
+ * over it; it stops it hiding a second, bigger answer.
+ */
+export async function fetchLatestPrimary(storage, { prefix = 'backups/' } = {}) {
+  const objects = (await storage.listKeys(prefix)).filter((o) => o.size > 0);
+  if (!objects.length) throw new Error(`no objects under ${prefix} in the primary bucket`);
+  objects.sort((a, b) => new Date(b.modified) - new Date(a.modified));
+  const newest = objects[0];
+  const body = await storage.downloadPrivate(newest.key);
+  return { key: newest.key, size: body.length, lastModified: newest.modified, body, source: 'primary' };
+}
+
 // ── the load test (the only part that needs a database) ────────────────────
 
 /** Reject anything that is not a plain table identifier before it reaches SQL.

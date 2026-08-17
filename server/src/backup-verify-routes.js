@@ -11,8 +11,9 @@
 
 import {
   parseArchive, verifyParsed, collectRows, verifyLoadable, fetchLatestOffsite,
-  CRITICAL_TABLES,
+  fetchLatestPrimary, CRITICAL_TABLES,
 } from './backup-verify.js';
+import * as storage from './storage.js';
 import { offsiteConfigured, encryptionConfigured } from './backup-offsite.js';
 
 export async function ensureVerifyTable(pool) {
@@ -58,6 +59,7 @@ export async function runRestoreVerification(pool, {
   env = process.env,
   loadTest = true,
   fetcher = fetchLatestOffsite,
+  primaryFetcher = fetchLatestPrimary,
 } = {}) {
   const started = Date.now();
   const record = async (ok, problems, extra = {}) => {
@@ -89,11 +91,25 @@ export async function runRestoreVerification(pool, {
     return record(false, ['the offsite bucket is not configured — there is only one copy']);
   }
 
+  // Try the offsite copy first — it is the one that survives losing the
+  // DigitalOcean account, so it is the copy worth proving. If it cannot be
+  // reached, fall back to the primary rather than giving up: an unreachable
+  // offsite copy must not also prevent us discovering whether the passphrase
+  // we hold can actually read an archive. Both facts get recorded.
+  const carriedProblems = [];
   let archive;
   try {
     archive = await fetcher(env);
+    archive.source = 'offsite';
   } catch (e) {
-    return record(false, [`could not fetch the offsite archive: ${e.message}`]);
+    carriedProblems.push(`could not fetch the offsite archive: ${e.message}`);
+    try {
+      archive = await primaryFetcher(storage, { prefix: 'backups/' });
+      console.log('[restore-verify] offsite unreachable — falling back to the DigitalOcean copy');
+    } catch (e2) {
+      carriedProblems.push(`could not fetch the primary archive either: ${e2.message}`);
+      return record(false, carriedProblems);
+    }
   }
 
   let parsed;
@@ -101,13 +117,21 @@ export async function runRestoreVerification(pool, {
     parsed = parseArchive(archive.body, env.BACKUP_ENCRYPTION_PASSPHRASE);
   } catch (e) {
     // The headline failure: the archive exists and cannot be read.
-    return record(false, [`the archive could not be decrypted or decompressed: ${e.message}`],
+    return record(false,
+      [...carriedProblems, `the archive could not be decrypted or decompressed: ${e.message}`],
       { key: archive.key, size: archive.size });
   }
 
   const v = verifyParsed(parsed);
-  const problems = [...v.problems];
-  const detail = { counts: v.counts, mismatches: v.mismatches, warnings: v.warnings };
+  const problems = [...carriedProblems, ...v.problems];
+  const detail = {
+    counts: v.counts, mismatches: v.mismatches, warnings: v.warnings,
+    source: archive.source,
+    // Split deliberately: the archive can be perfectly readable while the
+    // offsite copy is unreachable. One number cannot say both.
+    archive_readable: v.ok,
+    offsite_reachable: archive.source === 'offsite',
+  };
 
   // The load test needs real rows, and only runs if the archive is otherwise
   // sound — loading rows out of an archive already known to be broken would
