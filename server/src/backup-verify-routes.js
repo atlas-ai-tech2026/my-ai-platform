@@ -161,29 +161,56 @@ export function registerBackupVerifyRoutes(app, pool, requireAdmin) {
   });
 }
 
-/**
- * Monthly, plus once shortly after the first boot that has no result at all.
- * The first-run case matters: without it, a system that has never verified
- * anything stays that way for up to a month after this ships.
- */
-export function scheduleRestoreVerification(pool, dbReady) {
-  const MONTH = 30 * 24 * 60 * 60 * 1000;
-  const run = () => runRestoreVerification(pool)
-    .catch((e) => console.error('[restore-verify] pass failed:', e.message));
+/** Run when the newest recorded verification is older than this. */
+export const DUE_AFTER_DAYS = 30;
+/** How often to ASK whether one is due. Nothing runs unless it is due. */
+export const TICK_MS = 60 * 60 * 1000;
 
-  setTimeout(async () => {
-    if (!dbReady()) return;
+/**
+ * Ask hourly whether a verification is due; run one only if it is.
+ *
+ * ⚠️ NOT `setInterval(run, 30 days)`. That was the first version and it was a
+ * real, deployed bug: 30 days is 2,592,000,000 ms, which does not fit in a
+ * 32-bit signed integer, so **Node silently coerces the delay to 1 ms**. The
+ * "monthly" check ran 294 times in five seconds against the offsite bucket
+ * before I saw it in the logs. Anything longer than ~24.8 days must never be
+ * handed to setTimeout/setInterval.
+ *
+ * Driving it from the LAST RECORDED RESULT rather than from a timer is also
+ * simply correct, for a reason that has nothing to do with the overflow: this
+ * app restarts on every deploy, and a timer set for a month away on a process
+ * that lives for days would have fired approximately never. The database
+ * remembers across restarts; a timer does not.
+ */
+export function scheduleRestoreVerification(pool, dbReady, {
+  tickMs = TICK_MS, dueAfterDays = DUE_AFTER_DAYS, firstDelayMs = 10 * 60 * 1000,
+} = {}) {
+  // One run at a time. Without this, a verification slower than the tick would
+  // stack up — the same shape of failure as the overflow, arrived at politely.
+  let inFlight = false;
+
+  const tick = async () => {
+    if (!dbReady() || inFlight) return;
+    inFlight = true;
     try {
       await ensureVerifyTable(pool);
       const latest = await latestVerification(pool);
-      if (!latest) {
-        console.log('[restore-verify] no verification has ever been recorded — running one now');
-        await run();
-      }
-    } catch (e) {
-      console.error('[restore-verify] first-run check failed:', e.message);
-    }
-  }, 10 * 60 * 1000).unref?.();
+      const ageDays = latest
+        ? (Date.now() - new Date(latest.checked_at).getTime()) / 864e5
+        : Infinity;
+      if (ageDays < dueAfterDays) return;
 
-  setInterval(() => { if (dbReady()) run(); }, MONTH).unref?.();
+      console.log(latest
+        ? `[restore-verify] last check was ${Math.floor(ageDays)} days ago — running one now`
+        : '[restore-verify] no verification has ever been recorded — running one now');
+      await runRestoreVerification(pool);
+    } catch (e) {
+      console.error('[restore-verify] scheduled pass failed:', e.message);
+    } finally {
+      inFlight = false;
+    }
+  };
+
+  setTimeout(tick, firstDelayMs).unref?.();
+  setInterval(tick, tickMs).unref?.();
 }
