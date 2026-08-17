@@ -69,11 +69,23 @@ export default function BulkExpiryPanel({ onDone, onError }) {
     } finally { setBusy(false); }
   }
 
+  // COLLAPSED STATE. This used to render as bare 12px dim-grey text — no
+  // border, no background, no margin — sitting flush on top of the Refund
+  // Audit button. It read as a CAPTION FOR THAT BUTTON, not as something you
+  // could click. The owner looked straight at it on 2026-08-17 and reported
+  // the promo-code field as missing from production; the field was there all
+  // along, behind a control that did not look like one.
+  //
+  // The most consequential action in this panel should not be the faintest
+  // thing on the screen. It now matches its sibling buttons and owns its own
+  // row, so it can never again be mistaken for a label belonging to them.
   if (!open) {
     return (
-      <button onClick={() => setOpen(true)} style={linkBtn}>
-        ⏳ Bulk account access…
-      </button>
+      <div style={{ marginBottom: 16 }}>
+        <button onClick={() => setOpen(true)} style={openBtn}>
+          ⏳ Bulk account access…
+        </button>
+      </div>
     );
   }
 
@@ -147,4 +159,14 @@ const ghostBtn = {
 const linkBtn = {
   background: 'none', border: 'none', color: 'var(--crm-w50)', fontSize: 12,
   cursor: 'pointer', fontFamily: '"DM Sans", sans-serif', padding: 0,
+};
+// Deliberately identical to auditBtnStyle in AdminPanel.jsx: this sits beside
+// Refund Audit and Download Backup, and three controls doing the same KIND of
+// thing — opening something — should look alike. Clicking only opens the
+// panel; every destructive step is still behind a confirm dialog inside it.
+const openBtn = {
+  height: 36, padding: '0 16px', borderRadius: 10, cursor: 'pointer',
+  background: 'var(--crm-w06)', border: '1px solid var(--crm-w12)',
+  color: 'var(--crm-ink)', fontSize: 13, fontWeight: 600,
+  fontFamily: '"DM Sans", sans-serif',
 };

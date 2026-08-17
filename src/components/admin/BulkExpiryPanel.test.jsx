@@ -31,6 +31,33 @@ beforeEach(() => {
 });
 afterEach(() => { vi.restoreAllMocks(); });
 
+// On 2026-08-17 the owner opened this panel's tab, looked directly at the
+// collapsed control, and reported the promo-code field as MISSING FROM
+// PRODUCTION. It was not missing. The control was bare dim-grey text with no
+// border and no margin, flush above the Refund Audit button, so it read as
+// that button's caption. The feature was unreachable for anyone who did not
+// already know it was clickable.
+//
+// A feature nobody can find is not shipped. These two assertions are cheap and
+// would have caught it.
+describe('the collapsed control looks like a control', () => {
+  it('is a real button, not text', () => {
+    render(<BulkExpiryPanel />);
+    const el = screen.getByRole('button', { name: /bulk account access/i });
+    expect(el.tagName).toBe('BUTTON');
+  });
+
+  it('has a visible edge and does not sit flush against the next control', () => {
+    const { container } = render(<BulkExpiryPanel />);
+    const el = screen.getByRole('button', { name: /bulk account access/i });
+    // A border is what separates "clickable" from "caption" at a glance.
+    expect(el.style.border, 'the control needs a visible border').toMatch(/1px solid/);
+    expect(el.style.border).not.toMatch(/none/);
+    // And it must own vertical space, or it collides with Refund Audit below.
+    expect(container.firstChild.style.marginBottom).toBeTruthy();
+  });
+});
+
 describe('it cannot fire by accident', () => {
   it('starts collapsed — the destructive button is not on screen', () => {
     render(<BulkExpiryPanel />);
