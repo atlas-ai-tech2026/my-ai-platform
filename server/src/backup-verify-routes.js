@@ -185,8 +185,19 @@ export function registerBackupVerifyRoutes(app, pool, requireAdmin) {
   });
 }
 
-/** Run when the newest recorded verification is older than this. */
+/** Run when the newest SUCCESSFUL verification is older than this. */
 export const DUE_AFTER_DAYS = 30;
+/**
+ * After a FAILURE, retry this soon instead of waiting a full month.
+ *
+ * Found by watching it: the first production run failed on a provider
+ * bandwidth cap, and the scheduler then correctly answered "not due" for the
+ * next 30 days. A failed check that waits a month to try again is not a check
+ * — the whole point is to know the backup is good, and the moment we least
+ * know that is straight after a failure. Caps reset, networks recover; six
+ * hours is soon enough to catch that without hammering the provider.
+ */
+export const RETRY_AFTER_HOURS = 6;
 /** How often to ASK whether one is due. Nothing runs unless it is due. */
 export const TICK_MS = 60 * 60 * 1000;
 
@@ -207,26 +218,41 @@ export const TICK_MS = 60 * 60 * 1000;
  * remembers across restarts; a timer does not.
  */
 export function scheduleRestoreVerification(pool, dbReady, {
-  tickMs = TICK_MS, dueAfterDays = DUE_AFTER_DAYS, firstDelayMs = 10 * 60 * 1000,
+  tickMs = TICK_MS, dueAfterDays = DUE_AFTER_DAYS,
+  retryAfterHours = RETRY_AFTER_HOURS, firstDelayMs = 10 * 60 * 1000,
 } = {}) {
   // One run at a time. Without this, a verification slower than the tick would
   // stack up — the same shape of failure as the overflow, arrived at politely.
   let inFlight = false;
+  // The first tick after a boot ignores the backoff IF the last result was a
+  // failure. A deploy is very often the fix for whatever failed, and making
+  // the operator wait out a timer to find out whether their fix worked is the
+  // opposite of useful. A PASS is never re-run early — that would just spend
+  // provider bandwidth to re-learn something we already know.
+  let firstTick = true;
 
   const tick = async () => {
     if (!dbReady() || inFlight) return;
     inFlight = true;
+    const isFirst = firstTick;
+    firstTick = false;
     try {
       await ensureVerifyTable(pool);
       const latest = await latestVerification(pool);
-      const ageDays = latest
-        ? (Date.now() - new Date(latest.checked_at).getTime()) / 864e5
+      const ageHours = latest
+        ? (Date.now() - new Date(latest.checked_at).getTime()) / 36e5
         : Infinity;
-      if (ageDays < dueAfterDays) return;
+      // A PASS is good for a month. A FAILURE is retried in hours — after a
+      // failure is exactly when we least know whether the backup is good.
+      const dueAfterHours = latest && !latest.ok ? retryAfterHours : dueAfterDays * 24;
+      const retryOnBoot = isFirst && latest && !latest.ok;
+      if (!retryOnBoot && ageHours < dueAfterHours) return;
 
-      console.log(latest
-        ? `[restore-verify] last check was ${Math.floor(ageDays)} days ago — running one now`
-        : '[restore-verify] no verification has ever been recorded — running one now');
+      console.log(!latest
+        ? '[restore-verify] no verification has ever been recorded — running one now'
+        : latest.ok
+          ? `[restore-verify] last passing check was ${Math.floor(ageHours / 24)} days ago — running one now`
+          : `[restore-verify] last check FAILED ${Math.floor(ageHours)}h ago — retrying now`);
       await runRestoreVerification(pool);
     } catch (e) {
       console.error('[restore-verify] scheduled pass failed:', e.message);

@@ -194,3 +194,43 @@ describe('the critical table list is the business, not a guess', () => {
       expect.arrayContaining(['users', 'credits_history', 'promo_codes', 'promo_redemptions']));
   });
 });
+
+// ── when the check is due ──────────────────────────────────────────────────
+// Found in production, not in review: the first run failed on a provider
+// bandwidth cap, and the scheduler then answered "not due" for the next 30
+// days. A failed check that waits a month to retry is not a check.
+describe('scheduling: a failure must not be treated like a pass', () => {
+  const H = 36e5, D = 864e5;
+  // Mirrors the decision inside scheduleRestoreVerification's tick.
+  const due = (latest, ageMs, { isFirst = false, retryH = 6, passD = 30 } = {}) => {
+    const ageHours = latest ? ageMs / H : Infinity;
+    const dueAfterHours = latest && !latest.ok ? retryH : passD * 24;
+    const retryOnBoot = isFirst && latest && !latest.ok;
+    return retryOnBoot || ageHours >= dueAfterHours;
+  };
+
+  it('runs when nothing has ever been recorded', () => {
+    expect(due(null, 0)).toBe(true);
+  });
+
+  it('does NOT re-run a passing check early — that only spends bandwidth', () => {
+    expect(due({ ok: true }, 3 * D)).toBe(false);
+    expect(due({ ok: true }, 3 * D, { isFirst: true })).toBe(false);
+  });
+
+  it('re-runs a passing check after a month', () => {
+    expect(due({ ok: true }, 31 * D)).toBe(true);
+  });
+
+  it('retries a FAILURE in hours, not in a month', () => {
+    expect(due({ ok: false }, 2 * H)).toBe(false);
+    expect(due({ ok: false }, 7 * H)).toBe(true);
+  });
+
+  // A deploy is very often the fix for whatever failed. Making the operator
+  // wait out a timer to discover whether their fix worked is the opposite of
+  // useful — which is exactly what happened tonight.
+  it('retries a failure immediately on the first tick after a boot', () => {
+    expect(due({ ok: false }, 1 * H, { isFirst: true })).toBe(true);
+  });
+});
