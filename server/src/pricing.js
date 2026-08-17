@@ -111,33 +111,32 @@ export const VIDEO_CREDITS = {
   },
   // Seedance 2.5 — added 2026-08-17, served by kie (bytedance/seedance-2-5).
   //
-  // PRICES ARE PROVISIONAL AND DERIVED, NOT MEASURED. kie publishes no price
-  // for this model (`priceInfoJson` is empty, as it is for 89 of their 99
-  // groups), so the supplier cost below is FAL's published price for the SAME
-  // ByteDance model, used as a proxy:
-  //     480p $0.2205/s · 720p $0.4730/s · 1080p $1.1372/s
-  // The 1080p figure is computed from fal's own token formula —
-  // (w × h × duration × 24) ÷ 1024 tokens at $0.0234/1000 — which reproduces
-  // their stated 480p and 720p rates to within a few percent, so it is a
-  // derivation rather than a guess.
+  // COSTS ARE MEASURED, NOT ESTIMATED. kie publishes no price for this model
+  // (empty priceInfoJson, as for 89 of their 99 groups), so the cost was taken
+  // by generating one 5-second clip at each resolution and reading the kie
+  // balance either side:
+  //     480p  140 kie credits / 5s = $0.1400/s
+  //     720p  315 kie credits / 5s = $0.3150/s
+  //     1080p 570 kie credits / 5s = $0.5700/s   (at $0.005 per kie credit)
   //
-  // Credits are those costs at the standard 40% margin, rounded UP to the next
-  // half credit exactly as costing-engine.autoCredits does.
+  // THIS IS WHY MEASURING MATTERED. The first version of this block used fal's
+  // published prices as a proxy, which are 33–50% HIGHER than kie actually
+  // charges. Those figures would have priced 480p/720p/1080p at 6/12.5/30
+  // credits per second — a realised margin of 63%/60%/70%, not the 40%
+  // standard, and a 1080p clip costing customers twice what the rule says.
   //
-  // ⚠️ MEASURE THE REAL kie COST before treating the margin as fact: generate
-  // once at each resolution and read the kie balance before and after. That is
-  // what caught the 16% error in the fal estimates, and kie's price for the
-  // same model need not match fal's.
+  // Credits below are the measured costs at the standard 40% margin OF SALE
+  // (cost ÷ 0.6 ÷ $0.063333, rounded UP to the next half credit), exactly as
+  // costing-engine.autoCredits computes it.
   //
-  // NOTE ON 4K: kie's marketing says "native 4K output", but the playground's
-  // resolution field offers only 480p/720p/1080p. Wired to what the API
-  // accepts, not to what the page claims.
+  // NOTE ON 4K: kie's marketing says "native 4K output", but the API's
+  // resolution field offers only 480p/720p/1080p. Wired to what it accepts.
   'seedance-2-5': {
     type: 'per-sec', defaultRes: '720p',
     byRes: {
-      '480p':  { off: 6,    on: 6    },
-      '720p':  { off: 12.5, on: 12.5 },
-      '1080p': { off: 30,   on: 30   },
+      '480p':  { off: 4,    on: 4    },
+      '720p':  { off: 8.5,  on: 8.5  },
+      '1080p': { off: 15.5, on: 15.5 },
     },
   },
   'seedance-2-fast': {

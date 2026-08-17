@@ -34,11 +34,26 @@ const uiIds = new Set([...modalSrc.matchAll(/\{\s*id:\s*'([a-z0-9-]+)'\s*,\s*nam
 describe('Seedance 2.5 is wired everywhere it needs to be', () => {
   const ID = 'seedance-2-5';
 
+  // Prices are the MEASURED kie cost at 40% margin. The first version used
+  // fal's published prices as a proxy and landed at 6/12.5/30 — a 63-70%
+  // realised margin, because kie charges 33-50% less than fal for the same
+  // ByteDance model. Measuring, not inferring, is what caught it.
   it('has a sale price — without this the C1 gate refuses it and it cannot be charged', () => {
     expect(VIDEO_CREDITS[ID]).toBeTruthy();
-    expect(VIDEO_CREDITS[ID].byRes['480p'].off).toBe(6);
-    expect(VIDEO_CREDITS[ID].byRes['720p'].off).toBe(12.5);
-    expect(VIDEO_CREDITS[ID].byRes['1080p'].off).toBe(30);
+    expect(VIDEO_CREDITS[ID].byRes['480p'].off).toBe(4);
+    expect(VIDEO_CREDITS[ID].byRes['720p'].off).toBe(8.5);
+    expect(VIDEO_CREDITS[ID].byRes['1080p'].off).toBe(15.5);
+  });
+
+  // Each price must clear the 40% floor against the measured cost.
+  it('clears 40% margin on every resolution, against the MEASURED cost', () => {
+    const CV = 0.063333;
+    const measured = { '480p': 0.14, '720p': 0.315, '1080p': 0.57 };
+    for (const [res, cost] of Object.entries(measured)) {
+      const sale = VIDEO_CREDITS[ID].byRes[res].off * CV;
+      const margin = (sale - cost) / sale;
+      expect(margin, `${res} margin ${(margin * 100).toFixed(1)}%`).toBeGreaterThanOrEqual(0.40);
+    }
   });
 
   // kie's marketing says "native 4K"; the API's resolution field offers three.
@@ -70,9 +85,9 @@ describe('Seedance 2.5 is wired everywhere it needs to be', () => {
   // The prices are fal's, used as a proxy because kie publishes none. That has
   // to stay visible in the source, or a later reader treats an estimate as
   // measured fact.
-  it('says in the source that its cost is derived, not measured', () => {
-    expect(pricingSrc).toMatch(/PRICES ARE PROVISIONAL AND DERIVED, NOT MEASURED/);
-    expect(pricingSrc).toMatch(/MEASURE THE REAL kie COST/);
+  it('records in the source that the cost was measured, and how', () => {
+    expect(pricingSrc).toMatch(/COSTS ARE MEASURED, NOT ESTIMATED/);
+    expect(pricingSrc).toMatch(/reading the kie\n  \/\/ balance either side/);
   });
 });
 

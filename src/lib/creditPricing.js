@@ -154,17 +154,15 @@ export const VIDEO_CREDITS = {
       '4K':    { off: 41.5, on: 41.5 },
     },
   },
-  // Seedance 2.5 — added 2026-08-17, served by kie (bytedance/seedance-2-5).
-  // Provisional: kie publishes no price, so these are fal's costs for the same
-  // ByteDance model at the standard 40% margin. See server/src/pricing.js for
-  // the full derivation and the warning to MEASURE the real kie cost.
-  // 480p/720p/1080p only — kie's API offers no 4K despite the marketing copy.
+  // Seedance 2.5 — kie (bytedance/seedance-2-5). Costs MEASURED from the kie
+  // balance, not taken from fal: 480p $0.1400/s, 720p $0.3150/s,
+  // 1080p $0.5700/s. See server/src/pricing.js for the full working.
   'seedance-2-5': {
     type: 'per-sec', defaultRes: '720p',
     byRes: {
-      '480p':  { off: 6,    on: 6    },
-      '720p':  { off: 12.5, on: 12.5 },
-      '1080p': { off: 30,   on: 30   },
+      '480p':  { off: 4,    on: 4    },
+      '720p':  { off: 8.5,  on: 8.5  },
+      '1080p': { off: 15.5, on: 15.5 },
     },
   },
   // Seedance 2.0 Fast — per second (workbook: 3 / 6.5)
