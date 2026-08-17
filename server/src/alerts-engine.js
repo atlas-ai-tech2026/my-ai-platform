@@ -273,13 +273,26 @@ export function checkBackupRestore({ backupVerify, now }, s = DEFAULT_SETTINGS) 
   }
 
   if (!backupVerify.ok) {
+    const problems = backupVerify.problems || [];
+    const detail = problems.slice(0, 4).join(' · ')
+      || 'The verification failed without recording a reason.';
+
+    // "We could not REACH the archive" and "the archive is BAD" are different
+    // emergencies with different fixes, and calling a bandwidth cap a corrupt
+    // backup is how an alert loses its credibility. Both stay critical — being
+    // unable to reach your only offsite copy is not a small thing — but the
+    // headline has to name the real problem.
+    const unreachable = problems.some((p) => /could not fetch|not configured/i.test(p));
     return {
-      key: 'restore_failed',
+      key: unreachable ? 'restore_unreachable' : 'restore_failed',
       kind: 'restore_verify',
       severity: SEVERITY.CRITICAL,
-      title: 'The last backup could NOT be restored',
-      detail: (backupVerify.problems || []).slice(0, 4).join(' · ')
-        || 'The verification failed without recording a reason.',
+      title: unreachable
+        ? 'The offsite backup could not be reached'
+        : 'The last backup could NOT be restored',
+      detail: unreachable
+        ? `${detail} — the archive may be perfectly good; nothing could read it to find out.`
+        : detail,
       value: null,
     };
   }

@@ -359,3 +359,38 @@ describe('checkBackupRestore', () => {
       .not.toContain('restore_never_verified');
   });
 });
+
+// Being unable to REACH the archive and the archive being BAD are different
+// emergencies with different fixes. On 2026-08-17 a bandwidth cap made the
+// fetch fail; reporting that as "the backup could not be restored" would have
+// sent the owner hunting a corrupt archive that was probably fine.
+describe('checkBackupRestore tells unreachable apart from unreadable', () => {
+  const NOW = '2026-08-17T12:00:00Z';
+  const at = (d) => new Date(Date.parse(NOW) - d * 864e5).toISOString();
+
+  it('names a bandwidth/reachability failure as exactly that', () => {
+    const a = checkBackupRestore({ backupVerify: { checked_at: at(1), ok: false, problems: [
+      'could not fetch the offsite archive: download bandwidth or transaction (Class B) cap exceeded',
+    ] }, now: NOW });
+    expect(a.key).toBe('restore_unreachable');
+    expect(a.title).toMatch(/could not be reached/i);
+    expect(a.detail).toMatch(/may be perfectly good/);
+    expect(a.severity).toBe(SEVERITY.CRITICAL);   // still critical — one copy unreachable
+  });
+
+  it('still reports a genuinely unreadable archive as unrestorable', () => {
+    const a = checkBackupRestore({ backupVerify: { checked_at: at(1), ok: false, problems: [
+      'the archive could not be decrypted or decompressed: Unsupported state or unable to authenticate data',
+    ] }, now: NOW });
+    expect(a.key).toBe('restore_failed');
+    expect(a.title).toMatch(/could NOT be restored/);
+    expect(a.detail).not.toMatch(/may be perfectly good/);
+  });
+
+  it('treats missing configuration as unreachable, not as a bad backup', () => {
+    const a = checkBackupRestore({ backupVerify: { checked_at: at(1), ok: false, problems: [
+      'the offsite bucket is not configured — there is only one copy',
+    ] }, now: NOW });
+    expect(a.key).toBe('restore_unreachable');
+  });
+});
