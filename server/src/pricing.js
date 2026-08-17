@@ -109,6 +109,37 @@ export const VIDEO_CREDITS = {
       '4K':    { off: 41.5, on: 41.5 },
     },
   },
+  // Seedance 2.5 — added 2026-08-17, served by kie (bytedance/seedance-2-5).
+  //
+  // PRICES ARE PROVISIONAL AND DERIVED, NOT MEASURED. kie publishes no price
+  // for this model (`priceInfoJson` is empty, as it is for 89 of their 99
+  // groups), so the supplier cost below is FAL's published price for the SAME
+  // ByteDance model, used as a proxy:
+  //     480p $0.2205/s · 720p $0.4730/s · 1080p $1.1372/s
+  // The 1080p figure is computed from fal's own token formula —
+  // (w × h × duration × 24) ÷ 1024 tokens at $0.0234/1000 — which reproduces
+  // their stated 480p and 720p rates to within a few percent, so it is a
+  // derivation rather than a guess.
+  //
+  // Credits are those costs at the standard 40% margin, rounded UP to the next
+  // half credit exactly as costing-engine.autoCredits does.
+  //
+  // ⚠️ MEASURE THE REAL kie COST before treating the margin as fact: generate
+  // once at each resolution and read the kie balance before and after. That is
+  // what caught the 16% error in the fal estimates, and kie's price for the
+  // same model need not match fal's.
+  //
+  // NOTE ON 4K: kie's marketing says "native 4K output", but the playground's
+  // resolution field offers only 480p/720p/1080p. Wired to what the API
+  // accepts, not to what the page claims.
+  'seedance-2-5': {
+    type: 'per-sec', defaultRes: '720p',
+    byRes: {
+      '480p':  { off: 6,    on: 6    },
+      '720p':  { off: 12.5, on: 12.5 },
+      '1080p': { off: 30,   on: 30   },
+    },
+  },
   'seedance-2-fast': {
     type: 'per-sec', defaultRes: '720p',
     byRes: {
@@ -282,6 +313,7 @@ export const VIDEO_LABEL_TO_ID = {
   'Kling 2.1': 'kling-2-1',
   'Kling O1': 'kling-o1',
   'Kling 3.0 Omni': 'kling-3-omni',
+  'Seedance 2.5': 'seedance-2-5',
   'Seedance 2.0': 'seedance-2',
   'Seedance 2.0 Fast': 'seedance-2-fast',
   'Seedance 2.0 Mini': 'seedance-2-mini',

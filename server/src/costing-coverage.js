@@ -34,6 +34,7 @@ export const LIVE_ID_TO_COSTING_MODEL = {
   'gemini-omni':       'Gemini Omni',
   'kling-2-6':         'Kling 2.6',
   'kling-2-5':         'Kling 2.5 Turbo Pro',
+  'seedance-2-5':      'Seedance 2.5',
   'seedance-2':        'Seedance 2.0',
   'seedance-2-fast':   'Seedance 2.0 Fast',
   'seedance-2-mini':   'Seedance 2.0 Mini',

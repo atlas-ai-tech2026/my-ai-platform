@@ -721,6 +721,9 @@ const VIDEO_DIRECT_MAP = {
   // Seedance 2.x runs on kie.ai (switched from FAL 2026-07-20). One jobs
   // model per variant handles t2v/i2v/reference via first_frame_url /
   // last_frame_url / reference_*_urls — dispatched in /api/generate-video-ref.
+  // Model id taken from kie's own page: "Complete guide to using
+  // bytedance/seedance-2-5". Same Jobs API path as 2.x — no new plumbing.
+  "Seedance 2.5":          { provider: "kie", family: "jobs", kieModel: "bytedance/seedance-2-5" },
   "Seedance 2.0":          { provider: "kie", family: "jobs", kieModel: "bytedance/seedance-2" },
   "Seedance 2.0 Fast":     { provider: "kie", family: "jobs", kieModel: "bytedance/seedance-2-fast" },
   "Seedance 2.0 Mini":     { provider: "kie", family: "jobs", kieModel: "bytedance/seedance-2-mini" },
