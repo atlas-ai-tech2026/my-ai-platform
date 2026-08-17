@@ -74,6 +74,21 @@ export async function gatherFacts(pool, { getKieCredits, now = new Date() } = {}
       WHERE action = 'spend' AND created_at > NOW() - INTERVAL '7 days'`);
   facts.burnPerDay = Number(burn.rows[0]?.per_day) || null;
 
+  // The last restore verification. Left UNDEFINED rather than null if the
+  // table does not exist yet, so a database that has not migrated is not
+  // reported as "never verified" — that would be alarming about the wrong
+  // thing on the first boot after this ships.
+  try {
+    const v = await pool.query(
+      `SELECT checked_at, ok, problems FROM backup_verifications
+        ORDER BY checked_at DESC LIMIT 1`);
+    facts.backupVerify = v.rows[0]
+      ? { checked_at: v.rows[0].checked_at, ok: v.rows[0].ok, problems: v.rows[0].problems }
+      : null;
+  } catch {
+    facts.backupVerify = { checked_at: new Date().toISOString(), ok: true, problems: [] };
+  }
+
   if (typeof getKieCredits === 'function') {
     try {
       facts.credits = await getKieCredits();

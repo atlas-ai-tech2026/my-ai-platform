@@ -13,7 +13,7 @@ import {
   SEVERITY, isOurAccountDry, providerOf, checkKieBalance, checkAccountDryFailures,
   checkStuckCharges, checkFailureSpike, checkOverallFailureRate, checkSweepStale,
   shouldEmail, evaluateAll, bySeverity, subjectFor, withDefaults,
-  DEFAULT_SETTINGS, RENOTIFY_MS,
+  DEFAULT_SETTINGS, RENOTIFY_MS, checkBackupRestore,
 } from './alerts-engine.js';
 
 // Verbatim from production.
@@ -293,5 +293,69 @@ describe('settings', () => {
 
   it('accepts a numeric string from the database without going NaN', () => {
     expect(withDefaults({ kie_balance_min: '12000' }).kie_balance_min).toBe(12000);
+  });
+});
+
+// ── the restore-verification check (SOP 1) ─────────────────────────────────
+// The interesting case is not "the restore failed". It is "the check quietly
+// stopped running", because that state looks identical to everything being
+// fine — which is the exact failure this whole feature exists to end.
+describe('checkBackupRestore', () => {
+  const NOW = '2026-08-17T12:00:00Z';
+  const at = (daysAgo) => new Date(Date.parse(NOW) - daysAgo * 864e5).toISOString();
+
+  it('is quiet when a recent verification passed', () => {
+    expect(checkBackupRestore(
+      { backupVerify: { checked_at: at(3), ok: true, problems: [] }, now: NOW })).toBeNull();
+  });
+
+  it('is CRITICAL when nothing has ever been verified', () => {
+    const a = checkBackupRestore({ backupVerify: null, now: NOW });
+    expect(a.severity).toBe(SEVERITY.CRITICAL);
+    expect(a.key).toBe('restore_never_verified');
+    expect(a.title).toMatch(/never been test-restored|ever been test-restored/i);
+  });
+
+  it('is CRITICAL when the last restore failed, and says why', () => {
+    const a = checkBackupRestore({
+      backupVerify: { checked_at: at(1), ok: false, problems: ['users: manifest says 593 rows, archive contains 0'] },
+      now: NOW });
+    expect(a.severity).toBe(SEVERITY.CRITICAL);
+    expect(a.detail).toMatch(/archive contains 0/);
+  });
+
+  // A failure with no recorded reason must still be a failure, not a crash.
+  it('still reports a failure that recorded no reason', () => {
+    const a = checkBackupRestore({ backupVerify: { checked_at: at(1), ok: false }, now: NOW });
+    expect(a.severity).toBe(SEVERITY.CRITICAL);
+    expect(a.detail).toMatch(/without recording a reason/);
+  });
+
+  it('warns when the check itself has stopped running', () => {
+    const a = checkBackupRestore({ backupVerify: { checked_at: at(60), ok: true, problems: [] }, now: NOW });
+    expect(a.key).toBe('restore_verify_stale');
+    expect(a.severity).toBe(SEVERITY.WARNING);
+    expect(a.value).toBe(60);
+  });
+
+  // 35 days, not 30: the check is monthly, so a 30-day limit would fire every
+  // time a month ran slightly long and train the owner to ignore it.
+  it('tolerates a month that ran slightly long', () => {
+    expect(checkBackupRestore(
+      { backupVerify: { checked_at: at(33), ok: true, problems: [] }, now: NOW })).toBeNull();
+  });
+
+  it('is wired into evaluateAll, not merely exported', () => {
+    const alerts = evaluateAll({ backupVerify: null, now: NOW, recent: [], models: [] });
+    expect(alerts.map((a) => a.key)).toContain('restore_never_verified');
+  });
+
+  // The distinction that keeps this check honest: a caller that never gathered
+  // the fact has said nothing about backups, and silence must not become a
+  // CRITICAL. Absent abstains; an explicit null is the finding.
+  it('says nothing when the fact was never gathered', () => {
+    expect(checkBackupRestore({ now: NOW })).toBeNull();
+    expect(evaluateAll({ now: NOW, recent: [], models: [] }).map((a) => a.key))
+      .not.toContain('restore_never_verified');
   });
 });

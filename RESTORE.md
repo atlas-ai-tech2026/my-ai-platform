@@ -141,16 +141,60 @@ to run against a restored database.
 
 ---
 
-## Test-restore drill (do this once a quarter, ~20 minutes)
+## The drill now runs itself (added 2026-08-17)
 
-1. Download yesterday's offsite archive.
-2. Decrypt it (step 2). If this fails, **stop** — your passphrase is wrong
-   or lost, and every backup is currently unreadable.
-3. Check the row counts in the last line look sane.
-4. Load `users` into a scratch database.
-5. Write down the date you did this.
+This section used to say "do this once a quarter, ~20 minutes". **It was never
+done, not once**, between the backup system shipping and 17 Aug 2026. That is
+not a criticism of anyone — it is what happens to every quarterly manual
+checklist, and it is why the drill is now code.
 
-Steps 1–3 alone catch almost every real backup failure.
+`server/src/backup-verify.js` performs steps 1–4 automatically:
+
+| Step | What it proves |
+|---|---|
+| Fetches the newest **offsite** archive | the second copy exists and is reachable — the one that survives losing the DO account |
+| Decrypts it | **the passphrase is correct**; AES-GCM means a wrong key throws rather than yielding garbage |
+| Gunzips and parses | the archive is not corrupt or truncated |
+| Counts every row and compares against the archive's own manifest | the backup is complete, and any table that errored mid-dump is named |
+| Checks `users`, `credits_history`, `promo_codes`, `promo_redemptions` are non-empty | a backup with no customers is not a backup of this business |
+| **Really INSERTs rows** into a throwaway schema built with `LIKE public.<table> INCLUDING ALL` | the data still **fits the current schema** — a perfect archive whose columns have moved on will not load |
+
+The temporary schema is created per run and dropped in a `finally` block. The
+live tables are only ever read from, by `LIKE`.
+
+**When it runs:** monthly, plus once within ten minutes of the first boot that
+has never recorded a result — so a fresh deployment answers "can we restore?"
+straight away instead of in a month.
+
+**Where the answer goes:** the `backup_verifications` table, and **Alerts**.
+Every run is recorded, pass or fail — a check that only writes rows on failure
+cannot tell "all clear" from "stopped running".
+
+Three conditions raise an alert:
+
+| Condition | Severity |
+|---|---|
+| Nothing has ever been verified | **critical** |
+| The last verification failed | **critical** — with the reasons |
+| No verification for 35+ days | warning — *the check itself has stopped* |
+
+That last one matters most. A failure is loud; a check that quietly stopped
+looks exactly like everything being fine.
+
+**Run it on demand** — the answer to "are we safe?" should never be "wait a
+month and find out":
+
+```bash
+curl -X POST https://voxel-ai.ai/api/admin/backup/verify   # admin session required
+```
+
+`GET /api/admin/backup/verification` returns the latest result and the last 12.
+
+### What still needs a human
+
+Automation proves the archive is readable and loadable. It does **not** prove
+you could rebuild the service — DNS, environment variables, Spaces buckets and
+the app itself are outside it. Walk through a full rebuild on paper once a year.
 
 ---
 

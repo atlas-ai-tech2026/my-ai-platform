@@ -69,6 +69,7 @@ import { registerCostingRoutes } from './costing-routes.js';
 import { registerOffersRoutes } from './offers-routes.js';
 import { registerNotificationsRoutes } from './notifications-routes.js';
 import { registerAlertsRoutes, runAlertChecks } from './alerts-routes.js';
+import { registerBackupVerifyRoutes, scheduleRestoreVerification } from './backup-verify-routes.js';
 import { registerPnlRoutes } from './pnl-routes.js';
 import { registerReliabilityRoutes } from './reliability-routes.js';
 import { registerCustomerRoutes } from './customer-routes.js';
@@ -4448,6 +4449,14 @@ registerAlertsRoutes(app, {
   getKieCredits: KIE_KEY ? () => kieGetCredits() : null,
 });
 
+// ─── BACKUP RESTORE VERIFICATION (SOP 1) ─────────────────────────────────────
+// Backups have run daily to two encrypted places for weeks, and until now
+// nothing had ever read one back. RESTORE.md documented the drill; a drill
+// nobody performs is a document, not a defence. This fetches the OFFSITE copy,
+// decrypts it, checks it against its own manifest, loads rows into a throwaway
+// schema, and reports pass OR fail into Alerts.
+registerBackupVerifyRoutes(app, pool, adminGate);
+
 // ─── WORKSHOPS + P&L (Tier 1.2) ──────────────────────────────────────────────
 // The revenue half. Supplier cost was always knowable; what a workshop was
 // INVOICED lived only on the owner's laptop, so "did we make money?" had no
@@ -6339,6 +6348,10 @@ migrate()
     alertsTick();
     setInterval(alertsTick, 5 * 60 * 1000).unref?.();
     scheduleVideoChargeReconcile();
+    // Monthly, plus once within ten minutes of the first boot that has never
+    // recorded a verification — so "can we restore?" is answered now rather
+    // than in a month's time.
+    scheduleRestoreVerification(pool, dbReady);
     startListening();
   })
   .catch((err) => {

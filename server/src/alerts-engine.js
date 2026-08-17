@@ -70,6 +70,10 @@ export const DEFAULT_SETTINGS = {
   failure_rate_pct: 15,
   failure_min_attempts: 25,
   catalogue_stale_hours: 30,
+  // 35 rather than 30: the check runs monthly, so a 30-day limit would alarm
+  // every time a month ran slightly long. Five days of slack means this fires
+  // when the check has genuinely stopped, not when the calendar is awkward.
+  restore_verify_max_age_days: 35,
   email_enabled: true,
   email_to: '',
 };
@@ -231,6 +235,70 @@ export function checkSweepStale({ lastSweepIso, now }, s = DEFAULT_SETTINGS) {
   };
 }
 
+/**
+ * The backup restore check: did it pass, and has it run recently enough?
+ *
+ * TWO conditions, and the second is the one that matters most. A verification
+ * that FAILS is loud and obvious. A verification that silently STOPPED RUNNING
+ * looks exactly like everything being fine — which is the state this whole
+ * feature exists to end. "No news" must never read as good news here.
+ *
+ * CRITICAL, not warning: every other alert on this list costs money or a
+ * workshop. This one is the only one that can cost the business.
+ */
+export function checkBackupRestore({ backupVerify, now }, s = DEFAULT_SETTINGS) {
+  const maxAgeDays = s.restore_verify_max_age_days ?? 35;
+
+  // ABSENT vs NULL, and the difference matters.
+  //   undefined = this fact was never gathered → say nothing. A caller that
+  //               did not collect it has told us nothing about backups, and
+  //               inventing a CRITICAL from silence is how an alert system
+  //               teaches its owner to dismiss alerts.
+  //   null      = gathered, and there is genuinely no verification on record
+  //               → that IS the finding.
+  // Same reasoning as facts.credits: unreadable is not zero.
+  if (backupVerify === undefined) return null;
+
+  // Never verified at all.
+  if (!backupVerify || !backupVerify.checked_at) {
+    return {
+      key: 'restore_never_verified',
+      kind: 'restore_verify',
+      severity: SEVERITY.CRITICAL,
+      title: 'No backup has ever been test-restored',
+      detail: 'Backups are being written, but nothing has ever proved one can be read back. '
+        + 'An untested backup is a hope, and it is discovered on the worst possible day.',
+      value: null,
+    };
+  }
+
+  if (!backupVerify.ok) {
+    return {
+      key: 'restore_failed',
+      kind: 'restore_verify',
+      severity: SEVERITY.CRITICAL,
+      title: 'The last backup could NOT be restored',
+      detail: (backupVerify.problems || []).slice(0, 4).join(' · ')
+        || 'The verification failed without recording a reason.',
+      value: null,
+    };
+  }
+
+  const days = (new Date(now) - new Date(backupVerify.checked_at)) / 864e5;
+  if (Number.isFinite(days) && days > maxAgeDays) {
+    return {
+      key: 'restore_verify_stale',
+      kind: 'restore_verify',
+      severity: SEVERITY.WARNING,
+      title: 'The backup restore check has stopped running',
+      detail: `Last verified ${Math.floor(days)} days ago. The backups may still be good — `
+        + 'but nothing is checking, which is where this started.',
+      value: Math.floor(days),
+    };
+  }
+  return null;
+}
+
 // ── notification policy ─────────────────────────────────────────────────────
 
 /**
@@ -271,6 +339,7 @@ export function evaluateAll(facts, settings = DEFAULT_SETTINGS) {
     // truthfully now; the per-model version lands with Tier 1.3.
     () => checkOverallFailureRate(facts, settings),
     () => checkSweepStale(facts, settings),
+    () => checkBackupRestore(facts, settings),
   ];
   const out = [];
   for (const run of checks) {
