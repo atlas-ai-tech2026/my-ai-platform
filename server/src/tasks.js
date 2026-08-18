@@ -82,27 +82,38 @@ export async function upsertTask(pool, t) {
   const v = validate(t);
   if (!v.ok) return v;
   await ensureTasksTable(pool);
+  // NEVER REUSE A PARAMETER. `CASE WHEN $6 = 'done'` alongside `$6` as a
+  // column value made Postgres fail with "inconsistent types deduced for
+  // parameter $6": the column context says varchar, the comparison says text,
+  // and an untyped placeholder cannot be both. Adding ::text did NOT fix it —
+  // it just made the deduction conflict explicit.
+  //
+  // So done_at is computed HERE and passed as its own parameter. Simpler than
+  // the SQL that failed, and the whole class of problem disappears.
+  const status = t.status || 'pending';
+  const doneAt = status === 'done' ? new Date() : null;
+
   if (t.ref) {
     // Idempotent by ref, so re-seeding never duplicates a task.
     const { rows } = await pool.query(
       `INSERT INTO tasks (ref, title, detail, why, owner, status, priority, blocked_by, done_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8, CASE WHEN $6::text = 'done' THEN NOW() END)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
        ON CONFLICT (ref) DO UPDATE SET
          title=EXCLUDED.title, detail=EXCLUDED.detail, why=EXCLUDED.why,
          owner=EXCLUDED.owner, status=EXCLUDED.status, priority=EXCLUDED.priority,
          blocked_by=EXCLUDED.blocked_by, updated_at=NOW(),
          done_at = CASE WHEN EXCLUDED.status = 'done'
-                        THEN COALESCE(tasks.done_at, NOW()) ELSE NULL END
+                        THEN COALESCE(tasks.done_at, EXCLUDED.done_at) ELSE NULL END
        RETURNING *`,
       [t.ref, t.title, t.detail || null, t.why || null, t.owner || 'claude',
-       t.status || 'pending', Number(t.priority ?? 100), t.blocked_by || null]);
+       status, Number(t.priority ?? 100), t.blocked_by || null, doneAt]);
     return { ok: true, task: rows[0] };
   }
   const { rows } = await pool.query(
     `INSERT INTO tasks (title, detail, why, owner, status, priority, blocked_by, done_at)
-     VALUES ($1,$2,$3,$4,$5,$6,$7, CASE WHEN $5::text = 'done' THEN NOW() END) RETURNING *`,
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
     [t.title, t.detail || null, t.why || null, t.owner || 'claude',
-     t.status || 'pending', Number(t.priority ?? 100), t.blocked_by || null]);
+     status, Number(t.priority ?? 100), t.blocked_by || null, doneAt]);
   return { ok: true, task: rows[0] };
 }
 
@@ -110,13 +121,13 @@ export async function setStatus(pool, id, status) {
   if (!STATUSES.includes(status)) return { ok: false, error: 'Unknown status.' };
   await ensureTasksTable(pool);
   const { rows } = await pool.query(
-    // ::text on every re-use of a parameter. Postgres cannot deduce a type for
-    // a placeholder used BOTH as a column value and inside a comparison — that
-    // is what killed the first seed with "inconsistent types deduced for
-    // parameter $6", and node --check cannot see SQL.
+    // Same rule: done_at computed here, passed as its own parameter, so $2 is
+    // used exactly once.
     `UPDATE tasks SET status=$2, updated_at=NOW(),
-            done_at = CASE WHEN $2::text = 'done' THEN COALESCE(done_at, NOW()) ELSE NULL END
-      WHERE id=$1 RETURNING *`, [id, status]);
+            done_at = CASE WHEN $3::timestamptz IS NULL THEN NULL
+                           ELSE COALESCE(done_at, $3::timestamptz) END
+      WHERE id=$1 RETURNING *`,
+    [id, status, status === 'done' ? new Date() : null]);
   if (!rows.length) return { ok: false, error: 'No such task.' };
   return { ok: true, task: rows[0] };
 }

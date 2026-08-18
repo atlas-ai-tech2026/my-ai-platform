@@ -54,13 +54,30 @@ describe('SQL parameter reuse — the bug that killed the first seed', () => {
   // Postgres could not deduce a type for a placeholder used BOTH as a column
   // value and inside a comparison: "inconsistent types deduced for parameter
   // $6". node --check cannot see SQL, and no unit test would have run it.
-  it('casts every re-used parameter explicitly', async () => {
+  // THE RULE, learned the hard way: a placeholder may appear more than once
+  // ONLY if every occurrence carries the SAME explicit cast. Used once as a
+  // column value and once bare in a comparison, Postgres deduces varchar from
+  // the column and text from the comparison and refuses. Adding ::text to just
+  // one side does not help — it makes the conflict explicit.
+  it('never leaves a re-used parameter without a consistent cast', async () => {
     const pool = { query: vi.fn().mockResolvedValue({ rows: [{ id: 1 }] }) };
     await upsertTask(pool, { ref: '1', title: 'x', status: 'done' });
+    await upsertTask(pool, { title: 'y', status: 'pending' });
     await setStatus(pool, 1, 'done');
-    const sql = pool.query.mock.calls.map((c) => String(c[0])).join('\n');
-    for (const m of sql.matchAll(/CASE WHEN (\$\d+)(::text)? = 'done'/g)) {
-      expect(m[2], `${m[1]} is compared without a cast`).toBe('::text');
+
+    for (const [sql] of pool.query.mock.calls) {
+      const q = String(sql);
+      if (!/INSERT INTO tasks|UPDATE tasks/.test(q)) continue;
+      const uses = {};
+      for (const m of q.matchAll(/\$(\d+)(::[a-z]+)?/g)) {
+        (uses[m[1]] ||= []).push(m[2] || '');
+      }
+      for (const [n, casts] of Object.entries(uses)) {
+        if (casts.length < 2) continue;
+        expect(new Set(casts).size,
+          `$${n} appears ${casts.length} times with different casts: ${JSON.stringify(casts)}`).toBe(1);
+        expect(casts[0], `$${n} is re-used with no cast at all`).not.toBe('');
+      }
     }
   });
 
