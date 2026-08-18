@@ -194,6 +194,10 @@ export const adminApi = {
   // archive and is therefore rate limited server-side.
   sop:          ()               => request('GET',  '/api/admin/sop'),
   sopCheckNow:  ()               => request('POST', '/api/admin/sop/check-now', {}),
+  // Times cross this boundary in KUWAIT hours. The server stores UTC; an
+  // unlabelled clock is how the expiry table once rendered a day early.
+  sopSchedule:      ()           => request('GET', '/api/admin/sop/schedule'),
+  sopScheduleSave:  (row)        => request('PUT', '/api/admin/sop/schedule', row),
 
   // ─── Live monitor (Tier 2.1, 2026-08-16) ──────────────────────────
   // What is happening RIGHT NOW, for use during a session. Short absolute

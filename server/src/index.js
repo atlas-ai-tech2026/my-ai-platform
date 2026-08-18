@@ -74,7 +74,7 @@ import { registerPnlRoutes } from './pnl-routes.js';
 import { registerReliabilityRoutes } from './reliability-routes.js';
 import { registerCustomerRoutes } from './customer-routes.js';
 import { registerWaitlistRoutes } from './waitlist.js';
-import { registerSopRoutes } from './sop-routes.js';
+import { registerSopRoutes, scheduleSopJobs } from './sop-routes.js';
 import { registerLiveRoutes } from './live-routes.js';
 import { settleAttempt, sweepStale } from './generation-events.js';
 import { idempotencyGuard, sweep as sweepIdempotency } from './idempotency.js';
@@ -6494,6 +6494,9 @@ migrate()
     // recorded a verification — so "can we restore?" is answered now rather
     // than in a month's time.
     scheduleRestoreVerification(pool, dbReady);
+    // Owner-editable cadences, driven by the last recorded run rather than a
+    // timer, so they survive the many redeploys this app sees in a day.
+    scheduleSopJobs(pool, dbReady);
     startListening();
   })
   .catch((err) => {

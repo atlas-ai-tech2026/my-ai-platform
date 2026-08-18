@@ -224,9 +224,103 @@ export default function SopTab({ onError }) {
           </section>
         );
       })}
+
+      <Schedule
+        rows={data.schedule}
+        onSaved={(schedule) => setData((d) => ({ ...d, schedule }))}
+        onError={onError}
+      />
     </div>
   );
 }
+
+/**
+ * The cadences, editable.
+ *
+ * Times are shown and entered in KUWAIT time and the label says so. The server
+ * is UTC; an unlabelled clock is exactly how the expiry table once rendered
+ * every date a day early.
+ */
+function Schedule({ rows, onSaved, onError }) {
+  const [saving, setSaving] = useState(null);
+  if (!rows?.length) return null;
+
+  async function save(row, patch) {
+    setSaving(row.job);
+    try {
+      const r = await adminApi.sopScheduleSave({
+        job: row.job,
+        enabled: patch.enabled ?? row.enabled,
+        every: patch.every ?? row.every,
+        hour_kuwait: patch.hour_kuwait ?? row.hour_kuwait,
+      });
+      onSaved?.(r.schedule);
+      toast.success('Schedule saved.');
+    } catch (e) { onError?.(e, 'Could not save the schedule'); }
+    finally { setSaving(null); }
+  }
+
+  return (
+    <section style={{ marginTop: 26 }}>
+      <div style={{ marginBottom: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ fontWeight: 700, color: 'var(--crm-ink)', fontSize: 14 }}>When these run</span>
+          <InfoDot
+            label="When these run"
+            text={'All times are KUWAIT time. The server keeps UTC and converts. Checks are driven '
+              + 'by when they LAST RAN, not by a timer — this app redeploys many times a day, and a '
+              + 'timer set weeks ahead on a process that lives hours would never fire.'}
+          />
+        </div>
+        <div style={{ fontSize: 12, color: 'var(--crm-w50)', marginTop: 2 }}>
+          Change how often each check runs, and at what hour. Times are Kuwait (UTC+3).
+        </div>
+      </div>
+
+      {rows.map((row) => (
+        <div key={row.job} style={{
+          display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap',
+          padding: '10px 12px', borderRadius: 10, marginBottom: 8,
+          border: '1px solid var(--crm-w08)', background: 'var(--crm-w03)',
+        }}>
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+            <input type="checkbox" checked={!!row.enabled}
+              onChange={(e) => save(row, { enabled: e.target.checked })} />
+            <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--crm-ink)' }}>{row.label}</span>
+          </label>
+          <InfoDot label={row.label} text={row.info} />
+
+          <span style={{ marginLeft: 'auto', display: 'inline-flex', gap: 8, alignItems: 'center' }}>
+            <span style={{ fontSize: 12, color: 'var(--crm-w55)' }}>every</span>
+            <select value={row.every} onChange={(e) => save(row, { every: e.target.value })}
+              disabled={saving === row.job} style={sel} aria-label={`How often ${row.label} runs`}>
+              <option value="day">day</option>
+              <option value="week">week</option>
+              <option value="month">month</option>
+            </select>
+            <span style={{ fontSize: 12, color: 'var(--crm-w55)' }}>at</span>
+            <select value={row.hour_kuwait} onChange={(e) => save(row, { hour_kuwait: Number(e.target.value) })}
+              disabled={saving === row.job} style={sel} aria-label={`What hour ${row.label} runs, Kuwait time`}>
+              {Array.from({ length: 24 }, (_, h) => (
+                <option key={h} value={h}>{String(h).padStart(2, '0')}:00</option>
+              ))}
+            </select>
+            <span style={{ fontSize: 11, color: 'var(--crm-w40)' }}>Kuwait</span>
+          </span>
+
+          <div style={{ flexBasis: '100%', fontSize: 11, color: 'var(--crm-w40)' }}>
+            {row.last_run_at ? `last ran ${ago(row.last_run_at)}` : 'has never run'}
+          </div>
+        </div>
+      ))}
+    </section>
+  );
+}
+
+const sel = {
+  height: 28, borderRadius: 7, padding: '0 8px', fontSize: 12.5, fontFamily: 'inherit',
+  background: 'var(--crm-w06)', border: '1px solid var(--crm-w12)', color: 'var(--crm-ink)',
+};
 
 const btn = {
   height: 32, padding: '0 14px', borderRadius: 9, cursor: 'pointer',

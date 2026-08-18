@@ -11,8 +11,13 @@ import SopTab from './SopTab';
 
 const sop = vi.fn();
 const sopCheckNow = vi.fn();
+const sopScheduleSave = vi.fn();
 vi.mock('@/lib/adminApi', () => ({
-  adminApi: { sop: (...a) => sop(...a), sopCheckNow: (...a) => sopCheckNow(...a) },
+  adminApi: {
+    sop: (...a) => sop(...a),
+    sopCheckNow: (...a) => sopCheckNow(...a),
+    sopScheduleSave: (...a) => sopScheduleSave(...a),
+  },
 }));
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn(), message: vi.fn() } }));
 
@@ -30,7 +35,7 @@ const payload = (lines, extra = {}) => ({
   restore_cooldown_min: 0, ...extra,
 });
 
-beforeEach(() => { sop.mockReset(); sopCheckNow.mockReset(); });
+beforeEach(() => { sop.mockReset(); sopCheckNow.mockReset(); sopScheduleSave.mockReset(); });
 
 describe('it answers the question the tab exists for', () => {
   it('shows each check with its value', async () => {
@@ -132,5 +137,53 @@ describe('the standing ⓘ rule', () => {
     await screen.findByText('Daily backup');
     await userEvent.hover(screen.getByRole('button', { name: /What Daily backup means/i }));
     expect(await screen.findByRole('tooltip')).toHaveTextContent(/full copy of every table/i);
+  });
+});
+
+// The schedule the owner controls. Times cross the wire in KUWAIT hours — an
+// unlabelled clock is how the expiry table once rendered every date a day early.
+describe('the schedule editor', () => {
+  const sched = [{
+    job: 'restore', label: 'Backup restore verification', enabled: true,
+    every: 'month', hour_kuwait: 4, hour_utc: 1, last_run_at: null,
+    info: 'Downloads a real backup and checks it against its own record.',
+  }];
+
+  it('shows each check, its cadence and its hour', async () => {
+    sop.mockResolvedValue(payload([line()], { schedule: sched }));
+    render(<SopTab onError={vi.fn()} />);
+    expect(await screen.findByText('Backup restore verification')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('month')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('04:00')).toBeInTheDocument();
+  });
+
+  it('says the times are Kuwait, so nobody has to guess the zone', async () => {
+    sop.mockResolvedValue(payload([line()], { schedule: sched }));
+    render(<SopTab onError={vi.fn()} />);
+    expect(await screen.findByText(/Kuwait \(UTC\+3\)/i)).toBeInTheDocument();
+  });
+
+  it('says plainly when a check has never run', async () => {
+    sop.mockResolvedValue(payload([line()], { schedule: sched }));
+    render(<SopTab onError={vi.fn()} />);
+    expect(await screen.findByText(/has never run/i)).toBeInTheDocument();
+  });
+
+  it('sends the hour in KUWAIT time when changed', async () => {
+    sop.mockResolvedValue(payload([line()], { schedule: sched }));
+    sopScheduleSave.mockResolvedValue({ ok: true, schedule: sched });
+    render(<SopTab onError={vi.fn()} />);
+    await screen.findByText('Backup restore verification');
+    await userEvent.selectOptions(
+      screen.getByLabelText(/What hour Backup restore verification runs/i), '6');
+    await waitFor(() => expect(sopScheduleSave).toHaveBeenCalled());
+    expect(sopScheduleSave.mock.calls[0][0]).toMatchObject({ job: 'restore', hour_kuwait: 6 });
+  });
+
+  it('gives every schedule row an ⓘ, per the standing rule', async () => {
+    sop.mockResolvedValue(payload([line()], { schedule: sched }));
+    render(<SopTab onError={vi.fn()} />);
+    expect(await screen.findByRole('button',
+      { name: /What Backup restore verification means/i })).toBeInTheDocument();
   });
 });
