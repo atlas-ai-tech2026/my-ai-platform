@@ -22,6 +22,7 @@ import OffersTab from '@/components/admin/OffersTab';
 import NotificationsTab from '@/components/admin/NotificationsTab';
 import AlertsTab from '@/components/admin/AlertsTab';
 import CustomerPanel from '@/components/admin/CustomerPanel';
+import SopTab from '@/components/admin/SopTab';
 import LiveTab from '@/components/admin/LiveTab';
 import { ThemedToaster } from '@/components/admin/crmTheme';
 
@@ -40,6 +41,12 @@ const TABS = [
   // this one is the only screen that speaks first. It exists because a kie
   // balance check ran hourly into console.error while 415 generations failed
   // mid-workshop on 8 August — the system knew and had nowhere to say it.
+  // SECOND, right after Alerts, and the pairing is deliberate. Alerts shows
+  // only what is WRONG. This shows the whole picture INCLUDING what is fine —
+  // which is most of what you need before standing in front of a room. Both
+  // read the same checks, so they can never disagree.
+  { id: 'sop', label: 'SOP',
+    desc: 'Your daily operations picture: what every automated check found, and what to do about each one. Backups, restore verification, supplier runway, stuck charges, failure rate, and the structural checks that find a screen promising something no table keeps. A line that could not be determined says "not checked" — never green.' },
   { id: 'alerts', label: 'Alerts',
     desc: 'What needs your attention right now — supplier balance running low, charges taken with nothing delivered, failure spikes. This is the only screen that speaks first; every other tab waits to be asked. Anything serious also emails you once.' },
   // Tier 2.1 — for use DURING a session, not after it. Second only to
@@ -271,6 +278,7 @@ export default function AdminPanel() {
           <CustomerPanel user={customerFor} onClose={() => setCustomerFor(null)} onError={handleError} />
         )}
 
+        {tab === 'sop' && <SopTab onError={handleError} />}
         {tab === 'alerts' && <AlertsTab onError={handleError} />}
 
         {tab === 'live' && <LiveTab onError={handleError} />}

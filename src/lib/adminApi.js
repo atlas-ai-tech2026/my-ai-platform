@@ -189,6 +189,12 @@ export const adminApi = {
   // Rows say whether that outcome was recorded or inferred.
   customerOverview: (id)         => request('GET', `/api/admin/customers/${id}/overview`),
 
+  // SOP / daily operations. `sop` is cheap and always recomputed; `sopCheckNow`
+  // additionally re-runs the restore verification, which downloads a real
+  // archive and is therefore rate limited server-side.
+  sop:          ()               => request('GET',  '/api/admin/sop'),
+  sopCheckNow:  ()               => request('POST', '/api/admin/sop/check-now', {}),
+
   // ─── Live monitor (Tier 2.1, 2026-08-16) ──────────────────────────
   // What is happening RIGHT NOW, for use during a session. Short absolute
   // windows, never rolling averages — a fault four minutes old matters.
