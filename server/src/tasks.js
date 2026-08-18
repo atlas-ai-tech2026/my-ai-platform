@@ -39,7 +39,14 @@ export async function ensureTasksTable(pool) {
       done_at     TIMESTAMPTZ
     )`);
   await pool.query(`CREATE INDEX IF NOT EXISTS tasks_status_idx ON tasks (status, priority)`);
-  await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS tasks_ref_idx ON tasks (ref) WHERE ref IS NOT NULL`);
+  // NOT a partial index. `ON CONFLICT (ref)` only matches a partial unique
+  // index if the statement repeats the same WHERE clause — which is how the
+  // seed failed with "no unique or exclusion constraint matching the ON
+  // CONFLICT specification". A plain unique index is simpler and does the same
+  // job here, because Postgres already treats NULLs as distinct, so any number
+  // of rows may have no ref.
+  await pool.query(`DROP INDEX IF EXISTS tasks_ref_idx`);
+  await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS tasks_ref_unique ON tasks (ref)`);
 }
 
 export function validate({ title, owner, status, priority }) {

@@ -122,3 +122,28 @@ describe('the seed', () => {
     for (const r of ['18', '20', '28', '31', '32']) expect(refs, `#${r} missing`).toContain(r);
   });
 });
+
+// Third attempt at this one query, so the rule is written down as a test.
+// `ON CONFLICT (col)` matches a PARTIAL unique index only if the statement
+// repeats the same WHERE clause. It is far easier to keep the index plain.
+describe('ON CONFLICT must match the index that exists', () => {
+  it('creates a NON-partial unique index for the column it conflicts on', async () => {
+    const pool = { query: vi.fn().mockResolvedValue({ rows: [] }) };
+    const { ensureTasksTable } = await import('./tasks.js');
+    await ensureTasksTable(pool);
+    const ddl = pool.query.mock.calls.map((c) => String(c[0])).join('\n');
+
+    const idx = ddl.match(/CREATE UNIQUE INDEX[^;`]*\(ref\)[^;`]*/i);
+    expect(idx, 'no unique index on ref').toBeTruthy();
+    expect(idx[0], 'a PARTIAL index will not satisfy ON CONFLICT (ref)').not.toMatch(/WHERE/i);
+  });
+
+  it('conflicts on a column the index actually covers', async () => {
+    const pool = { query: vi.fn().mockResolvedValue({ rows: [{ id: 1 }] }) };
+    await upsertTask(pool, { ref: '1', title: 'x' });
+    const insert = pool.query.mock.calls.map((c) => String(c[0])).find((q) => /ON CONFLICT/.test(q));
+    expect(insert).toMatch(/ON CONFLICT \(ref\)/);
+    // If the statement ever grows a WHERE, the index must grow the same one.
+    expect(insert).not.toMatch(/ON CONFLICT \(ref\)\s*WHERE/);
+  });
+});
