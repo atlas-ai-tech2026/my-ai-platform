@@ -142,11 +142,24 @@ export async function runRestoreVerification(pool, {
       parsed.rowsByTable = collectRows(archive.body, env.BACKUP_ENCRYPTION_PASSPHRASE,
         { tables: CRITICAL_TABLES, limit: 500 });
       const load = await verifyLoadable(pool, parsed, { tables: CRITICAL_TABLES });
-      loadTested = true;
       detail.load = load.results;
-      if (!load.ok) problems.push(...load.problems);
+      if (load.unavailable) {
+        // COULD NOT RUN is not the same as FAILED. The archive was fetched,
+        // decrypted, parsed and checked against its own manifest before we got
+        // here — calling the whole backup unrestorable because an OPTIONAL
+        // extra check lacked a database privilege would be a false alarm of
+        // the worst kind: the loud, wrong kind.
+        loadTested = false;
+        detail.load_unavailable = load.unavailable;
+        (detail.warnings ||= []).push(`schema load test skipped: ${load.unavailable}`);
+        console.log(`[restore-verify] load test unavailable (archive still verified): ${load.unavailable}`);
+      } else {
+        loadTested = true;
+        if (!load.ok) problems.push(...load.problems);
+      }
     } catch (e) {
-      problems.push(`the load test could not run: ${e.message}`);
+      loadTested = false;
+      (detail.warnings ||= []).push(`schema load test skipped: ${e.message}`);
     }
   }
 

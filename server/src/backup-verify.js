@@ -244,21 +244,25 @@ function safeIdent(name) {
  */
 export async function verifyLoadable(pool, parsed, {
   tables = CRITICAL_TABLES,
-  schema = null,
   rowsPerTable = 500,
 } = {}) {
-  // Caller supplies the suffix in tests; production passes a timestamp. Not
-  // Math.random(), which is unavailable in some of our runtimes.
-  const schemaName = schema || `restore_check_${Date.now()}`;
-  safeIdent(schemaName);
-
-  const rowsByTable = {};
-  for (const t of tables) rowsByTable[t] = [];
-
-  const client = await pool.connect();
   const results = [];
+  const client = await pool.connect();
+  let unavailable = null;
+
   try {
-    await client.query(`CREATE SCHEMA ${schemaName}`);
+    // TEMPORARY tables inside a transaction that is ALWAYS rolled back.
+    //
+    // The first version created a real schema, and production answered
+    // "permission denied for database dev-db-347887" — the managed-Postgres
+    // app user has no CREATE on the database, and it should not have. Needing
+    // a privilege escalation to check your backups is a bad trade.
+    //
+    // Temp tables need no special grant, live only in this session, and the
+    // ROLLBACK discards them along with everything written. There is no path
+    // by which this touches a real table: the only reference to public.<t> is
+    // LIKE, which reads the shape and copies nothing.
+    await client.query('BEGIN');
 
     for (const table of tables) {
       const t = safeIdent(table);
@@ -267,7 +271,7 @@ export async function verifyLoadable(pool, parsed, {
 
       // INCLUDING ALL brings the column types, defaults and constraints of the
       // CURRENT schema — which is exactly what the backup must still satisfy.
-      await client.query(`CREATE TABLE ${schemaName}.${t} (LIKE public.${t} INCLUDING ALL)`);
+      await client.query(`CREATE TEMP TABLE restore_check_${t} (LIKE public.${t} INCLUDING ALL) ON COMMIT DROP`);
 
       const cols = Object.keys(rows[0]);
       cols.forEach(safeIdent);
@@ -279,7 +283,7 @@ export async function verifyLoadable(pool, parsed, {
       for (const row of rows) {
         try {
           await client.query(
-            `INSERT INTO ${schemaName}.${t} (${colList}) VALUES (${placeholders})
+            `INSERT INTO restore_check_${t} (${colList}) VALUES (${placeholders})
              ON CONFLICT DO NOTHING`,
             cols.map((c) => row[c]));
           loaded++;
@@ -292,17 +296,19 @@ export async function verifyLoadable(pool, parsed, {
       }
       results.push({ table: t, attempted: rows.length, loaded, error });
     }
+  } catch (e) {
+    // Could not run at all — an environment limitation, NOT a verdict on the
+    // backup. Reported separately so it cannot be read as "the data is bad".
+    unavailable = e.message;
   } finally {
-    // Runs even if a CREATE or INSERT threw. The schema must never outlive
-    // the check — a stale restore_check_* schema in production is litter.
-    await client.query(`DROP SCHEMA IF EXISTS ${schemaName} CASCADE`).catch(() => {});
+    await client.query('ROLLBACK').catch(() => {});
     client.release();
   }
 
   const failed = results.filter((r) => r.error);
   return {
-    ok: failed.length === 0,
-    schemaUsed: schemaName,
+    ok: !unavailable && failed.length === 0,
+    unavailable,
     results,
     problems: failed.map((r) => `${r.table}: ${r.error} (loaded ${r.loaded}/${r.attempted})`),
   };

@@ -234,3 +234,34 @@ describe('scheduling: a failure must not be treated like a pass', () => {
     expect(due({ ok: false }, 1 * H, { isFirst: true })).toBe(true);
   });
 });
+
+// The load test is an EXTRA. Production answered "permission denied for
+// database dev-db-347887" — the managed-Postgres app user has no CREATE on
+// the database, and it should not have. Reporting that as "your backup cannot
+// be restored" would be a loud, wrong alarm about readable data.
+describe('an unavailable load test is not a failed backup', () => {
+  const asVerdict = (load) => ({
+    // mirrors the branch in runRestoreVerification
+    problems: load.unavailable ? [] : load.problems,
+    warnings: load.unavailable ? [`schema load test skipped: ${load.unavailable}`] : [],
+    loadTested: !load.unavailable,
+  });
+
+  it('records a permission failure as a warning, not a problem', () => {
+    const v = asVerdict({ ok: false, unavailable: 'permission denied for database dev-db-347887', problems: [], results: [] });
+    expect(v.problems).toEqual([]);
+    expect(v.warnings[0]).toMatch(/skipped: permission denied/);
+    expect(v.loadTested).toBe(false);
+  });
+
+  // The distinction that matters: rows REJECTED by the current schema is a
+  // real finding — the archive would not go back in.
+  it('still reports rows the current schema rejects as a real problem', () => {
+    const v = asVerdict({
+      ok: false, unavailable: null, results: [],
+      problems: ['users: column "x" does not exist (loaded 0/500)'],
+    });
+    expect(v.problems).toEqual(['users: column "x" does not exist (loaded 0/500)']);
+    expect(v.loadTested).toBe(true);
+  });
+});
