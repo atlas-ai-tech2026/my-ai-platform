@@ -8,8 +8,7 @@ import { describe, it, expect } from 'vitest';
 import zlib from 'node:zlib';
 import {
   encryptBackup, decryptBackup,
-  encryptionConfigured, offsiteConfigured, missingOffsiteVars,
-} from './backup-offsite.js';
+  encryptionConfigured, offsiteConfigured, missingOffsiteVars, choosePrunable, MAX_PRUNE_PER_PASS } from './backup-offsite.js';
 
 const PASS = 'a-long-random-backup-passphrase-2026';
 const sample = Buffer.from(JSON.stringify({ table: 'users', row: { id: 1, email: 'a@b.c' } }));
@@ -101,5 +100,57 @@ describe('M3 — configuration detection', () => {
   it('an empty environment reports every variable as missing', () => {
     expect(missingOffsiteVars({})).toHaveLength(6);
     expect(offsiteConfigured({})).toBe(false);
+  });
+});
+
+// ── offsite retention ──────────────────────────────────────────────────────
+// Found from the owner's Backblaze screenshot on 2026-08-18: 1 GB used where
+// ~200 MB was expected. NOTHING had ever deleted from the offsite bucket — the
+// 14-day retention only ran against DigitalOcean Spaces. The second copy had
+// kept every archive since 2 August.
+//
+// This code deletes customer backups, so the decision is a pure function and
+// the tests below are about what it REFUSES to do.
+describe('choosePrunable — what the offsite retention will remove', () => {
+  const obj = (key, day) => ({ key, size: 100, modified: `2026-08-${String(day).padStart(2, '0')}T00:00:00Z` });
+  const fourteen = Array.from({ length: 20 }, (_, i) => obj(`backups/voxel-auto-2026-08-${20 - i}.enc`, 20 - i));
+
+  it('keeps the newest N and removes the rest', () => {
+    const { doomed } = choosePrunable(fourteen, { prefix: 'backups/', keep: 14 });
+    expect(doomed).toHaveLength(6);
+    expect(doomed.every((o) => o.key.startsWith('backups/'))).toBe(true);
+  });
+
+  it('removes nothing when there are fewer than N', () => {
+    expect(choosePrunable(fourteen.slice(0, 5), { prefix: 'backups/', keep: 14 }).doomed).toEqual([]);
+  });
+
+  // The one that matters: a listing bug must not reach production's archives
+  // while cleaning up dev's.
+  it('never touches a key outside the prefix', () => {
+    const mixed = [obj('backups/prod-1.enc', 5), obj('dev-backups/dev-1.enc', 4), obj('backups/prod-2.enc', 3)];
+    const { doomed } = choosePrunable(mixed, { prefix: 'dev-backups/', keep: 0 });
+    expect(doomed.map((o) => o.key)).toEqual(['dev-backups/dev-1.enc']);
+  });
+
+  it('caps how much one pass may delete', () => {
+    const many = Array.from({ length: 200 }, (_, i) => obj(`backups/f${i}.enc`, 1));
+    const { doomed, capped } = choosePrunable(many, { prefix: 'backups/', keep: 0 });
+    expect(doomed).toHaveLength(MAX_PRUNE_PER_PASS);
+    expect(capped).toBe(200);
+  });
+
+  // A bare bucket listing is the difference between retention and data loss.
+  it('REFUSES to run without a directory prefix', () => {
+    for (const bad of ['', '/', null, undefined, 'backups']) {
+      expect(() => choosePrunable(fourteen, { prefix: bad, keep: 14 }),
+        JSON.stringify(bad)).toThrow(/refusing to prune/);
+    }
+  });
+
+  it('refuses a nonsensical keep', () => {
+    for (const bad of [-1, 1.5, '14', null]) {
+      expect(() => choosePrunable(fourteen, { prefix: 'backups/', keep: bad })).toThrow(/invalid keep/);
+    }
   });
 });

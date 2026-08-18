@@ -90,7 +90,7 @@ import { resolveClientIp } from './client-ip.js';
 import { loginThrottleVerdict } from './login-throttle.js';
 // M3 (audit 2026-07-28): encrypted second backup destination.
 import {
-  encryptBackup, offsiteConfigured, uploadOffsite, missingOffsiteVars,
+  encryptBackup, offsiteConfigured, uploadOffsite, missingOffsiteVars, pruneOffsite,
 } from './backup-offsite.js';
 // H7 (audit 2026-07-28): admin session in an httpOnly cookie + CSRF.
 import {
@@ -6200,6 +6200,9 @@ function kieSwitchDateFor(reason) {
 // daily and keeps the newest 14. Status is exposed on /api/admin/stats.
 const BACKUP_TABLES = ['users', 'credits_history', 'admin_audit_log', 'failed_logins', 'entities', 'node_spaces', 'promo_codes', 'promo_redemptions', 'gift_cards'];
 const BACKUP_KEEP = 14;
+// Flip to false to let offsite retention actually delete. Starts true so the
+// first production run only PRINTS what it would remove.
+const OFFSITE_PRUNE_DRY_RUN = process.env.OFFSITE_PRUNE_DRY_RUN !== 'false';
 const autoBackupStatus = {
   last_at: null, last_key: null, last_error: null,
   // M3: surfaced on /api/admin/stats so the CRM can show whether the
@@ -6322,6 +6325,34 @@ async function runAutomatedBackup() {
       }
     } catch (e) {
       console.error('[auto-backup] retention failed:', e.message);
+    }
+
+    // ── Retention on the SECOND copy ────────────────────────────────
+    // Nothing had ever deleted from the offsite bucket: the block above only
+    // ever touched Spaces, so Backblaze kept every archive since 2 August and
+    // would have filled its 10 GB tier around December, at which point offsite
+    // uploads would start failing.
+    //
+    // OFFSITE_PRUNE_DRY_RUN is deliberately `true` on the first deployment.
+    // This deletes customer backups; it names every file it intends to remove
+    // in the log first, the owner reads that list, and only then does it go
+    // live. Nothing about the schedule requires haste — there are months of
+    // headroom, and one careful pass beats a fast one.
+    if (offsiteConfigured()) {
+      try {
+        await pruneOffsite({
+          prefix: (process.env.OFFSITE_S3_PREFIX || 'backups/').replace(/^\/+/, ''),
+          keep: BACKUP_KEEP,
+          dryRun: OFFSITE_PRUNE_DRY_RUN,
+        });
+        // Dev used to write here and no longer can, so nothing would ever
+        // clean these up. keep: 0 — they are copies of a scrubbed copy of
+        // production and protect nothing.
+        await pruneOffsite({ prefix: 'dev-backups/', keep: 0, dryRun: OFFSITE_PRUNE_DRY_RUN });
+      } catch (e) {
+        // Housekeeping must never fail a backup that already succeeded.
+        console.error('[offsite-prune] failed (backup itself was fine):', e.message);
+      }
     }
 
     // Fail LOUDLY when a second copy was EXPECTED and did not arrive. Silently

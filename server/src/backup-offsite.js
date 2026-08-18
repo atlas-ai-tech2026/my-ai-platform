@@ -32,7 +32,8 @@
 // Restore procedure: RESTORE.md in the repo root.
 
 import crypto from 'node:crypto';
-import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, PutObjectCommand, ListObjectsV2Command,
+         DeleteObjectCommand } from '@aws-sdk/client-s3';
 
 // ---- encryption ----------------------------------------------------------
 
@@ -137,5 +138,93 @@ export async function uploadOffsite(key, body, env = process.env) {
   return fullKey;
 }
 
+// ─── retention on the SECOND copy ───────────────────────────────────────────
+// Discovered 2026-08-18 from the owner's Backblaze screenshot: 1 GB used where
+// ~200 MB was expected. Nothing had ever deleted from the offsite bucket. The
+// 14-day retention only ran against DigitalOcean Spaces, so the second copy had
+// kept every archive since 2 August and would have filled the 10 GB free tier
+// around December — at which point offsite uploads would start failing.
+//
+// This deletes customer backups, so it is built to be boring and provable:
+//   · a prefix is REQUIRED and validated — the bucket is never listed bare
+//   · every key is re-checked against that prefix immediately before deletion,
+//     so a listing bug cannot reach an unrelated object
+//   · a hard ceiling per pass; deleting hundreds of archives at once is never
+//     something this should do quietly
+//   · dry-run is the DEFAULT, and it logs every filename it would remove
+
+/** Most objects one pass may delete. A larger number means something is wrong. */
+export const MAX_PRUNE_PER_PASS = 40;
+
+function requirePrefix(prefix) {
+  const p = String(prefix || '').replace(/^\/+/, '');
+  if (!p || p === '/' || !p.endsWith('/')) {
+    throw new Error(`refusing to prune without a directory prefix (got ${JSON.stringify(prefix)})`);
+  }
+  return p;
+}
+
+/** Every object under one prefix, newest first. */
+export async function listOffsite(prefix, env = process.env) {
+  const p = requirePrefix(prefix);
+  const out = await offsiteClient(env).send(new ListObjectsV2Command({
+    Bucket: env.OFFSITE_S3_BUCKET.trim(), Prefix: p,
+  }));
+  return (out.Contents || [])
+    .map((o) => ({ key: o.Key, size: o.Size, modified: o.LastModified }))
+    .filter((o) => o.key && o.key.startsWith(p))
+    .sort((a, b) => new Date(b.modified) - new Date(a.modified));
+}
+
+/**
+ * Decide what to remove under a prefix. PURE — no I/O, no deletion — so the
+ * decision can be tested exhaustively without touching a real bucket.
+ */
+export function choosePrunable(objects, { prefix, keep }) {
+  const p = requirePrefix(prefix);
+  if (!Number.isInteger(keep) || keep < 0) throw new Error(`invalid keep: ${keep}`);
+  const mine = objects.filter((o) => o.key.startsWith(p));
+  const doomed = mine.slice(keep);
+  if (doomed.length > MAX_PRUNE_PER_PASS) {
+    return { doomed: doomed.slice(0, MAX_PRUNE_PER_PASS), capped: doomed.length };
+  }
+  return { doomed, capped: 0 };
+}
+
+/**
+ * Prune the offsite copy. DRY BY DEFAULT: pass { dryRun: false } to delete.
+ * Returns what it did (or would do) either way.
+ */
+export async function pruneOffsite({ prefix, keep, dryRun = true }, env = process.env) {
+  const p = requirePrefix(prefix);
+  const objects = await listOffsite(p, env);
+  const { doomed, capped } = choosePrunable(objects, { prefix: p, keep });
+
+  console.log(`[offsite-prune] ${p} — ${objects.length} object(s), keeping ${keep}, `
+    + `${doomed.length} to remove${capped ? ` (capped from ${capped})` : ''}`
+    + `${dryRun ? '  [DRY RUN — nothing deleted]' : ''}`);
+  // Name every file BEFORE anything is removed, so the log is a record even if
+  // the pass dies halfway through.
+  for (const o of doomed) {
+    console.log(`[offsite-prune] ${dryRun ? 'would delete' : 'DELETING'}: ${o.key} (${o.size} bytes)`);
+  }
+  if (dryRun) return { dryRun: true, examined: objects.length, deleted: [], wouldDelete: doomed.map((o) => o.key), capped };
+
+  const deleted = [];
+  for (const o of doomed) {
+    // Belt and braces: re-check the prefix on the exact key being deleted.
+    if (!o.key.startsWith(p)) {
+      console.error(`[offsite-prune] REFUSED — ${o.key} is outside ${p}`);
+      continue;
+    }
+    await offsiteClient(env).send(new DeleteObjectCommand({
+      Bucket: env.OFFSITE_S3_BUCKET.trim(), Key: o.key,
+    }));
+    deleted.push(o.key);
+  }
+  console.log(`[offsite-prune] removed ${deleted.length} object(s) under ${p}`);
+  return { dryRun: false, examined: objects.length, deleted, wouldDelete: [], capped };
+}
+
 // Exported for tests.
-export const __testing = { MAGIC, deriveKey };
+export const __testing = { MAGIC, deriveKey, requirePrefix };
