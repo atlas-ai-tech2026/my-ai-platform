@@ -22,14 +22,38 @@ const comingFeatures = [
 
 export default function Edit() {
   const [email, setEmail] = useState('');
+  const [saving, setSaving] = useState(false);
 
-  const handleNotify = () => {
+  // This used to validate the address, show a success toast, and throw the
+  // address away — no request, no table, no record. Everyone who ever asked
+  // to hear about VOXEL Edit was lost while the page kept asking.
+  //
+  // The success message now only appears if the server actually stored it.
+  const handleNotify = async () => {
     if (!email.includes('@')) {
       toast.error('Please enter a valid email');
       return;
     }
-    toast.success('You\'ll be notified when VOXEL Edit launches!');
-    setEmail('');
+    setSaving(true);
+    try {
+      const res = await fetch('/api/waitlist', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email.trim(), source: 'edit' }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        // Say what went wrong instead of thanking them for nothing.
+        toast.error(data?.error || 'Could not save that — please try again.');
+        return;
+      }
+      toast.success("You'll be notified when VOXEL Edit launches!");
+      setEmail('');
+    } catch {
+      toast.error('Could not reach the server — please try again.');
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -136,12 +160,13 @@ export default function Edit() {
               onChange={(e) => setEmail(e.target.value)}
               className="flex-1 bg-background border-border text-white placeholder:text-foreground-muted"
             />
-            <Button 
+            <Button
               onClick={handleNotify}
+              disabled={saving}
               className="bg-primary hover:bg-primary-hover text-white"
             >
               <Bell className="w-4 h-4 mr-2" />
-              Notify Me
+              {saving ? 'Saving…' : 'Notify Me'}
             </Button>
           </div>
         </div>

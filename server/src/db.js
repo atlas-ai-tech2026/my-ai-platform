@@ -874,6 +874,34 @@ export async function migrate() {
     // single login attempt.
     await client.query(`CREATE INDEX IF NOT EXISTS failed_logins_email_recent_idx ON failed_logins (email, created_at DESC);`);
 
+    // ─── waitlist ────────────────────────────────────────────────────
+    // /edit invited people to "be notified when VOXEL Edit launches",
+    // validated their address, showed a success toast — and threw the
+    // address away. There was no table and no endpoint. Every person who
+    // ever asked to hear about it was lost, silently, and the page kept
+    // asking.
+    //
+    // A promise the system does not keep is worse than no promise: these
+    // are people declaring interest in a product still being scoped.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS waitlist (
+        id          SERIAL PRIMARY KEY,
+        email       VARCHAR(255) NOT NULL,
+        source      VARCHAR(64)  NOT NULL DEFAULT 'edit',
+        user_id     INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        ip_address  INET,
+        user_agent  TEXT,
+        created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
+    // One row per address per source: signing up twice is not two people,
+    // and the count must mean "how many are waiting", not "how many clicks".
+    await client.query(
+      `CREATE UNIQUE INDEX IF NOT EXISTS waitlist_email_source_idx
+         ON waitlist (lower(email), source);`);
+    await client.query(
+      `CREATE INDEX IF NOT EXISTS waitlist_created_idx ON waitlist (created_at DESC);`);
+
     // ─── entities (generation history + any other per-user docs) ─────
     // Replaces the previous server/data/entities.json write-through file
     // store, which got wiped on every container redeploy on DO App

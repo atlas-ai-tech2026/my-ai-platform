@@ -73,6 +73,7 @@ import { registerBackupVerifyRoutes, scheduleRestoreVerification } from './backu
 import { registerPnlRoutes } from './pnl-routes.js';
 import { registerReliabilityRoutes } from './reliability-routes.js';
 import { registerCustomerRoutes } from './customer-routes.js';
+import { registerWaitlistRoutes } from './waitlist.js';
 import { registerLiveRoutes } from './live-routes.js';
 import { settleAttempt, sweepStale } from './generation-events.js';
 import { idempotencyGuard, sweep as sweepIdempotency } from './idempotency.js';
@@ -427,6 +428,17 @@ const adminLimiter = rateLimit({
 // unauthenticated. Keyed on the authenticated user id (these run after
 // verifyJwt), so users sharing an office/carrier IP get their own bucket.
 const userKey = (req) => (req.user?.id ? `u:${req.user.id}` : ipKey(req));
+// A waitlist is public by design, so the throttle IS the spam defence — that
+// and the unique index. Generous enough that a shared office never notices.
+const waitlistLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 10,
+  keyGenerator: ipKey,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many attempts — try again later.' },
+});
+
 const uploadLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 60, // a Seedance reference batch can be ~10 files; 60/min is roomy
@@ -4504,6 +4516,14 @@ registerReliabilityRoutes(app, { pool, dbReady, adminGate });
 // "My video didn't work" → one screen. Read-only; the work is PAIRING each
 // charge with its outcome, which the raw ledger has never done.
 registerCustomerRoutes(app, { pool, dbReady, adminGate });
+
+// ─── WAITLIST (task #33) ─────────────────────────────────────────────────────
+// /edit asked for an address, validated it, showed a success toast and threw
+// it away — no table, no endpoint. Everyone who ever asked to hear about VOXEL
+// Edit was lost while the page kept asking.
+registerWaitlistRoutes(app, {
+  pool, dbReady, adminGate, limiter: waitlistLimiter, resolveIp: clientIp,
+});
 
 // ─── LIVE MONITOR (Tier 2.1) ─────────────────────────────────────────────────
 // For the two hours you are standing in a room. Read-only, short absolute
