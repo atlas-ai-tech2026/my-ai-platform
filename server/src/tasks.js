@@ -82,12 +82,11 @@ export async function upsertTask(pool, t) {
   const v = validate(t);
   if (!v.ok) return v;
   await ensureTasksTable(pool);
-  const done = t.status === 'done';
   if (t.ref) {
     // Idempotent by ref, so re-seeding never duplicates a task.
     const { rows } = await pool.query(
       `INSERT INTO tasks (ref, title, detail, why, owner, status, priority, blocked_by, done_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8, CASE WHEN $6 = 'done' THEN NOW() END)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8, CASE WHEN $6::text = 'done' THEN NOW() END)
        ON CONFLICT (ref) DO UPDATE SET
          title=EXCLUDED.title, detail=EXCLUDED.detail, why=EXCLUDED.why,
          owner=EXCLUDED.owner, status=EXCLUDED.status, priority=EXCLUDED.priority,
@@ -101,9 +100,9 @@ export async function upsertTask(pool, t) {
   }
   const { rows } = await pool.query(
     `INSERT INTO tasks (title, detail, why, owner, status, priority, blocked_by, done_at)
-     VALUES ($1,$2,$3,$4,$5,$6,$7, CASE WHEN $5 = 'done' THEN NOW() END) RETURNING *`,
+     VALUES ($1,$2,$3,$4,$5,$6,$7, CASE WHEN $5::text = 'done' THEN NOW() END) RETURNING *`,
     [t.title, t.detail || null, t.why || null, t.owner || 'claude',
-     t.status || 'pending', Number(t.priority ?? 100), t.blocked_by || null, done]);
+     t.status || 'pending', Number(t.priority ?? 100), t.blocked_by || null]);
   return { ok: true, task: rows[0] };
 }
 
@@ -111,8 +110,12 @@ export async function setStatus(pool, id, status) {
   if (!STATUSES.includes(status)) return { ok: false, error: 'Unknown status.' };
   await ensureTasksTable(pool);
   const { rows } = await pool.query(
+    // ::text on every re-use of a parameter. Postgres cannot deduce a type for
+    // a placeholder used BOTH as a column value and inside a comparison — that
+    // is what killed the first seed with "inconsistent types deduced for
+    // parameter $6", and node --check cannot see SQL.
     `UPDATE tasks SET status=$2, updated_at=NOW(),
-            done_at = CASE WHEN $2 = 'done' THEN COALESCE(done_at, NOW()) ELSE NULL END
+            done_at = CASE WHEN $2::text = 'done' THEN COALESCE(done_at, NOW()) ELSE NULL END
       WHERE id=$1 RETURNING *`, [id, status]);
   if (!rows.length) return { ok: false, error: 'No such task.' };
   return { ok: true, task: rows[0] };
