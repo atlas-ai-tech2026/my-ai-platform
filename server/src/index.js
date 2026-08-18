@@ -89,6 +89,7 @@ import { withProviderDeadline, ProviderTimeoutError } from './provider-deadline.
 import { buildAuditSummary } from './audit-redact.js';
 // M2 (audit 2026-07-28): trust forwarding headers only from Cloudflare.
 import { resolveClientIp } from './client-ip.js';
+import { originGuard } from './origin-guard.js';
 import { loginThrottleVerdict } from './login-throttle.js';
 // M3 (audit 2026-07-28): encrypted second backup destination.
 import {
@@ -283,6 +284,19 @@ const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS
   : DEFAULT_ORIGINS
 ).map(s => s.trim()).filter(Boolean);
 console.log(`[cors] ${process.env.ALLOWED_ORIGINS ? 'ALLOWED_ORIGINS env' : 'built-in default'} → ${ALLOWED_ORIGINS.join(', ')}`);
+// ─── ORIGIN GUARD ────────────────────────────────────────────────────────────
+// Placed BEFORE cors, the body parser and every route, so a request that did
+// not come through Cloudflare is refused before it costs anything.
+//
+// Proven exposed on 2026-08-18: the DigitalOcean origin hostname answered the
+// public internet directly, so Cloudflare's WAF, bot management and DDoS
+// protection could all be walked around by anyone who found it.
+//
+// INERT until ORIGIN_SHARED_SECRET is set — enforcing before the Cloudflare
+// Transform Rule exists would take the site down, and a security control whose
+// first act is an outage gets removed rather than fixed.
+app.use(originGuard());
+
 app.use(cors({
   origin: (origin, cb) => {
     if (!origin) return cb(null, true);
