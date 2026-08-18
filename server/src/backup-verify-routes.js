@@ -87,29 +87,45 @@ export async function runRestoreVerification(pool, {
   if (!encryptionConfigured(env)) {
     return record(false, ['BACKUP_ENCRYPTION_PASSPHRASE is not set — nothing written can be decrypted']);
   }
-  if (!offsiteConfigured(env)) {
-    return record(false, ['the offsite bucket is not configured — there is only one copy']);
-  }
-
   // Try the offsite copy first — it is the one that survives losing the
   // DigitalOcean account, so it is the copy worth proving. If it cannot be
   // reached, fall back to the primary rather than giving up: an unreachable
   // offsite copy must not also prevent us discovering whether the passphrase
   // we hold can actually read an archive. Both facts get recorded.
+  //
+  // NO OFFSITE CONFIGURED is deliberately NOT a hard failure any more. On dev
+  // there is no second copy by design (see task #51 — dev sharing production's
+  // Backblaze caps is a risk to production, and a backup of a scrubbed copy of
+  // production is worth little). Failing outright there would raise a CRITICAL
+  // alert that is true, unactionable, and repeated forever — which is exactly
+  // how an alert system teaches its owner to ignore it. It is carried as a
+  // warning instead, so a production environment that LOSES its offsite config
+  // still says so, without dev shouting nightly.
   const carriedProblems = [];
+  const carriedWarnings = [];
   let archive;
+
+  const toPrimary = async (why) => {
+    archive = await primaryFetcher(storage, { prefix: 'backups/' });
+    console.log(`[restore-verify] ${why} — verifying the DigitalOcean copy instead`);
+  };
+
   try {
-    archive = await fetcher(env);
-    archive.source = 'offsite';
-  } catch (e) {
-    carriedProblems.push(`could not fetch the offsite archive: ${e.message}`);
-    try {
-      archive = await primaryFetcher(storage, { prefix: 'backups/' });
-      console.log('[restore-verify] offsite unreachable — falling back to the DigitalOcean copy');
-    } catch (e2) {
-      carriedProblems.push(`could not fetch the primary archive either: ${e2.message}`);
-      return record(false, carriedProblems);
+    if (offsiteConfigured(env)) {
+      try {
+        archive = await fetcher(env);
+        archive.source = 'offsite';
+      } catch (e) {
+        carriedProblems.push(`could not fetch the offsite archive: ${e.message}`);
+        await toPrimary('offsite unreachable');
+      }
+    } else {
+      carriedWarnings.push('no offsite bucket configured — this environment keeps only one copy');
+      await toPrimary('no offsite copy configured');
     }
+  } catch (e2) {
+    carriedProblems.push(`could not fetch any archive: ${e2.message}`);
+    return record(false, carriedProblems);
   }
 
   let parsed;
@@ -125,7 +141,8 @@ export async function runRestoreVerification(pool, {
   const v = verifyParsed(parsed);
   const problems = [...carriedProblems, ...v.problems];
   const detail = {
-    counts: v.counts, mismatches: v.mismatches, warnings: v.warnings,
+    counts: v.counts, mismatches: v.mismatches,
+    warnings: [...carriedWarnings, ...v.warnings],
     source: archive.source,
     // Split deliberately: the archive can be perfectly readable while the
     // offsite copy is unreachable. One number cannot say both.

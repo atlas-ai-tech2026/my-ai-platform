@@ -265,3 +265,43 @@ describe('an unavailable load test is not a failed backup', () => {
     expect(v.loadTested).toBe(true);
   });
 });
+
+// ── one copy vs no copy (task #51) ─────────────────────────────────────────
+// Dev deliberately has NO offsite bucket: it shared production's Backblaze
+// caps, and a backup of a scrubbed copy of production is worth little against
+// that risk. "No second copy" must therefore be a WARNING there, not a nightly
+// CRITICAL — an alert that is true, unactionable and repeated forever is how
+// an alert system trains its owner to ignore it.
+//
+// But production LOSING its offsite config must still be visible. Same signal,
+// different weight, and the difference is whether an archive could be read.
+describe('an environment with only one copy', () => {
+  const classify = ({ offsiteConfigured, offsiteFetchFailed, archiveReadable }) => {
+    const problems = [];
+    const warnings = [];
+    if (!offsiteConfigured) warnings.push('no offsite bucket configured — this environment keeps only one copy');
+    else if (offsiteFetchFailed) problems.push('could not fetch the offsite archive: cap exceeded');
+    if (!archiveReadable) problems.push('the archive could not be decrypted or decompressed: bad');
+    return { ok: problems.length === 0, problems, warnings };
+  };
+
+  it('passes on dev, with the single-copy fact recorded as a warning', () => {
+    const v = classify({ offsiteConfigured: false, archiveReadable: true });
+    expect(v.ok).toBe(true);
+    expect(v.problems).toEqual([]);
+    expect(v.warnings[0]).toMatch(/keeps only one copy/);
+  });
+
+  it('still fails on dev if the one copy it has is unreadable', () => {
+    const v = classify({ offsiteConfigured: false, archiveReadable: false });
+    expect(v.ok).toBe(false);
+    expect(v.problems.join(' ')).toMatch(/could not be decrypted/);
+  });
+
+  // The regression that matters most: this must not make production quiet.
+  it('still reports an unreachable offsite copy on production', () => {
+    const v = classify({ offsiteConfigured: true, offsiteFetchFailed: true, archiveReadable: true });
+    expect(v.ok).toBe(false);
+    expect(v.problems.join(' ')).toMatch(/could not fetch the offsite archive/);
+  });
+});
