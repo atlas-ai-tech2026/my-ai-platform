@@ -19,6 +19,7 @@ import { buildToday, summarise, line, STATE } from './sop-engine.js';
 import { latestVerification, runRestoreVerification, ensureVerifyTable } from './backup-verify-routes.js';
 import { runSmokeChecks, summariseSmoke } from './sop-smoke.js';
 import { runIntegrityChecks } from './sop-integrity.js';
+import { runPostureChecks } from './sop-posture.js';
 import {
   readSchedule, writeSchedule, markRan, isDue, ensureScheduleTable, JOBS,
 } from './sop-schedule.js';
@@ -117,6 +118,68 @@ export function registerSopRoutes(app, {
     return out;
   }
 
+  /**
+   * Security posture — what is still OPEN, and what could silently come UNDONE.
+   * Deliberately NOT a list of the eighteen completed findings: eighteen
+   * permanent green ticks is a plaque, and it would bury the few real items.
+   */
+  async function collectPosture() {
+    const p = runPostureChecks({ root: REPO_ROOT });
+    const out = [];
+
+    // The assertion most likely to catch a real regression. Routes get added
+    // most weeks; one without the gate is an unauthenticated hole that no
+    // lint, type check or existing test would notice.
+    out.push(line({
+      key: 'admin-gate', zone: 'posture', label: 'Admin routes are all gated',
+      state: p.ungated_admin_routes.length ? STATE.CRITICAL : STATE.OK,
+      value: p.ungated_admin_routes.length ? String(p.ungated_admin_routes.length) : 'all',
+      checkedAt: p.checked_at,
+      info: 'Every /api/admin/* endpoint must sit behind adminGate. A new admin route added '
+        + 'without it is reachable by anyone, and nothing else in the build would notice — not '
+        + 'the tests, not the linter, not the type checks.',
+      detail: p.ungated_admin_routes.length ? p.ungated_admin_routes.join(' · ')
+        : `${p.scanned_files} server files scanned, every admin route gated`,
+      action: p.ungated_admin_routes.length
+        ? 'These endpoints are reachable WITHOUT authentication. Add adminGate now.' : '',
+    }));
+
+    out.push(line({
+      key: 'runtime', zone: 'posture', label: 'Node runtime supported',
+      state: { critical: STATE.CRITICAL, warn: STATE.WARN, unknown: STATE.UNKNOWN, ok: STATE.OK }[p.runtime.state],
+      value: process.version, checkedAt: p.checked_at,
+      info: 'Whether this Node version still receives security patches. A NEWER version existing '
+        + 'is noise; a version past END OF LIFE is a deadline. Production ran Node 20 for 110 days '
+        + 'after it stopped being patched, and nothing said so.',
+      detail: p.runtime.detail,
+      action: p.runtime.state === 'ok' ? '' : 'Bump engines.node in package.json and redeploy.',
+    }));
+
+    const cfg = p.config;
+    out.push(line({
+      key: 'security-config', zone: 'posture', label: 'Security settings',
+      state: cfg.problems.length ? STATE.CRITICAL : STATE.OK,
+      value: cfg.problems.length ? `${cfg.problems.length} problem(s)` : 'set',
+      checkedAt: p.checked_at,
+      info: 'Settings that must be true for the system to be safe: mail actually sending, the '
+        + 'backup passphrase present so archives can be read, the auth secret set, and the origin '
+        + 'guard either configured properly or deliberately inert.',
+      detail: [...cfg.problems, ...cfg.notes].join(' · '),
+      action: cfg.problems.length ? 'Fix these in the DigitalOcean environment variables.' : '',
+    }));
+
+    // Open items are WARN, never critical: each is a decision waiting on the
+    // owner, not something breaking right now. Critical would cry wolf daily.
+    for (const item of p.open_items) {
+      out.push(line({
+        key: `open-${item.key}`, zone: 'posture', label: item.label,
+        state: STATE.WARN, value: 'open', checkedAt: p.checked_at,
+        info: item.detail, detail: item.detail, action: item.action,
+      }));
+    }
+    return out;
+  }
+
   app.get('/api/admin/sop', adminGate, async (req, res) => {
     if (!dbReady()) {
       return res.status(503).json({ error: 'The database is not reachable, so nothing can be checked.' });
@@ -128,10 +191,14 @@ export function registerSopRoutes(app, {
       try { integrity = await collectIntegrity(); } catch (e) {
         console.error('[sop] integrity zone failed:', e.message);
       }
+      let posture = [];
+      try { posture = await collectPosture(); } catch (e) {
+        console.error('[sop] posture zone failed:', e.message);
+      }
       const schedule = await readSchedule(pool).catch(() => []);
       res.json({
         generated_at: new Date().toISOString(),
-        zones: { today: lines, integrity },
+        zones: { today: lines, integrity, posture },
         summary,
         schedule,
         // So the button can show "available in 42 min" instead of failing.
@@ -181,10 +248,14 @@ export function registerSopRoutes(app, {
       try { integrity = await collectIntegrity(); } catch (e) {
         console.error('[sop] integrity zone failed:', e.message);
       }
+      let posture = [];
+      try { posture = await collectPosture(); } catch (e) {
+        console.error('[sop] posture zone failed:', e.message);
+      }
       const schedule = await readSchedule(pool).catch(() => []);
       res.json({
         generated_at: new Date().toISOString(),
-        zones: { today: lines, integrity },
+        zones: { today: lines, integrity, posture },
         summary,
         schedule,
         restore,
