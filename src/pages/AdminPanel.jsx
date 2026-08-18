@@ -23,6 +23,7 @@ import NotificationsTab from '@/components/admin/NotificationsTab';
 import AlertsTab from '@/components/admin/AlertsTab';
 import CustomerPanel from '@/components/admin/CustomerPanel';
 import SopTab from '@/components/admin/SopTab';
+import TasksTab from '@/components/admin/TasksTab';
 import LiveTab from '@/components/admin/LiveTab';
 import { ThemedToaster } from '@/components/admin/crmTheme';
 
@@ -47,6 +48,11 @@ const TABS = [
   // read the same checks, so they can never disagree.
   { id: 'sop', label: 'SOP',
     desc: 'Your daily operations picture: what every automated check found, and what to do about each one. Backups, restore verification, supplier runway, stuck charges, failure rate, and the structural checks that find a screen promising something no table keeps. A line that could not be determined says "not checked" — never green.' },
+  // THIRD. The owner had to ask "what is pending?" every time, and the answer
+  // came from a file only I could read. This board is now the single source of
+  // truth for both of us.
+  { id: 'tasks', label: 'Tasks',
+    desc: 'Every task and project, split into yours and mine, in priority order — with the history back to the start. Open one to see why it matters and what it involves. Mark your own items done; reopen anything closed too early. This is the list, not a copy of it.' },
   { id: 'alerts', label: 'Alerts',
     desc: 'What needs your attention right now — supplier balance running low, charges taken with nothing delivered, failure spikes. This is the only screen that speaks first; every other tab waits to be asked. Anything serious also emails you once.' },
   // Tier 2.1 — for use DURING a session, not after it. Second only to
@@ -279,6 +285,7 @@ export default function AdminPanel() {
         )}
 
         {tab === 'sop' && <SopTab onError={handleError} />}
+        {tab === 'tasks' && <TasksTab onError={handleError} />}
         {tab === 'alerts' && <AlertsTab onError={handleError} />}
 
         {tab === 'live' && <LiveTab onError={handleError} />}

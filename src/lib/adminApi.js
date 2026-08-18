@@ -199,6 +199,10 @@ export const adminApi = {
   sopSchedule:      ()           => request('GET', '/api/admin/sop/schedule'),
   sopScheduleSave:  (row)        => request('PUT', '/api/admin/sop/schedule', row),
 
+  // Tasks — the board is the single source of truth for what is outstanding.
+  tasks:        ()               => request('GET',   '/api/admin/tasks'),
+  taskStatus:   (id, status)     => request('PATCH', `/api/admin/tasks/${id}`, { status }),
+
   // ─── Live monitor (Tier 2.1, 2026-08-16) ──────────────────────────
   // What is happening RIGHT NOW, for use during a session. Short absolute
   // windows, never rolling averages — a fault four minutes old matters.

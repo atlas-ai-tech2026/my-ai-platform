@@ -75,6 +75,8 @@ import { registerReliabilityRoutes } from './reliability-routes.js';
 import { registerCustomerRoutes } from './customer-routes.js';
 import { registerWaitlistRoutes } from './waitlist.js';
 import { registerSopRoutes, scheduleSopJobs } from './sop-routes.js';
+import { registerTaskRoutes, ensureTasksTable, upsertTask } from './tasks.js';
+import { seedTasks } from './tasks-seed.js';
 import { registerLiveRoutes } from './live-routes.js';
 import { settleAttempt, sweepStale } from './generation-events.js';
 import { idempotencyGuard, sweep as sweepIdempotency } from './idempotency.js';
@@ -4551,6 +4553,12 @@ registerSopRoutes(app, {
   getAutoBackupStatus: () => autoBackupStatus,
 });
 
+// ─── TASKS (task #49) ────────────────────────────────────────────────────────
+// The owner had to ask "what is pending?" every time, and the answer came from
+// a file only I could read. This board is now the SINGLE SOURCE OF TRUTH —
+// three lists that disagree is worse than one that is merely imperfect.
+registerTaskRoutes(app, { pool, dbReady, adminGate });
+
 // ─── LIVE MONITOR (Tier 2.1) ─────────────────────────────────────────────────
 // For the two hours you are standing in a room. Read-only, short absolute
 // windows, and it says "quiet" rather than rendering zeros that read as an
@@ -6497,6 +6505,12 @@ migrate()
     // Owner-editable cadences, driven by the last recorded run rather than a
     // timer, so they survive the many redeploys this app sees in a day.
     scheduleSopJobs(pool, dbReady);
+    // Seed the board once. Only adds refs that are absent, so a status the
+    // owner has since changed is never overwritten — a seed that overwrites is
+    // a seed that silently undoes someone's work.
+    ensureTasksTable(pool)
+      .then(() => seedTasks(pool, { upsertTask }))
+      .catch((e) => console.error('[tasks] seed failed:', e.message));
     startListening();
   })
   .catch((err) => {
