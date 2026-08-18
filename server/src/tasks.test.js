@@ -147,3 +147,28 @@ describe('ON CONFLICT must match the index that exists', () => {
     expect(insert).not.toMatch(/ON CONFLICT \(ref\)\s*WHERE/);
   });
 });
+
+// The two seed entries that silently failed were the two the owner had
+// specifically told me were missing — and the log said "seeded 57" as though
+// nothing had gone wrong. A count of successes is not a report.
+describe('the seed cannot fail quietly', () => {
+  it('every entry passes validation — no task is dropped on the way in', async () => {
+    const bad = SEED.filter((t) => !validate(t).ok);
+    expect(bad.map((t) => `#${t.ref}: ${validate(t).error}`)).toEqual([]);
+  });
+
+  it('every priority is a whole number, which is what validate demands', () => {
+    for (const t of SEED) {
+      expect(Number.isInteger(t.priority), `#${t.ref} priority ${t.priority}`).toBe(true);
+    }
+  });
+
+  it('reports what it REJECTED, not just what it added', async () => {
+    const { seedTasks } = await import('./tasks-seed.js');
+    const pool = { query: vi.fn().mockResolvedValue({ rows: [] }) };
+    const bad = vi.fn().mockResolvedValue({ ok: false, error: 'nope' });
+    const r = await seedTasks(pool, { upsertTask: bad });
+    expect(r.rejected.length, 'rejections must be surfaced').toBeGreaterThan(0);
+    expect(r.added).toBe(0);
+  });
+});

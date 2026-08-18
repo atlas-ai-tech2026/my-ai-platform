@@ -108,36 +108,36 @@ export const SEED = [
     title: 'Provider webhooks — one job, three problems',
     why: 'Ends the stuck-charge cause permanently, gives customers "your video is ready", and is the prerequisite for mobile push.',
     detail: 'Fixes RELIABILITY, not speed. The 1,393 timeouts are a waiting problem; this makes the waiting reliable, not shorter.' },
-  { ref: '30', owner: 'claude', status: 'blocked', priority: 43,
+  { ref: '30', owner: 'claude', status: 'blocked', priority: 44,
     blocked_by: 'Ships in the same push as the legal documents (#37)',
     title: 'Fix the site’s contradictions with the legal documents',
     why: 'Publishing "there are no subscriptions" while a logged-in attendee sees a $19/month plan makes the contradiction the evidence.',
     detail: 'Account page shows a $19/month plan with dead buttons; Community advertises a $500 contest with no rules; stripe-js is installed with zero imports.' },
-  { ref: '35', owner: 'claude', status: 'pending', priority: 44,
+  { ref: '35', owner: 'claude', status: 'pending', priority: 45,
     title: 'Weekly checks — new vulnerabilities and database growth',
     why: 'Ten advisories were accepted deliberately and nothing would report an eleventh. On 18 August there were 11, ALL with fixes available.',
     detail: 'Alert on what CHANGED, never on "advisories exist" — otherwise it trains dismissal and the real one gets dismissed too.' },
-  { ref: '36', owner: 'claude', status: 'pending', priority: 45,
+  { ref: '36', owner: 'claude', status: 'pending', priority: 46,
     title: 'Pre-workshop pre-flight card',
     why: 'This is exactly what failed on 8 August: 415 generations failed mid-workshop from an empty supplier account, every one auto-refunded so nothing flagged it.',
     detail: 'Four live values on one screen: alerts green? · supplier balance with DAYS OF RUNWAY · has any model gone bad? · does this cohort’s access cover today? The one checklist that stays human.' },
-  { ref: '49', owner: 'claude', status: 'in_progress', priority: 46,
+  { ref: '49', owner: 'claude', status: 'in_progress', priority: 47,
     title: 'This tab — every task and project, visible',
     why: 'You had to ask me what was pending, every time, and the answer came from a file only I could read.',
     detail: 'Now the single source of truth. I keep it current as part of doing the work.' },
-  { ref: '44', owner: 'claude', status: 'pending', priority: 47,
+  { ref: '44', owner: 'claude', status: 'pending', priority: 48,
     title: 'The small batch',
     why: 'None are big; several remove a recurring annoyance.',
     detail: 'A DEV banner so dev is never mistaken for production · a FAL dashboard · the duplicate-charge counter on Alerts · point my local environment away from production · tighten DMARC · rename the workshop-shaped labels now the customer is a company.' },
-  { ref: '19', owner: 'claude', status: 'pending', priority: 48,
+  { ref: '19', owner: 'claude', status: 'pending', priority: 50,
     title: 'Tech debt from the audit',
     why: 'Both were flagged in July and both keep growing.',
     detail: 'Split index.js (~6,400 lines against a 1,500 threshold) · a retention policy for the entities table (33 MB and rising).' },
-  { ref: '45', owner: 'claude', status: 'pending', priority: 49,
+  { ref: '45', owner: 'claude', status: 'pending', priority: 51,
     title: 'Make the generation wait productive',
     why: 'Images are already fine — this is a VIDEO problem, 184s typical.',
     detail: 'Prompt coaching FIRST (days, no per-generation cost, and it compounds). Then an instant preview: a still in ~8 seconds turns a blind 3-minute wait into feedback. Room feed last, blocked on a privacy decision. None of it makes generation faster.' },
-  { ref: '46', owner: 'claude', status: 'pending', priority: 50,
+  { ref: '46', owner: 'claude', status: 'pending', priority: 52,
     title: 'B2B pipeline — proposal → PO → subscription → invoice',
     why: 'Today the whole B2B motion is manual and lives on your computer; the system only joins in when credits are hand-added.',
     detail: 'ONE pipeline with #24. Forces the company entity into existence, which is also what unblocks per-company usage reports. Needs NO payment gateway — organisations are invoiced.' },
@@ -164,11 +164,11 @@ export const SEED = [
     why: 'The back half of the same pipeline as #46. Built separately, the company entity gets built twice.' },
   // ── SEPARATE PENDING ITEMS I had folded into others — the owner was right
   //    to push: a task merged into another is a task that stops being tracked.
-  { ref: '18', owner: 'claude', status: 'pending', priority: 42.5,
+  { ref: '18', owner: 'claude', status: 'pending', priority: 43,
     title: 'Video charge fix-forward — the stuck-charge sweeper',
     why: 'Customers charged for a video that never arrived. 124 accumulated unnoticed before anything watched for them.',
     detail: 'Related to #17 but not the same work: webhooks stop NEW ones happening; this is the reconciler and the backfill for those already stuck.' },
-  { ref: '20', owner: 'claude', status: 'pending', priority: 47.5,
+  { ref: '20', owner: 'claude', status: 'pending', priority: 49,
     title: 'Re-land the CRM polish with real browser proof',
     why: 'It was reverted once because it had not been verified in an actual browser.',
     detail: 'Light mode, information dots, Excel export. This time proven in a real browser before it lands.' },
@@ -243,11 +243,20 @@ export async function seedTasks(pool, { upsertTask }) {
   const { rows } = await pool.query(`SELECT ref FROM tasks WHERE ref IS NOT NULL`);
   const have = new Set(rows.map((r) => r.ref));
   let added = 0;
+  const rejected = [];
   for (const t of SEED) {
     if (have.has(t.ref)) continue;
     const r = await upsertTask(pool, t);
     if (r.ok) added++;
+    else rejected.push(`#${t.ref}: ${r.error}`);
   }
   if (added) console.log(`[tasks] seeded ${added} task(s)`);
-  return added;
+  // A REJECTED task used to vanish silently — `if (r.ok) added++` and nothing
+  // else. The two that failed were the two the owner had specifically told me
+  // were missing, and the log said "seeded 57" as though nothing had gone
+  // wrong. A count of successes is not a report.
+  if (rejected.length) {
+    console.error(`[tasks] ${rejected.length} task(s) REJECTED and not on the board: ${rejected.join(' · ')}`);
+  }
+  return { added, rejected };
 }
