@@ -6200,9 +6200,18 @@ function kieSwitchDateFor(reason) {
 // daily and keeps the newest 14. Status is exposed on /api/admin/stats.
 const BACKUP_TABLES = ['users', 'credits_history', 'admin_audit_log', 'failed_logins', 'entities', 'node_spaces', 'promo_codes', 'promo_redemptions', 'gift_cards'];
 const BACKUP_KEEP = 14;
-// Flip to false to let offsite retention actually delete. Starts true so the
-// first production run only PRINTS what it would remove.
-const OFFSITE_PRUNE_DRY_RUN = process.env.OFFSITE_PRUNE_DRY_RUN !== 'false';
+// LIVE since 2026-08-18: the owner read the dry-run list and approved it.
+// Set OFFSITE_PRUNE_DRY_RUN=true to go back to printing without deleting.
+const OFFSITE_PRUNE_DRY_RUN = process.env.OFFSITE_PRUNE_DRY_RUN === 'true';
+// The offsite copy keeps LONGER than Spaces, deliberately.
+//
+// Spaces is the convenient copy you reach for on an ordinary bad day.
+// Backblaze is the DISASTER copy — the one that survives losing the
+// DigitalOcean account — and that is exactly the case where a problem may go
+// unnoticed for a while. A 14-day window means anything discovered on day 15
+// is gone. 30 days costs about 160 MB against a 10 GB tier, so the wider
+// window is effectively free protection.
+const OFFSITE_KEEP = 30;
 const autoBackupStatus = {
   last_at: null, last_key: null, last_error: null,
   // M3: surfaced on /api/admin/stats so the CRM can show whether the
@@ -6333,16 +6342,18 @@ async function runAutomatedBackup() {
     // would have filled its 10 GB tier around December, at which point offsite
     // uploads would start failing.
     //
-    // OFFSITE_PRUNE_DRY_RUN is deliberately `true` on the first deployment.
-    // This deletes customer backups; it names every file it intends to remove
-    // in the log first, the owner reads that list, and only then does it go
-    // live. Nothing about the schedule requires haste — there are months of
-    // headroom, and one careful pass beats a fast one.
+    // It shipped in dry run first: it printed every file it intended to remove,
+    // the owner read that list, and approved it. What they approved was NOT
+    // what I first proposed — I had suggested deleting three old production
+    // archives to save 16 MB. Keeping them is better. They are the only copies
+    // reaching back beyond 14 days, and storage is not a constraint here, so
+    // the only argument for deleting them was tidiness. Production retention
+    // therefore WIDENED to 30 days; only dev's orphans are removed.
     if (offsiteConfigured()) {
       try {
         await pruneOffsite({
           prefix: (process.env.OFFSITE_S3_PREFIX || 'backups/').replace(/^\/+/, ''),
-          keep: BACKUP_KEEP,
+          keep: OFFSITE_KEEP,
           dryRun: OFFSITE_PRUNE_DRY_RUN,
         });
         // Dev used to write here and no longer can, so nothing would ever

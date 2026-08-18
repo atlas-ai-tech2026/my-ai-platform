@@ -154,3 +154,36 @@ describe('choosePrunable — what the offsite retention will remove', () => {
     }
   });
 });
+
+// The offsite copy keeps LONGER than Spaces, and that is deliberate. Spaces is
+// the convenient copy for an ordinary bad day; Backblaze is the copy that
+// survives losing the DigitalOcean account — the case where a problem is most
+// likely to go unnoticed for a while. A 14-day window means anything found on
+// day 15 is gone, and 30 days costs ~160 MB against a 10 GB tier.
+describe('retention policy: offsite outlives the primary', () => {
+  const files = (n) => Array.from({ length: n }, (_, i) => ({
+    key: `backups/voxel-auto-${String(i).padStart(3, '0')}.enc`,
+    size: 5_300_000,
+    modified: `2026-08-18T00:${String(i).padStart(2, '0')}:00Z`,
+  }));
+
+  it('keeps 30 offsite where Spaces keeps 14', () => {
+    expect(choosePrunable(files(20), { prefix: 'backups/', keep: 30 }).doomed).toEqual([]);
+    expect(choosePrunable(files(20), { prefix: 'backups/', keep: 14 }).doomed).toHaveLength(6);
+  });
+
+  it('deletes nothing from production at the current file count', () => {
+    // 17 archives existed when this policy was chosen; 30 keeps them all.
+    expect(choosePrunable(files(17), { prefix: 'backups/', keep: 30 }).doomed).toEqual([]);
+  });
+
+  it('30 days of archives is a rounding error against the free tier', () => {
+    const bytes = 30 * 5_300_000;
+    expect(bytes).toBeLessThan(0.02 * 10 * 1024 ** 3);   // under 2% of 10 GB
+  });
+
+  it('clears dev orphans completely — they protect nothing', () => {
+    const dev = files(17).map((f) => ({ ...f, key: f.key.replace('backups/', 'dev-backups/') }));
+    expect(choosePrunable(dev, { prefix: 'dev-backups/', keep: 0 }).doomed).toHaveLength(17);
+  });
+});
