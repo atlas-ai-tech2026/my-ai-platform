@@ -90,6 +90,9 @@ export default function AdminPanel() {
   // "my video didn't work" without you reading it.
   const [customerFor, setCustomerFor] = useState(null);
   const [historyRows, setHistoryRows] = useState(null);
+  // Same defect as CustomerPanel had: without this, a failed fetch left
+  // historyRows null and the modal said "Loading…" forever.
+  const [historyErr, setHistoryErr] = useState(null);
 
   // Refund audit report (null = not run, 'loading', or the report object)
   const [audit, setAudit] = useState(null);
@@ -176,10 +179,11 @@ export default function AdminPanel() {
     if (action === 'history') {
       setHistoryFor(user);
       setHistoryRows(null);
+      setHistoryErr(null);
       try {
         const r = await adminApi.history(user.id);
         setHistoryRows(r.history);
-      } catch (e) { handleError(e, 'History fetch failed'); }
+      } catch (e) { handleError(e, 'History fetch failed'); setHistoryErr(e); }
       return;
     }
     if (action === 'reset-password') {
@@ -348,7 +352,8 @@ export default function AdminPanel() {
         <HistoryModal
           user={historyFor}
           history={historyRows}
-          onClose={() => { setHistoryFor(null); setHistoryRows(null); }}
+          error={historyErr}
+          onClose={() => { setHistoryFor(null); setHistoryRows(null); setHistoryErr(null); }}
         />
       )}
     </div>

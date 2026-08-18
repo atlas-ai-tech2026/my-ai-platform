@@ -100,6 +100,8 @@ import {
   checkCsrf,
   CSRF_COOKIE,
   CSRF_HEADER,
+  shouldRenewSession,
+  ADMIN_SESSION_SECONDS,
 } from './admin-session.js';
 // H5 (audit 2026-07-28): admin TOTP 2FA (RFC 6238 via node:crypto).
 import {
@@ -3547,7 +3549,11 @@ app.post('/api/auth/register', registerLimiter, requireAuthInfra, async (req, re
 //     → 429, even after the request gets past the in-memory limiter (e.g.
 //     after a server restart that reset the in-memory counter). Keyed per
 //     account so one user's typos don't lock out others on the same IP.
-const ADMIN_JWT_EXPIRES = process.env.ADMIN_JWT_EXPIRES_IN || '30m';
+// 2h of INACTIVITY, not 2h absolute: slideAdminSession below re-issues the
+// cookie while an admin is working, so the window measures idleness. 30m
+// fixed logged the owner out mid-task on 2026-08-17 and the panel showed an
+// empty customer screen rather than saying so.
+const ADMIN_JWT_EXPIRES = process.env.ADMIN_JWT_EXPIRES_IN || '2h';
 
 // H5: per-account failure ceilings in a 15-minute window. The admin's is
 // looser (not absent) — brute-force protection without risking a lockout
@@ -3730,7 +3736,7 @@ app.post('/api/auth/login', loginLimiter, requireAuthInfra, async (req, res) => 
     let csrfToken = null;
     if (isAdmin) {
       csrfToken = newCsrfToken();
-      setAdminSessionCookies(res, { token, csrfToken, maxAgeSeconds: 30 * 60 });
+      setAdminSessionCookies(res, { token, csrfToken, maxAgeSeconds: ADMIN_SESSION_SECONDS });
     }
 
     const { password_hash, totp_secret, totp_recovery_codes, totp_last_step, ...user } = row;
@@ -3898,7 +3904,7 @@ app.post('/api/auth/google/complete', authLimiter, async (req, res) => {
     let csrfToken = null;
     if (isAdmin) {
       csrfToken = newCsrfToken();
-      setAdminSessionCookies(res, { token, csrfToken, maxAgeSeconds: 30 * 60 });
+      setAdminSessionCookies(res, { token, csrfToken, maxAgeSeconds: ADMIN_SESSION_SECONDS });
     }
     pool.query(`UPDATE users SET last_login_at = NOW(), last_login_ip = $1 WHERE id = $2`,
       [clientIp(req), user.id]).catch(() => {});
@@ -4394,6 +4400,31 @@ function requireCsrf(req, res, next) {
   next();
 }
 
+/**
+ * Renew a live admin session while the admin is active.
+ *
+ * Runs AFTER auth, so it only ever extends a session that was already valid —
+ * it cannot resurrect an expired one. Renewal failure must never block the
+ * request: the admin is authenticated, and losing a cookie refresh is not a
+ * reason to fail the work they came to do.
+ */
+function slideAdminSession(req, res, next) {
+  try {
+    if (req.usedCookieAuth && shouldRenewSession({ iat: req.user?.iat, exp: req.user?.exp })) {
+      const token = jwt.sign(
+        { sub: req.user.sub, email: req.user.email, role: req.user.role },
+        JWT_SECRET, { expiresIn: ADMIN_JWT_EXPIRES });
+      // Keep the existing CSRF value: rotating it mid-session would invalidate
+      // the token any open tab is already holding.
+      const csrfToken = req.cookies?.[CSRF_COOKIE] || newCsrfToken();
+      setAdminSessionCookies(res, { token, csrfToken, maxAgeSeconds: ADMIN_SESSION_SECONDS });
+    }
+  } catch (e) {
+    console.error('[admin-session] renewal failed (request continues):', e.message);
+  }
+  next();
+}
+
 // One handy gate to apply to every admin route: rate limit, auth, role,
 // CSRF (state-changing cookie requests only), audit.
 // N3 (recheck 2026-08-03): admin routes accept the httpOnly cookie ONLY.
@@ -4420,7 +4451,8 @@ function requireCookieAuth(req, res, next) {
   next();
 }
 
-const adminGate = [adminLimiter, verifyJwt, requireCookieAuth, requireAdmin, requireCsrf, adminAudit];
+const adminGate = [adminLimiter, verifyJwt, requireCookieAuth, requireAdmin, requireCsrf,
+                   slideAdminSession, adminAudit];
 
 // ─── CRM COSTING (2026-08-06) ──────────────────────────────────────
 // Own module: index.js is past the ~1500-line split threshold in CLAUDE.md and

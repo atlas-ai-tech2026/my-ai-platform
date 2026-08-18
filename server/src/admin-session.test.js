@@ -7,6 +7,7 @@ import { describe, it, expect } from 'vitest';
 import {
   checkCsrf, newCsrfToken,
   setAdminSessionCookies, clearAdminSessionCookies,
+  shouldRenewSession, ADMIN_SESSION_SECONDS,
   ADMIN_COOKIE, CSRF_COOKIE, CSRF_HEADER,
 } from './admin-session.js';
 
@@ -113,5 +114,47 @@ describe('H7 — CSRF protection on state-changing admin routes', () => {
 
   it('exports the header name the client must send', () => {
     expect(CSRF_HEADER).toBe('x-csrf-token');
+  });
+});
+
+// ── sliding sessions ───────────────────────────────────────────────────────
+// The 30-minute fixed window logged the owner out mid-task on 2026-08-17, and
+// the panel rendered that as an empty customer screen. The window now measures
+// INACTIVITY: work continuously and you are never interrupted; walk away and
+// the session still dies.
+describe('shouldRenewSession', () => {
+  const now = 1_000_000;
+  const t = (iatOffset, expOffset) => ({ iat: now + iatOffset, exp: now + expOffset, now });
+
+  it('does not renew a fresh token', () => {
+    // issued now, 2h life → 0% through
+    expect(shouldRenewSession(t(0, 7200))).toBe(false);
+  });
+
+  it('does not renew before half-life', () => {
+    expect(shouldRenewSession(t(-3599, 3601))).toBe(false);   // 49.99%
+  });
+
+  it('renews at and past half-life, so active work never expires', () => {
+    expect(shouldRenewSession(t(-3600, 3600))).toBe(true);    // exactly 50%
+    expect(shouldRenewSession(t(-7000, 200))).toBe(true);     // nearly out
+  });
+
+  // Renewing a dead token would re-issue a session that had already ended —
+  // the one thing the timeout exists to prevent.
+  it('refuses to resurrect an expired token', () => {
+    expect(shouldRenewSession(t(-7200, 0))).toBe(false);
+    expect(shouldRenewSession(t(-9000, -1800))).toBe(false);
+  });
+
+  it('is safe against malformed claims rather than throwing in middleware', () => {
+    for (const bad of [{}, { iat: 1 }, { exp: 1 }, { iat: NaN, exp: 5 },
+                       { iat: 'a', exp: 'b' }, { iat: 100, exp: 100 }, { iat: 100, exp: 50 }]) {
+      expect(shouldRenewSession({ ...bad, now }), JSON.stringify(bad)).toBe(false);
+    }
+  });
+
+  it('two hours of inactivity still ends the session', () => {
+    expect(ADMIN_SESSION_SECONDS).toBe(2 * 60 * 60);
   });
 });

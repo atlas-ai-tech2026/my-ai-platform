@@ -2,7 +2,7 @@
 // Read-only view of the user's credits_history rows.
 import React from 'react';
 
-export default function HistoryModal({ user, history, onClose }) {
+export default function HistoryModal({ user, history, error, onClose }) {
   return (
     <div style={overlayStyle} onClick={onClose}>
       <div onClick={e => e.stopPropagation()} style={modalStyle}>
@@ -15,8 +15,18 @@ export default function HistoryModal({ user, history, onClose }) {
         </div>
 
         <div style={{ maxHeight: '60vh', overflowY: 'auto' }}>
-          {!history && <div style={{ color: 'var(--crm-w50)' }}>Loading…</div>}
-          {history && history.length === 0 && <div style={{ color: 'var(--crm-w50)' }}>No history yet.</div>}
+          {/* Without the `error` branch a failed fetch left history null and this
+              modal said "Loading…" for ever — a screen that waits patiently for
+              something that already failed. */}
+          {error && (
+            <div style={{ color: 'var(--crm-red)', lineHeight: 1.6 }}>
+              {error.status === 401
+                ? 'Your admin session has expired — sign in again and the history will be here.'
+                : `This ledger could not be read${error.status ? ` (server answered ${error.status})` : ''}. Nothing is missing — it is unknown.`}
+            </div>
+          )}
+          {!history && !error && <div style={{ color: 'var(--crm-w50)' }}>Loading…</div>}
+          {history && !error && history.length === 0 && <div style={{ color: 'var(--crm-w50)' }}>No history yet.</div>}
           {history && history.length > 0 && (
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
               <thead>

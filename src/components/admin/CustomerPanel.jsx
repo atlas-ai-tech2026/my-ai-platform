@@ -24,12 +24,21 @@ const dayOf = (iso) => (iso ? String(iso).slice(0, 10) : '—');
 
 export default function CustomerPanel({ user, onClose, onError }) {
   const [data, setData] = useState(null);
+  const [err, setErr] = useState(null);
 
+  // A FAILED request used to be stored as `{ generations: [] }`, which made
+  // the panel render "This person has never generated anything." — the same
+  // screen a real customer with no work gets. On 2026-08-17 the owner read
+  // that as their customer data being gone, on production, and said so.
+  //
+  // A screen must never answer a question it could not ask. The failure is
+  // now its own state, and it says what went wrong.
   const load = useCallback(async () => {
     if (!user?.id) return;
     setData(null);
+    setErr(null);
     try { setData(await adminApi.customerOverview(user.id)); }
-    catch (e) { onError?.(e); setData({ generations: [] }); }
+    catch (e) { onError?.(e, 'Could not load this customer'); setErr(e); }
   }, [user, onError]);
 
   useEffect(() => { load(); }, [load]);
@@ -71,7 +80,24 @@ export default function CustomerPanel({ user, onClose, onError }) {
           {c?.banned && <> {' · '}<b style={{ color: 'var(--crm-red)' }}>BANNED</b></>}
         </div>
 
-        {data === null && <div style={{ color: 'var(--crm-w50)' }}>Loading…</div>}
+        {!data && !err && <div style={{ color: 'var(--crm-w50)' }}>Loading…</div>}
+
+        {err && (
+          <div style={{ ...box, borderColor: 'var(--crm-red-br)', background: 'var(--crm-red-bg)' }}>
+            <div style={{ color: 'var(--crm-red)', fontWeight: 700, marginBottom: 6 }}>
+              {err.status === 401
+                ? 'Your admin session has expired'
+                : 'This customer’s record could not be loaded'}
+            </div>
+            <div style={{ color: 'var(--crm-w72)', fontSize: 12.5, lineHeight: 1.6 }}>
+              {err.status === 401
+                ? 'Nothing is wrong with the data — sign in again and it will be here.'
+                : <>The record was not read, so nothing below is missing — it is unknown.{' '}
+                   {err.status ? `The server answered ${err.status}.` : 'The server could not be reached.'}</>}
+            </div>
+            <button onClick={load} style={{ ...btn, marginTop: 10 }}>Try again</button>
+          </div>
+        )}
 
         {c && (
           <div style={cards}>
@@ -88,7 +114,7 @@ export default function CustomerPanel({ user, onClose, onError }) {
           </div>
         )}
 
-        {data && !gens.length && (
+        {data && !err && !gens.length && (
           <div style={{ ...box, color: 'var(--crm-w55)' }}>
             This person has never generated anything.
             {c && Number(c.credits) > 0 && <> They still hold {Number(c.credits).toLocaleString()} credits.</>}

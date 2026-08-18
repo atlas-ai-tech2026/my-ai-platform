@@ -141,3 +141,50 @@ describe('the panel itself', () => {
     expect(container).toBeEmptyDOMElement();
   });
 });
+
+// ── the bug that cost an evening ───────────────────────────────────────────
+// On 2026-08-17 the owner opened a customer on PRODUCTION and saw an empty
+// screen. They reasonably concluded their customer data was gone. It was not:
+// 595 users and 29,052 ledger rows were all present. The request had simply
+// failed, and the catch block replaced the failure with `{ generations: [] }`
+// — which renders "This person has never generated anything."
+//
+// A screen must never answer a question it could not ask.
+describe('a failed request must never look like an empty customer', () => {
+  it('does NOT claim the person has never generated anything', async () => {
+    customerOverview.mockRejectedValue(Object.assign(new Error('x'), { status: 500 }));
+    render(<CustomerPanel user={{ id: 7, email: 'a@b.c' }} onClose={() => {}} onError={() => {}} />);
+    await waitFor(() => expect(screen.queryByText(/Loading/)).not.toBeInTheDocument());
+    expect(screen.queryByText(/never generated anything/i)).not.toBeInTheDocument();
+  });
+
+  it('says the record could not be read, and that nothing is missing', async () => {
+    customerOverview.mockRejectedValue(Object.assign(new Error('x'), { status: 500 }));
+    render(<CustomerPanel user={{ id: 7, email: 'a@b.c' }} onClose={() => {}} onError={() => {}} />);
+    expect(await screen.findByText(/could not be loaded/i)).toBeInTheDocument();
+    expect(screen.getByText(/it is unknown/i)).toBeInTheDocument();
+  });
+
+  // The single most likely cause, and the one with a reassuring answer.
+  it('names an expired session as an expired session', async () => {
+    customerOverview.mockRejectedValue(Object.assign(new Error('x'), { status: 401 }));
+    render(<CustomerPanel user={{ id: 7, email: 'a@b.c' }} onClose={() => {}} onError={() => {}} />);
+    expect(await screen.findByText(/session has expired/i)).toBeInTheDocument();
+    expect(screen.getByText(/Nothing is wrong with the data/i)).toBeInTheDocument();
+  });
+
+  it('offers a way out rather than requiring a page reload', async () => {
+    customerOverview.mockRejectedValue(Object.assign(new Error('x'), { status: 503 }));
+    render(<CustomerPanel user={{ id: 7, email: 'a@b.c' }} onClose={() => {}} onError={() => {}} />);
+    expect(await screen.findByRole('button', { name: /try again/i })).toBeInTheDocument();
+  });
+
+  // The other half: a REAL empty customer must still say so.
+  it('still reports a genuinely empty customer as empty', async () => {
+    customerOverview.mockResolvedValue({
+      customer: { id: 7, credits: 70.5 }, totals: { generations: 0 }, generations: [], workshops: [],
+    });
+    render(<CustomerPanel user={{ id: 7, email: 'a@b.c' }} onClose={() => {}} onError={() => {}} />);
+    expect(await screen.findByText(/never generated anything/i)).toBeInTheDocument();
+  });
+});
