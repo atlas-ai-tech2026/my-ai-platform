@@ -74,6 +74,7 @@ import { registerPnlRoutes } from './pnl-routes.js';
 import { registerReliabilityRoutes } from './reliability-routes.js';
 import { registerCustomerRoutes } from './customer-routes.js';
 import { registerWaitlistRoutes } from './waitlist.js';
+import { registerSopRoutes } from './sop-routes.js';
 import { registerLiveRoutes } from './live-routes.js';
 import { settleAttempt, sweepStale } from './generation-events.js';
 import { idempotencyGuard, sweep as sweepIdempotency } from './idempotency.js';
@@ -4523,6 +4524,17 @@ registerCustomerRoutes(app, { pool, dbReady, adminGate });
 // Edit was lost while the page kept asking.
 registerWaitlistRoutes(app, {
   pool, dbReady, adminGate, limiter: waitlistLimiter, resolveIp: clientIp,
+});
+
+// ─── SOP / DAILY OPERATIONS (task #52) ───────────────────────────────────────
+// Every check already existed and not one of them had a face: asked on
+// 2026-08-18 how to check the backup system, the honest answer was "open a raw
+// API URL". Alerts shows what is WRONG; this shows the whole picture including
+// what is FINE, with the action for each line.
+registerSopRoutes(app, {
+  pool, dbReady, adminGate,
+  getKieCredits: KIE_KEY ? () => kieGetCredits() : null,
+  getAutoBackupStatus: () => autoBackupStatus,
 });
 
 // ─── LIVE MONITOR (Tier 2.1) ─────────────────────────────────────────────────

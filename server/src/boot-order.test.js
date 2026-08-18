@@ -3,127 +3,161 @@
 // one declared further down the file, the server throws on boot — and
 // `node --check` cannot see it, because the syntax is perfectly valid.
 //
-// This has now shipped twice:
+// This has shipped twice:
 //   · the duplicate-charge guard, declared below the routes that used it
-//   · waitlistLimiter, declared ~900 lines below registerWaitlistRoutes()
+//   · waitlistLimiter, declared ~900 lines below the registration using it
 // Both crashed the server on start with a completely green test suite.
 //
-// ESLint's no-use-before-define is the obvious tool and it is the WRONG one
-// here: it also flags a const used inside a function body, which is safe
-// because the function runs later. On this codebase that is 23 false positives
-// and zero real bugs — a check that noisy gets switched off, and then it
-// protects nothing.
+// ── WHY THIS FILE USES A REAL PARSER ────────────────────────────────────────
+// The first version of this test blanked comments and strings with regexes and
+// then scanned lines. On index.js that removed TWO THIRDS OF THE FILE — the
+// top-level `const` count fell from 73 to 24 — so it reported "all clear"
+// because it could no longer see anything. It passed while blind, which is
+// worse than not existing: it was evidence of safety that had checked nothing.
 //
-// So this looks at exactly the dangerous case: TOP-LEVEL statements, which
-// execute during import, referencing a top-level const declared after them.
+// That is the third time in one day that regex-parsing JavaScript produced a
+// confidently wrong answer here. acorn is already a dependency; scanning a
+// 6,300-line file by hand-rolled pattern was never the right tool.
+//
+// ── WHY NOT ESLint's no-use-before-define ───────────────────────────────────
+// It also flags a const used INSIDE a function body, which is safe because the
+// function runs later. On this codebase that is 23 false positives and zero
+// real bugs — and a check that noisy gets switched off, after which it protects
+// nothing. The AST walk below deliberately does NOT descend into function
+// bodies, so it sees only what actually executes at import time.
 
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import * as acorn from 'acorn';
 
 const DIR = path.dirname(fileURLToPath(import.meta.url));
-const files = fs.readdirSync(DIR)
-  .filter((f) => f.endsWith('.js') && !f.endsWith('.test.js'))
-  .map((f) => ({ name: f, src: fs.readFileSync(path.join(DIR, f), 'utf8') }));
+const FILES = fs.readdirSync(DIR)
+  .filter((f) => f.endsWith('.js') && !f.endsWith('.test.js'));
 
-/** Strip strings, template literals and comments so their contents never read
- *  as identifiers — SQL is full of words that look like variable names. */
-function blank(src) {
-  return src
-    .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' '))
-    .replace(/\/\/[^\n]*/g, (m) => ' '.repeat(m.length))
-    .replace(/`(?:\\.|[^`\\])*`/gs, (m) => m.replace(/[^\n]/g, ' '))
-    .replace(/'(?:\\.|[^'\\])*'/g, (m) => ' '.repeat(m.length))
-    .replace(/"(?:\\.|[^"\\])*"/g, (m) => ' '.repeat(m.length));
-}
+const parse = (src) =>
+  acorn.parse(src, { ecmaVersion: 2022, sourceType: 'module', locations: true });
 
-/** Top-level `const NAME =` declarations → line number. */
-function topLevelConsts(lines) {
-  const out = new Map();
-  for (let i = 0; i < lines.length; i++) {
-    const m = /^(?:const|let)\s+([A-Za-z_$][\w$]*)\s*=/.exec(lines[i]);
-    if (m && !out.has(m[1])) out.set(m[1], i);
-  }
-  return out;
-}
+/** Nodes whose bodies are DEFERRED — they run when called, not at import. */
+const DEFERS = new Set([
+  'FunctionDeclaration', 'FunctionExpression', 'ArrowFunctionExpression',
+  'ClassBody', 'MethodDefinition',
+]);
 
 /**
- * Statements that RUN at import time: a top-level line that is a call or a
- * member call, not a declaration. Spans until brackets balance, so arguments
- * on indented continuation lines belong to the statement that opened them.
+ * Identifier references reachable at module-evaluation time from `node`,
+ * NOT descending into anything deferred.
  */
-function topLevelStatements(lines) {
-  const out = [];
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    if (!/^[A-Za-z_$][\w$.]*\s*\(/.test(line)) continue;   // not a top-level call
-    if (/^(?:const|let|var|function|class|import|export)\b/.test(line)) continue;
-    let depth = 0, text = '', j = i;
-    do {
-      text += lines[j] + '\n';
-      for (const ch of lines[j]) {
-        if ('([{'.includes(ch)) depth++;
-        else if (')]}'.includes(ch)) depth--;
-      }
-      j++;
-    } while (depth > 0 && j < lines.length);
-    out.push({ start: i, end: j - 1, text });
-    i = j - 1;
+function eagerRefs(node, out = []) {
+  if (!node || typeof node !== 'object') return out;
+  if (Array.isArray(node)) { for (const n of node) eagerRefs(n, out); return out; }
+  if (!node.type) return out;
+  if (DEFERS.has(node.type)) return out;                 // body runs later — safe
+  if (node.type === 'Identifier') { out.push(node); return out; }
+  if (node.type === 'MemberExpression' && !node.computed) {
+    eagerRefs(node.object, out);                          // `a.b` only references `a`
+    return out;
+  }
+  if (node.type === 'Property' && !node.computed) {
+    eagerRefs(node.value, out);                           // `{ key: value }` — key is not a ref
+    return out;
+  }
+  for (const k of Object.keys(node)) {
+    if (k === 'type' || k === 'loc' || k === 'start' || k === 'end') continue;
+    eagerRefs(node[k], out);
   }
   return out;
 }
 
-describe('nothing runs at import time that is declared later', () => {
-  it('found the server sources to scan', () => {
-    expect(files.length).toBeGreaterThan(10);
+/** Every top-level `const`/`let` binding name → the line it is declared on. */
+function topLevelBindings(program) {
+  const decls = new Map();
+  for (const node of program.body) {
+    if (node.type !== 'VariableDeclaration') continue;
+    if (node.kind === 'var') continue;                    // var IS hoisted
+    for (const d of node.declarations) {
+      const stack = [d.id];
+      while (stack.length) {
+        const id = stack.pop();
+        if (!id) continue;
+        if (id.type === 'Identifier') decls.set(id.name, node.loc.start.line);
+        else if (id.type === 'ObjectPattern') stack.push(...id.properties.map((p) => p.value || p.argument));
+        else if (id.type === 'ArrayPattern') stack.push(...id.elements);
+        else if (id.type === 'RestElement') stack.push(id.argument);
+        else if (id.type === 'AssignmentPattern') stack.push(id.left);
+      }
+    }
+  }
+  return decls;
+}
+
+function offendersIn(src, name) {
+  const program = parse(src);
+  const decls = topLevelBindings(program);
+  const found = [];
+  for (const node of program.body) {
+    // Only statements that EXECUTE during import.
+    if (node.type === 'FunctionDeclaration' || node.type === 'ClassDeclaration') continue;
+    if (node.type.startsWith('Import') || node.type.startsWith('Export')) continue;
+    for (const ref of eagerRefs(node)) {
+      const declLine = decls.get(ref.name);
+      if (declLine !== undefined && declLine > ref.loc.start.line) {
+        found.push(`${name}:${ref.loc.start.line} uses "${ref.name}", declared at line ${declLine}`);
+      }
+    }
+  }
+  return found;
+}
+
+describe('nothing that runs at import time is declared later', () => {
+  it('parses every server source — a file it cannot read is not a file it approves', () => {
+    for (const f of FILES) {
+      const src = fs.readFileSync(path.join(DIR, f), 'utf8');
+      expect(() => parse(src), `${f} failed to parse`).not.toThrow();
+    }
+    expect(FILES.length).toBeGreaterThan(10);
+  });
+
+  // The previous version of this test blanked strings with regexes and went
+  // blind on index.js. Proving the parser still SEES the file is the guard
+  // against a green result that means "found nothing to look at".
+  it('actually sees index.js — 60+ top-level bindings, not a handful', () => {
+    const program = parse(fs.readFileSync(path.join(DIR, 'index.js'), 'utf8'));
+    expect(topLevelBindings(program).size).toBeGreaterThan(60);
   });
 
   it('every top-level statement only uses names already declared', () => {
-    const offenders = [];
-    for (const { name, src } of files) {
-      const lines = blank(src).split('\n');
-      const decls = topLevelConsts(lines);
-      for (const stmt of topLevelStatements(lines)) {
-        const used = new Set(stmt.text.match(/[A-Za-z_$][\w$]*/g) || []);
-        for (const id of used) {
-          const declLine = decls.get(id);
-          if (declLine !== undefined && declLine > stmt.end) {
-            offenders.push(`${name}:${stmt.start + 1} uses "${id}", declared at line ${declLine + 1}`);
-          }
-        }
-      }
-    }
+    const offenders = FILES.flatMap((f) =>
+      offendersIn(fs.readFileSync(path.join(DIR, f), 'utf8'), f));
     expect(offenders,
-      'a const is NOT hoisted — these would throw at boot, and `node --check` '
-      + 'cannot see it:\n' + offenders.join('\n')).toEqual([]);
+      'a const is NOT hoisted — these throw at boot, and `node --check` cannot '
+      + 'see them:\n' + offenders.join('\n')).toEqual([]);
   });
 
-  // Proves the scan can see the real thing, so green means "nothing found"
-  // rather than "the matcher never matched".
-  it('would catch the exact bug that shipped', () => {
-    const bad = [
-      'registerWaitlistRoutes(app, {',
-      '  pool, dbReady, adminGate, limiter: waitlistLimiter,',
-      '});',
-      'const waitlistLimiter = rateLimit({ max: 10 });',
-    ];
-    const decls = topLevelConsts(bad);
-    const found = topLevelStatements(bad).flatMap((s) =>
-      [...new Set(s.text.match(/[A-Za-z_$][\w$]*/g) || [])]
-        .filter((id) => decls.get(id) !== undefined && decls.get(id) > s.end));
-    expect(found).toEqual(['waitlistLimiter']);
+  it('catches the exact bug that shipped', () => {
+    const bad = `
+      registerWaitlistRoutes(app, { limiter: waitlistLimiter });
+      const waitlistLimiter = rateLimit({ max: 10 });
+    `;
+    expect(offendersIn(bad, 'x.js')).toHaveLength(1);
   });
 
-  it('does not flag a const used inside a function body', () => {
-    const ok = [
-      'function later() { return helper(); }',
-      'const helper = () => 1;',
-    ];
-    const decls = topLevelConsts(ok);
-    const found = topLevelStatements(ok).flatMap((s) =>
-      [...new Set(s.text.match(/[A-Za-z_$][\w$]*/g) || [])]
-        .filter((id) => decls.get(id) !== undefined && decls.get(id) > s.end));
-    expect(found).toEqual([]);
+  it('does NOT flag a const used inside a function body, which runs later', () => {
+    const ok = `
+      function later() { return helper(); }
+      register(app, { get: () => helper() });
+      const helper = () => 1;
+      const register = () => {};
+    `;
+    // `register` IS used before declaration and must be caught; `helper` inside
+    // the arrow and the function body must not be.
+    const found = offendersIn(ok, 'x.js');
+    expect(found.join(' ')).toMatch(/register/);
+    expect(found.join(' ')).not.toMatch(/helper/);
+  });
+
+  it('does not mistake an object KEY for a reference', () => {
+    expect(offendersIn('run({ pool: 1 });\nconst pool = 2;', 'x.js')).toEqual([]);
   });
 });
