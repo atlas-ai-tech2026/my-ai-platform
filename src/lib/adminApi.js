@@ -202,6 +202,9 @@ export const adminApi = {
   // Tasks — the board is the single source of truth for what is outstanding.
   tasks:        ()               => request('GET',   '/api/admin/tasks'),
   taskStatus:   (id, status)     => request('PATCH', `/api/admin/tasks/${id}`, { status }),
+  // Up/down rather than a number: the client should not need to know the
+  // numbering scheme to change the order.
+  taskMove:     (id, move)       => request('PATCH', `/api/admin/tasks/${id}`, { move }),
 
   // ─── Live monitor (Tier 2.1, 2026-08-16) ──────────────────────────
   // What is happening RIGHT NOW, for use during a session. Short absolute

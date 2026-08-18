@@ -10,8 +10,10 @@ import TasksTab from './TasksTab';
 
 const tasks = vi.fn();
 const taskStatus = vi.fn();
+const taskMove = vi.fn();
 vi.mock('@/lib/adminApi', () => ({
-  adminApi: { tasks: (...a) => tasks(...a), taskStatus: (...a) => taskStatus(...a) },
+  adminApi: { tasks: (...a) => tasks(...a), taskStatus: (...a) => taskStatus(...a),
+             taskMove: (...a) => taskMove(...a) },
 }));
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
@@ -30,7 +32,7 @@ const payload = (list) => ({
   },
 });
 
-beforeEach(() => { tasks.mockReset(); taskStatus.mockReset(); });
+beforeEach(() => { tasks.mockReset(); taskStatus.mockReset(); taskMove.mockReset(); });
 
 describe('it answers "what is pending?"', () => {
   it('shows tasks with their reference number', async () => {
@@ -117,5 +119,31 @@ describe('it never pretends', () => {
     tasks.mockRejectedValue(Object.assign(new Error('x'), { status: 401 }));
     render(<TasksTab onError={vi.fn()} />);
     expect(await screen.findByText(/session has expired/i)).toBeInTheDocument();
+  });
+});
+
+// The owner asked to be able to change the priority. It drove the order all
+// along but was invisible and fixed.
+describe('reordering', () => {
+  it('offers up and down on anything not finished', async () => {
+    tasks.mockResolvedValue(payload([t()]));
+    render(<TasksTab onError={vi.fn()} />);
+    expect(await screen.findByRole('button', { name: /Higher priority/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Lower priority/i })).toBeInTheDocument();
+  });
+
+  it('does not offer to reorder finished work', async () => {
+    tasks.mockResolvedValue(payload([t({ status: 'done' })]));
+    render(<TasksTab onError={vi.fn()} />);
+    await userEvent.click(await screen.findByRole('button', { name: /show done/i }));
+    expect(screen.queryByRole('button', { name: /Higher priority/i })).not.toBeInTheDocument();
+  });
+
+  it('sends the direction, not a priority number', async () => {
+    tasks.mockResolvedValue(payload([t()]));
+    taskMove.mockResolvedValue({ ...payload([t()]), moved: true });
+    render(<TasksTab onError={vi.fn()} />);
+    await userEvent.click(await screen.findByRole('button', { name: /Higher priority/i }));
+    await waitFor(() => expect(taskMove).toHaveBeenCalledWith(1, 'up'));
   });
 });

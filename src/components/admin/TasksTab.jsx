@@ -41,7 +41,7 @@ function when(iso) {
   return `${d} days ago`;
 }
 
-function Task({ t, onStatus, busy }) {
+function Task({ t, onStatus, onMove, busy }) {
   const s = STATUS[t.status] || STATUS.pending;
   const [open, setOpen] = useState(false);
   return (
@@ -77,7 +77,23 @@ function Task({ t, onStatus, busy }) {
           color: s.dot, fontWeight: 700, flex: 'none',
         }}>{s.label}</span>
 
-        {/* Only two moves are ever useful from a list: start it, or finish it. */}
+        {/* Reorder within your own list. Up/down rather than typing a number:
+            the priority scheme is an implementation detail, not something to
+            learn in order to say "this one first". */}
+        {t.status !== 'done' && (
+          <span style={{ display: 'inline-flex', gap: 2, flex: 'none' }}>
+            {/* Named by REFERENCE, not by title: "Move Move DNS to Cloudflare
+                higher" is clumsy read aloud, and it collides with the title
+                button that carries the same words. */}
+            <button onClick={() => onMove(t.id, 'up')} disabled={busy === t.id}
+              aria-label={`Higher priority: task ${t.ref ? `#${t.ref}` : t.id}`}
+              title="Higher priority" style={arrowBtn}>▲</button>
+            <button onClick={() => onMove(t.id, 'down')} disabled={busy === t.id}
+              aria-label={`Lower priority: task ${t.ref ? `#${t.ref}` : t.id}`}
+              title="Lower priority" style={arrowBtn}>▼</button>
+          </span>
+        )}
+
         {t.status !== 'done' ? (
           <button onClick={() => onStatus(t.id, 'done')} disabled={busy === t.id} style={btnSm}>
             {busy === t.id ? '…' : 'Done'}
@@ -130,6 +146,18 @@ export default function TasksTab({ onError }) {
   }, [onError]);
 
   useEffect(() => { load(); }, [load]);
+
+  async function onMove(id, move) {
+    setBusy(id);
+    try {
+      const r = await adminApi.taskMove(id, move);
+      setData(r);
+      // Already top or bottom is not a failure — a red toast on a button that
+      // behaved correctly teaches people to distrust the buttons.
+      if (!r.moved) toast.message(move === 'up' ? 'Already first.' : 'Already last.');
+    } catch (e) { onError?.(e, 'Could not reorder'); }
+    finally { setBusy(null); }
+  }
 
   async function onStatus(id, status) {
     setBusy(id);
@@ -204,7 +232,9 @@ export default function TasksTab({ onError }) {
             <div style={{ fontWeight: 700, color: 'var(--crm-ink)', fontSize: 14, marginBottom: 8 }}>
               {OWNER_LABEL[owner]} <span style={{ color: 'var(--crm-w40)', fontWeight: 400 }}>({list.length})</span>
             </div>
-            {list.map((t) => <Task key={t.id} t={t} onStatus={onStatus} busy={busy} />)}
+            {list.map((t) => (
+              <Task key={t.id} t={t} onStatus={onStatus} onMove={onMove} busy={busy} />
+            ))}
           </section>
         ) : null
       ))}
@@ -231,6 +261,11 @@ function Pill({ n, label, tone }) {
   );
 }
 
+const arrowBtn = {
+  width: 22, height: 22, padding: 0, borderRadius: 6, cursor: 'pointer', flex: 'none',
+  background: 'var(--crm-w06)', border: '1px solid var(--crm-w12)',
+  color: 'var(--crm-w55)', fontSize: 9, lineHeight: 1, fontFamily: 'inherit',
+};
 const btnSm = {
   height: 26, padding: '0 10px', borderRadius: 7, cursor: 'pointer', flex: 'none',
   background: 'var(--crm-w06)', border: '1px solid var(--crm-w12)',

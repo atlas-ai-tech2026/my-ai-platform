@@ -139,6 +139,51 @@ export async function setStatus(pool, id, status) {
   return { ok: true, task: rows[0] };
 }
 
+/**
+ * Move a task up or down within its own owner's list.
+ *
+ * SWAPS priorities with the neighbour rather than asking the client to compute
+ * a number. The client knowing the numbering scheme is how two people end up
+ * with different ideas of the order — and the owner asked to change priority,
+ * not to learn what 42 means.
+ *
+ * Only ever reorders WITHIN one owner and one status, because moving a blocked
+ * task above a task being worked on would not survive the next sort anyway.
+ */
+export async function moveTask(pool, id, direction) {
+  if (!['up', 'down'].includes(direction)) return { ok: false, error: 'Direction must be up or down.' };
+  await ensureTasksTable(pool);
+
+  const { rows: [me] } = await pool.query(`SELECT * FROM tasks WHERE id = $1`, [id]);
+  if (!me) return { ok: false, error: 'No such task.' };
+
+  const neighbour = await pool.query(
+    direction === 'up'
+      ? `SELECT * FROM tasks WHERE owner=$1 AND status=$2 AND priority < $3
+           ORDER BY priority DESC, id DESC LIMIT 1`
+      : `SELECT * FROM tasks WHERE owner=$1 AND status=$2 AND priority > $3
+           ORDER BY priority ASC, id ASC LIMIT 1`,
+    [me.owner, me.status, me.priority]);
+
+  const other = neighbour.rows[0];
+  // Already at the end: not an error, just nothing to do. Returning a failure
+  // here would put a red toast on a button that behaved correctly.
+  if (!other) return { ok: true, moved: false };
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query(`UPDATE tasks SET priority=$2, updated_at=NOW() WHERE id=$1`, [me.id, other.priority]);
+    await client.query(`UPDATE tasks SET priority=$2, updated_at=NOW() WHERE id=$1`, [other.id, me.priority]);
+    await client.query('COMMIT');
+  } catch (e) {
+    await client.query('ROLLBACK').catch(() => {});
+    return { ok: false, error: e.message };
+  } finally { client.release(); }
+
+  return { ok: true, moved: true };
+}
+
 export function registerTaskRoutes(app, { pool, dbReady, adminGate }) {
   app.get('/api/admin/tasks', adminGate, async (req, res) => {
     if (!dbReady()) return res.status(503).json({ error: 'The database is not reachable.' });
@@ -162,11 +207,20 @@ export function registerTaskRoutes(app, { pool, dbReady, adminGate }) {
     }
   });
 
-  // The owner marks their OWN items done; I keep mine current.
+  // The owner marks their OWN items done, and sets the order they want things
+  // in; I keep mine current.
   app.patch('/api/admin/tasks/:id', adminGate, async (req, res) => {
     try {
       const id = parseInt(req.params.id, 10);
       if (!Number.isFinite(id)) return res.status(400).json({ error: 'Invalid task id.' });
+
+      if (req.body?.move) {
+        const m = await moveTask(pool, id, req.body.move);
+        if (!m.ok) return res.status(400).json({ error: m.error });
+        const tasks = await listTasks(pool);
+        return res.json({ ok: true, moved: m.moved, tasks, summary: summarise(tasks) });
+      }
+
       const r = await setStatus(pool, id, req.body?.status);
       if (!r.ok) return res.status(400).json({ error: r.error });
       console.log(`[tasks] #${id} → ${req.body.status} by ${req.user?.email}`);

@@ -24,6 +24,7 @@ import AlertsTab from '@/components/admin/AlertsTab';
 import CustomerPanel from '@/components/admin/CustomerPanel';
 import SopTab from '@/components/admin/SopTab';
 import TasksTab from '@/components/admin/TasksTab';
+import AdminNav, { CommandPalette } from '@/components/admin/AdminNav';
 import LiveTab from '@/components/admin/LiveTab';
 import { ThemedToaster } from '@/components/admin/crmTheme';
 
@@ -106,6 +107,11 @@ export default function AdminPanel() {
   // Same defect as CustomerPanel had: without this, a failed fetch left
   // historyRows null and the modal said "Loading…" forever.
   const [historyErr, setHistoryErr] = useState(null);
+  // Sidebar badges. Left at 0 until the real number is known — a badge for
+  // something unknown would be the same failure as a screen that says OK when
+  // it means "not checked".
+  const [taskCount, setTaskCount] = useState(0);
+  const [alertCount, setAlertCount] = useState(0);
 
   // Refund audit report (null = not run, 'loading', or the report object)
   const [audit, setAudit] = useState(null);
@@ -170,6 +176,17 @@ export default function AdminPanel() {
   }, [page]);
 
   useEffect(() => { reload(); }, [reload]);
+
+  // Counts for the sidebar, fetched quietly. A failure leaves them at 0 and
+  // simply shows no badge, which is honest: no badge means "nothing to say".
+  useEffect(() => {
+    adminApi.tasks()
+      .then((r) => setTaskCount(r?.summary?.open || 0))
+      .catch(() => {});
+    adminApi.alerts?.()
+      .then((r) => setAlertCount((r?.alerts || []).filter((a) => a.status !== 'resolved').length))
+      .catch(() => {});
+  }, []);
 
   // Debounced server-side search
   useEffect(() => {
@@ -247,21 +264,24 @@ export default function AdminPanel() {
           </div>
         </div>
 
-        {/* Tab bar — kie.ai dashboard style */}
-        <div style={{ display: 'flex', gap: 6, marginBottom: 20, borderBottom: '1px solid var(--crm-w08)' }}>
-          {TABS.map(t => (
-            <button key={t.id} onClick={() => setTab(t.id)}
-              style={{
-                padding: '10px 18px', fontSize: 14, fontWeight: 600, fontFamily: 'inherit',
-                background: 'none', border: 'none', cursor: 'pointer',
-                color: tab === t.id ? 'var(--crm-ink)' : 'var(--crm-w40)',
-                borderBottom: tab === t.id ? '2px solid #e0442c' : '2px solid transparent',
-                marginBottom: -1,
-              }}>
-              {t.label}
-            </button>
-          ))}
-        </div>
+        {/* ⌘K from anywhere in the panel. */}
+        <CommandPalette tabs={TABS} onSelect={setTab} />
+
+        <div style={{ display: 'flex', gap: 24, alignItems: 'flex-start' }}>
+          <AdminNav
+            tabs={TABS}
+            current={tab}
+            onSelect={setTab}
+            // Only ever from real data. A badge for something unknown would be
+            // the same failure as a screen that says OK when it means
+            // "not checked".
+            badges={{
+              tasks:  { value: taskCount || 0, tone: 'var(--crm-blue)' },
+              alerts: { value: alertCount || 0, tone: 'var(--crm-red)' },
+            }}
+          />
+
+          <div style={{ flex: 1, minWidth: 0 }}>
 
         {/* What this tab is FOR, in one line, right where you land. Twelve
             tabs had accumulated with nothing explaining any of them — obvious
@@ -353,6 +373,8 @@ export default function AdminPanel() {
           onAction={onAction}
         />
         </>)}
+          </div>{/* content column */}
+        </div>{/* nav + content row */}
       </div>
 
       {pendingAction && (
