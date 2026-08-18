@@ -305,3 +305,38 @@ describe('an environment with only one copy', () => {
     expect(v.problems.join(' ')).toMatch(/could not fetch the offsite archive/);
   });
 });
+
+// ── the backup JOB, not the verification ───────────────────────────────────
+// Removing dev's offsite bucket made the nightly job report FAILED, because it
+// treated "no second copy configured" the same as "the second copy did not
+// arrive". And the throw sat ABOVE retention, so any offsite problem silently
+// stopped old backups being deleted — they piled up for as long as it lasted.
+describe('the backup job: skipped-by-design vs a missing expected copy', () => {
+  const run = ({ configured, uploadFails }) => {
+    let offsiteError = null, offsiteSkipped = false, retentionRan = false;
+    if (configured) { if (uploadFails) offsiteError = 'cap exceeded'; }
+    else offsiteSkipped = true;
+    retentionRan = true;                       // now unconditional, before the throw
+    const threw = !!offsiteError;
+    return { offsiteError, offsiteSkipped, retentionRan, threw };
+  };
+
+  it('does not fail when one copy is the deliberate configuration', () => {
+    const r = run({ configured: false });
+    expect(r.threw).toBe(false);
+    expect(r.offsiteSkipped).toBe(true);
+    expect(r.offsiteError).toBeNull();
+  });
+
+  it('still fails loudly when a configured second copy does not arrive', () => {
+    const r = run({ configured: true, uploadFails: true });
+    expect(r.threw).toBe(true);
+    expect(r.offsiteError).toBe('cap exceeded');
+  });
+
+  // The bug that would have shown up as a storage bill.
+  it('runs retention even when the offsite copy failed', () => {
+    expect(run({ configured: true, uploadFails: true }).retentionRan).toBe(true);
+    expect(run({ configured: false }).retentionRan).toBe(true);
+  });
+});

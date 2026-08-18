@@ -6205,6 +6205,9 @@ const autoBackupStatus = {
   // M3: surfaced on /api/admin/stats so the CRM can show whether the
   // second copy and the encryption are actually in place.
   encrypted: false, offsite_key: null, offsite_error: null,
+  // TRUE means "one copy on purpose" (dev). Distinct from offsite_error,
+  // which means a second copy was expected and did not arrive.
+  offsite_skipped: false,
 };
 
 async function runAutomatedBackup() {
@@ -6269,6 +6272,7 @@ async function runAutomatedBackup() {
     // backups too. Only encrypted archives are sent offsite.
     let offsiteKey = null;
     let offsiteError = null;
+    let offsiteSkipped = false;
     if (offsiteConfigured()) {
       if (!passphrase) {
         offsiteError = 'refused to send an UNENCRYPTED archive offsite — set BACKUP_ENCRYPTION_PASSPHRASE';
@@ -6283,8 +6287,16 @@ async function runAutomatedBackup() {
         }
       }
     } else {
-      offsiteError = `offsite backup not configured — missing: ${missingOffsiteVars().join(', ')}`;
-      console.error(`[auto-backup] ⚠️ ${offsiteError}`);
+      // NOT CONFIGURED is a deliberate choice, not a failure. Dev keeps ONE
+      // copy on purpose (task #51): it shared production's Backblaze caps, and
+      // a backup of a scrubbed copy of production is not worth risking the
+      // allowance production needs during a real restore.
+      //
+      // The loud-failure rule below is still exactly right where a second copy
+      // IS configured and did not arrive. The difference is intent.
+      offsiteSkipped = true;
+      console.warn('[auto-backup] ⚠️ no offsite bucket configured — '
+        + 'this environment keeps ONE copy by design');
     }
 
     autoBackupStatus.last_at = new Date().toISOString();
@@ -6292,23 +6304,33 @@ async function runAutomatedBackup() {
     autoBackupStatus.encrypted = !!passphrase;
     autoBackupStatus.offsite_key = offsiteKey;
     autoBackupStatus.offsite_error = offsiteError;
+    autoBackupStatus.offsite_skipped = offsiteSkipped;
     autoBackupStatus.last_error = null;
     console.log(`[auto-backup] counts`, JSON.stringify(counts));
 
-    // Fail LOUDLY when only one copy exists. Silently succeeding on one
-    // destination is exactly how people end up believing they have
-    // backups they don't have.
+    // RETENTION RUNS FIRST, and unconditionally.
+    //
+    // It used to sit after the throw below, so any offsite problem silently
+    // stopped old backups being deleted — they accumulated for as long as the
+    // condition lasted. A storage bill is a poor way to find out about a
+    // backup fault, and housekeeping has nothing to do with the second copy.
+    try {
+      const all = (await listKeys('backups/')).sort((a, b) => String(b.key).localeCompare(String(a.key)));
+      for (const obj of all.slice(BACKUP_KEEP)) {
+        await deleteKey(obj.key);
+        console.log(`[auto-backup] retention: deleted ${obj.key}`);
+      }
+    } catch (e) {
+      console.error('[auto-backup] retention failed:', e.message);
+    }
+
+    // Fail LOUDLY when a second copy was EXPECTED and did not arrive. Silently
+    // succeeding on one destination is exactly how people end up believing
+    // they have backups they don't have. Skipped-by-design is not that.
     if (offsiteError) {
       autoBackupStatus.last_error = `only ONE copy exists: ${offsiteError}`;
       console.error('[auto-backup] ❌ INCOMPLETE — only one copy of this backup exists.');
       throw new Error(`Backup incomplete — offsite copy failed: ${offsiteError}`);
-    }
-
-    // Retention: keep the newest BACKUP_KEEP, delete the rest.
-    const all = (await listKeys('backups/')).sort((a, b) => String(b.key).localeCompare(String(a.key)));
-    for (const obj of all.slice(BACKUP_KEEP)) {
-      await deleteKey(obj.key);
-      console.log(`[auto-backup] retention: deleted ${obj.key}`);
     }
   } catch (err) {
     autoBackupStatus.last_error = err.message;
