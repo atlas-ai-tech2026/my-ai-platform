@@ -107,6 +107,12 @@ export const SEED = [
       + 'The failure REASON is recorded too, so an exact verdict can still tell a bad model apart from our own supplier balance being empty. '
       + 'NOTE: this records from the deploy forward — it does not backfill. Models flip from "inferred" to "measured" one at a time as real generations accumulate, and each row says which it is. '
       + 'Measured before: 184s typical, 301s for one in ten; load barely matters (181s quiet vs 190s busy) — it is the model, not the platform.' },
+  { ref: '57', owner: 'owner', status: 'pending', priority: 38,
+    title: 'Tidy up — production has two storage keys where one is needed',
+    why: 'Not a risk, just untidy. Both are scoped to voxel-ai-store with readwrite, so neither can reach anything else. But nobody can tell which one production actually uses, and an unknown is worth removing before it is inherited by someone else.',
+    detail: 'DONE 2026-08-19 in the same session: three access keys with FULL ACCESS TO EVERY BUCKET — 16 days old, one of them exposed in a screenshot — were replaced with scoped keys and deleted. Production verified re-hosting images AND video (992-1589ms) throughout. '
+      + 'WHAT IS LEFT, 10 minutes and only when unhurried: both secrets were shown once and are unrecoverable, so the live one cannot be identified. Create a third key on voxel-ai-store, point production at it, generate one image to confirm "[storage] re-hosted", THEN delete voxel-prod-storage and voxel-prod-storage-2. '
+      + 'STILL UNVERIFIED: the dev key (voxel-dev-storage). Dev control panel -> SOP -> Check now -> the Storage line makes a real authenticated call and will say "reachable" or fail. Dev only, no customer impact either way.' },
   { ref: '56', owner: 'claude', status: 'done', priority: 39,
     title: 'Hardening pass — stop the same class of mistake recurring',
     why: 'The owner asked on 2026-08-19 why there is always some mistake. Two different things were happening: OLD bugs surfacing because we finally started looking (good), and a repeated habit of mine — describing state I had not actually read (five times, one cause).',
