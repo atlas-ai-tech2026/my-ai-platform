@@ -16,7 +16,17 @@ export default function UserTable({ users, page, total, limit, onPage, onAction 
         border: '1px solid var(--crm-w06)', borderRadius: 12, overflow: 'hidden',
         fontFamily: '"DM Sans", sans-serif',
       }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+        {/* THE TABLE MUST NEVER BE ABLE TO HIDE A COLUMN.
+            Eight columns and five action buttons need about 1180px. Before the
+            sidebar there was enough room, so `width: 100%` looked fine — then
+            the sidebar took 232px away and "Details", "History" and "Reset PW"
+            were simply cut off the right edge. Not greyed out, not wrapped:
+            gone, with nothing on screen saying so.
+            Every other table in this panel already had this guard; this was the
+            only one without it. A table that silently truncates is the same
+            failure as a screen that says OK when it means "not checked". */}
+        <div style={{ overflowX: 'auto' }}>
+        <table style={{ width: '100%', minWidth: 1180, borderCollapse: 'collapse', fontSize: 13 }}>
           <thead>
             <tr style={{ borderBottom: '1px solid var(--crm-w08)', textAlign: 'left' }}>
               <Th>Email</Th>
@@ -46,7 +56,7 @@ export default function UserTable({ users, page, total, limit, onPage, onAction 
                 </Td>
                 <Td><AccessCell expiresAt={u.expires_at} /></Td>
                 <Td>{new Date(u.created_at).toLocaleDateString()}</Td>
-                <Td align="right">
+                <Td align="right" nowrap>
                   <div style={{ display: 'inline-flex', gap: 6 }}>
                     <ActionBtn onClick={() => onAction('grant',  u)}>+ Credits</ActionBtn>
                     <ActionBtn onClick={() => onAction('revoke', u)}>− Credits</ActionBtn>
@@ -65,6 +75,7 @@ export default function UserTable({ users, page, total, limit, onPage, onAction 
             ))}
           </tbody>
         </table>
+        </div>
       </div>
 
       {totalPages && totalPages > 1 && (
@@ -88,8 +99,14 @@ const Th = ({ children, align = 'left' }) => (
     {children}
   </th>
 );
-const Td = ({ children, align = 'left' }) => (
-  <td style={{ padding: '12px 14px', color: 'var(--crm-w85)', verticalAlign: 'middle', textAlign: align }}>
+// `nowrap` on the actions column: five buttons that wrap onto two lines make
+// every row a different height, which is its own kind of unreadable. They scroll
+// with the table instead.
+const Td = ({ children, align = 'left', nowrap = false }) => (
+  <td style={{
+    padding: '12px 14px', color: 'var(--crm-w85)', verticalAlign: 'middle', textAlign: align,
+    ...(nowrap ? { whiteSpace: 'nowrap' } : null),
+  }}>
     {children}
   </td>
 );

@@ -252,7 +252,15 @@ export default function AdminPanel() {
     <div style={containerStyle}>
       <ThemedToaster />
 
-      <div style={{ maxWidth: 1280, margin: '0 auto', padding: '32px 24px 64px 24px' }}>
+      {/* WIDTH. 1280px made sense when the navigation was a horizontal bar and
+          the content was prose. With a sidebar taking 232px it threw away ~360px
+          of empty margin on each side of a wide screen while the users table was
+          being cut off — space wasted and information lost at the same time.
+          Still capped, because a table stretched across an ultrawide monitor is
+          its own reading problem; the cap is just far higher, and the left
+          padding is tighter so the sidebar sits closer to the edge. Long prose
+          stays readable regardless — the tab description carries its own 92ch. */}
+      <div style={{ maxWidth: 1760, margin: '0 auto', padding: '32px 26px 64px 16px' }}>
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 16 }}>
           <div style={{ flex: 1 }}>
             <h1 style={{ color: 'var(--crm-ink)', fontSize: 22, fontWeight: 700, marginBottom: 4, fontFamily: '"DM Sans", sans-serif' }}>

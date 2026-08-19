@@ -21,8 +21,63 @@
 // Badges are only ever shown for things that are TRUE — an invented number
 // here would be the same failure as a screen that says OK when it means "not
 // checked".
+//
+// ── COLLAPSING ─────────────────────────────────────────────────────────────
+// The owner asked to be able to fold the sidebar down to icons and get the
+// width back for the page. Collapsed is 56px instead of 208px — 152px returned
+// to whatever table is being read, which on the Users tab is two more columns.
+//
+// Two rules make collapsing safe rather than another way to lose a feature:
+//   · EVERY tab has an icon, including one nobody has assigned yet. A button
+//     with no icon is an invisible button, which is how a tab silently
+//     disappears — the same bug `groupTabs` already guards against.
+//   · Nothing is lost that was visible before. Labels move into the
+//     accessibility tree and a hover tooltip; counts shrink to a dot rather
+//     than vanishing, so a waiting alert still shows while folded.
 
 import React, { useState, useEffect, useRef } from 'react';
+import {
+  ClipboardCheck, ListChecks, Bell, Activity, Users, Ticket, Gift, Layers,
+  Calculator, BadgePercent, ScrollText, Gauge, ShieldCheck, Megaphone,
+  BookOpen, Circle, PanelLeftClose, PanelLeftOpen,
+} from 'lucide-react';
+
+export const NAV_WIDTH = 208;
+export const NAV_WIDTH_COLLAPSED = 56;
+
+const ICONS = {
+  sop: ClipboardCheck, tasks: ListChecks, alerts: Bell, live: Activity,
+  users: Users, promos: Ticket, gifts: Gift, bulk: Layers,
+  costing: Calculator, offers: BadgePercent,
+  logs: ScrollText, usage: Gauge, security: ShieldCheck, notifications: Megaphone,
+  // Not built yet (#48). Listed now so that the day it appears it is not the
+  // one blank square in a column of icons.
+  knowledge: BookOpen,
+};
+
+/**
+ * The icon for a tab — never nothing.
+ *
+ * A tab added later and not listed above still gets a mark you can see and
+ * click. Collapsed, a missing icon is not a cosmetic gap: it is a button of
+ * blank space, and the feature behind it is gone for anyone who did not already
+ * know it was there.
+ */
+export function iconFor(id) {
+  return ICONS[id] || Circle;
+}
+
+const STORE_KEY = 'voxel.crm.nav.collapsed';
+
+/** Remembered across visits — folding it every morning would be its own chore. */
+export function readCollapsed() {
+  try { return window.localStorage.getItem(STORE_KEY) === '1'; } catch { return false; }
+}
+function writeCollapsed(v) {
+  // Private browsing throws on write. A preference that cannot be saved is a
+  // preference that does not persist — not a broken sidebar.
+  try { window.localStorage.setItem(STORE_KEY, v ? '1' : '0'); } catch { /* not fatal */ }
+}
 
 export const GROUPS = [
   { id: 'daily',     label: 'Daily',     tabs: ['sop', 'alerts', 'tasks', 'live'] },
@@ -49,11 +104,15 @@ export function groupTabs(tabs) {
   })).filter((g) => g.items.length);
 }
 
-function Badge({ value, tone }) {
+function Badge({ value, tone, dot }) {
   if (value == null || value === 0 || value === false) return null;
-  if (value === true) {
+  // Collapsed, a count has nowhere to go — but "there is something waiting" is
+  // the part that must survive, so it becomes a dot rather than nothing.
+  if (dot || value === true) {
     return <span aria-hidden="true" style={{
-      width: 7, height: 7, borderRadius: '50%', background: tone, flex: 'none' }} />;
+      width: 7, height: 7, borderRadius: '50%', background: tone, flex: 'none',
+      ...(dot ? { position: 'absolute', top: 6, right: 8 } : null),
+    }} />;
   }
   return (
     <span style={{
@@ -67,40 +126,106 @@ function Badge({ value, tone }) {
 
 export default function AdminNav({ tabs, current, onSelect, badges = {} }) {
   const groups = groupTabs(tabs);
+  const [collapsed, setCollapsed] = useState(readCollapsed);
+  // Which icon is being pointed at, so the label can be shown next to it. A
+  // native `title` waits about a second before appearing, which is long enough
+  // to give up and expand the sidebar instead.
+  const [peek, setPeek] = useState(null);
+
+  const toggle = () => setCollapsed((c) => { writeCollapsed(!c); return !c; });
+
   return (
     <nav aria-label="Control panel sections" style={{
-      width: 208, flex: 'none', paddingRight: 8,
+      width: collapsed ? NAV_WIDTH_COLLAPSED : NAV_WIDTH, flex: 'none',
+      paddingRight: collapsed ? 0 : 8,
       borderRight: '1px solid var(--crm-w08)',
+      // Stays put while a long table scrolls underneath it.
+      position: 'sticky', top: 16,
     }}>
+      <button
+        onClick={toggle}
+        aria-expanded={!collapsed}
+        aria-label={collapsed ? 'Expand the sidebar' : 'Collapse the sidebar to icons'}
+        title={collapsed ? 'Expand' : 'Collapse'}
+        style={{
+          display: 'flex', alignItems: 'center', gap: 8,
+          justifyContent: collapsed ? 'center' : 'flex-start',
+          width: '100%', padding: '6px 10px', marginBottom: 12, borderRadius: 8,
+          border: 'none', background: 'transparent', cursor: 'pointer',
+          color: 'var(--crm-w40)', fontFamily: 'inherit', fontSize: 11.5,
+        }}>
+        {collapsed
+          ? <PanelLeftOpen size={16} aria-hidden="true" />
+          : <PanelLeftClose size={16} aria-hidden="true" />}
+        {!collapsed && <span>Collapse</span>}
+      </button>
+
       {groups.map((g) => (
-        <div key={g.id} style={{ marginBottom: 18 }}>
-          <div style={{
-            fontSize: 10, fontWeight: 700, letterSpacing: '.09em', textTransform: 'uppercase',
-            color: 'var(--crm-w35)', padding: '0 10px', marginBottom: 6,
-          }}>{g.label}</div>
+        // role=group keeps the grouping for a screen reader in BOTH states —
+        // collapsed there is no room for the heading text, but the structure
+        // should not quietly disappear with it.
+        <div key={g.id} role="group" aria-label={g.label}
+          style={{ marginBottom: collapsed ? 10 : 18 }}>
+          {collapsed ? (
+            <div aria-hidden="true" style={{
+              height: 1, background: 'var(--crm-w08)', margin: '0 12px 8px',
+            }} />
+          ) : (
+            <div style={{
+              fontSize: 10, fontWeight: 700, letterSpacing: '.09em', textTransform: 'uppercase',
+              color: 'var(--crm-w35)', padding: '0 10px', marginBottom: 6,
+            }}>{g.label}</div>
+          )}
           {g.items.map((t) => {
             const active = current === t.id;
             const b = badges[t.id];
+            const Icon = iconFor(t.id);
+            const count = typeof b?.value === 'number' && b.value > 0 ? b.value : null;
             return (
-              <button key={t.id} onClick={() => onSelect(t.id)}
-                aria-current={active ? 'page' : undefined}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 8, width: '100%',
-                  padding: '7px 10px', marginBottom: 1, borderRadius: 8,
-                  border: 'none', cursor: 'pointer', textAlign: 'left',
-                  fontFamily: 'inherit', fontSize: 13.5,
-                  fontWeight: active ? 700 : 500,
-                  background: active ? 'var(--crm-w08)' : 'transparent',
-                  color: active ? 'var(--crm-ink)' : 'var(--crm-w60)',
-                  // The accent rail marks the current section without moving
-                  // anything — a border that appears on selection would shift
-                  // every other row by three pixels.
-                  boxShadow: active ? 'inset 2px 0 0 #e0442c' : 'none',
-                }}>
-                <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis',
-                               whiteSpace: 'nowrap' }}>{t.label}</span>
-                <Badge value={b?.value} tone={b?.tone || 'var(--crm-w40)'} />
-              </button>
+              <div key={t.id} style={{ position: 'relative' }}
+                onMouseEnter={() => collapsed && setPeek(t.id)}
+                onMouseLeave={() => collapsed && setPeek(null)}>
+                <button onClick={() => onSelect(t.id)}
+                  aria-current={active ? 'page' : undefined}
+                  // Collapsed there is no visible text, so the name has to come
+                  // from here — including the count, which is only a dot.
+                  aria-label={collapsed ? (count ? `${t.label}, ${count}` : t.label) : undefined}
+                  onFocus={() => collapsed && setPeek(t.id)}
+                  onBlur={() => collapsed && setPeek(null)}
+                  style={{
+                    position: 'relative',
+                    display: 'flex', alignItems: 'center', gap: 9, width: '100%',
+                    justifyContent: collapsed ? 'center' : 'flex-start',
+                    padding: collapsed ? '9px 0' : '7px 10px',
+                    marginBottom: 1, borderRadius: 8,
+                    border: 'none', cursor: 'pointer', textAlign: 'left',
+                    fontFamily: 'inherit', fontSize: 13.5,
+                    fontWeight: active ? 700 : 500,
+                    background: active ? 'var(--crm-w08)' : 'transparent',
+                    color: active ? 'var(--crm-ink)' : 'var(--crm-w60)',
+                    // The accent rail marks the current section without moving
+                    // anything — a border that appears on selection would shift
+                    // every other row by three pixels.
+                    boxShadow: active ? 'inset 2px 0 0 #e0442c' : 'none',
+                  }}>
+                  <Icon size={16} aria-hidden="true" style={{ flex: 'none' }} />
+                  {!collapsed && (
+                    <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis',
+                                   whiteSpace: 'nowrap' }}>{t.label}</span>
+                  )}
+                  <Badge value={b?.value} tone={b?.tone || 'var(--crm-w40)'} dot={collapsed} />
+                </button>
+
+                {collapsed && peek === t.id && (
+                  <span aria-hidden="true" style={{
+                    position: 'absolute', left: '100%', top: '50%', transform: 'translateY(-50%)',
+                    marginLeft: 8, zIndex: 60, pointerEvents: 'none', whiteSpace: 'nowrap',
+                    padding: '5px 9px', borderRadius: 7, fontSize: 12,
+                    background: 'var(--crm-ink)', color: 'var(--crm-page)',
+                    boxShadow: '0 6px 20px var(--crm-shadow)',
+                  }}>{t.label}{count ? ` · ${count}` : ''}</span>
+                )}
+              </div>
             );
           })}
         </div>

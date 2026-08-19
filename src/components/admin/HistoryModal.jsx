@@ -28,7 +28,12 @@ export default function HistoryModal({ user, history, error, onClose }) {
           {!history && !error && <div style={{ color: 'var(--crm-w50)' }}>Loading…</div>}
           {history && !error && history.length === 0 && <div style={{ color: 'var(--crm-w50)' }}>No history yet.</div>}
           {history && history.length > 0 && (
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+            // Eight columns inside a MODAL, which is narrower than the page —
+            // so this one could hide "Reason" and "IP" on any laptop, sidebar
+            // or not. Found by the sweep in tableOverflow.test.jsx while fixing
+            // the same bug in UserTable; nobody had reported it.
+            <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', minWidth: 900, borderCollapse: 'collapse', fontSize: 12 }}>
               <thead>
                 <tr style={{ borderBottom: '1px solid var(--crm-w10)', textAlign: 'left' }}>
                   <Th>When</Th>
@@ -76,6 +81,7 @@ export default function HistoryModal({ user, history, error, onClose }) {
                 ))}
               </tbody>
             </table>
+            </div>
           )}
         </div>
       </div>

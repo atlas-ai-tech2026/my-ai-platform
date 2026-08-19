@@ -8,10 +8,17 @@
 // reachable only by someone who already knew they existed. Losing a feature by
 // omission is the exact bug this panel keeps producing.
 
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import AdminNav, { groupTabs, GROUPS, CommandPalette } from './AdminNav';
+import AdminNav, {
+  groupTabs, GROUPS, CommandPalette, iconFor, readCollapsed,
+  NAV_WIDTH, NAV_WIDTH_COLLAPSED,
+} from './AdminNav';
+
+// The collapsed preference is remembered in localStorage, so without this one
+// test collapsing the sidebar would leave every test after it collapsed.
+beforeEach(() => { try { window.localStorage.clear(); } catch { /* ignore */ } });
 
 const TABS = [
   { id: 'sop', label: 'SOP', desc: 'Daily operations: backups, restore, runway.' },
@@ -78,6 +85,86 @@ describe('the sidebar', () => {
     const { container } = render(<AdminNav tabs={TABS} current="sop" onSelect={vi.fn()}
       badges={{ tasks: { value: 0 }, alerts: { value: null }, live: { value: false } }} />);
     expect(container.textContent).not.toMatch(/\b0\b/);
+  });
+});
+
+describe('icons', () => {
+  it('gives every real tab an icon', () => {
+    for (const t of TABS) expect(iconFor(t.id), `no icon for "${t.id}"`).toBeTruthy();
+  });
+
+  // Collapsed, a tab with no icon is a button of blank space — the feature is
+  // gone for anyone who did not already know it was there. Same class of bug as
+  // the ungrouped tab that vanished from the navigation.
+  it('falls back to a visible mark for a tab nobody assigned one to', () => {
+    expect(iconFor('some-tab-invented-next-month')).toBeTruthy();
+  });
+
+  it('renders an icon alongside every label', () => {
+    const { container } = render(<AdminNav tabs={TABS} current="sop" onSelect={vi.fn()} />);
+    // One <svg> per tab, plus one for the collapse toggle.
+    expect(container.querySelectorAll('nav svg').length).toBe(TABS.length + 1);
+  });
+});
+
+describe('collapsing to icons', () => {
+  const collapse = async () => {
+    await userEvent.click(screen.getByRole('button', { name: /collapse the sidebar/i }));
+  };
+
+  it('starts expanded, and gets much narrower when folded', async () => {
+    const { container } = render(<AdminNav tabs={TABS} current="sop" onSelect={vi.fn()} />);
+    const nav = container.querySelector('nav');
+    expect(nav).toHaveStyle({ width: `${NAV_WIDTH}px` });
+    await collapse();
+    expect(nav).toHaveStyle({ width: `${NAV_WIDTH_COLLAPSED}px` });
+    expect(NAV_WIDTH - NAV_WIDTH_COLLAPSED).toBeGreaterThan(120); // worth doing at all
+  });
+
+  // The whole point is width for the page — but a name you cannot read is not
+  // an acceptable price, so it moves to the accessibility tree and a tooltip.
+  it('hides the label text but keeps every tab named and reachable', async () => {
+    render(<AdminNav tabs={TABS} current="sop" onSelect={vi.fn()} />);
+    await collapse();
+    expect(screen.queryByText('Gift Cards')).not.toBeInTheDocument();
+    for (const t of TABS) {
+      expect(screen.getByRole('button', { name: new RegExp(t.label, 'i') }),
+        `"${t.label}" lost its name when collapsed`).toBeInTheDocument();
+    }
+  });
+
+  it('still selects the right tab when only the icon is showing', async () => {
+    const onSelect = vi.fn();
+    render(<AdminNav tabs={TABS} current="sop" onSelect={onSelect} />);
+    await collapse();
+    await userEvent.click(screen.getByRole('button', { name: /^gift cards$/i }));
+    expect(onSelect).toHaveBeenCalledWith('gifts');
+  });
+
+  // A count with nowhere to go must not become silence: 18 waiting tasks
+  // stays visible as a dot, and the number stays in the accessible name.
+  it('keeps a waiting count from disappearing', async () => {
+    render(<AdminNav tabs={TABS} current="sop" onSelect={vi.fn()}
+      badges={{ tasks: { value: 18, tone: 'blue' } }} />);
+    await collapse();
+    expect(screen.queryByText('18')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /tasks, 18/i })).toBeInTheDocument();
+  });
+
+  it('shows the name on hover so you are never guessing at an icon', async () => {
+    render(<AdminNav tabs={TABS} current="sop" onSelect={vi.fn()} />);
+    await collapse();
+    await userEvent.hover(screen.getByRole('button', { name: /^api usage$/i }));
+    expect(await screen.findByText('API Usage')).toBeInTheDocument();
+  });
+
+  it('remembers the choice, rather than making you fold it every morning', async () => {
+    const { unmount } = render(<AdminNav tabs={TABS} current="sop" onSelect={vi.fn()} />);
+    await collapse();
+    expect(readCollapsed()).toBe(true);
+    unmount();
+    render(<AdminNav tabs={TABS} current="sop" onSelect={vi.fn()} />);
+    expect(screen.queryByText('Gift Cards')).not.toBeInTheDocument();
   });
 });
 
