@@ -109,6 +109,16 @@ export const SEED = [
       + 'The failure REASON is recorded too, so an exact verdict can still tell a bad model apart from our own supplier balance being empty. '
       + 'NOTE: this records from the deploy forward — it does not backfill. Models flip from "inferred" to "measured" one at a time as real generations accumulate, and each row says which it is. '
       + 'Measured before: 184s typical, 301s for one in ten; load barely matters (181s quiet vs 190s busy) — it is the model, not the platform.' },
+  { ref: '59', owner: 'claude', status: 'pending', priority: 19,
+    title: 'NEW TAB — Expenses: what this business actually costs per month',
+    why: 'Requested 2026-08-19. Costs are spread across DigitalOcean, GoDaddy, Microsoft 365, Backblaze, Claude, FAL and kie, and nowhere adds them up. Without the total there is no break-even figure, so nobody can say whether a workshop was profitable.',
+    detail: 'THE DESIGN POINT: do NOT ask for FAL and kie by hand. Every generation already records fal_cost and kie_credits in credits_history, so those are MEASURED. Manual entry would be work that is instantly stale and less accurate than what we already hold. '
+      + 'FIXED (entered once, with renewal dates): DigitalOcean App Platform x2, Managed Postgres, Spaces, GoDaddy domain, Microsoft 365, Resend, Backblaze, Claude. '
+      + 'VARIABLE (measured): FAL and kie, from the ledger. '
+      + 'THE OWNER FORGOT FOUR, and one is probably the largest: FAL pay-per-generation was not on their list at all. Also Microsoft 365 (separate from the GoDaddy bill), Resend, and the entire DEV environment — a second app and a second database. '
+      + 'RENEWAL DATES ARE THE DANGEROUS PART: if voxel-ai.ai lapses the site AND every email address stop, including the one used for password resets. Warn at 60, 30 and 7 days, same discipline as the storage quota (#58) — before, not on expiry. '
+      + 'THEN THE NUMBER THAT MATTERS: break-even. Fixed costs divided by margin per subscription = how many customers cover the overheads. Small addition once the fixed costs exist, and it is the figure that makes a workshop quotable. '
+      + 'Owes a Knowledge Base entry in Arabic and English once built and confirmed, per the standing rule.' },
   { ref: '58', owner: 'claude', status: 'done', priority: 20,
     title: 'SOP — daily storage check that warns BEFORE a limit is crossed',
     why: 'Asked for on 2026-08-19: "tell me I will start or become to exceed the limit to start, make a subscription for them." Not "you are over" — "you are ABOUT to be over." A quota found by exceeding it is an outage; found 40 days out it is a diary entry.',
