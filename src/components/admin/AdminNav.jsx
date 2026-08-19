@@ -43,7 +43,16 @@ import {
 } from 'lucide-react';
 
 export const NAV_WIDTH = 208;
-export const NAV_WIDTH_COLLAPSED = 56;
+export const NAV_WIDTH_COLLAPSED = 52;
+
+// The icon rail: the collapsed panel minus its 1px right border.
+//
+// Every icon sits in a box exactly this wide, so it is dead centre of the
+// collapsed panel BY CONSTRUCTION rather than by adding paddings up and hoping.
+// The first attempt did the arithmetic and assumed `box-sizing: border-box`;
+// this project computes to `content-box`, and the icons landed 8px off centre.
+// Measured in a browser, not reasoned about.
+const RAIL = NAV_WIDTH_COLLAPSED - 1;
 
 const ICONS = {
   sop: ClipboardCheck, tasks: ListChecks, alerts: Bell, live: Activity,
@@ -104,23 +113,76 @@ export function groupTabs(tabs) {
   })).filter((g) => g.items.length);
 }
 
-function Badge({ value, tone, dot }) {
-  if (value == null || value === 0 || value === false) return null;
-  // Collapsed, a count has nowhere to go — but "there is something waiting" is
-  // the part that must survive, so it becomes a dot rather than nothing.
-  if (dot || value === true) {
-    return <span aria-hidden="true" style={{
-      width: 7, height: 7, borderRadius: '50%', background: tone, flex: 'none',
-      ...(dot ? { position: 'absolute', top: 6, right: 8 } : null),
-    }} />;
-  }
+// ── MOTION ─────────────────────────────────────────────────────────────────
+// The first version changed the width with no transition, so folding the
+// sidebar snapped: labels vanished on one frame, icons jumped sideways on the
+// next. The owner noticed immediately.
+//
+// What makes it read as smooth is not the duration — it is that THE ICONS DO
+// NOT MOVE. They sit at a fixed offset that happens to be dead centre of the
+// collapsed width, so only two things animate: the panel's width, and the
+// opacity of the text beside it. Nothing travels, so there is nothing to
+// judder.
+const EASE = 'cubic-bezier(.4, 0, .2, 1)';
+const DUR = 190;
+
+/** Somebody who has asked their system to stop animating things means it. */
+function usePrefersReducedMotion() {
+  const [reduced, setReduced] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia?.('(prefers-reduced-motion: reduce)');
+    if (!mq) return undefined;
+    const sync = () => setReduced(mq.matches);
+    sync();
+    mq.addEventListener?.('change', sync);
+    return () => mq.removeEventListener?.('change', sync);
+  }, []);
+  return reduced;
+}
+
+/**
+ * A box exactly the width of the collapsed rail, holding the icon in its centre.
+ *
+ * This is the reason the fold looks smooth. The slot never changes size, so the
+ * icon is already exactly where the collapsed panel wants it before the
+ * animation starts — the width slides out from underneath it rather than
+ * dragging it along. Nothing travels, so there is nothing to judder.
+ */
+function IconSlot({ children }) {
   return (
-    <span style={{
-      minWidth: 18, height: 17, padding: '0 5px', borderRadius: 9, flex: 'none',
-      display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-      background: tone, color: 'var(--crm-page)', fontSize: 10.5, fontWeight: 700,
-      fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
-    }}>{value > 99 ? '99+' : value}</span>
+    <span aria-hidden="true" style={{
+      width: RAIL, flex: 'none', display: 'inline-flex',
+      alignItems: 'center', justifyContent: 'center',
+    }}>{children}</span>
+  );
+}
+
+function Badge({ value, tone, collapsed, motion }) {
+  if (value == null || value === 0 || value === false) return null;
+  const isFlag = value === true;
+  // Both forms are always mounted and cross-faded. Swapping one for the other
+  // mid-transition was the other half of the jerkiness — a pill disappearing
+  // and a dot appearing on different frames.
+  return (
+    <>
+      {!isFlag && (
+        <span style={{
+          minWidth: 18, height: 17, padding: '0 5px', borderRadius: 9, flex: 'none',
+          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+          background: tone, color: 'var(--crm-page)', fontSize: 10.5, fontWeight: 700,
+          fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+          marginRight: 10,
+          opacity: collapsed ? 0 : 1,
+          transition: motion ? `opacity ${DUR * 0.6}ms ${EASE}` : 'none',
+        }}>{value > 99 ? '99+' : value}</span>
+      )}
+      <span aria-hidden="true" style={{
+        position: 'absolute', top: 7, right: 9,
+        width: 7, height: 7, borderRadius: '50%', background: tone,
+        opacity: (collapsed || isFlag) ? 1 : 0,
+        transition: motion ? `opacity ${DUR * 0.6}ms ${EASE}` : 'none',
+      }} />
+    </>
   );
 }
 
@@ -132,50 +194,87 @@ export default function AdminNav({ tabs, current, onSelect, badges = {} }) {
   // to give up and expand the sidebar instead.
   const [peek, setPeek] = useState(null);
 
-  const toggle = () => setCollapsed((c) => { writeCollapsed(!c); return !c; });
+  const reduced = usePrefersReducedMotion();
+  const motion = !reduced;
+
+  // Side effect OUTSIDE the state updater. React may call an updater more than
+  // once (StrictMode does, deliberately), and a function that writes to storage
+  // while computing the next state is one that runs twice when React decides to
+  // check its work.
+  const toggle = () => {
+    const next = !collapsed;
+    setCollapsed(next);
+    writeCollapsed(next);
+  };
+
+  // Text fades OUT immediately when folding, and waits for most of the width
+  // to arrive before fading IN. Letting labels appear into a gap that is not
+  // there yet is what makes an expanding panel look like it is stuttering.
+  const labelStyle = {
+    opacity: collapsed ? 0 : 1,
+    transition: motion
+      ? `opacity ${collapsed ? DUR * 0.45 : DUR * 0.55}ms ${EASE} ${collapsed ? 0 : DUR * 0.5}ms`
+      : 'none',
+  };
 
   return (
     <nav aria-label="Control panel sections" style={{
+      // border-box so the declared width IS the width on screen. The project
+      // computes to content-box, which is what put the icons off centre.
+      boxSizing: 'border-box',
       width: collapsed ? NAV_WIDTH_COLLAPSED : NAV_WIDTH, flex: 'none',
-      paddingRight: collapsed ? 0 : 8,
+      // No horizontal padding at all: padding that changes with the state is
+      // one more thing moving mid-transition, and it drags every icon with it.
       borderRight: '1px solid var(--crm-w08)',
       // Stays put while a long table scrolls underneath it.
       position: 'sticky', top: 16,
+      transition: motion ? `width ${DUR}ms ${EASE}` : 'none',
     }}>
       <button
         onClick={toggle}
         aria-expanded={!collapsed}
         aria-label={collapsed ? 'Expand the sidebar' : 'Collapse the sidebar to icons'}
-        title={collapsed ? 'Expand' : 'Collapse'}
+        title={collapsed ? 'Expand' : undefined}
         style={{
-          display: 'flex', alignItems: 'center', gap: 8,
-          justifyContent: collapsed ? 'center' : 'flex-start',
-          width: '100%', padding: '6px 10px', marginBottom: 12, borderRadius: 8,
+          boxSizing: 'border-box',
+          display: 'flex', alignItems: 'center', width: '100%',
+          padding: '6px 0', marginBottom: 10, borderRadius: 8,
           border: 'none', background: 'transparent', cursor: 'pointer',
           color: 'var(--crm-w40)', fontFamily: 'inherit', fontSize: 11.5,
+          overflow: 'hidden', whiteSpace: 'nowrap',
         }}>
-        {collapsed
-          ? <PanelLeftOpen size={16} aria-hidden="true" />
-          : <PanelLeftClose size={16} aria-hidden="true" />}
-        {!collapsed && <span>Collapse</span>}
+        <IconSlot>
+          {collapsed
+            ? <PanelLeftOpen size={16} aria-hidden="true" />
+            : <PanelLeftClose size={16} aria-hidden="true" />}
+        </IconSlot>
+        <span style={labelStyle}>Collapse</span>
       </button>
 
       {groups.map((g) => (
         // role=group keeps the grouping for a screen reader in BOTH states —
         // collapsed there is no room for the heading text, but the structure
         // should not quietly disappear with it.
-        <div key={g.id} role="group" aria-label={g.label}
-          style={{ marginBottom: collapsed ? 10 : 18 }}>
-          {collapsed ? (
-            <div aria-hidden="true" style={{
-              height: 1, background: 'var(--crm-w08)', margin: '0 12px 8px',
-            }} />
-          ) : (
+        <div key={g.id} role="group" aria-label={g.label} style={{ marginBottom: 14 }}>
+          {/* Heading and divider occupy the SAME fixed box and cross-fade.
+              Swapping one element for the other changed the height mid-slide
+              and shoved every row below it. */}
+          <div style={{ position: 'relative', height: 17, marginBottom: 4 }}>
+            {/* Aligned to the same rail as the labels, so the headings sit in
+                one column with the tab names rather than a second margin. */}
             <div style={{
+              position: 'absolute', inset: 0, paddingLeft: RAIL,
               fontSize: 10, fontWeight: 700, letterSpacing: '.09em', textTransform: 'uppercase',
-              color: 'var(--crm-w35)', padding: '0 10px', marginBottom: 6,
+              color: 'var(--crm-w35)', whiteSpace: 'nowrap', lineHeight: '17px',
+              ...labelStyle,
             }}>{g.label}</div>
-          )}
+            <div aria-hidden="true" style={{
+              position: 'absolute', left: 12, right: 12, top: 8, height: 1,
+              background: 'var(--crm-w08)',
+              opacity: collapsed ? 1 : 0,
+              transition: motion ? `opacity ${DUR * 0.5}ms ${EASE}` : 'none',
+            }} />
+          </div>
           {g.items.map((t) => {
             const active = current === t.id;
             const b = badges[t.id];
@@ -193,10 +292,12 @@ export default function AdminNav({ tabs, current, onSelect, badges = {} }) {
                   onFocus={() => collapsed && setPeek(t.id)}
                   onBlur={() => collapsed && setPeek(null)}
                   style={{
-                    position: 'relative',
-                    display: 'flex', alignItems: 'center', gap: 9, width: '100%',
-                    justifyContent: collapsed ? 'center' : 'flex-start',
-                    padding: collapsed ? '9px 0' : '7px 10px',
+                    boxSizing: 'border-box', position: 'relative',
+                    display: 'flex', alignItems: 'center', width: '100%',
+                    // No horizontal padding: the IconSlot IS the left gutter,
+                    // and it is the same width in both states, so folding the
+                    // panel does not move the icon at all.
+                    padding: '7px 0',
                     marginBottom: 1, borderRadius: 8,
                     border: 'none', cursor: 'pointer', textAlign: 'left',
                     fontFamily: 'inherit', fontSize: 13.5,
@@ -207,13 +308,18 @@ export default function AdminNav({ tabs, current, onSelect, badges = {} }) {
                     // anything — a border that appears on selection would shift
                     // every other row by three pixels.
                     boxShadow: active ? 'inset 2px 0 0 #e0442c' : 'none',
+                    // Clips the label as the panel narrows. On the BUTTON, not
+                    // the nav, so the hover tooltip can still escape sideways.
+                    overflow: 'hidden',
                   }}>
-                  <Icon size={16} aria-hidden="true" style={{ flex: 'none' }} />
-                  {!collapsed && (
-                    <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis',
-                                   whiteSpace: 'nowrap' }}>{t.label}</span>
-                  )}
-                  <Badge value={b?.value} tone={b?.tone || 'var(--crm-w40)'} dot={collapsed} />
+                  <IconSlot><Icon size={16} aria-hidden="true" /></IconSlot>
+                  <span style={{
+                    flex: 1, minWidth: 0, paddingRight: 8,
+                    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                    ...labelStyle,
+                  }}>{t.label}</span>
+                  <Badge value={b?.value} tone={b?.tone || 'var(--crm-w40)'}
+                    collapsed={collapsed} motion={motion} />
                 </button>
 
                 {collapsed && peek === t.id && (

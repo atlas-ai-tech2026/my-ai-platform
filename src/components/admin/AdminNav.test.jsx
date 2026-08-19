@@ -123,10 +123,15 @@ describe('collapsing to icons', () => {
 
   // The whole point is width for the page — but a name you cannot read is not
   // an acceptable price, so it moves to the accessibility tree and a tooltip.
+  //
+  // Asserts NOT VISIBLE rather than NOT PRESENT on purpose. The labels stay
+  // mounted so they can fade rather than blink out, and "the owner cannot see
+  // it" is the thing actually worth testing — the earlier version of this test
+  // was pinned to how it happened to be built.
   it('hides the label text but keeps every tab named and reachable', async () => {
     render(<AdminNav tabs={TABS} current="sop" onSelect={vi.fn()} />);
     await collapse();
-    expect(screen.queryByText('Gift Cards')).not.toBeInTheDocument();
+    expect(screen.getByText('Gift Cards')).not.toBeVisible();
     for (const t of TABS) {
       expect(screen.getByRole('button', { name: new RegExp(t.label, 'i') }),
         `"${t.label}" lost its name when collapsed`).toBeInTheDocument();
@@ -147,7 +152,7 @@ describe('collapsing to icons', () => {
     render(<AdminNav tabs={TABS} current="sop" onSelect={vi.fn()}
       badges={{ tasks: { value: 18, tone: 'blue' } }} />);
     await collapse();
-    expect(screen.queryByText('18')).not.toBeInTheDocument();
+    expect(screen.getByText('18')).not.toBeVisible();
     expect(screen.getByRole('button', { name: /tasks, 18/i })).toBeInTheDocument();
   });
 
@@ -155,7 +160,12 @@ describe('collapsing to icons', () => {
     render(<AdminNav tabs={TABS} current="sop" onSelect={vi.fn()} />);
     await collapse();
     await userEvent.hover(screen.getByRole('button', { name: /^api usage$/i }));
-    expect(await screen.findByText('API Usage')).toBeInTheDocument();
+    // Two nodes carry the text now — the faded label and the tooltip. What
+    // matters is that one of them can actually be read.
+    const shown = screen.getAllByText('API Usage').filter((el) => {
+      try { expect(el).toBeVisible(); return true; } catch { return false; }
+    });
+    expect(shown.length, 'hovering a collapsed icon showed no readable name').toBeGreaterThan(0);
   });
 
   it('remembers the choice, rather than making you fold it every morning', async () => {
@@ -164,7 +174,30 @@ describe('collapsing to icons', () => {
     expect(readCollapsed()).toBe(true);
     unmount();
     render(<AdminNav tabs={TABS} current="sop" onSelect={vi.fn()} />);
-    expect(screen.queryByText('Gift Cards')).not.toBeInTheDocument();
+    expect(screen.getByText('Gift Cards')).not.toBeVisible();
+  });
+});
+
+describe('the fold is animated, not a snap', () => {
+  it('transitions the width rather than jumping it', () => {
+    const { container } = render(<AdminNav tabs={TABS} current="sop" onSelect={vi.fn()} />);
+    expect(container.querySelector('nav')).toHaveStyle({
+      transition: `width ${190}ms cubic-bezier(.4, 0, .2, 1)`,
+    });
+  });
+
+  // Somebody who has asked their system to stop animating things means it —
+  // and a sidebar is exactly the kind of sliding panel that causes trouble.
+  it('does not animate for someone who asked for reduced motion', () => {
+    const original = window.matchMedia;
+    window.matchMedia = (q) => ({
+      matches: q.includes('reduced-motion'),
+      addEventListener: () => {}, removeEventListener: () => {},
+    });
+    try {
+      const { container } = render(<AdminNav tabs={TABS} current="sop" onSelect={vi.fn()} />);
+      expect(container.querySelector('nav')).toHaveStyle({ transition: 'none' });
+    } finally { window.matchMedia = original; }
   });
 });
 
