@@ -169,12 +169,18 @@ export async function persistOrFallback(sourceUrl, kind = 'output', { timeoutMs 
   if (!configured || !sourceUrl) return sourceUrl;
   const ac = new AbortController();
   const timer = setTimeout(() => ac.abort(), timeoutMs);
+  // TIMED, because this runs BEFORE the user is handed their image — an 8 MB
+  // download from the provider plus an 8 MB upload to Spaces is added straight
+  // to their wait. The owner noticed a generation felt slow on 2026-08-19 and
+  // nothing in the logs could say whether it was the model or this copy. A
+  // number nobody records is a question nobody can answer twice.
+  const startedAt = Date.now();
   try {
     const url = await persistFromUrl(sourceUrl, kind, ac.signal);
-    console.log(`[storage] re-hosted ${kind} → ${url}`);
+    console.log(`[storage] re-hosted ${kind} in ${Date.now() - startedAt}ms → ${url}`);
     return url;
   } catch (e) {
-    console.error(`[storage] re-host failed/timed out (${kind}), keeping FAL url:`, e.message);
+    console.error(`[storage] re-host failed after ${Date.now() - startedAt}ms (${kind}), keeping provider url:`, e.message);
     return sourceUrl;
   } finally {
     clearTimeout(timer);
