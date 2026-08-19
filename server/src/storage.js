@@ -115,40 +115,74 @@ export async function deleteKey(key) {
  * Idempotent. Enabling an already-enabled bucket is a no-op, so this is safe
  * to call on every boot and safe to call by hand.
  */
-export async function ensureVersioning({ enable = true } = {}) {
-  if (!configured) return { ok: false, error: 'Spaces not configured' };
+export async function ensureVersioning({ enable = true, s3 = client, bucket = BUCKET } = {}) {
+  if (!s3) return { ok: false, error: 'Spaces not configured' };
+  let was;
   try {
-    const before = await client.send(new GetBucketVersioningCommand({ Bucket: BUCKET }));
-    const was = before?.Status || 'Disabled';
-    if (was === 'Enabled') return { ok: true, was, now: 'Enabled', changed: false };
-    if (!enable) return { ok: true, was, now: was, changed: false };
+    const before = await s3.send(new GetBucketVersioningCommand({ Bucket: bucket }));
+    was = before?.Status || 'Disabled';
+  } catch (e) {
+    return { ok: false, stage: 'read', error: e.message };
+  }
+  if (was === 'Enabled') return { ok: true, was, now: 'Enabled', changed: false };
+  if (!enable) return { ok: true, was, now: was, changed: false };
 
-    await client.send(new PutBucketVersioningCommand({
-      Bucket: BUCKET, VersioningConfiguration: { Status: 'Enabled' },
+  try {
+    await s3.send(new PutBucketVersioningCommand({
+      Bucket: bucket, VersioningConfiguration: { Status: 'Enabled' },
     }));
     // Read it back rather than trusting the write. A PUT that returns 200 and
     // leaves the bucket unversioned would otherwise be reported as protection
     // that does not exist — the precise failure this project keeps finding.
-    const after = await client.send(new GetBucketVersioningCommand({ Bucket: BUCKET }));
+    const after = await s3.send(new GetBucketVersioningCommand({ Bucket: bucket }));
     const now = after?.Status || 'Disabled';
     if (now !== 'Enabled') {
-      return { ok: false, was, now, changed: false, error: 'the change did not take effect' };
+      return { ok: false, was, now, changed: false, stage: 'verify',
+        error: 'the API accepted the change but the bucket is still unversioned' };
     }
-    console.log(`[storage] object versioning ENABLED on ${BUCKET} (was ${was}) — deletes are now recoverable`);
+    console.log(`[storage] object versioning ENABLED on ${bucket} (was ${was}) — deletes are now recoverable`);
     return { ok: true, was, now, changed: true };
   } catch (e) {
-    return { ok: false, error: e.message };
+    // ── THE THING THAT CAUGHT ME OUT ────────────────────────────────────
+    // Enabling versioning is a bucket CONFIGURATION call, and DigitalOcean
+    // grants configuration only to FULL ACCESS keys. Their own create-key
+    // dialog says so: "Full Access … including bucket creation and
+    // configuration (lifecycle, bucket policies, versioning, CORS …)".
+    //
+    // Our production key is deliberately Limited Access, scoped to one bucket
+    // with readwrite — which is exactly what we spent 2026-08-19 achieving.
+    // So the running app CANNOT and SHOULD NOT be able to do this: making it
+    // possible would mean handing the app back the permissions we just took
+    // away, permanently, to perform a one-off setting.
+    //
+    // Versioning is switched on ONCE with a temporary full-access key that is
+    // then deleted. See server/scripts/enable-versioning.mjs.
+    const denied = /access denied|forbidden/i.test(e.message || '');
+    return {
+      ok: false, was, stage: 'write', denied, error: e.message,
+      hint: denied
+        ? 'A Limited Access key cannot change bucket configuration — this needs a temporary '
+          + 'Full Access key. Run server/scripts/enable-versioning.mjs once, then delete that key.'
+        : undefined,
+    };
   }
 }
 
-/** Report versioning without changing it — for the daily check. */
+/**
+ * Report versioning without changing it.
+ *
+ * Read separately from the write path because the two need different
+ * permissions and fail for different reasons — and a screen that says "not
+ * checked" when it means "not allowed to check" teaches you to ignore it.
+ */
 export async function versioningStatus() {
   if (!configured) return { error: 'Spaces not configured' };
   try {
     const r = await client.send(new GetBucketVersioningCommand({ Bucket: BUCKET }));
     return { status: r?.Status || 'Disabled', bucket: BUCKET };
   } catch (e) {
-    return { error: e.message };
+    const denied = /access denied|forbidden/i.test(e.message || '');
+    return { error: e.message, denied, bucket: BUCKET };
   }
 }
 

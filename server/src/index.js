@@ -13,7 +13,7 @@ import dotenv from 'dotenv';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { pool, isReady as dbReady, migrate, ADMIN_EMAIL } from './db.js';
-import { persistOrFallback, persistBuffer, isReady as spacesReady, uploadPrivate, listKeys, deleteKey, ensureVersioning } from './storage.js';
+import { persistOrFallback, persistBuffer, isReady as spacesReady, uploadPrivate, listKeys, deleteKey } from './storage.js';
 import { configureKie, kieCreateTask, kieGetTask, kiePollUntilDone, kieUploadBuffer, kieGetCredits } from './kie.js';
 import { estimateKieCredits, backfillKieEstimate, KIE_USD_PER_CREDIT,
          KIE_CALIBRATION, kieBilledUsdPerCredit } from './kie-pricing.js';
@@ -6514,24 +6514,24 @@ migrate()
     // recorded a verification — so "can we restore?" is answered now rather
     // than in a month's time.
     scheduleRestoreVerification(pool, dbReady);
-    // #55, first half. Object versioning makes a delete recoverable instead of
-    // final — the whole protection against a mistaken script, or a credential
-    // in the wrong hands, wiping 66 GiB of customer work that exists nowhere
-    // else. Idempotent, so running it on every boot costs one API call.
+    // #55, first half — versioning is NOT enabled from here, and the reason is
+    // worth writing down because I got it wrong first.
     //
-    // It is done HERE rather than by hand because DigitalOcean's console
-    // cannot do it (their own settings page says "only via the API"), and the
-    // server is the only place holding a current Spaces secret — the value is
-    // write-only in the app config, so nobody can run this from a laptop.
+    // I originally called ensureVersioning() at boot. It failed on dev with
+    // "Access Denied", and the explanation was already in DigitalOcean's own
+    // create-key dialog: bucket CONFIGURATION — lifecycle, policies,
+    // versioning, CORS — is granted only to FULL ACCESS keys. Our production
+    // key is deliberately Limited Access, scoped to one bucket, which is
+    // precisely what we spent today achieving.
     //
-    // NOT a substitute for the offsite copy: versions live inside the bucket
-    // and die with it. That is the other half of #55.
-    ensureVersioning()
-      .then((r) => {
-        if (r.error) console.error(`[storage] could not enable versioning: ${r.error}`);
-        else if (!r.changed) console.log(`[storage] object versioning already ${r.now}`);
-      })
-      .catch((e) => console.error('[storage] versioning check failed:', e.message));
+    // So making this work would have meant handing the app back permanent
+    // permission to reconfigure and delete any bucket, in order to perform a
+    // ONE-OFF setting. The boot call is gone rather than the scoping.
+    //
+    // Versioning is switched on once with a temporary full-access key that is
+    // then deleted: server/scripts/enable-versioning.mjs. The SOP screen reads
+    // the bucket daily and says plainly whether it is on, so a setting nobody
+    // applied cannot quietly look applied.
     // Owner-editable cadences, driven by the last recorded run rather than a
     // timer, so they survive the many redeploys this app sees in a day.
     scheduleSopJobs(pool, dbReady);

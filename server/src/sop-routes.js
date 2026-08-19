@@ -161,11 +161,19 @@ export function registerSopRoutes(app, {
           + 'the file stays recoverable; overwrites keep the previous copy too. It protects against a '
           + 'mistake, NOT against losing the bucket or the account — versions live inside the bucket '
           + 'and die with it, which is why the offsite copy is a separate line.',
-        detail: v.error ? v.error
+        detail: v.error
+          ? (v.denied
+            ? `the app’s key is not allowed to read bucket configuration on ${v.bucket} — which is `
+              + 'expected for a correctly scoped key, and means this cannot be confirmed from here'
+            : v.error)
           : on ? `enabled on ${v.bucket} — a deleted file can be brought back`
             : `NOT enabled on ${v.bucket} — a delete is permanent and immediate`,
-        action: v.error ? 'Find out why this could not be read — unverified protection is not protection.'
-          : on ? '' : 'It is enabled automatically at boot; if it is still off, the API call is failing and the log will say why.',
+        action: v.error
+          ? 'Confirm it in the DigitalOcean console under the bucket’s Settings instead.'
+          : on ? ''
+            : 'Run server/scripts/enable-versioning.mjs once with a TEMPORARY full-access key, then delete '
+              + 'that key. The app cannot do this itself: DigitalOcean grants bucket configuration only to '
+              + 'full-access keys, and giving the app one permanently would undo the scoping done on 19 August.',
       }));
     } catch (e) {
       today.push(line({
