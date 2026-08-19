@@ -109,6 +109,13 @@ export const SEED = [
       + 'The failure REASON is recorded too, so an exact verdict can still tell a bad model apart from our own supplier balance being empty. '
       + 'NOTE: this records from the deploy forward — it does not backfill. Models flip from "inferred" to "measured" one at a time as real generations accumulate, and each row says which it is. '
       + 'Measured before: 184s typical, 301s for one in ten; load barely matters (181s quiet vs 190s busy) — it is the model, not the platform.' },
+  { ref: '60', owner: 'owner', status: 'pending', priority: 18,
+    title: 'Was the backup passphrase from 18 August ever replaced?',
+    why: 'It was generated in Terminal, accidentally screenshotted the same day, and I asked for a fresh one before it was saved. The ORIGINAL value is still sitting in the terminal scrollback and appeared in a second screenshot on 19 August. Nobody can check which one is live — DigitalOcean stores it write-only.',
+    detail: 'NOT urgent, and not a hole on its own. That passphrase decrypts the database backups, but an attacker also needs the backup FILES, which sit in Backblaze behind separate credentials. It is a second lock, not the only one. '
+      + 'THE QUESTION: when it was saved into DigitalOcean, was it the value from the screenshot or a freshly generated one? If fresh, the visible string is meaningless and this task closes. '
+      + 'IF UNSURE, TREAT AS EXPOSED AND ROTATE — but plan it, because rotation has a real catch: every EXISTING backup stays encrypted with the OLD passphrase. Discarding it makes every archive taken before the change permanently unreadable. So the old value must be archived alongside the new one, with the cutover date recorded, and the restore verification (#34) run afterwards to prove the new one actually works. '
+      + 'Related habit worth keeping: press Cmd+K in Terminal before screenshotting. Two secrets have reached a screenshot from old scrollback this month.' },
   { ref: '59', owner: 'claude', status: 'pending', priority: 19,
     title: 'NEW TAB — Expenses: what this business actually costs per month',
     why: 'Requested 2026-08-19. Costs are spread across DigitalOcean, GoDaddy, Microsoft 365, Backblaze, Claude, FAL and kie, and nowhere adds them up. Without the total there is no break-even figure, so nobody can say whether a workshop was profitable.',
