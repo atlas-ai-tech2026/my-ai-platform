@@ -336,7 +336,12 @@ export default function Pricing() {
             Feature Comparison
           </h2>
           <div className="overflow-x-auto">
-            <table className="w-full">
+            {/* The scroll container was already here; the min-width was not.
+                Without it four columns just compress on a phone until the
+                feature names are unreadable, and the scrollbar never appears
+                because nothing ever overflows. A container that can scroll and
+                a table that never needs to is not protection. */}
+            <table className="w-full min-w-[560px]">
               <thead>
                 <tr className="border-b border-border">
                   <th className="text-left py-4 px-4 text-foreground-secondary font-medium">Feature</th>

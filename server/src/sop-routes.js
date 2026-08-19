@@ -19,6 +19,7 @@ import { buildToday, summarise, line, STATE } from './sop-engine.js';
 import { latestVerification, runRestoreVerification, ensureVerifyTable } from './backup-verify-routes.js';
 import { runSmokeChecks, summariseSmoke } from './sop-smoke.js';
 import { runIntegrityChecks } from './sop-integrity.js';
+import { runWrittenChecks } from './sop-written.js';
 import { runPostureChecks } from './sop-posture.js';
 import {
   readSchedule, writeSchedule, markRan, isDue, ensureScheduleTable, JOBS,
@@ -115,6 +116,47 @@ export function registerSopRoutes(app, {
     mk('unused-tables', 'Tables nothing reads', r.unreferenced_tables,
       'A table no server file mentions. Dead data that still grows and still gets backed up.',
       'Confirm it is unused, then drop it.');
+
+    // ── the gap the check above could not see ─────────────────────────────
+    // "Columns never written" finds a column empty in EVERY row. The Node
+    // canvas bug made generation_events.model_label empty for one SURFACE
+    // only — direct generations kept the column well over half full, so that
+    // check reported nothing while every canvas generation was missing from
+    // the Reliability and Speed screens.
+    //
+    // A column can be mostly written and still completely broken for one of
+    // the ways people use the product. This asks the narrower question: is
+    // each column that MATTERS still being written, in the last few days.
+    const w = await runWrittenChecks(pool);
+    for (const f of w.findings) {
+      // 'quiet' means too few rows to judge — not a finding, and not a pass
+      // either. Reporting it as OK would be the same lie as a green tick on
+      // a check that never ran.
+      if (f.state === 'ok' || f.state === 'quiet') continue;
+      out.push(line({
+        key: `written-${f.column}`, zone: 'integrity',
+        label: `Still being written: ${f.column}`,
+        state: f.state === 'unknown' ? STATE.UNKNOWN : STATE.WARN,
+        value: f.state === 'unknown' ? 'not checked' : 'gaps',
+        checkedAt: r.checked_at,
+        info: f.why,
+        detail: f.detail,
+        action: f.action || 'Find out why this could not be measured — an unchecked column is not a healthy one.',
+      }));
+    }
+    // Say the healthy ones were looked at, so a short list reads as "checked
+    // and fine" rather than "nobody ran this".
+    const clean = w.findings.filter((f) => f.state === 'ok').map((f) => f.column);
+    if (clean.length) {
+      out.push(line({
+        key: 'written-ok', zone: 'integrity', label: 'Columns still being written',
+        state: STATE.OK, value: `${clean.length}/${w.summary.checked}`, checkedAt: r.checked_at,
+        info: 'Columns that must be populated for the reports to mean anything, measured over the '
+          + 'last 7 days rather than all of history — the question is whether they are being '
+          + 'written NOW, and old gaps that can never be filled would otherwise sit red forever.',
+        detail: clean.join(' · '),
+      }));
+    }
     return out;
   }
 

@@ -107,6 +107,13 @@ export const SEED = [
       + 'The failure REASON is recorded too, so an exact verdict can still tell a bad model apart from our own supplier balance being empty. '
       + 'NOTE: this records from the deploy forward — it does not backfill. Models flip from "inferred" to "measured" one at a time as real generations accumulate, and each row says which it is. '
       + 'Measured before: 184s typical, 301s for one in ten; load barely matters (181s quiet vs 190s busy) — it is the model, not the platform.' },
+  { ref: '56', owner: 'claude', status: 'done', priority: 39,
+    title: 'Hardening pass — stop the same class of mistake recurring',
+    why: 'The owner asked on 2026-08-19 why there is always some mistake. Two different things were happening: OLD bugs surfacing because we finally started looking (good), and a repeated habit of mine — describing state I had not actually read (five times, one cause).',
+    detail: 'DONE 2026-08-19. TWO new automated checks: (1) columns that must be written, measured over a rolling 7-day window — the existing check only found columns empty in EVERY row, so the Node canvas bug hid behind a column that was 60% full; '
+      + '(2) a JSX-parsing sweep so no table anywhere can hide a column — it found the Account page forcing the whole screen sideways on a phone, and the Pricing table squashing instead of scrolling. '
+      + 'TWO rules written into CLAUDE.md, because no check catches them: never describe state not read in this session, and verify the EFFECT not the change. '
+      + 'Deliberately NOT a one-time audit — a snapshot does not stop recurrence, and the weekly structure check had ALREADY found model_label and been ignored. The follow-through was the gap, not the checking.' },
   { ref: '47', owner: 'claude', status: 'in_progress', priority: 41,
     title: 'STANDING RULE — an information dot on every field, a description on every tab',
     why: 'The bulk-expiry control was styled so faintly it was reported as missing from production. A feature nobody can find is not shipped.',

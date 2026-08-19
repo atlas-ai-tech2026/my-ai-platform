@@ -496,7 +496,13 @@ function UsageSection({ user, usage, days, onDays, onRefresh }) {
             <option value="gift">Gift card</option>
           </select>
         </div>
-        <table className="w-full text-sm">
+        {/* Two of these columns refuse to wrap — a credit amount and a full
+            timestamp — so on a phone the table pushes wider than the screen.
+            With no scroll container that width escapes to the PAGE, and the
+            whole account screen slides sideways. Found by the layout sweep,
+            not by anyone reporting it. */}
+        <div className="overflow-x-auto">
+        <table className="w-full text-sm min-w-[560px]">
           <thead>
             <tr className="text-left text-foreground-muted">
               <th className="px-5 py-3 font-medium">Credits</th>
@@ -526,6 +532,7 @@ function UsageSection({ user, usage, days, onDays, onRefresh }) {
             })}
           </tbody>
         </table>
+        </div>
         <div className="flex items-center justify-between px-5 py-3 border-t border-border/60 text-sm text-foreground-muted">
           <span>Show {PAGE}</span>
           <span>Page {page} of {pages}</span>

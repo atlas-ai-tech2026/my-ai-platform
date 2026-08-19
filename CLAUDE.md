@@ -99,6 +99,50 @@ See `docs/PLAN.md` for the full Docker + DigitalOcean plan. Short version:
 - **Camera fields** on history items are always `camera`, `lens`, `lens_type`, `focal_length`, `fstop` (snake_case on the wire, camelCase in React state).
 ```
 
+## ⚠️ TWO RULES FOR CLAUDE — read before answering anything about state
+
+Agreed with the owner on **2026-08-19**, after they asked the fair question:
+*"why is there always some mistake when I talk with you?"*
+
+Looking at the record, the errors split in two. Most were **old bugs being
+found** — `HistoryModal` hiding columns, `model_label` NULL in 3,046 rows, the
+Node canvas invisible, SPF failing since 11 August. Those are a backlog
+draining, not a problem growing.
+
+The rest were mine, and **five of them had one single cause**:
+
+| Claimed | Actually |
+|---|---|
+| The 7 promo codes are the expire list | They were the **keep** list |
+| "Read the preview before confirming" | No preview screen exists |
+| Described the bulk-expiry control | Never opened the component |
+| "Your Cloudflare account" | There is none — inferred from a header |
+| "#55 is parked on the board" | The seed skips existing rows; it never landed |
+
+Not five random errors. **One habit, five times.**
+
+### RULE 1 — Never describe state I have not read in this session
+A screen, a number, a row count, a config value, a deployment. If it has not
+been read, run, or queried **in this conversation**, say so:
+*"I have not verified this."* Notes and memory are a starting point for
+**where to look**, never a substitute for looking.
+
+### RULE 2 — Verify the effect, not the change
+Not *"the function is correct"* — *"the value appears where the owner would
+look for it."* The task board is the case that proves it: `upsertTask` was
+tested and correct, the seed skipped existing rows, and nothing I wrote ever
+reached the screen. **A passing unit test on the piece you built says nothing
+about whether anyone can see the result.**
+
+### What is automated instead of trusted to discipline
+- `src/layout-safety.test.jsx` — no table anywhere may hide a column
+- `server/src/sop-written.js` — columns that must be written, checked weekly
+  over a rolling window, so a whole surface cannot go silent
+- `server/src/video-charge-model-id.test.js` — call sites, not functions
+
+**Not everything is automatable, and pretending otherwise is the same failure.**
+Rules 1 and 2 are rules precisely because no check catches them.
+
 ## Invariants the user cares about (stated explicitly across sessions)
 1. Generate must never fail with a generic toast. Errors must name the root cause.
 2. History must survive server restarts — including old camera metadata.
