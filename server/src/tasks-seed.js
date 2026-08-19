@@ -59,13 +59,15 @@ export const SEED = [
     title: 'Move DNS to your own Cloudflare account',
     why: 'voxel-ai.ai sits behind DigitalOcean’s Cloudflare, not yours — so there is no WAF or bot management you control.',
     detail: 'Registrar is GoDaddy, not DigitalOcean. 19 records across THREE email systems. Needs a quiet window — a MORNING, not late night: the risk is email, and propagation takes 24–48h. Zone export already sent.' },
-  { ref: '55', owner: 'owner', status: 'blocked', priority: 21,
-    blocked_by: 'Waiting on the monthly cost of each option, then a decision — held by you on 2026-08-19 to discuss later',
-    title: 'Decide: are customer images and videos backed up?',
-    why: 'The daily backup covers the database — including each generation’s metadata and URL — but NOT the files. Lose the media bucket and every history entry points at nothing. Still true, still unprotected.',
-    detail: 'Three options: accept it (generations are re-creatable) · enable bucket versioning (cheap, partial) · replicate to Backblaze (real, recurring cost). A business decision, not a technical one. '
-      + 'HELD 2026-08-19 at your request: I work out what each option costs per month at current storage and bring you the numbers; nothing gets built until you have chosen. '
-      + 'Raise it again once the figures are in — until then this is a known, accepted, UNMITIGATED risk, not a solved problem.' },
+  { ref: '55', owner: 'claude', status: 'in_progress', priority: 21,
+    title: 'Back up customer media — versioning AND replication to Backblaze',
+    why: 'The daily backup covers the database — every generation’s metadata and URL — but NOT the files. 66.1 GiB across 11,320 files exists in exactly one place. Lose the bucket and every customer’s history points at nothing.',
+    detail: 'DECIDED 2026-08-19: do BOTH. Costed from the providers’ own pricing pages that day, not from memory. '
+      + 'MEASURED: voxel-ai-store is 66.1 GiB / 11,320 items; dev is 71 MiB / 15 items. DigitalOcean’s $5/mo already includes 250 GiB, so storage there costs nothing extra today. '
+      + 'VERSIONING — $0, well inside the allowance. Stops an accidental delete or overwrite. Does NOT survive losing the bucket or the account. Must be enabled via the API; the console says so explicitly. '
+      + 'BACKBLAZE — $6.95/TB/mo with the first 10 GB free, so 61 billable GB ≈ $0.42/month. Seeding it moves ~71 GB out of DigitalOcean, inside the included 1 TiB transfer, so $0 to start. This is the only option that survives losing the DigitalOcean account entirely. '
+      + 'SMALLER THAN IT LOOKED: Backblaze is ALREADY configured and working for the database backups (OFFSITE_S3_*), so this extends something proven rather than building new. About 4 hours. '
+      + 'THE NUMBER TO WATCH: growth rate is unknown — 66 GiB accumulated since roughly 2 August. At 250 GiB the Backblaze cost would be about $1.80/month. Worth reporting into the SOP rather than assuming.' },
   { ref: '50', owner: 'owner', status: 'pending', priority: 22,
     title: 'Second copy of the backup passphrase',
     why: 'Saved in the Mac Passwords app. If the laptop and DigitalOcean are lost together, every backup becomes permanently unreadable.',
