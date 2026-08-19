@@ -969,6 +969,21 @@ export async function migrate() {
     `);
     await client.query(`CREATE INDEX IF NOT EXISTS pending_video_charges_pending_idx ON pending_video_charges (status, created_at) WHERE status = 'pending';`);
     await client.query(`CREATE INDEX IF NOT EXISTS pending_video_charges_user_idx ON pending_video_charges (user_id, created_at DESC);`);
+    // WHY a failed video needs its REASON, not just its status.
+    //
+    // The Reliability screen exists to say "do not demonstrate this model in
+    // front of a room". Its first run said exactly that about Nano Banana Pro
+    // — and 1,234 of the failures it counted were fal and kie refusing because
+    // OUR OWN balance was empty, which fails whatever model is running. That
+    // is advice to drop your best model over a billing problem.
+    //
+    // Status alone cannot tell the two apart: 'refunded' is 'refunded'. So the
+    // reason is recorded here, letting an EXACT verdict keep the same split
+    // the inferred one already makes.
+    await client.query(`ALTER TABLE pending_video_charges ADD COLUMN IF NOT EXISTS failure_reason TEXT;`);
+    // Serves the per-model reliability rollup: label + status, newest window.
+    await client.query(`CREATE INDEX IF NOT EXISTS pending_video_charges_label_idx
+      ON pending_video_charges (model_label, created_at DESC) WHERE model_label IS NOT NULL;`);
 
     // ─── ownership-lookup indexes (M5 + download guard) ─────────────
     // Both /api/video-status (M5) and /api/download verify that a job id /

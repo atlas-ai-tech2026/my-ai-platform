@@ -58,6 +58,35 @@ describe('every video charge records its model', () => {
     }
   });
 
+  // ── model_label, the same bug a second time ────────────────────────────
+  // `modelId` is the provider's technical id — `fal-ai/kling-video/v2/...`,
+  // `kie:jobs:...`. It is what the reconciler needs and it is unreadable.
+  // `model_label` is the name a person uses — "Kling 3.0" — and it is what
+  // makes a video failure a RECORD instead of a deduction: without it the
+  // Reliability screen has to guess which model a refund reverses by matching
+  // amount and time, which recovers 91% and is honest about the rest.
+  //
+  // The column was added, the screen was written to read it, and not one of
+  // the ten call sites ever passed it. 3,046 rows, every one NULL — a column
+  // that worked exactly as written and helped nobody.
+  it('passes modelLabel at EVERY call site', () => {
+    const missing = callSites().filter((c) => !/\bmodelLabel\s*:/.test(c.text));
+    expect(
+      missing.map((c) => `line ${c.line}: ${c.text.slice(0, 90)}`),
+      'without a label this video failure can only ever be inferred, never recorded'
+    ).toEqual([]);
+  });
+
+  // It must come from the CHARGE, not be re-derived here. Three places
+  // computing the same string separately is three places that drift, and the
+  // day they drift the Reliability screen blames the wrong model.
+  it('takes the label from the charge rather than working it out again', () => {
+    for (const c of callSites()) {
+      expect(c.text, `line ${c.line}: derive the label once, in chargeCredits`)
+        .toMatch(/modelLabel:\s*chargedLabel\b/);
+    }
+  });
+
   // kie jobs are routed by prefix — kie:jobs: → Jobs API, kie: → Veo. A kie
   // charge tagged without its prefix would be sent to FAL, which has never
   // heard of the id, and the row would stay stuck in a different way.

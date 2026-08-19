@@ -25,9 +25,29 @@
 
 import { pool } from './db.js';
 
-/** Pull "Nano Banana Pro" out of "image: Nano Banana Pro". */
+/**
+ * Pull "Nano Banana Pro" out of "image: Nano Banana Pro".
+ *
+ * ── WHY `node` IS HERE ─────────────────────────────────────────────────────
+ * The Node canvas writes its ledger notes as `node: flux-dev` and
+ * `node video: Seedance 2.5`. The original pattern anchored on image|video|
+ * audio at the START of the string, so both fell straight through to null —
+ * meaning EVERY generation made from the canvas was invisible to the
+ * Reliability screen and carried no timing at all on the Speed screen.
+ *
+ * Nothing failed. The rows were written, the column was simply empty, and a
+ * screen that silently omits a whole surface reads exactly like one where
+ * that surface has no problems. Found while fixing the same class of bug in
+ * pending_video_charges — it is the third column this month that was doing
+ * precisely what it was told and telling nobody anything.
+ *
+ * Canvas and direct generations deliberately fold into the SAME label: it is
+ * the same model on the same provider, and splitting them would halve both
+ * samples to record where the user happened to click.
+ */
 export function labelFrom(note) {
-  const m = String(note || '').match(/^\s*(?:image|video|audio)\s*:\s*(.+?)\s*$/i);
+  const m = String(note || '')
+    .match(/^\s*(?:node(?:\s+(?:image|video|audio))?|image|video|audio)\s*:\s*(.+?)\s*$/i);
   return m ? m[1].slice(0, 160) : null;
 }
 

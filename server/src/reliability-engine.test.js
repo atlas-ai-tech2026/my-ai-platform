@@ -10,7 +10,8 @@
 
 import { describe, it, expect } from 'vitest';
 import {
-  verdict, confidenceOf, buildReport, summarise, splitFailures, MIN_ATTEMPTS, BANDS,
+  verdict, confidenceOf, buildReport, summarise, splitFailures,
+  applyRecorded, basisSummary, MIN_ATTEMPTS, BANDS,
 } from './reliability-engine.js';
 
 describe('never blaming a model for OUR empty account', () => {
@@ -179,5 +180,84 @@ describe('the summary line', () => {
     const s = summarise([]);
     expect(s.overall_rate_pct).toBeNull();
     expect(s.worst).toBeNull();
+  });
+});
+
+// ─── recorded vs inferred ────────────────────────────────────────────────────
+// pending_video_charges now carries the model name and the failure reason on
+// the row, so for video the answer is known rather than deduced. The risk in
+// that improvement is subtle: a small EXACT sample looks more trustworthy than
+// a large deduced one, and is not.
+describe('preferring what was recorded over what was deduced', () => {
+  const inferred = buildReport([
+    { model: 'Kling 3.0', kind: 'video', attempts: 900, failures: 90, account_dry_failures: 0 },
+    { model: 'Veo 3.1',   kind: 'video', attempts: 400, failures: 8,  account_dry_failures: 0 },
+  ]);
+
+  it('marks everything inferred when nothing has been recorded yet', () => {
+    const out = applyRecorded(inferred, []);
+    expect(out.every((r) => r.basis === 'inferred')).toBe(true);
+    expect(basisSummary(out)).toMatchObject({ recorded: 0, inferred: 2, recorded_pct: 0 });
+  });
+
+  it('uses the recorded numbers once a model has enough of its own', () => {
+    const out = applyRecorded(inferred, [
+      { model: 'Kling 3.0', attempts: 200, failures: 4, account_dry_failures: 0 },
+    ]);
+    const kling = out.find((r) => r.model === 'Kling 3.0');
+    expect(kling.basis).toBe('recorded');
+    expect(kling.attempts).toBe(200);
+    expect(kling.rate_pct).toBe(2);
+    expect(kling.verdict.key).toBe('teach');   // 2% — was 10% and 'watch'
+  });
+
+  // THE TRAP. Recording starts at a point in time, so for a while the exact
+  // sample is tiny while the deduced one spans the whole window. Three exact
+  // attempts must not outrank nine hundred deduced ones — that is precision
+  // used as a substitute for evidence.
+  it('refuses to let a tiny exact sample outrank a large deduced one', () => {
+    const out = applyRecorded(inferred, [
+      { model: 'Kling 3.0', attempts: 3, failures: 0, account_dry_failures: 0 },
+    ]);
+    const kling = out.find((r) => r.model === 'Kling 3.0');
+    expect(kling.basis, 'three attempts overrode nine hundred').toBe('inferred');
+    expect(kling.attempts).toBe(900);
+    expect(kling.rate_pct).toBe(10);
+    // Still reported, so the exact figures can be watched building up.
+    expect(kling.recorded).toMatchObject({ attempts: 3, rate_pct: null });
+  });
+
+  // Being exact about the wrong number is not an improvement. The whole point
+  // of splitFailures is that our own empty balance fails whatever is running.
+  it('still keeps account-dry failures out of an exact verdict', () => {
+    const out = applyRecorded(inferred, [
+      { model: 'Veo 3.1', attempts: 100, failures: 40, account_dry_failures: 38 },
+    ]);
+    const veo = out.find((r) => r.model === 'Veo 3.1');
+    expect(veo.basis).toBe('recorded');
+    expect(veo.failures, 'a billing problem was blamed on the model').toBe(2);
+    expect(veo.rate_pct).toBe(2);
+    expect(veo.account_dry_failures).toBe(38);
+    expect(veo.verdict.key).toBe('teach');
+  });
+
+  it('keeps the deduced figures so a disagreement stays visible', () => {
+    const out = applyRecorded(inferred, [
+      { model: 'Kling 3.0', attempts: 200, failures: 60, account_dry_failures: 0 },
+    ]);
+    const kling = out.find((r) => r.model === 'Kling 3.0');
+    expect(kling.inferred).toMatchObject({ attempts: 900, rate_pct: 10 });
+    expect(kling.rate_pct).toBe(30);
+  });
+
+  it('matches model names loosely enough to survive punctuation', () => {
+    const out = applyRecorded(inferred, [
+      { model: 'kling 3.0', attempts: 200, failures: 4, account_dry_failures: 0 },
+    ]);
+    expect(out.find((r) => r.model === 'Kling 3.0').basis).toBe('recorded');
+  });
+
+  it('says nothing rather than 0% when the table is empty', () => {
+    expect(basisSummary([]).recorded_pct).toBeNull();
   });
 });

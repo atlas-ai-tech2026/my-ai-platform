@@ -206,3 +206,63 @@ describe('how long each model takes', () => {
     expect(screen.queryByText('Nothing timed yet.')).toBeNull();
   });
 });
+
+// ─── measured vs worked out ──────────────────────────────────────────────────
+// Video jobs now record which model ran and why they failed, so some rows are
+// measurements rather than deductions.
+//
+// The dangerous part of that improvement is the CAVEAT. This banner used to
+// open "These failure counts are worked out, not recorded" — true when nothing
+// was recorded, and quietly false from the first measured model onward. A
+// warning that outlives its cause teaches you to discount numbers that have
+// since become facts, which is a slower version of the same problem.
+describe('saying which numbers were measured and which were worked out', () => {
+  it('keeps the old caveat while nothing has been recorded yet', async () => {
+    serverHas({ basis: { recorded: 0, inferred: 3, recorded_pct: 0, recording_since: null } });
+    render(<ReliabilityPanel onError={vi.fn()} />);
+    expect(await screen.findByText(/worked out, not recorded/i)).toBeInTheDocument();
+  });
+
+  // "0 measured" the day after the change means "not yet". The same words a
+  // month later would mean something is broken. Only the date separates them.
+  it('says WHEN recording began, so zero reads as "not yet"', async () => {
+    serverHas({ basis: { recorded: 0, inferred: 3, recorded_pct: 0,
+      recording_since: '2026-08-19T00:00:00Z' } });
+    render(<ReliabilityPanel onError={vi.fn()} />);
+    expect(await screen.findByText(/Direct recording began/i)).toBeInTheDocument();
+  });
+
+  it('drops the blanket caveat once models are measured', async () => {
+    serverHas({
+      models: MODELS.map((m, i) => (i === 0 ? { ...m, basis: 'recorded' } : { ...m, basis: 'inferred' })),
+      basis: { recorded: 1, inferred: 2, recorded_pct: 33.3, recording_since: '2026-08-19T00:00:00Z' },
+    });
+    render(<ReliabilityPanel onError={vi.fn()} />);
+    expect(await screen.findByText(/1 of 3 models are now measured directly/i)).toBeInTheDocument();
+    expect(screen.queryByText(/worked out, not recorded/i),
+      'the screen still claimed nothing was recorded').not.toBeInTheDocument();
+  });
+
+  // The property that matters most: a reader must never have to guess which
+  // of two numbers in the same column is a measurement.
+  it('marks every row, so no figure is ambiguous', async () => {
+    serverHas({
+      models: MODELS.map((m, i) => ({ ...m, basis: i === 0 ? 'recorded' : 'inferred' })),
+      basis: { recorded: 1, inferred: 2, recorded_pct: 33.3, recording_since: '2026-08-19T00:00:00Z' },
+    });
+    render(<ReliabilityPanel onError={vi.fn()} />);
+    await screen.findAllByText('Kling 3.0 Omni');   // also appears in the "Avoid live" card
+    expect(screen.getAllByText('measured')).toHaveLength(1);
+    // 2 rows + the banner's inline reference.
+    expect(screen.getAllByText('inferred').length).toBeGreaterThanOrEqual(2);
+  });
+
+  // A row from a server that predates this field must not render as a blank
+  // badge or crash — it is inferred until proven otherwise.
+  it('treats a row with no basis as inferred rather than nothing', async () => {
+    serverHas();          // MODELS carry no `basis` at all
+    render(<ReliabilityPanel onError={vi.fn()} />);
+    await screen.findAllByText('Kling 3.0 Omni');
+    expect(screen.getAllByText('inferred').length).toBe(MODELS.length);
+  });
+});

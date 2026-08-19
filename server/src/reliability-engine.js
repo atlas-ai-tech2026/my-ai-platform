@@ -136,6 +136,92 @@ export function buildReport(rows = [], costIdx = new Map(), opts = {}) {
   });
 }
 
+/**
+ * Replace a model's INFERRED numbers with RECORDED ones, once there are enough.
+ *
+ * Video failures used to be a deduction: match each refund to the spend it
+ * probably reverses, same person, same amount, within thirty minutes. That
+ * recovers 91% and is honest, but it is still arithmetic about what likely
+ * happened. `pending_video_charges` now carries the model name and the failure
+ * reason on the row itself, so for those models the answer is simply known.
+ *
+ * TWO RULES, both of which exist to stop this being an improvement that quietly
+ * makes the screen worse:
+ *
+ *   · A recorded row only wins when it has at least `minAttempts` of its own.
+ *     Recording started at a point in time; for a while the recorded sample is
+ *     tiny while the inferred one spans the whole window. Preferring three
+ *     exact attempts to nine hundred inferred ones would be precision used as
+ *     a substitute for evidence.
+ *   · Account-dry failures are excluded from the recorded count exactly as they
+ *     are from the inferred one. Being exact about the wrong number is not an
+ *     improvement.
+ *
+ * Every row carries `basis` so the screen can say which it is showing. A screen
+ * that silently mixes measured and deduced figures in one column is the quiet
+ * kind of wrong this module was written to avoid.
+ */
+export function applyRecorded(report = [], recorded = [], opts = {}) {
+  const norm = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+  const min = opts.minAttempts ?? MIN_ATTEMPTS;
+  const idx = new Map();
+  for (const r of recorded) {
+    if (r?.model) idx.set(norm(r.model), r);
+  }
+
+  return report.map((row) => {
+    const rec = idx.get(norm(row.model));
+    if (!rec) return { ...row, basis: 'inferred' };
+
+    const attempts = Number(rec.attempts) || 0;
+    const dry = Number(rec.account_dry_failures) || 0;
+    const failures = Math.max(0, (Number(rec.failures) || 0) - dry);
+
+    // Always reported, so the screen can show the exact figures building up
+    // even while the verdict still rests on the inference.
+    const recordedBlock = {
+      attempts,
+      failures,
+      account_dry_failures: dry,
+      rate_pct: attempts >= min ? Math.round((failures / attempts) * 1000) / 10 : null,
+    };
+
+    if (attempts < min) {
+      return { ...row, basis: 'inferred', recorded: recordedBlock };
+    }
+    return {
+      ...row,
+      basis: 'recorded',
+      recorded: recordedBlock,
+      attempts,
+      failures,
+      account_dry_failures: dry,
+      total_failures: failures + dry,
+      rate_pct: recordedBlock.rate_pct,
+      verdict: verdict(attempts, failures, opts),
+      // The inferred figures are kept rather than discarded: when a recorded
+      // and a deduced rate disagree sharply, that gap is itself worth seeing.
+      inferred: {
+        attempts: row.attempts,
+        failures: row.failures,
+        rate_pct: row.rate_pct,
+      },
+    };
+  });
+}
+
+/** How much of the table is measured rather than deduced. */
+export function basisSummary(report = []) {
+  const recorded = report.filter((r) => r.basis === 'recorded').length;
+  return {
+    recorded,
+    inferred: report.length - recorded,
+    // Null, not 0, for an empty table: "nothing to say" is not "nothing is
+    // measured".
+    recorded_pct: report.length ? Math.round((recorded / report.length) * 1000) / 10 : null,
+  };
+}
+
 /** One-line summary for the top of the screen. */
 export function summarise(report = []) {
   const judged = report.filter((r) => r.rate_pct !== null);

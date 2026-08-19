@@ -42,6 +42,7 @@ export default function ReliabilityPanel({ onError }) {
   const rows = data?.models || [];
   const s = data?.summary;
   const c = data?.confidence;
+  const b = data?.basis;
 
   return (
     <div>
@@ -64,13 +65,31 @@ export default function ReliabilityPanel({ onError }) {
         </div>
       </div>
 
-      {/* The inference, stated before any number is read. */}
+      {/* Where the numbers come from, stated before any of them is read.
+          This banner used to open "These failure counts are worked out, not
+          recorded" — flatly true when nothing was recorded, and quietly FALSE
+          from the moment the first model had exact figures. A caveat that
+          outlives its cause is its own kind of wrong: it teaches you to
+          discount numbers that have since become measurements. */}
       {c && (
         <div style={{ ...box, borderColor: 'var(--crm-w10)', fontSize: 12, color: 'var(--crm-w55)', lineHeight: 1.6 }}>
-          <b style={{ color: 'var(--crm-ink)' }}>These failure counts are worked out, not recorded.</b>{' '}
-          Nothing stores “this model failed” — a refund names the provider’s complaint, not the
-          model. So each refund is matched to the generation it reverses (same person, same amount,
-          within 30 minutes). That accounts for{' '}
+          {b?.recorded > 0 ? (
+            <>
+              <b style={{ color: 'var(--crm-ink)' }}>
+                {b.recorded} of {b.recorded + b.inferred} models are now measured directly
+              </b>{' '}
+              — every video job records which model ran it and why it failed, so for those there is
+              nothing to work out. Rows marked <Tag kind="inferred" /> still rest on the older
+              method below.{' '}
+            </>
+          ) : (
+            <>
+              <b style={{ color: 'var(--crm-ink)' }}>These failure counts are worked out, not recorded.</b>{' '}
+            </>
+          )}
+          Historically nothing stored “this model failed” — a refund names the provider’s complaint,
+          not the model. So each refund is matched to the generation it reverses (same person, same
+          amount, within 30 minutes). That accounts for{' '}
           <b style={{ color: c.label === 'high' ? 'var(--crm-green)' : 'var(--crm-amber)' }}>
             {c.matched} of {c.total_refunds} refunds ({c.pct}%)
           </b>
@@ -78,6 +97,15 @@ export default function ReliabilityPanel({ onError }) {
           {c.unnamed_attempts > 0 && (
             <> A further <b>{c.unnamed_attempts.toLocaleString()}</b> generations recorded no model name at all
               and are excluded from both columns.</>
+          )}
+          {/* "0 measured" one day after the change means "not yet"; the same
+              words a month later would mean something is broken. Only the date
+              tells them apart. */}
+          {b && b.recorded === 0 && (
+            <> Direct recording {b.recording_since
+              ? <>began {new Date(b.recording_since).toLocaleDateString()} — no model has enough of its own yet.</>
+              : <>has not produced anything yet.</>}
+            </>
           )}
         </div>
       )}
@@ -119,7 +147,18 @@ export default function ReliabilityPanel({ onError }) {
                 const t = TONE[r.verdict.tone] || TONE.dim;
                 return (
                   <tr key={r.model}>
-                    <td style={{ ...td, color: 'var(--crm-ink)', fontWeight: 600 }}>{r.model}</td>
+                    <td style={{ ...td, color: 'var(--crm-ink)', fontWeight: 600 }}>
+                      {/* The name keeps its own element so it stays a single
+                          text node — putting the badge beside it directly made
+                          the cell read "Kling 3.0 Omni inferred" to anything
+                          matching on text, including a screen reader. */}
+                      <span>{r.model}</span>{' '}
+                      {/* Per row, not just in the banner. Two rows in one
+                          column where one is measured and the other deduced,
+                          with nothing saying which, is the quiet kind of
+                          wrong this screen exists to avoid. */}
+                      <Tag kind={r.basis || 'inferred'} recorded={r.recorded} inferred={r.inferred} />
+                    </td>
                     <td style={{ ...td, color: 'var(--crm-w45)', fontSize: 11.5 }}>{r.kind || '—'}</td>
                     <td style={{ ...td, textAlign: 'right' }}>{r.attempts.toLocaleString()}</td>
                     <td style={{ ...td, textAlign: 'right' }}>{r.failures.toLocaleString()}</td>
@@ -257,6 +296,32 @@ function SpeedSection({ speed }) {
         </>
       )}
     </div>
+  );
+}
+
+/**
+ * Whether a row's numbers were MEASURED or WORKED OUT.
+ *
+ * Deliberately small and quiet — it is not a warning, and "inferred" is not a
+ * failure. It is the difference between "this is what happened" and "this is
+ * what almost certainly happened", and showing both in one column without
+ * saying which is how a deduction slowly gets remembered as a fact.
+ */
+function Tag({ kind, recorded, inferred }) {
+  const measured = kind === 'recorded';
+  const title = measured
+    ? `Measured: every video job records its model and why it failed.${
+      inferred ? ` The older estimate said ${inferred.rate_pct}% from ${inferred.attempts.toLocaleString()} attempts.` : ''}`
+    : `Worked out by matching each refund to the generation it reverses.${
+      recorded?.attempts ? ` ${recorded.attempts} exact attempt(s) so far — not yet enough to use.` : ''}`;
+  return (
+    <span title={title} style={{
+      fontSize: 9.5, fontWeight: 700, letterSpacing: '.05em', textTransform: 'uppercase',
+      padding: '1px 5px', borderRadius: 4, verticalAlign: 'middle', whiteSpace: 'nowrap',
+      background: measured ? 'var(--crm-green-bg)' : 'var(--crm-w06)',
+      color: measured ? 'var(--crm-green)' : 'var(--crm-w45)',
+      border: `1px solid ${measured ? 'var(--crm-green-br)' : 'var(--crm-w10)'}`,
+    }}>{measured ? 'measured' : 'inferred'}</span>
   );
 }
 

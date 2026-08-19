@@ -10,7 +10,7 @@
 // (e.g. image=1.5 once that decision is made) without redeploying code.
 
 import { pool } from './db.js';
-import { recordAttempt, settleAttempt } from './generation-events.js';
+import { recordAttempt, settleAttempt, labelFrom } from './generation-events.js';
 
 export const CREDIT_COSTS = {
   image: parseFloat(process.env.CREDIT_COST_IMAGE || '2'),
@@ -121,7 +121,16 @@ export async function chargeCredits({ userId, kind, ip, cost: costOverride, note
     // generation. recordAttempt swallows its own errors for the same reason.
     const eventId = await recordAttempt({ userId, kind, note, provider, credits: cost });
 
-    return { newBalance: Number(u.rows[0].credits), cost, eventId };
+    // The model name, handed back so the caller can record it against an async
+    // video job WITHOUT deriving it a second time.
+    //
+    // `pending_video_charges.model_label` sat NULL in all 3,046 rows because
+    // every one of the ten call sites had to work the name out for itself, and
+    // none of them bothered. Returning it from the one function that already
+    // knows makes the ledger, the telemetry and the video charge agree by
+    // construction — three tables that derive the same string separately are
+    // three tables that eventually disagree.
+    return { newBalance: Number(u.rows[0].credits), cost, eventId, label: labelFrom(note) };
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
     throw err;

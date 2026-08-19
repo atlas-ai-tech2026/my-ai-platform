@@ -1319,6 +1319,7 @@ app.post('/api/generate', verifyJwt, requireNotBanned, noDoubleCharge, requireMo
   // spamming requests that race past the balance check.
   let chargedKind = null;
   let chargedCost = null;
+  let chargedLabel = null;
   try {
     // Provider-cost estimate rides along on the ledger row: KIE credits
     // when the model burns our kie.ai balance, FAL USD when it bills fal.
@@ -1332,6 +1333,7 @@ app.post('/api/generate', verifyJwt, requireNotBanned, noDoubleCharge, requireMo
     });
     chargedKind = type;
     chargedCost = charge.cost;
+    chargedLabel = charge.label;
     res.setHeader('X-Credits-Remaining', String(charge.newBalance));
   } catch (e) {
     if (e instanceof InsufficientCreditsError) {
@@ -1507,7 +1509,7 @@ app.post('/api/generate', verifyJwt, requireNotBanned, noDoubleCharge, requireMo
           prompt, frames: readyUrls.slice(0, 2), duration, aspectRatio: ratio,
         });
         const taskId = await kieCreateTask(family, body, { tag: 'KIE-VIDEO' });
-        await trackVideoCharge(taskId, { userId: req.user.id, kind: chargedKind, cost: chargedCost, modelId: modelIdTag });
+        await trackVideoCharge(taskId, { userId: req.user.id, kind: chargedKind, cost: chargedCost, modelLabel: chargedLabel, modelId: modelIdTag });
         return res.json({ success: true, type: 'video', job_id: taskId, model_id: modelIdTag });
       }
 
@@ -1533,7 +1535,7 @@ app.post('/api/generate', verifyJwt, requireNotBanned, noDoubleCharge, requireMo
       };
 
       const submitted = await fal.queue.submit(modelId, { input });
-      await trackVideoCharge(submitted.request_id, { userId: req.user.id, kind: chargedKind, cost: chargedCost, modelId: modelId });
+      await trackVideoCharge(submitted.request_id, { userId: req.user.id, kind: chargedKind, cost: chargedCost, modelLabel: chargedLabel, modelId: modelId });
       return res.json({ success: true, type: 'video', job_id: submitted.request_id, model_id: modelId });
     }
 
@@ -1688,6 +1690,7 @@ app.post('/api/generate-video', verifyJwt, requireNotBanned, noDoubleCharge, req
   // Charge BEFORE submission so we don't enqueue a job we can't bill for.
   let chargedKind = null;
   let chargedCost = null;
+  let chargedLabel = null;
   try {
     const charge = await chargeCredits({
       userId: req.user.id, kind: 'video', ip: clientIp(req), cost: serverCost, note: `video: ${model}`,
@@ -1697,6 +1700,7 @@ app.post('/api/generate-video', verifyJwt, requireNotBanned, noDoubleCharge, req
     });
     chargedKind = 'video';
     chargedCost = charge.cost;
+    chargedLabel = charge.label;
     res.setHeader('X-Credits-Remaining', String(charge.newBalance));
   } catch (e) {
     if (e instanceof InsufficientCreditsError) {
@@ -1734,7 +1738,7 @@ app.post('/api/generate-video', verifyJwt, requireNotBanned, noDoubleCharge, req
       console.log('[KIE-VIDEO] payload:', JSON.stringify(body));
       const taskId = await kieCreateTask(family, body, { tag: 'KIE-VIDEO' });
       console.log(`[KIE-VIDEO] ✅ Submitted ${model} taskId: ${taskId}`);
-      await trackVideoCharge(taskId, { userId: req.user.id, kind: chargedKind, cost: chargedCost, modelId: modelIdTag });
+      await trackVideoCharge(taskId, { userId: req.user.id, kind: chargedKind, cost: chargedCost, modelLabel: chargedLabel, modelId: modelIdTag });
       return res.json({ success: true, job_id: taskId, model_id: modelIdTag, model });
     } catch (error) {
       console.error('[KIE-VIDEO] Error:', error.message);
@@ -1804,7 +1808,7 @@ app.post('/api/generate-video', verifyJwt, requireNotBanned, noDoubleCharge, req
     const submitted = await fal.queue.submit(falModel, { input });
     const requestId = submitted.request_id;
     console.log(`[VIDEO] ✅ Submitted, request_id: ${requestId}`);
-    await trackVideoCharge(requestId, { userId: req.user.id, kind: chargedKind, cost: chargedCost, modelId: falModel });
+    await trackVideoCharge(requestId, { userId: req.user.id, kind: chargedKind, cost: chargedCost, modelLabel: chargedLabel, modelId: falModel });
 
     return res.json({
       success: true,
@@ -1859,10 +1863,12 @@ app.post('/api/edit-video-omni', verifyJwt, requireNotBanned, noDoubleCharge, re
 
   let chargedKind = null;
   let chargedCost = null;
+  let chargedLabel = null;
   try {
     const charge = await chargeCredits({ userId: req.user.id, kind: 'video', ip: clientIp(req), cost: serverCost, note: `video: ${req.body?.model || 'Edit Video'}`, provider: 'fal' });
     chargedKind = 'video';
     chargedCost = charge.cost;
+    chargedLabel = charge.label;
     res.setHeader('X-Credits-Remaining', String(charge.newBalance));
   } catch (e) {
     if (e instanceof InsufficientCreditsError) {
@@ -1903,7 +1909,7 @@ app.post('/api/edit-video-omni', verifyJwt, requireNotBanned, noDoubleCharge, re
     const submitted = await fal.queue.submit(falModel, { input });
     const requestId = submitted.request_id;
     console.log(`[VIDEO-EDIT-OMNI] ✅ Submitted, request_id: ${requestId}`);
-    await trackVideoCharge(requestId, { userId: req.user.id, kind: chargedKind, cost: chargedCost, modelId: falModel });
+    await trackVideoCharge(requestId, { userId: req.user.id, kind: chargedKind, cost: chargedCost, modelLabel: chargedLabel, modelId: falModel });
 
     return res.json({ success: true, job_id: requestId, model_id: falModel, model });
   } catch (error) {
@@ -1954,10 +1960,12 @@ app.post('/api/motion-control', verifyJwt, requireNotBanned, requireFalKey, asyn
 
   let chargedKind = null;
   let chargedCost = null;
+  let chargedLabel = null;
   try {
     const charge = await chargeCredits({ userId: req.user.id, kind: 'video', ip: clientIp(req), cost: serverCost, note: `video: ${req.body?.model || 'Motion Control'}`, provider: 'fal' });
     chargedKind = 'video';
     chargedCost = charge.cost;
+    chargedLabel = charge.label;
     res.setHeader('X-Credits-Remaining', String(charge.newBalance));
   } catch (e) {
     if (e instanceof InsufficientCreditsError) {
@@ -1996,7 +2004,7 @@ app.post('/api/motion-control', verifyJwt, requireNotBanned, requireFalKey, asyn
     const submitted = await fal.queue.submit(falModel, { input });
     const requestId = submitted.request_id;
     console.log(`[MOTION-CONTROL] ✅ Submitted, request_id: ${requestId}`);
-    await trackVideoCharge(requestId, { userId: req.user.id, kind: chargedKind, cost: chargedCost, modelId: falModel });
+    await trackVideoCharge(requestId, { userId: req.user.id, kind: chargedKind, cost: chargedCost, modelLabel: chargedLabel, modelId: falModel });
 
     return res.json({ success: true, job_id: requestId, model_id: falModel, model });
   } catch (error) {
@@ -2329,6 +2337,7 @@ app.post('/api/generate-video-ref', verifyJwt, requireNotBanned, noDoubleCharge,
 
   let chargedKind = null;
   let chargedCost = null;
+  let chargedLabel = null;
   try {
     const charge = await chargeCredits({
       userId: req.user.id, kind: 'video', ip: clientIp(req), cost: serverCost, note: `video: ${modelLabel}`,
@@ -2340,6 +2349,7 @@ app.post('/api/generate-video-ref', verifyJwt, requireNotBanned, noDoubleCharge,
     });
     chargedKind = 'video';
     chargedCost = charge.cost;
+    chargedLabel = charge.label;
     res.setHeader('X-Credits-Remaining', String(charge.newBalance));
   } catch (e) {
     if (e instanceof InsufficientCreditsError) {
@@ -2413,7 +2423,7 @@ app.post('/api/generate-video-ref', verifyJwt, requireNotBanned, noDoubleCharge,
       console.log(`[SEEDANCE] [KIE] Variant: ${modelLabel} →`, seedanceMapping.kieModel);
       const taskId = await kieCreateTask('jobs', body, { tag: 'KIE-SEEDANCE' });
       console.log(`[SEEDANCE] [KIE] ✅ Submitted taskId: ${taskId}`);
-      await trackVideoCharge(taskId, { userId: req.user.id, kind: chargedKind, cost: chargedCost, modelId: 'kie:jobs:' + seedanceMapping.kieModel });
+      await trackVideoCharge(taskId, { userId: req.user.id, kind: chargedKind, cost: chargedCost, modelLabel: chargedLabel, modelId: 'kie:jobs:' + seedanceMapping.kieModel });
       return res.json({
         success: true,
         job_id: taskId,
@@ -2467,7 +2477,7 @@ app.post('/api/generate-video-ref', verifyJwt, requireNotBanned, noDoubleCharge,
   try {
     const submitted = await fal.queue.submit(falModel, { input });
     console.log(`[SEEDANCE] ✅ Submitted, request_id: ${submitted.request_id}`);
-    await trackVideoCharge(submitted.request_id, { userId: req.user.id, kind: chargedKind, cost: chargedCost, modelId: falModel });
+    await trackVideoCharge(submitted.request_id, { userId: req.user.id, kind: chargedKind, cost: chargedCost, modelLabel: chargedLabel, modelId: falModel });
 
     return res.json({
       success: true,
@@ -3383,6 +3393,7 @@ app.post('/api/node/run-node-async', verifyJwt, requireNotBanned, noDoubleCharge
 
   let chargedKind = null;
   let chargedCost = null;
+  let chargedLabel = null;
   try {
     // C1: the node client never sends a price — charge the flat per-kind
     // cost server-side. req.body.credit_cost is deliberately IGNORED here:
@@ -3390,6 +3401,7 @@ app.post('/api/node/run-node-async', verifyJwt, requireNotBanned, noDoubleCharge
     const charge = await chargeCredits({ userId: req.user.id, kind: 'video', ip: clientIp(req), note: `node video: ${modelLabel || 'video-generator'}`, provider: 'fal' });
     chargedKind = 'video';
     chargedCost = charge.cost;
+    chargedLabel = charge.label;
     res.setHeader('X-Credits-Remaining', String(charge.newBalance));
   } catch (e) {
     if (e instanceof InsufficientCreditsError) {
@@ -3440,7 +3452,7 @@ app.post('/api/node/run-node-async', verifyJwt, requireNotBanned, noDoubleCharge
       }
       console.log(`[node:run-async] user=${req.user.id} model="${modelLabel}" → ${submission.modelIdTag}`);
       const taskId = await kieCreateTask(submission.family, submission.body, { tag: 'KIE-NODE' });
-      await trackVideoCharge(taskId, { userId: req.user.id, kind: chargedKind, cost: chargedCost, modelId: submission.modelIdTag });
+      await trackVideoCharge(taskId, { userId: req.user.id, kind: chargedKind, cost: chargedCost, modelLabel: chargedLabel, modelId: submission.modelIdTag });
       return res.json({ success: true, job_id: taskId, model_id: submission.modelIdTag });
     } catch (error) {
       console.error('[node:run-async] [KIE] error:', error.message);
@@ -3467,7 +3479,7 @@ app.post('/api/node/run-node-async', verifyJwt, requireNotBanned, noDoubleCharge
   try {
     const submitted = await fal.queue.submit(falModel, { input });
     // Registered so /run-failed and /api/video-status can refund on failure.
-    await trackVideoCharge(submitted.request_id, { userId: req.user.id, kind: chargedKind, cost: chargedCost, modelId: falModel });
+    await trackVideoCharge(submitted.request_id, { userId: req.user.id, kind: chargedKind, cost: chargedCost, modelLabel: chargedLabel, modelId: falModel });
     return res.json({ success: true, job_id: submitted.request_id, model_id: falModel });
   } catch (error) {
     console.error('[node:run-async] submit error:', error.message);

@@ -59,10 +59,13 @@ export const SEED = [
     title: 'Move DNS to your own Cloudflare account',
     why: 'voxel-ai.ai sits behind DigitalOcean’s Cloudflare, not yours — so there is no WAF or bot management you control.',
     detail: 'Registrar is GoDaddy, not DigitalOcean. 19 records across THREE email systems. Needs a quiet window — a MORNING, not late night: the risk is email, and propagation takes 24–48h. Zone export already sent.' },
-  { ref: '55', owner: 'owner', status: 'pending', priority: 21,
+  { ref: '55', owner: 'owner', status: 'blocked', priority: 21,
+    blocked_by: 'Waiting on the monthly cost of each option, then a decision — held by you on 2026-08-19 to discuss later',
     title: 'Decide: are customer images and videos backed up?',
-    why: 'The daily backup covers the database — including each generation’s metadata and URL — but NOT the files. Lose the media bucket and every history entry points at nothing.',
-    detail: 'Three options: accept it (generations are re-creatable) · enable bucket versioning (cheap, partial) · replicate to Backblaze (real, recurring cost). A business decision, not a technical one.' },
+    why: 'The daily backup covers the database — including each generation’s metadata and URL — but NOT the files. Lose the media bucket and every history entry points at nothing. Still true, still unprotected.',
+    detail: 'Three options: accept it (generations are re-creatable) · enable bucket versioning (cheap, partial) · replicate to Backblaze (real, recurring cost). A business decision, not a technical one. '
+      + 'HELD 2026-08-19 at your request: I work out what each option costs per month at current storage and bring you the numbers; nothing gets built until you have chosen. '
+      + 'Raise it again once the figures are in — until then this is a known, accepted, UNMITIGATED risk, not a solved problem.' },
   { ref: '50', owner: 'owner', status: 'pending', priority: 22,
     title: 'Second copy of the backup passphrase',
     why: 'Saved in the Mac Passwords app. If the laptop and DigitalOcean are lost together, every backup becomes permanently unreadable.',

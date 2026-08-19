@@ -16,7 +16,9 @@
 // charges already HAS a model_label column and 3,046 rows, every one of them
 // NULL. Writing it makes video failures a record instead of a deduction.
 
-import { buildReport, summarise, confidenceOf, MIN_ATTEMPTS } from './reliability-engine.js';
+import {
+  buildReport, summarise, confidenceOf, applyRecorded, basisSummary, MIN_ATTEMPTS,
+} from './reliability-engine.js';
 import { costIndex } from './pnl-engine.js';
 import { buildReport as buildSpeed, summarise as summariseSpeed } from './speed-engine.js';
 // The SAME pattern the Alerts tab uses to spot "our supplier account is
@@ -31,7 +33,8 @@ export function registerReliabilityRoutes(app, { pool, dbReady, adminGate }) {
     if (!dbReady()) return res.status(503).json({ error: 'Database not configured.' });
     const days = Math.min(365, Math.max(1, parseInt(req.query.days, 10) || WINDOW_DAYS));
     try {
-      const [rows, refundTotals, models, speedRows, speedSince] = await Promise.all([
+      const [rows, refundTotals, models, speedRows, speedSince, recordedRows, recordedSince]
+        = await Promise.all([
         pool.query(
           `WITH attempts AS (
               SELECT regexp_replace(reason, '^(image|video|audio): ', '') AS model,
@@ -120,9 +123,40 @@ export function registerReliabilityRoutes(app, { pool, dbReady, adminGate }) {
         // When recording began — so an empty speed table reads as "too early
         // to say", never as "nothing is slow".
         pool.query(`SELECT MIN(created_at) AS since FROM generation_events`),
+
+        // ── EXACT video outcomes ───────────────────────────────────────────
+        // Not an inference. Each row IS one video job: the model it ran, and
+        // whether it ended up refunded. No thirty-minute window, no matching
+        // on amount, nothing to attribute.
+        //
+        // Account-dry is split here exactly as the inferred path splits it —
+        // being precise about a number that blames a model for our own empty
+        // balance would be worse than the deduction it replaces.
+        pool.query(
+          `SELECT model_label                                            AS model,
+                  kind,
+                  COUNT(*)::int                                          AS attempts,
+                  COUNT(*) FILTER (WHERE status = 'refunded')::int       AS failures,
+                  COUNT(*) FILTER (WHERE status = 'refunded'
+                                     AND failure_reason ~* $2)::int      AS account_dry_failures
+             FROM pending_video_charges
+            WHERE model_label IS NOT NULL
+              AND created_at > NOW() - ($1 || ' days')::INTERVAL
+            GROUP BY 1, 2`, [days, OUR_ACCOUNT_DRY_SOURCE]),
+
+        // When exact video recording began, so "0 recorded" reads as "not yet"
+        // rather than "no video has ever failed".
+        pool.query(`SELECT MIN(created_at) AS since FROM pending_video_charges
+                     WHERE model_label IS NOT NULL`),
       ]);
 
-      const report = buildReport(rows.rows, costIndex(models.rows));
+      // Deduced first, then overwritten per model wherever the row itself says
+      // what happened. Models with too little recorded data keep the inference
+      // and say so — precision is not a substitute for evidence.
+      const report = applyRecorded(
+        buildReport(rows.rows, costIndex(models.rows)),
+        recordedRows.rows,
+      );
       const t = refundTotals.rows[0] || { total: 0, matched: 0 };
 
       // Spend rows with no model name at all — 13,736 of them historically.
@@ -149,6 +183,14 @@ export function registerReliabilityRoutes(app, { pool, dbReady, adminGate }) {
           matched: t.matched,
           total_refunds: t.total,
           unnamed_attempts: unnamed.rows[0]?.n || 0,
+        },
+        // How much of the table is measured rather than deduced, and when the
+        // measuring started. Both matter: "0 recorded" a day after the change
+        // means "not yet", and reads very differently from "0 recorded" after
+        // a month, which would mean something is broken.
+        basis: {
+          ...basisSummary(report),
+          recording_since: recordedSince.rows[0]?.since || null,
         },
       });
     } catch (err) {

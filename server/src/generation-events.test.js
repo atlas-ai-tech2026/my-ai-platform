@@ -32,6 +32,30 @@ describe('reading the model out of a spend note', () => {
   it('returns null rather than a junk label', () => {
     for (const n of [null, '', 'no prefix', undefined]) expect(labelFrom(n)).toBeNull();
   });
+
+  // THE BUG. The Node canvas writes `node: flux-dev` and `node video: X`, and
+  // the original pattern anchored image|video|audio at the start of the string
+  // — so every canvas generation stored a NULL label and vanished from both
+  // the Reliability and the Speed screens. Nothing failed; a whole surface was
+  // simply absent, which reads identically to a surface with no problems.
+  it('reads the label from a Node canvas note as well', () => {
+    expect(labelFrom('node: flux-dev')).toBe('flux-dev');
+    expect(labelFrom('node video: Seedance 2.5')).toBe('Seedance 2.5');
+    expect(labelFrom('node image: Nano Banana Pro')).toBe('Nano Banana Pro');
+  });
+
+  // Same model, same provider — where the person happened to click is not a
+  // property of the model, and splitting on it would halve both samples.
+  it('folds canvas and direct generations into one label', () => {
+    expect(labelFrom('node video: Kling 3.0')).toBe(labelFrom('video: Kling 3.0'));
+  });
+
+  // Widening the pattern must not turn every colon in the ledger into a model.
+  it('still refuses notes that are not a generation', () => {
+    for (const n of ['topup: 100 credits', 'admin grant: welcome', ': orphan', 'refund']) {
+      expect(labelFrom(n), `"${n}" was read as a model name`).toBeNull();
+    }
+  });
 });
 
 describe('telemetry must never break a generation', () => {

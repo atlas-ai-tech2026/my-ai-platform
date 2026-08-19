@@ -76,11 +76,16 @@ export async function refundFailedVideo(jobId, reason) {
   let rec;
   try {
     const { rows } = await pool.query(
+      // The reason is stored, not just the status. 'refunded' cannot tell a
+      // model that failed apart from our own supplier balance being empty —
+      // and the Reliability screen must never advise dropping a good model
+      // because of a billing problem. Same split the inferred path already
+      // makes, kept intact for the exact one.
       `UPDATE pending_video_charges
-          SET status = 'refunded', settled_at = NOW()
+          SET status = 'refunded', settled_at = NOW(), failure_reason = $2
         WHERE job_id = $1 AND status = 'pending'
         RETURNING user_id, kind, amount`,
-      [String(jobId)]
+      [String(jobId), reason == null ? null : String(reason).slice(0, 500)]
     );
     rec = rows[0];
   } catch (e) {
