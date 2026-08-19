@@ -118,6 +118,8 @@ export const SEED = [
       + 'THE OWNER FORGOT FOUR, and one is probably the largest: FAL pay-per-generation was not on their list at all. Also Microsoft 365 (separate from the GoDaddy bill), Resend, and the entire DEV environment — a second app and a second database. '
       + 'RENEWAL DATES ARE THE DANGEROUS PART: if voxel-ai.ai lapses the site AND every email address stop, including the one used for password resets. Warn at 60, 30 and 7 days, same discipline as the storage quota (#58) — before, not on expiry. '
       + 'THEN THE NUMBER THAT MATTERS: break-even. Fixed costs divided by margin per subscription = how many customers cover the overheads. Small addition once the fixed costs exist, and it is the figure that makes a workshop quotable. '
+      + 'DECIDED 2026-08-19 by the owner: currency is USD throughout · entries are dated by the INVOICE DATE received, so months line up with reality rather than with when someone typed them · Claude IS included at $100/month, in its own category, because the question being answered is what the BUSINESS costs to run, not just the platform · and expenses must be freely addable as monthly, annual OR one-time. '
+      + 'Cancelled entries are marked, never deleted — a cost that disappears from history makes last quarter look wrong. '
       + 'Owes a Knowledge Base entry in Arabic and English once built and confirmed, per the standing rule.' },
   { ref: '58', owner: 'claude', status: 'done', priority: 20,
     title: 'SOP — daily storage check that warns BEFORE a limit is crossed',
