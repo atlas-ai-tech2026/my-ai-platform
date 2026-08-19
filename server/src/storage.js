@@ -89,6 +89,26 @@ export async function deleteKey(key) {
   await client.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: key }));
 }
 
+/**
+ * Total size of this bucket, for the daily quota check.
+ *
+ * Lives here rather than in storage-usage.js so the S3 client stays private to
+ * this module — one place holds the credentials. NOTE it does NOT reuse
+ * listKeys() above: that caps at 1000 objects and does not paginate, which is
+ * fine for listing a handful of backups and would silently report 8% of this
+ * bucket as its total.
+ */
+export async function measureUsage() {
+  if (!configured) return { error: 'Spaces not configured in this environment' };
+  try {
+    const { measureBucket } = await import('./storage-usage.js');
+    const r = await measureBucket(client, BUCKET, { ListObjectsV2Command });
+    return { ...r, bucket: BUCKET };
+  } catch (e) {
+    return { error: e.message };
+  }
+}
+
 // Map a content-type / source url to a file extension. Best-effort; defaults to
 // bin so we never throw on an unknown type.
 function pickExt(contentType, sourceUrl) {

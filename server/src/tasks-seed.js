@@ -109,6 +109,15 @@ export const SEED = [
       + 'The failure REASON is recorded too, so an exact verdict can still tell a bad model apart from our own supplier balance being empty. '
       + 'NOTE: this records from the deploy forward — it does not backfill. Models flip from "inferred" to "measured" one at a time as real generations accumulate, and each row says which it is. '
       + 'Measured before: 184s typical, 301s for one in ten; load barely matters (181s quiet vs 190s busy) — it is the model, not the platform.' },
+  { ref: '58', owner: 'claude', status: 'done', priority: 20,
+    title: 'SOP — daily storage check that warns BEFORE a limit is crossed',
+    why: 'Asked for on 2026-08-19: "tell me I will start or become to exceed the limit to start, make a subscription for them." Not "you are over" — "you are ABOUT to be over." A quota found by exceeding it is an outage; found 40 days out it is a diary entry.',
+    detail: 'DONE 2026-08-19. Measures BOTH providers daily and reports a RATE and a DATE, never just a percentage — 83% could be six days away or six months. '
+      + 'DigitalOcean Spaces: 250 GiB included in the $5/month plan, then $0.02/GiB. Going over bills automatically, so it is money, not an outage. '
+      + 'BACKBLAZE IS THE ONE THAT CAN STOP: 10 GB free, and above that WITHOUT a payment method the uploads simply fail. Its line says so, and says to add the card BEFORE the crossing. '
+      + 'REFUSES TO GUESS: no projection until three daily readings spanning at least a day exist — one reading is a number, not a trend, and a confident wrong date is worse than "still learning" because someone can act on it. '
+      + 'A bucket it cannot read, or a count it had to truncate, reports UNKNOWN and never OK. '
+      + 'The measurement paginates: storage.js listKeys() caps at 1000 objects, which would have reported 8% of an 11,320-object bucket as its total.' },
   { ref: '57', owner: 'owner', status: 'pending', priority: 38,
     title: 'Tidy up — production has two storage keys where one is needed',
     why: 'Not a risk, just untidy. Both are scoped to voxel-ai-store with readwrite, so neither can reach anything else. But nobody can tell which one production actually uses, and an unknown is worth removing before it is inherited by someone else.',

@@ -20,6 +20,9 @@ import { latestVerification, runRestoreVerification, ensureVerifyTable } from '.
 import { runSmokeChecks, summariseSmoke } from './sop-smoke.js';
 import { runIntegrityChecks } from './sop-integrity.js';
 import { runWrittenChecks } from './sop-written.js';
+import { measureUsage as spacesUsage } from './storage.js';
+import { measureOffsiteUsage as offsiteUsage } from './backup-offsite.js';
+import { recordUsage, usageHistory, judgeUsage, ALLOWANCES } from './storage-usage.js';
 import { runPostureChecks } from './sop-posture.js';
 import {
   readSchedule, writeSchedule, markRan, isDue, ensureScheduleTable, JOBS,
@@ -85,6 +88,61 @@ export function registerSopRoutes(app, {
         : unknown.length ? 'Something could not be determined. It is not a failure, and it is not a pass.'
         : '',
     }));
+
+    // ── STORAGE QUOTAS ────────────────────────────────────────────────────
+    // Asked for in the plainest possible words on 2026-08-19: "tell me I will
+    // start or become to exceed the limit to start, make a subscription".
+    // Not "you are over" — "you are ABOUT to be over."
+    //
+    // That difference is everything. A quota found by exceeding it is an
+    // outage: the offsite copy stops and the first symptom is a customer
+    // noticing broken history weeks later. A quota found 40 days out is a
+    // diary entry. So each line carries a RATE and a DATE, never just a
+    // percentage — 83% could be six days away or six months.
+    for (const [provider, measure] of [
+      ['spaces', () => spacesUsage()],
+      ['offsite', () => offsiteUsage()],
+    ]) {
+      try {
+        const measurement = await measure();
+        // Recorded even when it looks boring: today's size is only useful
+        // because it becomes yesterday's, and a growth rate needs history
+        // nobody thought to keep.
+        if (!measurement.error) {
+          await recordUsage(pool, {
+            provider, bucket: measurement.bucket || '?',
+            bytes: measurement.bytes, objects: measurement.objects,
+          }).catch(() => {});
+        }
+        const history = await usageHistory(pool, provider).catch(() => []);
+        const v = judgeUsage({ provider, measurement, history });
+        today.push(line({
+          key: `usage-${provider}`, zone: 'today',
+          label: `Storage used — ${v.label || provider}`,
+          state: v.state === 'critical' ? STATE.CRITICAL
+            : v.state === 'warn' ? STATE.WARN
+            : v.state === 'unknown' ? STATE.UNKNOWN : STATE.OK,
+          value: v.bytes == null ? 'not checked'
+            : `${v.pct}% of ${ALLOWANCES[provider]?.limitLabel || 'allowance'}`,
+          checkedAt: new Date().toISOString(),
+          info: `${ALLOWANCES[provider]?.label} — ${ALLOWANCES[provider]?.included}, then `
+            + `${ALLOWANCES[provider]?.overage}. Measured daily so the growth rate is real rather `
+            + 'than assumed; the projection needs three daily readings before it will say anything.',
+          detail: v.detail,
+          action: v.action || '',
+        }));
+      } catch (e) {
+        // A quota that could not be measured is never rendered as healthy.
+        today.push(line({
+          key: `usage-${provider}`, zone: 'today',
+          label: `Storage used — ${provider}`, state: STATE.UNKNOWN,
+          value: 'not checked', checkedAt: new Date().toISOString(),
+          info: 'Daily storage measurement against the plan allowance.',
+          detail: e.message,
+          action: 'An unmeasured quota is not a safe one — find out why this could not be read.',
+        }));
+      }
+    }
 
     return { lines: today, summary: summarise(today), smoke };
   }

@@ -102,6 +102,28 @@ export function missingOffsiteVars(env = process.env) {
     .filter((k) => !(env[k] || '').trim());
 }
 
+/**
+ * Total size of the offsite bucket, for the daily quota check.
+ *
+ * Backblaze is the account that can actually STOP working: the first 10 GB are
+ * free, and above that WITHOUT a payment method on file the uploads simply
+ * fail. So the size of this bucket is not a curiosity — it is the number that
+ * says "add a card this week" while there is still time to do it calmly.
+ *
+ * Lives here so the credentials stay inside this module.
+ */
+export async function measureOffsiteUsage(env = process.env) {
+  if (!offsiteConfigured(env)) return { error: 'offsite storage is not configured in this environment' };
+  try {
+    const { measureBucket } = await import('./storage-usage.js');
+    const bucket = env.OFFSITE_S3_BUCKET.trim();
+    const r = await measureBucket(offsiteClient(env), bucket, { ListObjectsV2Command });
+    return { ...r, bucket };
+  } catch (e) {
+    return { error: e.message };
+  }
+}
+
 let cachedClient = null;
 function offsiteClient(env = process.env) {
   if (cachedClient) return cachedClient;
