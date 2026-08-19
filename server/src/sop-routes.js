@@ -20,7 +20,7 @@ import { latestVerification, runRestoreVerification, ensureVerifyTable } from '.
 import { runSmokeChecks, summariseSmoke } from './sop-smoke.js';
 import { runIntegrityChecks } from './sop-integrity.js';
 import { runWrittenChecks } from './sop-written.js';
-import { measureUsage as spacesUsage } from './storage.js';
+import { measureUsage as spacesUsage, versioningStatus } from './storage.js';
 import { measureOffsiteUsage as offsiteUsage, measureOffsiteMedia as offsiteMedia } from './backup-offsite.js';
 import { recordUsage, usageHistory, judgeUsage, judgeMediaBackup, ALLOWANCES } from './storage-usage.js';
 import { runPostureChecks } from './sop-posture.js';
@@ -142,6 +142,39 @@ export function registerSopRoutes(app, {
           action: 'An unmeasured quota is not a safe one — find out why this could not be read.',
         }));
       }
+    }
+
+    // ── CAN A DELETED FILE BE RECOVERED? ─────────────────────────────────
+    // Versioning turns a delete into a delete MARKER — the bytes stay. It is
+    // enabled at boot, but "we called the API" is not the same as "it is on",
+    // and this project has been bitten enough times by that difference. So the
+    // screen reads it back from the bucket every time.
+    try {
+      const v = await versioningStatus();
+      const on = v.status === 'Enabled';
+      today.push(line({
+        key: 'versioning', zone: 'today', label: 'Deleted files recoverable',
+        state: v.error ? STATE.UNKNOWN : on ? STATE.OK : STATE.WARN,
+        value: v.error ? 'not checked' : on ? 'yes' : 'NO',
+        checkedAt: new Date().toISOString(),
+        info: 'Object versioning on the media bucket. With it on, deleting a file writes a marker and '
+          + 'the file stays recoverable; overwrites keep the previous copy too. It protects against a '
+          + 'mistake, NOT against losing the bucket or the account — versions live inside the bucket '
+          + 'and die with it, which is why the offsite copy is a separate line.',
+        detail: v.error ? v.error
+          : on ? `enabled on ${v.bucket} — a deleted file can be brought back`
+            : `NOT enabled on ${v.bucket} — a delete is permanent and immediate`,
+        action: v.error ? 'Find out why this could not be read — unverified protection is not protection.'
+          : on ? '' : 'It is enabled automatically at boot; if it is still off, the API call is failing and the log will say why.',
+      }));
+    } catch (e) {
+      today.push(line({
+        key: 'versioning', zone: 'today', label: 'Deleted files recoverable',
+        state: STATE.UNKNOWN, value: 'not checked', checkedAt: new Date().toISOString(),
+        info: 'Object versioning on the media bucket.',
+        detail: e.message,
+        action: 'Unverified protection is not protection — find out why this could not be read.',
+      }));
     }
 
     // ── IS CUSTOMER MEDIA ACTUALLY BACKED UP? ────────────────────────────

@@ -25,7 +25,8 @@
 
 import crypto from 'node:crypto';
 import { S3Client, PutObjectCommand, ListObjectsV2Command, DeleteObjectCommand,
-         GetObjectCommand } from '@aws-sdk/client-s3';
+         GetObjectCommand, GetBucketVersioningCommand,
+         PutBucketVersioningCommand } from '@aws-sdk/client-s3';
 
 const ENDPOINT = (process.env.SPACES_ENDPOINT || '').trim();
 const REGION = (process.env.SPACES_REGION || '').trim();
@@ -87,6 +88,68 @@ export async function listKeys(prefix) {
 export async function deleteKey(key) {
   if (!configured) throw new Error('Spaces not configured');
   await client.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: key }));
+}
+
+/**
+ * Turn on object versioning, and say what it was.
+ *
+ * ── WHAT IT ACTUALLY BUYS ─────────────────────────────────────────────────
+ * With versioning ON, deleting an object does not remove it — S3 writes a
+ * delete marker and the bytes stay recoverable. Overwrites keep the old copy
+ * too. That is the entire protection against the exact scenario we spent
+ * 2026-08-19 reducing: a credential in the wrong hands, or a mistaken script,
+ * wiping 66 GiB of customer work that exists nowhere else.
+ *
+ * ── WHAT IT DOES NOT BUY, AND THIS MATTERS ────────────────────────────────
+ * Versioning lives INSIDE the bucket. Delete the bucket, lose the DigitalOcean
+ * account, and every version goes with it. It is protection against a mistake,
+ * not against losing the provider — which is why it is only half of #55 and
+ * the Backblaze copy is the other half.
+ *
+ * ── WHY IT RUNS FROM THE SERVER ───────────────────────────────────────────
+ * DigitalOcean's console cannot do this; it says so on the settings page —
+ * "This feature can only be enabled via the API". And the server is the only
+ * place holding current credentials: the Spaces secret is write-only in the
+ * app config, so nobody, including the owner, can run this from a laptop.
+ *
+ * Idempotent. Enabling an already-enabled bucket is a no-op, so this is safe
+ * to call on every boot and safe to call by hand.
+ */
+export async function ensureVersioning({ enable = true } = {}) {
+  if (!configured) return { ok: false, error: 'Spaces not configured' };
+  try {
+    const before = await client.send(new GetBucketVersioningCommand({ Bucket: BUCKET }));
+    const was = before?.Status || 'Disabled';
+    if (was === 'Enabled') return { ok: true, was, now: 'Enabled', changed: false };
+    if (!enable) return { ok: true, was, now: was, changed: false };
+
+    await client.send(new PutBucketVersioningCommand({
+      Bucket: BUCKET, VersioningConfiguration: { Status: 'Enabled' },
+    }));
+    // Read it back rather than trusting the write. A PUT that returns 200 and
+    // leaves the bucket unversioned would otherwise be reported as protection
+    // that does not exist — the precise failure this project keeps finding.
+    const after = await client.send(new GetBucketVersioningCommand({ Bucket: BUCKET }));
+    const now = after?.Status || 'Disabled';
+    if (now !== 'Enabled') {
+      return { ok: false, was, now, changed: false, error: 'the change did not take effect' };
+    }
+    console.log(`[storage] object versioning ENABLED on ${BUCKET} (was ${was}) — deletes are now recoverable`);
+    return { ok: true, was, now, changed: true };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+}
+
+/** Report versioning without changing it — for the daily check. */
+export async function versioningStatus() {
+  if (!configured) return { error: 'Spaces not configured' };
+  try {
+    const r = await client.send(new GetBucketVersioningCommand({ Bucket: BUCKET }));
+    return { status: r?.Status || 'Disabled', bucket: BUCKET };
+  } catch (e) {
+    return { error: e.message };
+  }
 }
 
 /**
