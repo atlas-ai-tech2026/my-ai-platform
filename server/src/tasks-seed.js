@@ -99,10 +99,14 @@ export const SEED = [
     detail: 'Standing rule: I ask before ANY 2FA change reaches production.' },
 
   // ── MINE, outstanding, priority order ────────────────────────────────────
-  { ref: '29', owner: 'claude', status: 'pending', priority: 40,
+  { ref: '29', owner: 'claude', status: 'done', priority: 40,
     title: 'Record which model each video used, then show honest timings',
-    why: 'The column exists and 3,046 rows are ALL NULL, so "which model is fastest" has no answer — the question your clients actually asked.',
-    detail: 'Measured: 184s typical, 301s for one in ten. Load barely matters (181s quiet vs 190s busy) — it is the model, not the platform. About an hour.' },
+    why: 'The column existed and 3,046 rows were ALL NULL, so "which model is fastest" had no answer — the question your clients actually asked.',
+    detail: 'DONE 2026-08-19. The label now comes back from chargeCredits() — the one function that already knows it — so the ledger, the telemetry and the video charge agree by construction instead of by ten call sites remembering. '
+      + 'A SECOND silent NULL was found while tracing it: every generation made from the Node canvas stored no label at all and was invisible to both the Reliability and the Speed screens. '
+      + 'The failure REASON is recorded too, so an exact verdict can still tell a bad model apart from our own supplier balance being empty. '
+      + 'NOTE: this records from the deploy forward — it does not backfill. Models flip from "inferred" to "measured" one at a time as real generations accumulate, and each row says which it is. '
+      + 'Measured before: 184s typical, 301s for one in ten; load barely matters (181s quiet vs 190s busy) — it is the model, not the platform.' },
   { ref: '47', owner: 'claude', status: 'in_progress', priority: 41,
     title: 'STANDING RULE — an information dot on every field, a description on every tab',
     why: 'The bulk-expiry control was styled so faintly it was reported as missing from production. A feature nobody can find is not shipped.',
