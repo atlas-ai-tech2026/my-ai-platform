@@ -62,6 +62,58 @@ export const ALLOWANCES = {
 export const WARN_AT = 0.80;
 export const CRITICAL_AT = 0.95;
 
+/** Where replicated customer media lives in the offsite bucket. */
+export const MEDIA_PREFIX = 'media/';
+
+/**
+ * Is customer media actually backed up — asked by COUNTING it, not by trusting
+ * a flag.
+ *
+ * The owner asked for a reminder to add a payment method to Backblaze. A
+ * to-do item would have worked until somebody ticked it off, and then it would
+ * have said "done" whether or not a single file had ever been copied. This
+ * counts objects in the offsite bucket instead, so it goes quiet exactly when
+ * the thing is TRUE and not one moment before.
+ *
+ * It also states the real position plainly every single day until then: 66 GiB
+ * of customer work exists in one place. That has been true for weeks and the
+ * SOP has never once said so.
+ */
+export function judgeMediaBackup({ source, offsite }) {
+  const sourceFiles = source?.objects ?? null;
+  if (offsite?.error) {
+    return {
+      state: 'unknown',
+      detail: `the offsite copy could not be counted: ${offsite.error}`,
+      action: 'An unverified backup is not a backup — find out why this could not be read.',
+    };
+  }
+  const copied = offsite?.objects ?? 0;
+  if (copied === 0) {
+    return {
+      state: 'critical',
+      detail: sourceFiles == null
+        ? 'no customer media has been copied offsite'
+        : `${sourceFiles.toLocaleString()} customer files exist in ONE place — none are copied offsite`,
+      action: 'Add a payment method to Backblaze (about $0.42/month at current size), then the media sync '
+        + 'can be switched on. Until then, losing the bucket loses every customer’s history permanently.',
+    };
+  }
+  const missing = sourceFiles == null ? null : sourceFiles - copied;
+  if (missing != null && missing > 0) {
+    return {
+      state: 'warn',
+      detail: `${copied.toLocaleString()} of ${sourceFiles.toLocaleString()} files copied offsite — ${missing.toLocaleString()} not yet protected`,
+      action: 'The sync is behind. Check the last run before assuming it is simply catching up.',
+    };
+  }
+  return {
+    state: 'ok',
+    detail: `${copied.toLocaleString()} files copied offsite${sourceFiles != null ? ` of ${sourceFiles.toLocaleString()}` : ''}`,
+    action: null,
+  };
+}
+
 /** Fewer than this many measurements and any growth rate is invented. */
 export const MIN_POINTS = 3;
 
@@ -91,7 +143,7 @@ export async function ensureUsageTable(pool) {
  * the size is exactly the kind of confidently-wrong number this whole file is
  * meant to prevent.
  */
-export async function measureBucket(client, bucket, { ListObjectsV2Command, maxPages = 200 } = {}) {
+export async function measureBucket(client, bucket, { ListObjectsV2Command, maxPages = 200, prefix } = {}) {
   let bytes = 0;
   let objects = 0;
   let token;
@@ -99,6 +151,7 @@ export async function measureBucket(client, bucket, { ListObjectsV2Command, maxP
   do {
     const out = await client.send(new ListObjectsV2Command({
       Bucket: bucket, MaxKeys: 1000, ContinuationToken: token,
+      ...(prefix ? { Prefix: prefix } : null),
     }));
     for (const o of out.Contents || []) { bytes += Number(o.Size) || 0; objects += 1; }
     token = out.IsTruncated ? out.NextContinuationToken : undefined;

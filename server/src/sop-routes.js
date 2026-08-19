@@ -21,8 +21,8 @@ import { runSmokeChecks, summariseSmoke } from './sop-smoke.js';
 import { runIntegrityChecks } from './sop-integrity.js';
 import { runWrittenChecks } from './sop-written.js';
 import { measureUsage as spacesUsage } from './storage.js';
-import { measureOffsiteUsage as offsiteUsage } from './backup-offsite.js';
-import { recordUsage, usageHistory, judgeUsage, ALLOWANCES } from './storage-usage.js';
+import { measureOffsiteUsage as offsiteUsage, measureOffsiteMedia as offsiteMedia } from './backup-offsite.js';
+import { recordUsage, usageHistory, judgeUsage, judgeMediaBackup, ALLOWANCES } from './storage-usage.js';
 import { runPostureChecks } from './sop-posture.js';
 import {
   readSchedule, writeSchedule, markRan, isDue, ensureScheduleTable, JOBS,
@@ -142,6 +142,41 @@ export function registerSopRoutes(app, {
           action: 'An unmeasured quota is not a safe one — find out why this could not be read.',
         }));
       }
+    }
+
+    // ── IS CUSTOMER MEDIA ACTUALLY BACKED UP? ────────────────────────────
+    // Counted, never assumed. 66 GiB of customer work has existed in exactly
+    // one place for weeks and this screen has never once said so — which is
+    // the same failure as every other thing found this week: true, invisible,
+    // and therefore not acted on.
+    //
+    // It clears itself. The moment files are genuinely in the offsite bucket
+    // this line goes quiet, and not one moment before — unlike a reminder
+    // somebody can tick off while nothing has been copied.
+    try {
+      const [src, off] = await Promise.all([spacesUsage(), offsiteMedia()]);
+      const v = judgeMediaBackup({ source: src, offsite: off });
+      today.push(line({
+        key: 'media-backup', zone: 'today', label: 'Customer media backed up',
+        state: v.state === 'critical' ? STATE.CRITICAL
+          : v.state === 'warn' ? STATE.WARN
+          : v.state === 'unknown' ? STATE.UNKNOWN : STATE.OK,
+        value: v.state === 'ok' ? 'protected' : v.state === 'critical' ? 'NOT protected' : v.state,
+        checkedAt: new Date().toISOString(),
+        info: 'The daily database backup covers every generation’s metadata and its URL, but NOT the '
+          + 'image or video that URL points at. Those live in the Spaces bucket. This counts how many '
+          + 'of them have been copied to Backblaze — by listing the objects, not by trusting a setting.',
+        detail: v.detail,
+        action: v.action || '',
+      }));
+    } catch (e) {
+      today.push(line({
+        key: 'media-backup', zone: 'today', label: 'Customer media backed up',
+        state: STATE.UNKNOWN, value: 'not checked', checkedAt: new Date().toISOString(),
+        info: 'Counts how much customer media has reached the offsite bucket.',
+        detail: e.message,
+        action: 'An unverified backup is not a backup — find out why this could not be read.',
+      }));
     }
 
     return { lines: today, summary: summarise(today), smoke };

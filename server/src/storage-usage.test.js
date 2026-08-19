@@ -12,7 +12,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
   measureBucket, growthPerDay, projectCrossing, judgeUsage,
-  ALLOWANCES, MIN_POINTS, WARN_AT, CRITICAL_AT, GIB, GB,
+  ALLOWANCES, MIN_POINTS, WARN_AT, CRITICAL_AT, GIB, GB, judgeMediaBackup,
 } from './storage-usage.js';
 
 const ListObjectsV2Command = vi.fn(function (args) { Object.assign(this, args); });
@@ -206,5 +206,47 @@ describe('the allowances are stated, not assumed', () => {
   it('warns before it shouts', () => {
     expect(WARN_AT).toBeLessThan(CRITICAL_AT);
     expect(WARN_AT).toBeGreaterThan(0.5);
+  });
+});
+
+// ─── is customer media actually backed up? ───────────────────────────────────
+// The owner asked to be reminded to add a payment method to Backblaze. A
+// reminder someone can tick off would then read "done" whether or not a single
+// file had ever been copied — which is precisely the failure mode this whole
+// project keeps finding. So it COUNTS the objects instead, and goes quiet only
+// when the files are genuinely there.
+describe('the media backup reminder that cannot be ticked off', () => {
+  it('shouts while nothing at all has been copied, and says what to do', () => {
+    const v = judgeMediaBackup({ source: { objects: 11320 }, offsite: { objects: 0 } });
+    expect(v.state).toBe('critical');
+    expect(v.detail).toMatch(/11,320 customer files exist in ONE place/);
+    expect(v.action).toMatch(/payment method/i);
+    expect(v.action).toMatch(/Backblaze/);
+  });
+
+  // The self-clearing property. No flag, no tick box — the count is the truth.
+  it('goes quiet once every file is copied', () => {
+    const v = judgeMediaBackup({ source: { objects: 11320 }, offsite: { objects: 11320 } });
+    expect(v.state).toBe('ok');
+    expect(v.action).toBeNull();
+  });
+
+  it('warns rather than passing while the copy is behind', () => {
+    const v = judgeMediaBackup({ source: { objects: 11320 }, offsite: { objects: 9000 } });
+    expect(v.state).toBe('warn');
+    expect(v.detail).toMatch(/2,320 not yet protected/);
+  });
+
+  // An unverified backup is not a backup. It must never render as healthy.
+  it('reports an uncountable offsite bucket as UNKNOWN, never as ok', () => {
+    const v = judgeMediaBackup({ source: { objects: 100 }, offsite: { error: 'AccessDenied' } });
+    expect(v.state).toBe('unknown');
+    expect(v.state).not.toBe('ok');
+  });
+
+  it('still says something useful when the source count is unavailable', () => {
+    const v = judgeMediaBackup({ source: null, offsite: { objects: 0 } });
+    expect(v.state).toBe('critical');
+    expect(v.detail).toBeTruthy();
   });
 });

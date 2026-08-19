@@ -112,16 +112,29 @@ export function missingOffsiteVars(env = process.env) {
  *
  * Lives here so the credentials stay inside this module.
  */
-export async function measureOffsiteUsage(env = process.env) {
+export async function measureOffsiteUsage(env = process.env, { prefix } = {}) {
   if (!offsiteConfigured(env)) return { error: 'offsite storage is not configured in this environment' };
   try {
     const { measureBucket } = await import('./storage-usage.js');
     const bucket = env.OFFSITE_S3_BUCKET.trim();
-    const r = await measureBucket(offsiteClient(env), bucket, { ListObjectsV2Command });
+    const r = await measureBucket(offsiteClient(env), bucket, { ListObjectsV2Command, prefix });
     return { ...r, bucket };
   } catch (e) {
     return { error: e.message };
   }
+}
+
+/**
+ * How much customer media has actually reached the offsite bucket.
+ *
+ * COUNTED, not inferred from a setting. The owner asked to be reminded to add
+ * a payment method to Backblaze; a reminder someone can tick off would then
+ * read "done" whether or not one file had ever been copied. This goes quiet
+ * only when the files are genuinely there.
+ */
+export async function measureOffsiteMedia(env = process.env) {
+  const { MEDIA_PREFIX } = await import('./storage-usage.js');
+  return measureOffsiteUsage(env, { prefix: MEDIA_PREFIX });
 }
 
 let cachedClient = null;
