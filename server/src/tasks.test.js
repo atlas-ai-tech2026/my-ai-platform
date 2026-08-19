@@ -4,6 +4,9 @@
 // status the owner already set.
 
 import { describe, it, expect, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { sortTasks, summarise, validate, upsertTask, setStatus, OWNERS, STATUSES } from './tasks.js';
 import { SEED } from './tasks-seed.js';
 
@@ -170,5 +173,74 @@ describe('the seed cannot fail quietly', () => {
     const r = await seedTasks(pool, { upsertTask: bad });
     expect(r.rejected.length, 'rejections must be surfaced').toBeGreaterThan(0);
     expect(r.added).toBe(0);
+  });
+});
+
+/** tasks.js on disk — read via a real path, not a URL: under vitest
+ *  import.meta.url is not always a file: URL. */
+function tasksSource() {
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  return readFileSync(path.join(here, 'tasks.js'), 'utf8');
+}
+
+// ─── keeping the board current without stomping on it ────────────────────────
+// The seed used to skip EVERY task that already existed, so it could never undo
+// the owner's work. Right, and absolute — which made it wrong a second way:
+// I could not keep the board current either. Marking #29 done and putting #55
+// on hold changed the source file and reached production not at all, while I
+// told the owner the board was updated. A single source of truth that only one
+// of us can write to is not a single source of truth.
+describe('who is allowed to change a task', () => {
+  const runSeed = async (existing) => {
+    const { seedTasks } = await import('./tasks-seed.js');
+    const pool = { query: vi.fn().mockResolvedValue({ rows: existing }) };
+    const written = [];
+    const upsertTask = vi.fn(async (_p, t) => { written.push(t.ref); return { ok: true }; });
+    const r = await seedTasks(pool, { upsertTask });
+    return { ...r, written };
+  };
+
+  it('inserts a task that is not on the board yet', async () => {
+    const r = await runSeed([]);
+    expect(r.added).toBe(SEED.length);
+    expect(r.refreshed).toBe(0);
+  });
+
+  // The half that was missing. Without this my edits never leave the file.
+  it('refreshes a task the owner has never touched', async () => {
+    const r = await runSeed(SEED.map((t) => ({ ref: t.ref, owner_touched: false })));
+    expect(r.refreshed, 'an untouched task was skipped — my edits cannot reach the board').toBe(SEED.length);
+    expect(r.added).toBe(0);
+  });
+
+  // The half that must not regress. One click and the row is theirs, forever.
+  it('never touches a task the owner has edited', async () => {
+    const r = await runSeed(SEED.map((t) => ({ ref: t.ref, owner_touched: true })));
+    expect(r.kept).toBe(SEED.length);
+    expect(r.written, 'the seed overwrote work done on the board').toEqual([]);
+  });
+
+  it('handles a board where only some rows were touched', async () => {
+    const touched = new Set([SEED[0].ref, SEED[1].ref]);
+    const r = await runSeed(SEED.map((t) => ({ ref: t.ref, owner_touched: touched.has(t.ref) })));
+    expect(r.kept).toBe(2);
+    expect(r.refreshed).toBe(SEED.length - 2);
+    for (const ref of touched) expect(r.written).not.toContain(ref);
+  });
+});
+
+// A refresh must not silently un-claim a row. The upsert lists the columns it
+// writes; owner_touched is deliberately not among them.
+describe('the ownership flag survives a refresh', () => {
+  it('is not in the list of columns the upsert overwrites', async () => {
+    const src = tasksSource();
+    const conflict = src.slice(src.indexOf('ON CONFLICT (ref) DO UPDATE SET'), src.indexOf('RETURNING *'));
+    expect(conflict, 'a refresh would hand the row back to the seed').not.toMatch(/owner_touched/);
+  });
+
+  it('is set by every action the owner can take from the board', async () => {
+    const src = tasksSource();
+    // setStatus (done / reopen) and moveTask (priority arrows).
+    expect((src.match(/owner_touched\s*=\s*TRUE/gi) || []).length).toBeGreaterThanOrEqual(3);
   });
 });

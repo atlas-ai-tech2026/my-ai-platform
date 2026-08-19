@@ -39,6 +39,20 @@ export async function ensureTasksTable(pool) {
       done_at     TIMESTAMPTZ
     )`);
   await pool.query(`CREATE INDEX IF NOT EXISTS tasks_status_idx ON tasks (status, priority)`);
+  // Set the moment the OWNER changes a task from the board — marking it done,
+  // reopening it, moving its priority.
+  //
+  // WHY IT HAD TO EXIST. The seed skipped any task that already existed, so
+  // that it could never undo the owner's work. Correct, and it also meant I
+  // could not keep the board current AT ALL: edits I made to a task's status
+  // or detail simply never reached production, while the file said otherwise.
+  // A single source of truth only one of us can write to is not a single
+  // source of truth.
+  //
+  // So the rule is now narrower instead of absolute: the seed refreshes a task
+  // only while the owner has never touched it. One click from them and it is
+  // theirs permanently.
+  await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS owner_touched BOOLEAN NOT NULL DEFAULT FALSE`);
   // NOT a partial index. `ON CONFLICT (ref)` only matches a partial unique
   // index if the statement repeats the same WHERE clause — which is how the
   // seed failed with "no unique or exclusion constraint matching the ON
@@ -130,7 +144,9 @@ export async function setStatus(pool, id, status) {
   const { rows } = await pool.query(
     // Same rule: done_at computed here, passed as its own parameter, so $2 is
     // used exactly once.
-    `UPDATE tasks SET status=$2, updated_at=NOW(),
+    // owner_touched: from here on this row is theirs, and the seed leaves it
+    // alone permanently.
+    `UPDATE tasks SET status=$2, updated_at=NOW(), owner_touched=TRUE,
             done_at = CASE WHEN $3::timestamptz IS NULL THEN NULL
                            ELSE COALESCE(done_at, $3::timestamptz) END
       WHERE id=$1 RETURNING *`,
@@ -173,8 +189,8 @@ export async function moveTask(pool, id, direction) {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    await client.query(`UPDATE tasks SET priority=$2, updated_at=NOW() WHERE id=$1`, [me.id, other.priority]);
-    await client.query(`UPDATE tasks SET priority=$2, updated_at=NOW() WHERE id=$1`, [other.id, me.priority]);
+    await client.query(`UPDATE tasks SET priority=$2, updated_at=NOW(), owner_touched=TRUE WHERE id=$1`, [me.id, other.priority]);
+    await client.query(`UPDATE tasks SET priority=$2, updated_at=NOW(), owner_touched=TRUE WHERE id=$1`, [other.id, me.priority]);
     await client.query('COMMIT');
   } catch (e) {
     await client.query('ROLLBACK').catch(() => {});

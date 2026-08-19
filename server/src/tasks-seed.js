@@ -240,24 +240,45 @@ export const SEED = [
 ];
 
 /**
- * Insert any seed task that is not already on the board.
+ * Put the seed on the board: insert what is missing, refresh what the owner
+ * has not touched, and never overwrite what they have.
  *
- * Deliberately does NOT overwrite existing rows: once the owner has moved a
- * task, the board is right and the seed is history. A seed that overwrites is
- * a seed that silently undoes someone's work.
+ * ── THE RULE, AND WHY IT CHANGED ───────────────────────────────────────────
+ * This used to skip EVERY task that already existed — `if (have.has(ref))
+ * continue` — so that it could never undo the owner's work. That protection is
+ * right, and being absolute made it wrong in a second way: I could not keep
+ * the board current either. Marking #29 done and putting #55 on hold changed
+ * this file and reached production not at all, while I reported the board as
+ * updated. A single source of truth that only one of us can write to is not a
+ * single source of truth.
+ *
+ * So the rule is narrower rather than absolute:
+ *   · task missing            → insert it
+ *   · exists, owner untouched → refresh from the seed (this is how I keep it current)
+ *   · exists, owner touched   → leave it completely alone, forever
+ *
+ * `owner_touched` is set the moment they mark something done, reopen it, or
+ * move its priority. One click and the row is theirs.
  */
 export async function seedTasks(pool, { upsertTask }) {
-  const { rows } = await pool.query(`SELECT ref FROM tasks WHERE ref IS NOT NULL`);
-  const have = new Set(rows.map((r) => r.ref));
+  const { rows } = await pool.query(
+    `SELECT ref, owner_touched FROM tasks WHERE ref IS NOT NULL`);
+  const state = new Map(rows.map((r) => [r.ref, r.owner_touched]));
   let added = 0;
+  let refreshed = 0;
+  let kept = 0;
   const rejected = [];
   for (const t of SEED) {
-    if (have.has(t.ref)) continue;
+    const existing = state.get(t.ref);
+    if (existing === true) { kept++; continue; }     // theirs — hands off
+    const isNew = existing === undefined;
     const r = await upsertTask(pool, t);
-    if (r.ok) added++;
-    else rejected.push(`#${t.ref}: ${r.error}`);
+    if (!r.ok) { rejected.push(`#${t.ref}: ${r.error}`); continue; }
+    if (isNew) added++; else refreshed++;
   }
   if (added) console.log(`[tasks] seeded ${added} task(s)`);
+  if (refreshed) console.log(`[tasks] refreshed ${refreshed} untouched task(s)`);
+  if (kept) console.log(`[tasks] left ${kept} task(s) alone — edited on the board`);
   // A REJECTED task used to vanish silently — `if (r.ok) added++` and nothing
   // else. The two that failed were the two the owner had specifically told me
   // were missing, and the log said "seeded 57" as though nothing had gone
@@ -265,5 +286,5 @@ export async function seedTasks(pool, { upsertTask }) {
   if (rejected.length) {
     console.error(`[tasks] ${rejected.length} task(s) REJECTED and not on the board: ${rejected.join(' · ')}`);
   }
-  return { added, rejected };
+  return { added, refreshed, kept, rejected };
 }
