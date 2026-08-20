@@ -1,3 +1,6 @@
+import { createRequire } from 'node:module';
+const require = createRequire(import.meta.url);
+
 // ─── clarity.js ──────────────────────────────────────────────────────────────
 // The Microsoft Clarity tag: where it goes, and — more importantly — where it
 // must never go.
@@ -56,12 +59,38 @@ export function shouldInject(route, env = process.env) {
  * nothing from configuration can break out of the script. Belt and braces for a
  * value that is not secret but IS interpolated into executable HTML.
  */
-export function clarityTag(id) {
-  return '<script>(function(c,l,a,r,i,t,y){'
+export function clarityScriptBody(id) {
+  return '(function(c,l,a,r,i,t,y){'
     + 'c[a]=c[a]||function(){(c[a].q=c[a].q||[]).push(arguments)};'
     + 't=l.createElement(r);t.async=1;t.src="https://www.clarity.ms/tag/"+i;'
     + 'y=l.getElementsByTagName(r)[0];y.parentNode.insertBefore(t,y);'
-    + `})(window,document,"clarity","script","${id}");</script>`;
+    + `})(window,document,"clarity","script","${id}");`;
+}
+
+export function clarityTag(id) {
+  return `<script>${clarityScriptBody(id)}</script>`;
+}
+
+/**
+ * The CSP hash that lets this ONE inline script run.
+ *
+ * ── FOUND BY LOADING THE PAGE, NOT BY READING IT ───────────────────────────
+ * The first version added https://www.clarity.ms to script-src and stopped
+ * there. But Clarity's loader is an INLINE script, and `script-src 'self'`
+ * does not permit inline — so the tag rendered perfectly, looked installed,
+ * and never executed. In the browser: window.clarity undefined, no script
+ * element created, no request made, and no console error either.
+ *
+ * That is precisely the failure I had warned the owner about, arriving through
+ * my own fix.
+ *
+ * 'unsafe-inline' would solve it and would also switch off the protection N15
+ * bought in the July audit — for a heatmap. A hash allows exactly this script
+ * and nothing else, which is what the strictness is for.
+ */
+export function clarityCspHash(id) {
+  const { createHash } = require('node:crypto');
+  return `'sha256-${createHash('sha256').update(clarityScriptBody(id), 'utf8').digest('base64')}'`;
 }
 
 /**

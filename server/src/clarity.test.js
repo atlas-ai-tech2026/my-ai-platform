@@ -13,7 +13,7 @@
 
 import { describe, it, expect } from 'vitest';
 import {
-  shouldInject, injectClarity, clarityTag, ADMIN_ROUTE,
+  shouldInject, injectClarity, clarityTag, clarityCspHash, ADMIN_ROUTE,
   CLARITY_SCRIPT_HOSTS, CLARITY_CONNECT_HOSTS,
 } from './clarity.js';
 
@@ -130,5 +130,42 @@ describe('the CSP hosts it needs', () => {
       expect(h, 'a bare https: wildcard would undo the CSP work from the July audit')
         .not.toBe('https:');
     }
+  });
+});
+
+// ─── the hash and the script must never drift apart ──────────────────────────
+// The first version of this feature allowed https://www.clarity.ms in
+// script-src and stopped there. Clarity's loader is INLINE, and `'self'` does
+// not permit inline — so the tag rendered perfectly, looked installed, and
+// never executed. No console error, no request, window.clarity undefined.
+//
+// Now a hash permits exactly that one script. Which creates a new way to fail
+// silently in precisely the same way: edit the script body, forget the hash,
+// and the tag goes quiet again. This recomputes one from the other.
+describe('the CSP hash matches the script it is supposed to allow', () => {
+  it('is derived from the exact bytes that get injected', async () => {
+    const { createHash } = await import('node:crypto');
+    const id = 'y5h0454pmv';
+    const tag = clarityTag(id);
+    // Pull the body back OUT of the finished tag, so this checks what is
+    // actually served rather than what the body function returns.
+    const body = tag.replace(/^<script>/, '').replace(/<\/script>$/, '');
+    const expected = `'sha256-${createHash('sha256').update(body, 'utf8').digest('base64')}'`;
+    expect(clarityCspHash(id),
+      'the inline script changed and the CSP hash did not — the tag will render '
+      + 'and silently never run, exactly as it did the first time').toBe(expected);
+  });
+
+  it('changes when the project id changes', () => {
+    expect(clarityCspHash('y5h0454pmv')).not.toBe(clarityCspHash('abcdef1234'));
+  });
+
+  it('is a real sha256 in the form a CSP accepts', () => {
+    expect(clarityCspHash('y5h0454pmv')).toMatch(/^'sha256-[A-Za-z0-9+/]{43}='$/);
+  });
+
+  // The reason this whole approach was chosen over the easy one.
+  it("never resorts to 'unsafe-inline'", () => {
+    expect(clarityCspHash('y5h0454pmv')).not.toMatch(/unsafe-inline/);
   });
 });

@@ -22,7 +22,16 @@ import { estimateFalCost, backfillFalEstimate } from './fal-pricing.js';
 import { publicReason } from './sanitize.js';
 import { normalizeBulkEmails, generateBulkPassword } from './bulk-helpers.js';
 import { mayRedeem, capForInvites, splitInvites, REFUSAL } from './promo-audience.js';
-import { injectClarity, CLARITY_SCRIPT_HOSTS, CLARITY_CONNECT_HOSTS } from './clarity.js';
+import { injectClarity, clarityCspHash, shouldInject,
+         CLARITY_SCRIPT_HOSTS, CLARITY_CONNECT_HOSTS } from './clarity.js';
+
+// The hash of the ONE inline script we inject, computed from the very string
+// that gets injected so the two cannot drift. Empty when Clarity is switched
+// off, which leaves the CSP exactly as it was.
+const CLARITY_CSP = (() => {
+  const v = shouldInject('', process.env);
+  return v.inject ? [clarityCspHash(v.id), ...CLARITY_SCRIPT_HOSTS] : [];
+})();
 import { verifyJwt, requireAdmin, requireNotBanned } from './middleware/auth.js';
 // Restored after the in-file getStore block was removed — DIST_DIR
 // at the bottom of this file still needs __dirname.
@@ -232,7 +241,15 @@ app.use(helmet({
       // reads as Clarity being broken rather than as a policy blocking it.
       // An exact host, never a scheme wildcard: `https:` here would undo the
       // whole point of N15 from the July audit.
-      scriptSrc: ["'self'", ...CLARITY_SCRIPT_HOSTS],
+      // The host alone is NOT enough: Clarity's loader is an INLINE script and
+      // `'self'` does not permit inline. The first version allowed the host and
+      // stopped there — the tag rendered, looked installed, and never ran, with
+      // no console error to say so. Found by loading the page in a browser and
+      // asking whether window.clarity existed, not by reading the code.
+      //
+      // A HASH, never 'unsafe-inline': the latter would switch off what N15
+      // bought in the July audit, in exchange for a heatmap.
+      scriptSrc: ["'self'", ...CLARITY_CSP],
       styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
       fontSrc: ["'self'", 'https://fonts.gstatic.com', 'data:'],
       // N15 (recheck 2026-08-03): connect-src was 'https:' — anything on the
