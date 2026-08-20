@@ -9,6 +9,7 @@ import { adminApi, ApiError, readCsrfCookie } from '@/lib/adminApi';
 import StatsCards from '@/components/admin/StatsCards';
 import UserTable from '@/components/admin/UserTable';
 import BulkExpiryPanel from '@/components/admin/BulkExpiryPanel';
+import ExpiryPanel from '@/components/admin/ExpiryPanel';
 import CreditsModal from '@/components/admin/CreditsModal';
 import HistoryModal from '@/components/admin/HistoryModal';
 import LogsTab from '@/components/admin/LogsTab';
@@ -323,6 +324,12 @@ export default function AdminPanel() {
 
         {tab === 'users' && (<>
         <StatsCards stats={stats} />
+
+        {/* WHO loses access and WHEN — above the control that closes access,
+            because reading comes before acting. Until 2026-08-20 the only way
+            to answer "who expires tomorrow" was to scroll 601 rows reading a
+            column, and nothing warned in advance at all. */}
+        <ExpiryPanel onError={handleError} />
 
         {/* Close access for a finished cohort. Deletes nothing; admins are
             excluded server-side so this cannot lock the owner out. */}

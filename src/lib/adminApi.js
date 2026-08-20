@@ -136,6 +136,10 @@ export const adminApi = {
   // Who the code was ADDRESSED to, and who has actually turned up. Different
   // question from redemptions: this one can show you the people who have NOT.
   promoInvites: (id) => request('GET', `/api/admin/promocodes/${id}/invites`),
+  // Who loses access, and when. Added urgently 2026-08-20 — the Users tab shows
+  // access per row and nothing sorts by it, so "who expires tomorrow" could
+  // only be answered by scrolling 601 rows.
+  expiryReport: (days) => request('GET', `/api/admin/users/expiry-report?days=${days || 14}`),
   createGiftCards: (body) => request('POST', '/api/admin/giftcards', body),
   listGiftCards: (status = 'all') => request('GET', `/api/admin/giftcards?status=${status}`),
 

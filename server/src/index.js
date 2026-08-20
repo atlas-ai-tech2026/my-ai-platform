@@ -22,6 +22,7 @@ import { estimateFalCost, backfillFalEstimate } from './fal-pricing.js';
 import { publicReason } from './sanitize.js';
 import { normalizeBulkEmails, generateBulkPassword } from './bulk-helpers.js';
 import { mayRedeem, capForInvites, splitInvites, REFUSAL } from './promo-audience.js';
+import { groupByExpiryDay, summarise, actionable, SOON_DAYS } from './expiry-report.js';
 import { injectClarity, clarityCspHash, shouldInject,
          CLARITY_SCRIPT_HOSTS, CLARITY_CONNECT_HOSTS } from './clarity.js';
 
@@ -5785,6 +5786,39 @@ app.get('/api/admin/models', adminGate, (req, res) => {
 // with: a generated password (returned ONCE for the admin to distribute),
 // the chosen plan's credits (granted like an admin grant), an optional
 // model allow-list, and an optional account expiry.
+// WHO LOSES ACCESS, AND WHEN.
+//
+// Added urgently on 2026-08-20. The owner asked which accounts created on
+// 21-23 June expire "tomorrow", and there was no way to find out: the Users tab
+// shows an access column per row and nothing sorts or filters by it, so
+// answering meant scrolling 601 rows — a chore that produces a guess. Nothing
+// warned in advance either, so the first sign of an expiry was a customer
+// unable to sign in, possibly during a workshop they had paid for.
+app.get('/api/admin/users/expiry-report', adminGate, async (req, res) => {
+  if (!dbReady()) return res.status(503).json({ error: 'Database not available.' });
+  try {
+    const within = Math.min(Math.max(parseInt(req.query.days, 10) || SOON_DAYS, 1), 365);
+    // Every account, because "open-ended" is a finding in its own right — that
+    // was the 2026-08-11 problem, when 584 of 587 sat with no expiry at all and
+    // the CRM showed nothing about it.
+    const { rows } = await pool.query(
+      `SELECT id, email, credits, package, expires_at, created_at
+         FROM users WHERE banned = FALSE ORDER BY expires_at NULLS LAST, email`);
+    const report = groupByExpiryDay(rows);
+    res.json({
+      summary: summarise(report),
+      upcoming: actionable(report, within),
+      open_ended: report.openEnded,
+      already_expired: report.alreadyExpired,
+      total_accounts: report.total,
+      window_days: within,
+    });
+  } catch (err) {
+    console.error('[admin/expiry-report] error:', err);
+    res.status(500).json({ error: 'Could not read the expiry report.' });
+  }
+});
+
 app.post('/api/admin/users/bulk', adminGate, async (req, res) => {
   if (!dbReady()) return res.status(503).json({ error: 'Database not available.' });
   try {
