@@ -79,7 +79,7 @@ export const SEED = [
       + 'The SOP screen now says ALREADY OVER with the monthly cost, instead of telling you to act "BEFORE this is crossed" seven times past crossing. '
       + 'DONE 2026-08-20 — the owner added a card, so Backblaze bills the excess instead of refusing uploads. The offsite copy is now paid for and will keep running. '
       + 'The SOP line stays RED while usage is above the free tier, which is correct: it is reporting a real, billed overage, not a fault. Expect roughly $0.43/month at this size.' },
-  { ref: '66', owner: 'claude', status: 'in_progress', priority: 2,
+  { ref: '66', owner: 'claude', status: 'done', priority: 2,
     title: 'Promo codes can be locked to a list of emails, one seat each',
     why: 'A promo code was a bearer token: know the string, spend a seat. These codes are how an organisation’s PAID seats are handed out, so a hundred-use workshop code forwarded into a group chat is spent by a hundred strangers — and the attendees the customer paid for meet "invalid, expired, or already used" during a live session.',
     detail: 'Requested by the owner 2026-08-20: "nobody can use this promo code except these emails, and each email can use it only for one time." '
@@ -88,8 +88,9 @@ export const SEED = [
       + 'THE HALF THAT EARNS ITS KEEP is the outstanding list: the predictable problem is not fraud, it is being invited as ahmed@company.com and signing up as ahmed.k@gmail.com, which a redemption list can never show. '
       + 'EVERY EXISTING CODE IS UNAFFECTED — no rows means an open code, which is what all of them are. '
       + 'Verified against a real Postgres 17: the gate, the UNIQUE index refusing a second redemption, the case-insensitive tick-off, the outstanding list. Eleven checks. '
-      + 'STILL TO DO: the owner redeems a code on dev as a real user, then production, then the Knowledge Base entry in Arabic and English.' },
-  { ref: '67', owner: 'claude', status: 'pending', priority: 3,
+      + 'CONFIRMED BY THE OWNER on dev 2026-08-20 and deployed to PRODUCTION the same day. They noted the behaviour correctly themselves: creating the code grants nothing — the credits land when the person redeems, and the redemption then appears in the control panel. '
+      + 'STILL OWED: the Knowledge Base entry in Arabic and English with pictures, per the standing rule.' },
+  { ref: '67', owner: 'claude', status: 'pending', priority: 24,
     title: 'Credits carry their own expiry — segregate each grant instead of one pooled balance',
     why: 'users.credits is ONE pooled number and users.expires_at is ONE account-level date. So 10 promo credits expiring 1 September and 100 bulk credits expiring 15 September become 110 credits expiring 15 September — the promo silently gets a two-week extension every time that person appears in a later batch. At workshop scale that is real revenue leaking.',
     detail: 'Approved by the owner 2026-08-20 after they described the exact case and asked the right question themselves: how does the system know which credits to spend first? '
@@ -98,7 +99,11 @@ export const SEED = [
       + 'ACCOUNT EXPIRY IS SEPARATE and stays extend-if-later: the person must still be able to sign in long enough to spend the credits. The lots decide which CREDITS are alive; expires_at decides whether they can log in. Those work together — an earlier note implying one replaced the other was wrong. '
       + 'HIGHEST-RISK CHANGE ON THIS BOARD: it rewrites the path that moves money — charging, refunds, the video-charge sweeper, the balance display, credit_limit. Refunds are the subtle part: a refund must return to the lot it came from, or it resurrects dead credits or lands in the wrong bucket. '
       + 'ESTIMATE 12-16 hours, dev first, and not to be rushed before a workshop. ACCEPTANCE TEST IS THE OWNER’S OWN EXAMPLE: 10 credits expiring 1 Sept, 100 expiring 15 Sept, spend some, advance past 1 Sept, confirm the 10 are gone and the 100 remain. '
-      + 'SUPERSEDES the bulk top-up piece: each bulk grant simply becomes a lot. bulk-provision.js is written but deliberately not wired, so it is not built twice.' },
+      + 'SUPERSEDES the bulk top-up piece: each bulk grant simply becomes a lot. bulk-provision.js is written but deliberately not wired, so it is not built twice. '
+      + 'PARKED 2026-08-20 by the owner, and the right call: the promo email-lock closed a hole that was open THAT DAY, while this fixes a slow leak. Fix the open door before the dripping tap — and rewriting the money path under time pressure near a workshop is how a slow leak becomes an outage. '
+      + 'THE ENGINE IS ALREADY BUILT AND COMMITTED: credit-lots.js, 30 tests, the owner’s worked example as the first one, and all four rules proven to fail loudly when broken. Resuming starts from a working core. '
+      + 'WHAT REMAINS: the credit_lots table, the backfill of 601 balances, switching charging + refunds + the video-charge sweeper over, the expiry sweep, an SOP check that the balance and the sum of lots always agree, and the breakdown shown to customers and in the CRM. '
+      + 'WHILE THIS IS PARKED, BULK STILL ADDS NOTHING TO AN EXISTING USER — it silently skips them. Use Users → grant to top up someone who already has an account.' },
   { ref: '50', owner: 'owner', status: 'pending', priority: 22,
     title: 'Second copy of the backup passphrase',
     why: 'Saved in the Mac Passwords app. If the laptop and DigitalOcean are lost together, every backup becomes permanently unreadable.',
