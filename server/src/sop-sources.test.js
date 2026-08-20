@@ -131,9 +131,50 @@ describe('the registry itself is honest', () => {
     const orphans = Object.entries(LINE_SOURCES)
       .filter(([k, v]) => (v.prefix
         ? !KEYS.some((key) => key === k || key.startsWith(k))
-        : !KEYS.includes(k)))
+        // A key that EXTENDS an emitted prefix is a member of that family, not
+        // an orphan. `key: `usage-${provider}`` is only ever seen by the
+        // extractor as the literal "usage-", so declaring the one member that
+        // differs — usage-database reads Postgres, not a bucket — would
+        // otherwise be punished for being more precise than the family entry.
+        // Specialising a family is exactly the behaviour this registry wants.
+        : !KEYS.includes(k) && !KEYS.some((key) => key.endsWith('-') && k.startsWith(key))))
       .map(([k]) => k);
     expect(orphans, 'these are declared but no longer on the screen').toEqual([]);
+  });
+
+  // …and that allowance must not become a loophole. "usage-" covering anything
+  // starting with those six characters would let a genuinely dead declaration
+  // hide behind a live family.
+  it('does not let a dead declaration hide behind a live family', () => {
+    const familyPrefixes = KEYS.filter((k) => k.endsWith('-'));
+    expect(familyPrefixes.length, 'no dynamic families found — this allowance is checking nothing')
+      .toBeGreaterThan(0);
+    for (const k of Object.keys(LINE_SOURCES)) {
+      if (KEYS.includes(k) || LINE_SOURCES[k].prefix) continue;
+      const family = familyPrefixes.find((p) => k.startsWith(p));
+      if (!family) continue;
+      // The specialisation is only legitimate if the family itself is declared
+      // — otherwise nothing is enforcing the rest of its members.
+      expect(LINE_SOURCES[family],
+        `"${k}" leans on the "${family}" family, but that family declares no source of its own`)
+        .toBeTruthy();
+    }
+  });
+});
+
+// Found by deliberately deleting the declaration and watching nothing complain:
+// `usage-database` silently fell back to the `usage-` family and reported that a
+// Postgres measurement came from object storage. The fallback is what makes
+// families convenient, and it is also how a family quietly absorbs a member that
+// does not belong to it — so the one member that differs is pinned by name.
+describe('the database line is not swallowed by the bucket family', () => {
+  it('declares a database source of its own, not the family default', () => {
+    const s = sourceFor('usage-database');
+    expect(s.kind,
+      'usage-database inherited the usage- family, which says "lists each bucket and measures '
+      + 'it". The database is not a bucket, and it is the one line on this screen that cannot be '
+      + 'measured from a laptop at all.').toBe(KIND.DATABASE);
+    expect(s.prefix, 'it matched the family entry rather than its own').toBeUndefined();
   });
 });
 

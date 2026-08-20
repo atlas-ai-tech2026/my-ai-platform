@@ -13,6 +13,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   parseAudit, diffAdvisories, judgeAdvisories, advisoryKey, byRealRisk,
+  presentAdvisoryRun,
 } from './sop-advisories.js';
 
 const auditJson = (vulns) => JSON.stringify({ vulnerabilities: vulns });
@@ -138,5 +139,62 @@ describe('severity is not risk', () => {
     expect(v.action).toMatch(/xlsx/);
     expect(v.action).toMatch(/production dependency/);
     expect(v.action).toMatch(/fix available/);
+  });
+});
+
+// ─── running it weekly instead of on every page load ─────────────────────────
+// `npm audit` is a network call with a 90-second ceiling, and it was wired into
+// a zone rebuilt on EVERY load of the SOP screen. Opening the page twice ran it
+// twice and the page waited for the slower one.
+//
+// Storing the result is only safe if the screen is HONEST about its age. A line
+// that says "checked just now" over Tuesday's answer is the same failure as the
+// backup line that reported process memory: it cannot tell "fine" from "the job
+// stopped a fortnight ago".
+
+describe('the stored result', () => {
+  const at = (daysAgo) => new Date(Date.UTC(2026, 7, 20) - daysAgo * 864e5).toISOString();
+  const NOW = Date.UTC(2026, 7, 20);
+  const run = (daysAgo, over = {}) => ({
+    state: 'ok', detail: 'no new advisories · 11 already reviewed', action: '',
+    added: [], checkedAt: at(daysAgo), ...over,
+  });
+
+  it('before it has ever run, says so — and is not ok', () => {
+    const p = presentAdvisoryRun(null, { now: NOW });
+    expect(p.state).toBe('unknown');
+    expect(p.state).not.toBe('ok');
+    expect(p.detail).toMatch(/not checked yet/);
+    expect(p.checkedAt, 'a never-run check carried a timestamp').toBeNull();
+  });
+
+  it('carries the date the audit actually ran, not the moment the page opened', () => {
+    const p = presentAdvisoryRun(run(3), { now: NOW });
+    expect(p.checkedAt).toBe(at(3));
+    expect(p.detail).toMatch(/checked 3 days ago/);
+  });
+
+  // The failure this is really guarding: the weekly job dies, and the screen
+  // keeps showing last month's green because the answer it stored was green.
+  it('a result older than the cadence stops counting as a pass', () => {
+    const p = presentAdvisoryRun(run(21), { now: NOW });
+    expect(p.state, 'a three-week-old result was still reported as ok').toBe('unknown');
+    expect(p.detail).toMatch(/last checked 21 days ago/);
+    expect(p.action).toMatch(/why the weekly job stopped/);
+  });
+
+  it('a recent result is still shown at its real state', () => {
+    expect(presentAdvisoryRun(run(6), { now: NOW }).state).toBe('ok');
+    expect(presentAdvisoryRun(run(6, { state: 'critical' }), { now: NOW }).state).toBe('critical');
+  });
+
+  // Deliberately NOT a read-through cache. Refilling on read is the page-load
+  // cost coming back through a side door, under whichever request arrived first.
+  it('never runs the audit as a side effect of being displayed', () => {
+    let ran = false;
+    const spy = () => { ran = true; };
+    presentAdvisoryRun(null, { now: NOW, exec: spy });
+    presentAdvisoryRun(run(40), { now: NOW, exec: spy });
+    expect(ran, 'displaying the line triggered an audit').toBe(false);
   });
 });

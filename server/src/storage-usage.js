@@ -43,14 +43,31 @@ export const ALLOWANCES = {
     label: 'DigitalOcean Spaces',
     limitBytes: 250 * GIB,
     limitLabel: '250 GiB',
+    unit: 'objects',
     included: 'included in the $5/month plan',
     overage: '$0.02 per extra GiB',
     action: 'Nothing to do until it is close. Above the limit DigitalOcean bills automatically — no interruption, just a larger invoice.',
+  },
+  database: {
+    label: 'Postgres',
+    // db-s-1vcpu-1gb — the smallest managed plan, 10 GB of disk. Confirmed from
+    // `doctl databases list` rather than assumed.
+    limitBytes: 10 * GIB,
+    limitLabel: '10 GiB',
+    unit: 'rows (estimated by the planner, not counted)',
+    included: 'the db-s-1vcpu-1gb plan',
+    overage: 'a larger plan — DigitalOcean does not bill overage, the disk simply fills',
+    // The one that does not degrade gracefully. Storage over its allowance
+    // costs money; a database disk that fills stops accepting writes, which
+    // means generations fail and nobody can sign in.
+    action: 'Resize the database BEFORE it fills. A full Postgres disk does not bill you extra — '
+      + 'it stops accepting writes, and the platform stops working.',
   },
   offsite: {
     label: 'Backblaze B2',
     limitBytes: 10 * GB,
     limitLabel: '10 GB free',
+    unit: 'objects',
     included: 'the always-free allowance',
     overage: '$6.95 per TB per month',
     // The one that can actually STOP working, which is why its wording differs.
@@ -240,6 +257,30 @@ export function projectCrossing(currentBytes, perDay, limitBytes) {
 export const fmt = (bytes, base = GIB) => `${(bytes / base).toFixed(1)} ${base === GIB ? 'GiB' : 'GB'}`;
 
 /**
+ * Same bytes, but in a unit a human would have chosen.
+ *
+ * fmt() is fixed to the allowance's unit, which is right for "0.4 GiB of
+ * 10 GiB" and useless anywhere the magnitude is not known in advance. A
+ * database growing 40 MiB a day renders as "growing 0.0 GiB/day" — sitting
+ * directly beside "crosses the allowance in about 240 days", which reads as a
+ * screen contradicting itself, and a screen that contradicts itself stops being
+ * read. Same for a table list where four of five rows say "0.0 GiB".
+ */
+export function fmtScaled(bytes, base = GIB) {
+  // Backblaze bills in decimal GB and DigitalOcean quotes binary GiB. Scaling
+  // a decimal allowance with binary units would print "9.5 GiB of 10 GB free"
+  // for a bucket that is ALREADY OVER — under-reporting exactly the number the
+  // owner asked to be warned about. So the unit follows the allowance.
+  const binary = base === GIB;
+  const [k, u] = binary ? [1024, ['B', 'KiB', 'MiB', 'GiB']] : [1000, ['B', 'KB', 'MB', 'GB']];
+  const n = Math.abs(bytes);
+  if (n >= k ** 3) return `${(bytes / k ** 3).toFixed(1)} ${u[3]}`;
+  if (n >= k ** 2) return `${Math.round(bytes / k ** 2)} ${u[2]}`;
+  if (n >= k) return `${Math.round(bytes / k)} ${u[1]}`;
+  return `${Math.round(bytes)} ${u[0]}`;
+}
+
+/**
  * Turn a measurement plus its history into something worth reading at 6am.
  *
  * Three states and a deliberate fourth: `unknown` when the bucket could not be
@@ -263,8 +304,10 @@ export function judgeUsage({ provider, measurement, history = [], now = Date.now
   const perDay = growthPerDay(history);
   const crossing = projectCrossing(used, perDay, a.limitBytes);
 
-  const parts = [`${fmt(used, base)} of ${a.limitLabel} (${Math.round(pct * 100)}%)`,
-    `${measurement.objects.toLocaleString()} objects`];
+  const parts = [`${fmtScaled(used, base)} of ${a.limitLabel} (${Math.round(pct * 100)}%)`,
+    // "18,256 objects" is right for a bucket and wrong for a database, where
+    // they are rows — and an ESTIMATED count of them at that.
+    `${measurement.objects.toLocaleString()} ${a.unit || 'objects'}`];
   if (measurement.truncated) parts.push('COUNT TRUNCATED — the real total is higher');
 
   if (perDay == null) {
@@ -272,7 +315,7 @@ export function judgeUsage({ provider, measurement, history = [], now = Date.now
   } else if (perDay <= 0) {
     parts.push('not growing');
   } else {
-    parts.push(`growing ${fmt(perDay, base)}/day`);
+    parts.push(`growing ${fmtScaled(perDay, base)}/day`);
     if (crossing?.already) parts.push('ALREADY OVER the allowance');
     else if (crossing) parts.push(`crosses the allowance in about ${crossing.daysLeft} days`);
   }
@@ -297,4 +340,61 @@ export function judgeUsage({ provider, measurement, history = [], now = Date.now
     action: state === 'ok' ? null : a.action,
     now,
   };
+}
+
+/**
+ * How big the database is, and which tables account for it.
+ *
+ * ── WHY THIS IS DIFFERENT FROM THE STORAGE CHECKS ──────────────────────────
+ * Spaces and Backblaze over their allowance cost MONEY. A Postgres disk that
+ * fills does not bill you extra — it stops accepting writes. Generations fail,
+ * nobody can sign in, and the first symptom is the platform simply not working.
+ *
+ * So this is measured the same way and judged with the same projection, but the
+ * action says "resize before it fills", not "expect a larger invoice".
+ *
+ * Measured from the SERVER because the database only accepts connections from
+ * trusted sources — a laptop cannot reach it, which is correct, and is why this
+ * number could never be answered by hand.
+ */
+export async function measureDatabase(pool, { topTables = 5 } = {}) {
+  try {
+    const { rows: [t] } = await pool.query(
+      `SELECT pg_database_size(current_database())::bigint AS bytes`);
+    // EVERY table, not the top few. The row total has to be the whole database
+    // or it is not a row total, and summing the biggest five while labelling it
+    // "rows" is the kind of number that looks right and is not.
+    const { rows: all } = await pool.query(`
+      SELECT c.relname AS name,
+             pg_total_relation_size(c.oid)::bigint AS bytes,
+             COALESCE(s.n_live_tup, 0)::bigint AS live_rows
+        FROM pg_class c
+        JOIN pg_namespace n ON n.oid = c.relnamespace
+        LEFT JOIN pg_stat_user_tables s ON s.relid = c.oid
+       WHERE n.nspname = 'public' AND c.relkind = 'r'
+       ORDER BY pg_total_relation_size(c.oid) DESC`);
+    const tables = all.map((r) => ({
+      name: r.name, bytes: Number(r.bytes), rows: Number(r.live_rows),
+    }));
+    return {
+      bytes: Number(t.bytes),
+      // n_live_tup is the planner's ESTIMATE, refreshed by autovacuum. Right for
+      // "which tables are big", wrong to quote as an exact count — so it is only
+      // ever shown next to a size, never on its own as a fact about the business.
+      objects: tables.reduce((sum, r) => sum + r.rows, 0),
+      truncated: false,
+      bucket: 'postgres',
+      tableCount: tables.length,
+      tables: tables.slice(0, topTables),
+    };
+  } catch (e) {
+    return { error: e.message };
+  }
+}
+
+/** "entities 36.2 MiB (18,256 rows) · credits_history 12.1 MiB (29,195 rows)" */
+export function describeTables(tables = []) {
+  return tables
+    .map((t) => `${t.name} ${fmtScaled(t.bytes)} (${t.rows.toLocaleString()} rows)`)
+    .join(' · ');
 }

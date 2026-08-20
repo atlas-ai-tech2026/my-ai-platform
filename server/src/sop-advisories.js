@@ -228,3 +228,92 @@ export async function runAdvisoryCheck(pool, { root, exec } = {}) {
   try { known = await knownAdvisories(pool); } catch { /* first run, or no table yet */ }
   return { ...judgeAdvisories({ parsed, known }), parsed };
 }
+
+// ── RUNNING IT WEEKLY, NOT ON EVERY PAGE LOAD ───────────────────────────────
+// runAdvisoryCheck spawns `npm audit`, which is a network call to the registry
+// with a 90-second ceiling. It was wired into the integrity zone, which is
+// rebuilt on EVERY load of the SOP screen — so opening the screen twice ran it
+// twice, and the whole page waited for the slower of them.
+//
+// The result changes when a new advisory is published, which is a thing that
+// happens a few times a month. Weekly is the honest cadence, and #35 asked for
+// weekly. Between runs the screen shows the STORED result together with WHEN it
+// was taken — never "checked just now" over an answer from Tuesday, which is
+// the same lie as reporting a value nobody read.
+
+export async function ensureAdvisoryRunTable(pool) {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS advisory_runs (
+      id         INTEGER PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+      state      VARCHAR(16)  NOT NULL,
+      detail     TEXT         NOT NULL,
+      action     TEXT,
+      added      JSONB        NOT NULL DEFAULT '[]'::jsonb,
+      checked_at TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+    )`);
+}
+
+export async function saveAdvisoryRun(pool, judged) {
+  await ensureAdvisoryRunTable(pool);
+  await pool.query(
+    `INSERT INTO advisory_runs (id, state, detail, action, added, checked_at)
+     VALUES (1, $1, $2, $3, $4::jsonb, NOW())
+     ON CONFLICT (id) DO UPDATE SET
+       state = EXCLUDED.state, detail = EXCLUDED.detail, action = EXCLUDED.action,
+       added = EXCLUDED.added, checked_at = EXCLUDED.checked_at`,
+    [judged.state, judged.detail, judged.action || null,
+     JSON.stringify(judged.added || [])]);
+}
+
+export async function latestAdvisoryRun(pool) {
+  await ensureAdvisoryRunTable(pool);
+  const { rows } = await pool.query(`SELECT * FROM advisory_runs WHERE id = 1`);
+  if (!rows[0]) return null;
+  const r = rows[0];
+  return {
+    state: r.state, detail: r.detail, action: r.action || '',
+    added: r.added || [], checkedAt: new Date(r.checked_at).toISOString(),
+  };
+}
+
+/** Age at which a stored result stops being worth showing without a caveat. */
+export const RESULT_STALE_AFTER_MS = 10 * 864e5;   // a weekly job that missed a week
+
+/**
+ * What the screen should render: the stored result, or an honest "not yet".
+ *
+ * Deliberately does NOT run the audit as a fallback. A cache that silently
+ * refills itself on read is the page-load cost coming back through a side door
+ * — and it would run under whichever request happened to arrive first, which is
+ * not a schedule.
+ */
+export function presentAdvisoryRun(run, { now = Date.now() } = {}) {
+  if (!run) {
+    return {
+      state: 'unknown',
+      detail: 'not checked yet — this runs with the weekly structure checks',
+      action: 'Press “Check now” on the weekly checks to run it immediately.',
+      checkedAt: null,
+    };
+  }
+  const ageMs = now - new Date(run.checkedAt).getTime();
+  const days = Math.floor(ageMs / 864e5);
+  const age = days < 1 ? 'today' : days === 1 ? 'yesterday' : `${days} days ago`;
+  if (ageMs > RESULT_STALE_AFTER_MS) {
+    return {
+      ...run,
+      state: 'unknown',
+      detail: `last checked ${age} — the weekly run has not happened since. ${run.detail}`,
+      action: 'A result this old is a record, not a check. Find out why the weekly job stopped.',
+    };
+  }
+  return { ...run, detail: `${run.detail} · checked ${age}` };
+}
+
+/** Run it for real and store the result. Called by the weekly job. */
+export async function refreshAdvisories(pool, { root, exec } = {}) {
+  const judged = await runAdvisoryCheck(pool, { root, exec });
+  await saveAdvisoryRun(pool, judged).catch((e) =>
+    console.error('[sop-advisories] could not store the run:', e.message));
+  return judged;
+}

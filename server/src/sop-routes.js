@@ -20,12 +20,13 @@ import { latestVerification, runRestoreVerification, ensureVerifyTable } from '.
 import { runSmokeChecks, summariseSmoke } from './sop-smoke.js';
 import { runIntegrityChecks } from './sop-integrity.js';
 import { runWrittenChecks } from './sop-written.js';
-import { runAdvisoryCheck } from './sop-advisories.js';
+import { latestAdvisoryRun, presentAdvisoryRun, refreshAdvisories } from './sop-advisories.js';
 import { measureUsage as spacesUsage, versioningStatus, listKeys } from './storage.js';
 import { measureOffsiteUsage as offsiteUsage, measureOffsiteMedia as offsiteMedia,
          listOffsite } from './backup-offsite.js';
 import { judgeBackups } from './backup-freshness.js';
-import { recordUsage, usageHistory, judgeUsage, judgeMediaBackup, ALLOWANCES } from './storage-usage.js';
+import { recordUsage, usageHistory, judgeUsage, judgeMediaBackup, ALLOWANCES,
+         measureDatabase, describeTables } from './storage-usage.js';
 import { runPostureChecks } from './sop-posture.js';
 import {
   readSchedule, writeSchedule, markRan, isDue, ensureScheduleTable, JOBS,
@@ -126,6 +127,16 @@ export function registerSopRoutes(app, {
     for (const [provider, measure] of [
       ['spaces', () => spacesUsage()],
       ['offsite', () => offsiteUsage()],
+      // The database is measured the same way, but it is the one that does not
+      // degrade gracefully: storage over its allowance costs money, whereas a
+      // Postgres disk that fills STOPS ACCEPTING WRITES — generations fail and
+      // nobody can sign in. Its action says "resize before it fills", not
+      // "expect a larger invoice".
+      //
+      // It can only be measured from HERE. The database accepts connections
+      // from trusted sources only, so a laptop cannot reach it — which is
+      // correct, and is why this number could never be answered by hand.
+      ['database', () => measureDatabase(pool)],
     ]) {
       try {
         const measurement = await measure();
@@ -152,7 +163,11 @@ export function registerSopRoutes(app, {
           info: `${ALLOWANCES[provider]?.label} — ${ALLOWANCES[provider]?.included}, then `
             + `${ALLOWANCES[provider]?.overage}. Measured daily so the growth rate is real rather `
             + 'than assumed; the projection needs three daily readings before it will say anything.',
-          detail: v.detail,
+          // "growing 40 MiB/day" is a fact; "growing 40 MiB/day, and entities
+          // is 36 MiB of it" is something you can act on.
+          detail: measurement.tables?.length
+            ? `${v.detail} · ${describeTables(measurement.tables)}`
+            : v.detail,
           action: v.action || '',
         }));
       } catch (e) {
@@ -283,19 +298,26 @@ export function registerSopRoutes(app, {
     // A line saying "11 advisories, 1 critical" every week is alarming,
     // unchanging and mostly noise. It teaches dismissal, and then the real one
     // gets dismissed too.
+    // It runs WEEKLY, with the structure checks — not here. `npm audit` is a
+    // network call with a 90-second ceiling, and this zone is rebuilt on every
+    // load of the screen, so opening the page twice ran it twice and the whole
+    // page waited. What is rendered here is the STORED result, with the date it
+    // was actually taken: a screen that says "checked just now" over Tuesday's
+    // answer is telling the same lie as a number nobody read.
     try {
-      const adv = await runAdvisoryCheck(pool, { root: REPO_ROOT });
+      const adv = presentAdvisoryRun(await latestAdvisoryRun(pool));
       out.push(line({
         key: 'advisories', zone: 'integrity', label: 'New dependency advisories',
         state: adv.state === 'critical' ? STATE.CRITICAL
           : adv.state === 'warn' ? STATE.WARN
           : adv.state === 'unknown' ? STATE.UNKNOWN : STATE.OK,
-        value: adv.added?.length ? `${adv.added.length} new` : 'none new',
-        checkedAt: new Date().toISOString(),
-        info: 'Runs npm audit and reports only what has appeared SINCE THE LAST CHECK. Production '
-          + 'dependencies outrank development ones whatever npm’s badge says — today’s single '
-          + 'CRITICAL is in a test runner that never reaches a customer, while the one that matters '
-          + 'is a HIGH in a library that parses customer spreadsheets.',
+        value: adv.added?.length ? `${adv.added.length} new` : adv.checkedAt ? 'none new' : 'not checked',
+        // The moment the audit actually ran, NOT the moment this page was opened.
+        checkedAt: adv.checkedAt,
+        info: 'Runs npm audit WEEKLY, with the structure checks, and reports only what has appeared '
+          + 'SINCE THE LAST CHECK. Production dependencies outrank development ones whatever npm\u2019s '
+          + 'badge says \u2014 today\u2019s single CRITICAL is in a test runner that never reaches a customer, '
+          + 'while the one that matters is a HIGH in a library that parses customer spreadsheets.',
         detail: adv.detail,
         action: adv.action || '',
       }));
@@ -303,9 +325,9 @@ export function registerSopRoutes(app, {
       out.push(line({
         key: 'advisories', zone: 'integrity', label: 'New dependency advisories',
         state: STATE.UNKNOWN, value: 'not checked', checkedAt: new Date().toISOString(),
-        info: 'Runs npm audit and reports what is new since the last check.',
+        info: 'Runs npm audit weekly and reports what is new since the last check.',
         detail: e.message,
-        action: 'The audit could not run. That is not the same as finding nothing.',
+        action: 'The stored result could not be read. That is not the same as finding nothing.',
       }));
     }
 
@@ -475,6 +497,19 @@ export function registerSopRoutes(app, {
       }
     }
 
+    // The advisory line tells the owner to press this button to run it now, so
+    // it has to run it now. A stored result is only defensible because the
+    // thing that refreshes it is real — otherwise it is a screen quoting a date
+    // and an instruction that does nothing, which is worse than no line at all.
+    let advisories = { ran: false };
+    try {
+      const r = await refreshAdvisories(pool, { root: REPO_ROOT });
+      advisories = { ran: true, state: r.state, new: r.added?.length || 0 };
+    } catch (e) {
+      console.error('[sop] advisory check failed:', e.message);
+      advisories = { ran: false, reason: e.message };
+    }
+
     try {
       const { lines, summary } = await collect();
       const latest = await latestVerification(pool).catch(() => null);
@@ -493,6 +528,7 @@ export function registerSopRoutes(app, {
         summary,
         schedule,
         restore,
+        advisories,
         restore_cooldown_min: cooldownRemaining(latest?.checked_at),
       });
     } catch (e) {
@@ -555,7 +591,13 @@ export function scheduleSopJobs(pool, dbReady, { tickMs = 15 * 60 * 1000 } = {})
         try {
           if (row.job === 'restore') await runRestoreVerification(pool);
           else if (row.job === 'smoke') await runSmokeChecks(pool);
-          else if (row.job === 'integrity') await runIntegrityChecks(pool, { root: REPO_ROOT });
+          else if (row.job === 'integrity') {
+            await runIntegrityChecks(pool, { root: REPO_ROOT });
+            // Folded into the same weekly slot rather than given its own: same
+            // cadence, same zone on the screen, one control for the owner to
+            // find instead of two that must be kept in step.
+            await refreshAdvisories(pool, { root: REPO_ROOT });
+          }
           await markRan(pool, row.job);
         } catch (e) {
           // Record the attempt even on failure, or a job that always throws

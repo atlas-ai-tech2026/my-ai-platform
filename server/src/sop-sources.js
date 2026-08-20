@@ -80,14 +80,31 @@ export const LINE_SOURCES = {
       + 'quiet only when the files are genuinely there.',
   },
   'usage-': { prefix: true, kind: KIND.BUCKET, why: 'Lists each bucket and measures it.' },
+  // Declared EXPLICITLY, ahead of the usage- family, because it is the one
+  // member that is not a bucket. The family entry would have covered it and the
+  // test would have passed — while the screen claimed a Postgres measurement
+  // came from object storage. A source registry that is quietly wrong is worse
+  // than none, since it is the thing everything else is checked against.
+  'usage-database': {
+    kind: KIND.DATABASE,
+    why: 'pg_database_size() and pg_total_relation_size(), asked of the database itself. '
+      + 'Only possible FROM THE SERVER — the database accepts trusted sources only, so this '
+      + 'number cannot be looked up by hand from a laptop.',
+  },
   'written-': { prefix: true, kind: KIND.DATABASE, why: 'Counts nulls over a rolling window.' },
 
   // ── INTEGRITY ────────────────────────────────────────────────────────────
   advisories: {
-    kind: KIND.LIVE_API,
-    why: 'Runs npm audit, which queries the registry for current advisories, and diffs the result '
-      + 'against the reviewed set held in known_advisories. Reports what is NEW — a count of the '
-      + 'total would say the same alarming thing every week and teach dismissal.',
+    // DATABASE, not LIVE_API — and the distinction is the point of this file.
+    // The screen reads advisory_runs; the live npm audit that fills it happens
+    // WEEKLY, with the structure checks, and on "Check now". Declaring it live
+    // when it is stored is the same class of error as the backup line that read
+    // process memory: technically a source, and not the one being displayed.
+    kind: KIND.DATABASE,
+    why: 'Reads the stored result in advisory_runs, and shows the date it was actually taken. '
+      + 'The audit itself runs weekly with the structure checks: npm audit, diffed against the '
+      + 'reviewed set in known_advisories. Reports what is NEW — a count of the total would say '
+      + 'the same alarming thing every week and teach dismissal.',
   },
   'dead-paths': { kind: KIND.SOURCE_FILE, why: 'Parses the client and server sources.' },
   'null-columns': { kind: KIND.DATABASE, why: 'pg_stats, then an exact count to confirm.' },
