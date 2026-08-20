@@ -18,7 +18,8 @@
     "preview": "vite preview",
     "server": "node server/src/index.js",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "postinstall": "git config core.hooksPath .githooks 2>/dev/null || true"
   },
   "dependencies": {
     "@fal-ai/client": "^1.5.0",

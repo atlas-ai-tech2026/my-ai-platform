@@ -128,12 +128,16 @@ export const SEED = [
       + 'DECIDED 2026-08-19 by the owner: currency is USD throughout · entries are dated by the INVOICE DATE received, so months line up with reality rather than with when someone typed them · Claude IS included at $100/month, in its own category, because the question being answered is what the BUSINESS costs to run, not just the platform · and expenses must be freely addable as monthly, annual OR one-time. '
       + 'Cancelled entries are marked, never deleted — a cost that disappears from history makes last quarter look wrong. '
       + 'Owes a Knowledge Base entry in Arabic and English once built and confirmed, per the standing rule.' },
-  { ref: '62', owner: 'claude', status: 'pending', priority: 14,
+  { ref: '62', owner: 'claude', status: 'done', priority: 14,
     title: 'A git hook that makes committing to main impossible, not merely discouraged',
     why: 'I committed to main instead of dev FOUR times on 19 August. Every time I noticed afterwards; once it had to be unwound. Our own rule is dev first, verify, then merge — and I broke it four times in one night while writing rules about discipline.',
     detail: 'PRIORITISED 2026-08-20 by the owner, ahead of the Expenses tab, and rightly. A hook removes a failure I have demonstrably repeated; a promise to remember does not. '
       + 'A pre-commit hook refusing any commit whose branch is main, with a documented override for the deliberate case. Set up via .claude/settings.json or .git/hooks — settings.json is preferable because it is version-controlled and survives a fresh clone. '
-      + 'THE PRINCIPLE, worth stating because it applies beyond git: when a mistake has happened more than twice, stop trying harder and make it mechanically impossible. Everything else on this board that works — the branch checks, the lint sweep, the source registry — works for that reason.' },
+      + 'THE PRINCIPLE, worth stating because it applies beyond git: when a mistake has happened more than twice, stop trying harder and make it mechanically impossible. Everything else on this board that works — the branch checks, the lint sweep, the source registry — works for that reason. '
+      + 'DONE 2026-08-20. .githooks/pre-commit refuses any commit on main or master. PROVEN by attempting a real commit — refused, and git log confirmed none was created. '
+      + 'THE CORRECT FLOW IS UNAFFECTED, verified separately: committing on dev works, and `git merge dev --ff-only` into main creates NO commit so the hook never fires. No false positives by design. '
+      + 'ALLOW_MAIN_COMMIT=1 is the deliberate exception — a guard with no way out gets disabled entirely the first time someone genuinely needs past it. A detached HEAD (rebase, bisect, cherry-pick) is left alone. '
+      + 'THE GAP THAT WOULD HAVE MADE IT USELESS: a hook file does nothing until core.hooksPath points at it, so a fresh clone would have had it sitting there inert while looking protected. npm install now sets it via postinstall, and a test FAILS if it is not switched on. A safeguard nobody has enabled is the same as no safeguard.' },
   { ref: '63', owner: 'claude', status: 'pending', priority: 15,
     title: 'A VOXEL skill, so the project’s rules load BEFORE I act rather than after',
     why: 'The owner asked which skills would make me perform better. The honest answer was that none of the generic ones would have prevented a single error from 19 August — those were attention and verification, not knowledge. What WOULD help is this project’s own hard-won rules arriving before I start, not sitting in a file I may or may not consult.',

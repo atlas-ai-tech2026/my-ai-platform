@@ -1,0 +1,55 @@
+#!/bin/sh
+# ─── pre-commit ──────────────────────────────────────────────────────────────
+# Refuse to commit directly to main.
+#
+# WHY THIS EXISTS: on 2026-08-19 Claude committed to main instead of dev FOUR
+# times in one night, while writing rules about discipline. Every time it was
+# noticed afterwards; once it had to be unwound. The rule was known, written
+# down, and agreed — and broken four times anyway.
+#
+# When a mistake has happened more than twice, stop trying harder and make it
+# mechanically impossible. That is what this is.
+#
+# THE FLOW THIS PROTECTS: commit on dev → deploy to dev → verify → merge to main
+# with --ff-only. A fast-forward merge creates NO commit, so this hook never
+# fires during the correct process. There are no false positives by design.
+#
+# INSTALL (once per clone):  git config core.hooksPath .githooks
+# OVERRIDE (deliberate):     ALLOW_MAIN_COMMIT=1 git commit ...
+
+branch=$(git symbolic-ref --short HEAD 2>/dev/null)
+
+# Detached HEAD — a rebase, a bisect, a cherry-pick in progress. Not a place to
+# interfere; the user is mid-operation and knows it.
+[ -z "$branch" ] && exit 0
+
+case "$branch" in
+  main|master)
+    if [ "$ALLOW_MAIN_COMMIT" = "1" ]; then
+      echo "pre-commit: committing to $branch because ALLOW_MAIN_COMMIT=1. Be sure." >&2
+      exit 0
+    fi
+    cat >&2 <<MSG
+
+  ✋ Refusing to commit to "$branch".
+
+  The flow here is:   commit on dev  →  deploy to dev  →  verify  →  merge to main
+
+  What to do:
+      git checkout dev
+      git commit ...
+      # then, after dev is verified:
+      git checkout main && git merge dev --ff-only && git push origin main
+
+  If you have already committed to $branch by mistake and NOT pushed:
+      git checkout dev && git merge main --ff-only
+      git checkout main && git reset --hard origin/main
+
+  Deliberate exception:  ALLOW_MAIN_COMMIT=1 git commit ...
+
+MSG
+    exit 1
+    ;;
+esac
+
+exit 0
