@@ -11,7 +11,7 @@ import { describe, it, expect, vi } from 'vitest';
 import {
   planSync, runSync, isFatalFailure, destKeyFor, sourceKeyFor,
   MEDIA_PREFIX, MAX_CONSECUTIVE_FAILURES, syncMediaOffsite, syncEnabled,
-  verifyCopies, chooseSample,
+  verifyCopies, chooseSample, copyObject, COPY_TIMEOUT_MS, RUN_WATCHDOG_MS,
 } from './media-sync.js';
 
 const src = (key, size) => ({ key, size });
@@ -210,7 +210,7 @@ describe('the full slice', () => {
       listSource: ok([src('a', 10)]), listDest: ok([]), read, write, log: {},
     });
     expect(r.copied).toBe(1);
-    expect(write).toHaveBeenCalledWith(expect.objectContaining({ key: destKeyFor('a') }));
+    expect(write.mock.calls[0][0]).toEqual(expect.objectContaining({ key: destKeyFor('a') }));
   });
 
   // A truncated listing looks EXACTLY like "everything is already copied" — the
@@ -347,5 +347,60 @@ describe('what the first real run taught', () => {
       copy: async ({ key }) => ({ key, bytes: 1 }), log: {},
     });
     expect(r.copiedObjects.map((o) => o.key).sort()).toEqual(['a', 'b']);
+  });
+});
+
+// ─── the bug that silenced the job for three hours ───────────────────────────
+// 2026-08-20, first check of the morning: the sync had copied 8,682 files
+// overnight and then gone completely quiet at 08:06. The process was alive —
+// the alerts tick kept logging every five minutes — but media-sync said nothing
+// for nearly three hours.
+//
+// A copy had hung. A stream that neither resolves nor rejects, so the promise
+// never settled, the "already running" flag stayed true, and every later tick
+// returned immediately and silently. No error, no log, no progress.
+//
+// A request with no deadline is a request that can wait forever, and forever is
+// longer than anyone is watching.
+describe('a hung copy cannot stop the sync forever', () => {
+  it('gives up on an object that never responds', async () => {
+    const read = vi.fn(() => new Promise(() => {}));      // never settles
+    await expect(
+      copyObject({ read, write: vi.fn(), key: 'k', timeoutMs: 40 }),
+    ).rejects.toBeTruthy();
+  });
+
+  it('passes an abort signal to the read, so the request is actually cancelled', async () => {
+    const read = vi.fn(async () => ({ body: 'x', contentLength: 1 }));
+    const write = vi.fn();
+    await copyObject({ read, write, key: 'k' });
+    expect(read.mock.calls[0][1]?.signal, 'the read got no signal — a hang could not be cancelled')
+      .toBeInstanceOf(AbortSignal);
+    expect(write.mock.calls[0][1]?.signal, 'the write got no signal').toBeInstanceOf(AbortSignal);
+  });
+
+  it('clears its timer on success, so a long run cannot accumulate thousands', async () => {
+    const read = vi.fn(async () => ({ body: 'x', contentLength: 1 }));
+    const before = process.getActiveResourcesInfo?.().filter((r) => r === 'Timeout').length ?? 0;
+    for (let i = 0; i < 20; i += 1) await copyObject({ read, write: vi.fn(), key: `k${i}` });
+    const after = process.getActiveResourcesInfo?.().filter((r) => r === 'Timeout').length ?? 0;
+    expect(after - before).toBeLessThan(5);
+  });
+
+  // A timed-out copy is a NORMAL failure: the run carries on and the object is
+  // simply still missing next time, because the diff makes retries automatic.
+  it('treats a timeout as one bad object, not a reason to stop', async () => {
+    const source = Array.from({ length: 4 }, (_, i) => src(`k${i}`, 10));
+    const copy = vi.fn(async ({ key }) => {
+      if (key === 'k1') throw new Error('The operation was aborted due to timeout');
+      return { key, bytes: 10 };
+    });
+    const r = await runSync({ source, dest: [], copy, log: {} });
+    expect(r.copied).toBe(3);
+    expect(r.stopped, 'a timeout was treated as a wall').toBeNull();
+  });
+
+  it('the watchdog is longer than a copy timeout, or it would fire mid-copy', () => {
+    expect(RUN_WATCHDOG_MS).toBeGreaterThan(COPY_TIMEOUT_MS);
   });
 });

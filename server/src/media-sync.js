@@ -47,6 +47,22 @@ export const MAX_CONSECUTIVE_FAILURES = 5;
 /** Skip anything larger than this rather than stalling a run on one huge file. */
 export const MAX_OBJECT_BYTES = 512 * 1024 ** 2;     // 512 MiB
 
+/**
+ * Deadline for ONE object.
+ *
+ * Generous: the slowest observed copy of a large video is a few seconds, so
+ * four minutes means "something is wrong", not "this one is big". Without it a
+ * single hung stream stops the entire sync silently and permanently.
+ */
+export const COPY_TIMEOUT_MS = 4 * 60 * 1000;
+
+/**
+ * A whole run should finish well inside this. Past it, the run is assumed dead
+ * and the next tick takes over rather than waiting for a promise that will
+ * never settle.
+ */
+export const RUN_WATCHDOG_MS = 12 * 60 * 1000;
+
 /** Source key → destination key. Prefixed, never rewritten, so the two can be compared. */
 export const destKeyFor = (sourceKey) => `${MEDIA_PREFIX}${sourceKey}`;
 export const sourceKeyFor = (destKey) =>
@@ -120,15 +136,52 @@ export function isFatalFailure(message = '') {
  * dies of an out-of-memory error at the worst moment. ContentLength is passed
  * through because Backblaze's S3 layer requires it and cannot chunk.
  */
-export async function copyObject({ read, write, key }) {
-  const got = await read(key);
-  await write({
-    key: destKeyFor(key),
-    body: got.body,
-    contentLength: got.contentLength,
-    contentType: got.contentType || 'application/octet-stream',
+export async function copyObject({ read, write, key, timeoutMs = COPY_TIMEOUT_MS }) {
+  // ── A HUNG COPY MUST NOT BE ABLE TO STOP THE SYNC FOREVER ────────────────
+  // Found on 2026-08-20: the sync went silent for nearly three hours. The
+  // process was alive and the alerts tick kept logging, but a copy had hung —
+  // a stream that neither resolves nor rejects — so the promise never settled,
+  // the "already running" guard stayed true, and every later tick returned
+  // immediately without a word.
+  //
+  // No error, no log, no progress. The exact silent failure this job exists to
+  // prevent, inside the job itself. A request with no deadline is a request
+  // that can wait forever, and forever is longer than anyone is watching.
+  // The signal asks nicely; the race does not. Both are here on purpose.
+  //
+  // An abort signal only works if the callee HONOURS it — and the thing that
+  // actually hung was an S3 client configured with no timeout at all, which
+  // would have ignored one. So the copy is also raced against a deadline that
+  // rejects regardless of what the callee does. A safeguard that depends on
+  // the cooperation of the component that failed is not a safeguard.
+  const ac = new AbortController();
+  let timer;
+  const deadline = new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      ac.abort();
+      reject(new Error(`copy of ${key} exceeded ${Math.round(timeoutMs / 1000)}s and was abandoned`));
+    }, timeoutMs);
   });
-  return { key, bytes: Number(got.contentLength) || 0 };
+
+  const copy = (async () => {
+    const got = await read(key, { signal: ac.signal });
+    await write({
+      key: destKeyFor(key),
+      body: got.body,
+      contentLength: got.contentLength,
+      contentType: got.contentType || 'application/octet-stream',
+    }, { signal: ac.signal });
+    return { key, bytes: Number(got.contentLength) || 0 };
+  })();
+
+  try {
+    return await Promise.race([copy, deadline]);
+  } finally {
+    clearTimeout(timer);
+    // The losing promise must not become an unhandled rejection and take the
+    // process down — which would be a far worse outcome than the stall.
+    copy.catch(() => {});
+  }
 }
 
 /**

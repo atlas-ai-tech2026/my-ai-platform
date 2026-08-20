@@ -71,7 +71,7 @@ import { registerOffersRoutes } from './offers-routes.js';
 import { registerNotificationsRoutes } from './notifications-routes.js';
 import { registerAlertsRoutes, runAlertChecks } from './alerts-routes.js';
 import { registerBackupVerifyRoutes, scheduleRestoreVerification } from './backup-verify-routes.js';
-import { syncMediaOffsite } from './media-sync.js';
+import { syncMediaOffsite, RUN_WATCHDOG_MS } from './media-sync.js';
 import { registerPnlRoutes } from './pnl-routes.js';
 import { registerReliabilityRoutes } from './reliability-routes.js';
 import { registerCustomerRoutes } from './customer-routes.js';
@@ -6502,10 +6502,30 @@ function scheduleVideoChargeReconcile() {
  * because neither has finished writing yet.
  */
 let mediaSyncRunning = false;
+let mediaSyncStartedAt = 0;
 function scheduleMediaSync() {
   const run = async () => {
-    if (mediaSyncRunning) return;
+    // ── THE GUARD THAT SILENCED THE JOB FOR THREE HOURS ──────────────────
+    // This was `if (mediaSyncRunning) return;` — silent. On 2026-08-20 a copy
+    // hung: a stream that neither resolved nor rejected, so the promise never
+    // settled, the flag stayed true, and every tick after it returned without
+    // a word. The process was alive and the alerts kept logging, so nothing
+    // looked wrong. The sync had simply stopped, permanently and quietly.
+    //
+    // Two changes, and the second is the one that matters: a skip now SAYS it
+    // skipped, and a run that has outlived the watchdog is declared dead so the
+    // next tick can take over. Silence is no longer a state this job can reach.
+    if (mediaSyncRunning) {
+      const stuckMs = Date.now() - mediaSyncStartedAt;
+      if (stuckMs < RUN_WATCHDOG_MS) {
+        console.log(`[media-sync] previous run still going (${Math.round(stuckMs / 1000)}s) — skipping this tick`);
+        return;
+      }
+      console.error(`[media-sync] previous run has been stuck for ${Math.round(stuckMs / 60000)} min `
+        + '— assuming it is dead and starting a fresh one. If this repeats, a copy is hanging.');
+    }
     mediaSyncRunning = true;
+    mediaSyncStartedAt = Date.now();
     try {
       const r = await syncMediaOffsite({
         listSource: listAllMedia,

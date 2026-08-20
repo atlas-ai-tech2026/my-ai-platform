@@ -221,9 +221,12 @@ export async function listAllMedia() {
  * and holding several in memory inside the web process is how a customer's
  * generation dies of an out-of-memory error while a backup job runs.
  */
-export async function readObject(key) {
+export async function readObject(key, { signal } = {}) {
   if (!configured) throw new Error('Spaces not configured');
-  const out = await client.send(new GetObjectCommand({ Bucket: BUCKET, Key: key }));
+  // abortSignal, so a hung read cannot stall the sync forever. Without it a
+  // single stalled stream silenced the whole job for three hours on 2026-08-20.
+  const out = await client.send(new GetObjectCommand({ Bucket: BUCKET, Key: key }),
+    signal ? { abortSignal: signal } : undefined);
   return {
     body: out.Body,
     contentLength: Number(out.ContentLength) || 0,

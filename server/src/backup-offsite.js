@@ -180,7 +180,12 @@ export async function readMediaObject(key, env = process.env) {
  * body, which is why the stream is passed with its length rather than piped
  * blind.
  */
-export async function writeMediaObject({ key, body, contentLength, contentType }, env = process.env) {
+export async function writeMediaObject({ key, body, contentLength, contentType },
+  optsOrEnv = {}, maybeEnv = process.env) {
+  // Called as (obj, {signal}) by the sync and as (obj, env) by anything older,
+  // so both shapes are accepted rather than silently ignoring the signal.
+  const signal = optsOrEnv?.signal;
+  const env = optsOrEnv?.signal ? maybeEnv : (optsOrEnv && Object.keys(optsOrEnv).length ? optsOrEnv : process.env);
   if (!offsiteConfigured(env)) throw new Error('offsite storage is not configured');
   await offsiteClient(env).send(new PutObjectCommand({
     Bucket: env.OFFSITE_S3_BUCKET.trim(),
@@ -188,7 +193,7 @@ export async function writeMediaObject({ key, body, contentLength, contentType }
     Body: body,
     ContentLength: contentLength,
     ContentType: contentType || 'application/octet-stream',
-  }));
+  }), signal ? { abortSignal: signal } : undefined);
 }
 
 let cachedClient = null;
@@ -202,6 +207,21 @@ function offsiteClient(env = process.env) {
       secretAccessKey: env.OFFSITE_S3_SECRET.trim(),
     },
     forcePathStyle: true, // widest compatibility (B2, R2, MinIO…)
+    // ── THE ROOT CAUSE OF THE THREE-HOUR SILENCE ────────────────────────
+    // This client had NO timeout of any kind. The Spaces client next door has
+    // had requestTimeout: 8000 since it was written; this one, added later for
+    // the offsite backup, never got one — and nobody noticed because a nightly
+    // 5 MB archive upload never stalls long enough to matter.
+    //
+    // Then the media sync started pushing tens of thousands of objects through
+    // it, one stalled on 2026-08-20, and with no deadline it waited forever.
+    // The promise never settled, the sync's "already running" guard stayed
+    // true, and the job stopped dead in silence for three hours.
+    //
+    // 120s rather than the 8s used for Spaces: these are uploads of whole
+    // videos to a different continent, so slow is normal and forever is not.
+    maxAttempts: 3,
+    requestHandler: { connectionTimeout: 10_000, requestTimeout: 120_000 },
     // SDK ≥3.729 defaults to flexible checksums (aws-chunked bodies with
     // trailing CRC), which some S3-compatible providers reject. B2 accepts
     // them today (verified 2026-08-02), but plain signed bodies are the
