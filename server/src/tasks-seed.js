@@ -128,6 +128,18 @@ export const SEED = [
       + 'DECIDED 2026-08-19 by the owner: currency is USD throughout · entries are dated by the INVOICE DATE received, so months line up with reality rather than with when someone typed them · Claude IS included at $100/month, in its own category, because the question being answered is what the BUSINESS costs to run, not just the platform · and expenses must be freely addable as monthly, annual OR one-time. '
       + 'Cancelled entries are marked, never deleted — a cost that disappears from history makes last quarter look wrong. '
       + 'Owes a Knowledge Base entry in Arabic and English once built and confirmed, per the standing rule.' },
+  { ref: '62', owner: 'claude', status: 'pending', priority: 14,
+    title: 'A git hook that makes committing to main impossible, not merely discouraged',
+    why: 'I committed to main instead of dev FOUR times on 19 August. Every time I noticed afterwards; once it had to be unwound. Our own rule is dev first, verify, then merge — and I broke it four times in one night while writing rules about discipline.',
+    detail: 'PRIORITISED 2026-08-20 by the owner, ahead of the Expenses tab, and rightly. A hook removes a failure I have demonstrably repeated; a promise to remember does not. '
+      + 'A pre-commit hook refusing any commit whose branch is main, with a documented override for the deliberate case. Set up via .claude/settings.json or .git/hooks — settings.json is preferable because it is version-controlled and survives a fresh clone. '
+      + 'THE PRINCIPLE, worth stating because it applies beyond git: when a mistake has happened more than twice, stop trying harder and make it mechanically impossible. Everything else on this board that works — the branch checks, the lint sweep, the source registry — works for that reason.' },
+  { ref: '63', owner: 'claude', status: 'pending', priority: 15,
+    title: 'A VOXEL skill, so the project’s rules load BEFORE I act rather than after',
+    why: 'The owner asked which skills would make me perform better. The honest answer was that none of the generic ones would have prevented a single error from 19 August — those were attention and verification, not knowledge. What WOULD help is this project’s own hard-won rules arriving before I start, not sitting in a file I may or may not consult.',
+    detail: 'PRIORITISED 2026-08-20 at the owner’s request. Encodes what is already written in CLAUDE.md and memory: never git add -A (it published the cost file to a PUBLIC repo) · dev before main · verify the EFFECT, not the change · build before you delete · count the thing, do not trust a flag · never describe state not read in this session · never promise work while the owner is away. '
+      + 'DELIBERATELY NOT a generic security/backend/UX skill — those are already installed and would not have caught the versioning permission error, the sync copying database backups, or the verification crying false failure. Each of those needed either careful reading or knowledge of THIS codebase. '
+      + 'The rules exist; the gap is that they are read after a mistake rather than before an action.' },
   { ref: '61', owner: 'claude', status: 'done', priority: 17,
     title: 'Every SOP line must declare where its facts come from',
     why: 'The owner, 2026-08-20: "When you said you build it and it is working fine, I must believe you. But now after this has happened, we need to verify everything in SOP, and this is wasting of time." They were right. Once ONE line has lied, my word that the others are fine is worth nothing — it is the same word I gave about the broken one.',
@@ -174,10 +186,12 @@ export const SEED = [
     title: 'Fix the site’s contradictions with the legal documents',
     why: 'Publishing "there are no subscriptions" while a logged-in attendee sees a $19/month plan makes the contradiction the evidence.',
     detail: 'Account page shows a $19/month plan with dead buttons; Community advertises a $500 contest with no rules; stripe-js is installed with zero imports.' },
-  { ref: '35', owner: 'claude', status: 'pending', priority: 45,
-    title: 'Weekly checks — new vulnerabilities and database growth',
-    why: 'Ten advisories were accepted deliberately and nothing would report an eleventh. On 18 August there were 11, ALL with fixes available.',
-    detail: 'Alert on what CHANGED, never on "advisories exist" — otherwise it trains dismissal and the real one gets dismissed too.' },
+  { ref: '35', owner: 'claude', status: 'pending', priority: 16,
+    title: 'Weekly checks — run the security review, new vulnerabilities, database growth',
+    why: 'Ten advisories were accepted deliberately and nothing would report an eleventh. On 18 August there were 11, ALL with fixes available. And the security-review tool has existed all along, barely used — a capability nobody runs is the same as one nobody has.',
+    detail: 'Alert on what CHANGED, never on "advisories exist" — otherwise it trains dismissal and the real one gets dismissed too. '
+      + 'RAISED TO PRIORITY 2026-08-20 at the owner’s request, ahead of the Expenses tab: the weekly security review goes into the SOP schedule beside the structure check, so it runs on a cadence instead of when someone remembers. '
+      + 'Also covers the 18 items from the July audit and the four still open (#42) — a review that only ever looks at new code never re-checks what was accepted as fine a year ago.' },
   { ref: '36', owner: 'claude', status: 'pending', priority: 46,
     title: 'Pre-workshop pre-flight card',
     why: 'This is exactly what failed on 8 August: 415 generations failed mid-workshop from an empty supplier account, every one auto-refunded so nothing flagged it.',
