@@ -148,7 +148,7 @@ export async function runSync({
       + plan.tooBig.slice(0, 3).map((o) => o.key).join(', '));
   }
   if (!plan.toCopy.length) {
-    return { ...plan, copied: 0, failed: 0, bytes: 0, ms: Date.now() - started, stopped: null };
+    return { ...plan, copied: 0, copiedObjects: [], failed: 0, bytes: 0, ms: Date.now() - started, stopped: null };
   }
 
   let copied = 0;
@@ -156,11 +156,15 @@ export async function runSync({
   let bytes = 0;
   let consecutive = 0;
   let stopped = null;
+  // Which ones actually made it. Needed because the verification must sample
+  // from what is SUPPOSED to be offsite, and "planned" is not "arrived".
+  const copiedObjects = [];
 
   for (const o of plan.toCopy) {
     try {
       const r = await copy({ read, write, key: o.key });
       copied += 1;
+      copiedObjects.push({ key: o.key, size: o.size });
       bytes += r.bytes || o.size;
       consecutive = 0;
     } catch (e) {
@@ -187,7 +191,7 @@ export async function runSync({
       + `in ${((Date.now() - started) / 1000).toFixed(1)}s — ${remainingAfter} still to copy`);
   }
 
-  return { ...plan, copied, failed, bytes, remainingAfter, ms: Date.now() - started, stopped };
+  return { ...plan, copied, copiedObjects, failed, bytes, remainingAfter, ms: Date.now() - started, stopped };
 }
 
 /**
@@ -295,15 +299,26 @@ export async function syncMediaOffsite({
   // accepted; it proves nothing about whether the bytes are there, complete, or
   // fetchable. This platform ran a daily database backup for MONTHS before
   // anyone tried restoring one — that attempt was the first proof it worked.
-  // Not repeating that here, on the copy of every customer's work.
   //
-  // Sampled from what is now supposed to BE there, not from what this run
-  // happened to copy: a file written correctly last week and corrupted since is
-  // exactly as broken, and only re-reading finds it.
+  // ── SAMPLED FROM WHAT IS SUPPOSED TO BE THERE ────────────────────────────
+  // The first version sampled the whole SOURCE list, and the first production
+  // run reported "VERIFY FAILED on 3 of 3 — Key not found" while the sync was
+  // working perfectly. Of course it was: 399 objects of 11,374 had been copied,
+  // so almost any sample was of something not copied YET. A check that cries
+  // failure during normal operation is one you learn to ignore, which is worse
+  // than not having it.
+  //
+  // So: everything already offsite at the start of this run, plus what this run
+  // actually landed. That includes copies made days ago — a file written
+  // correctly last week and corrupted since is exactly as broken, and only
+  // re-reading finds it.
   if (readDest && !result.stopped) {
-    result.verify = await verifyCopies({
-      readDest, source: srcList.objects.filter((s) => s.size > 0), log,
-    });
+    const alreadyOffsite = dstList.objects
+      .map((d) => ({ key: sourceKeyFor(d.key), size: d.size }))
+      .filter((d) => d.key);
+    const shouldBeThere = [...alreadyOffsite, ...(result.copiedObjects || [])]
+      .filter((o) => o.size > 0);
+    result.verify = await verifyCopies({ readDest, source: shouldBeThere, log });
   }
   return result;
 }

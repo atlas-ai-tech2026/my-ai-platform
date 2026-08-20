@@ -197,7 +197,17 @@ export async function listAllMedia() {
   if (!configured) return { error: 'Spaces not configured' };
   try {
     const { listAllObjects } = await import('./storage-usage.js');
-    const r = await listAllObjects(client, BUCKET, { ListObjectsV2Command });
+    // ONLY `generations/`. This bucket also holds `backups/` — the encrypted
+    // database archives written by uploadPrivate — and those ALREADY go to
+    // Backblaze by their own path. Without this prefix the media sync copied
+    // them a second time under media/backups/, paying twice to store the same
+    // archive and muddying the count of what is actually protected.
+    //
+    // Found on the FIRST production run, from a log line naming
+    // backups/voxel-auto-2026-08-07.ndjson.gz.enc in a media verification.
+    const r = await listAllObjects(client, BUCKET, {
+      ListObjectsV2Command, prefix: 'generations/',
+    });
     return { ...r, bucket: BUCKET };
   } catch (e) {
     return { error: e.message };

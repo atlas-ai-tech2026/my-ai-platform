@@ -297,3 +297,55 @@ describe('reading the copies back', () => {
     expect(r.checked).toBe(0);
   });
 });
+
+// ─── the two bugs the first production run found ─────────────────────────────
+// Both were invisible in the unit tests and obvious within two minutes of real
+// data. Neither would have been found by reading the code again.
+describe('what the first real run taught', () => {
+  // BUG 2. The verify sampled the whole SOURCE list, so during the initial seed
+  // — 399 copied of 11,374 — it reported "VERIFY FAILED, Key not found" while
+  // the sync was working perfectly. A check that cries failure during normal
+  // operation is one you learn to ignore, which is worse than not having it.
+  it('verifies only what is supposed to be offsite, not the whole backlog', async () => {
+    const source = Array.from({ length: 100 }, (_, i) => src(`k${i}`, 10));
+    const dest = [];                                   // nothing copied yet
+    const readDest = vi.fn(async (key) => {
+      // Only the first three were actually written by this run.
+      const k = sourceKeyFor(key);
+      if (['k0', 'k1', 'k2'].includes(k)) return { contentLength: 10 };
+      throw new Error('Key not found');
+    });
+    const r = await syncMediaOffsite({
+      env: { MEDIA_SYNC_ENABLED: 'true' },
+      listSource: async () => ({ objects: source, truncated: false }),
+      listDest: async () => ({ objects: dest, truncated: false }),
+      read: async () => ({ body: 'x', contentLength: 10 }),
+      write: vi.fn(),
+      readDest,
+      limits: { maxObjects: 3 },
+      log: {},
+    });
+    expect(r.copied).toBe(3);
+    expect(r.verify.state, 'it verified objects it had never copied').toBe('ok');
+  });
+
+  it('also re-checks copies made on earlier runs, not just this run’s', async () => {
+    const readDest = vi.fn(async () => ({ contentLength: 10 }));
+    const r = await syncMediaOffsite({
+      env: { MEDIA_SYNC_ENABLED: 'true' },
+      listSource: async () => ({ objects: [src('old', 10)], truncated: false }),
+      listDest: async () => ({ objects: [dst('old', 10)], truncated: false }),
+      readDest, log: {},
+    });
+    expect(r.copied).toBe(0);
+    expect(r.verify.checked, 'nothing was re-checked when nothing was copied').toBeGreaterThan(0);
+  });
+
+  it('reports which objects it actually landed, not just how many', async () => {
+    const r = await runSync({
+      source: [src('a', 1), src('b', 2)], dest: [],
+      copy: async ({ key }) => ({ key, bytes: 1 }), log: {},
+    });
+    expect(r.copiedObjects.map((o) => o.key).sort()).toEqual(['a', 'b']);
+  });
+});
