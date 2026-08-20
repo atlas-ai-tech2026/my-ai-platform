@@ -79,6 +79,26 @@ export const SEED = [
       + 'The SOP screen now says ALREADY OVER with the monthly cost, instead of telling you to act "BEFORE this is crossed" seven times past crossing. '
       + 'DONE 2026-08-20 — the owner added a card, so Backblaze bills the excess instead of refusing uploads. The offsite copy is now paid for and will keep running. '
       + 'The SOP line stays RED while usage is above the free tier, which is correct: it is reporting a real, billed overage, not a fault. Expect roughly $0.43/month at this size.' },
+  { ref: '66', owner: 'claude', status: 'in_progress', priority: 2,
+    title: 'Promo codes can be locked to a list of emails, one seat each',
+    why: 'A promo code was a bearer token: know the string, spend a seat. These codes are how an organisation’s PAID seats are handed out, so a hundred-use workshop code forwarded into a group chat is spent by a hundred strangers — and the attendees the customer paid for meet "invalid, expired, or already used" during a live session.',
+    detail: 'Requested by the owner 2026-08-20: "nobody can use this promo code except these emails, and each email can use it only for one time." '
+      + 'BUILT AND ON DEV 2026-08-20, not yet on production. Paste the list or upload a .csv/.txt when creating the code; the redemption limit fills in from the row count so "a hundred emails, a hundred uses" holds by construction. '
+      + 'A stranger gets the SAME refusal as every other failure — "you are not on the list" would confirm to whoever holds a leaked code that the code is real and merely mis-addressed. '
+      + 'THE HALF THAT EARNS ITS KEEP is the outstanding list: the predictable problem is not fraud, it is being invited as ahmed@company.com and signing up as ahmed.k@gmail.com, which a redemption list can never show. '
+      + 'EVERY EXISTING CODE IS UNAFFECTED — no rows means an open code, which is what all of them are. '
+      + 'Verified against a real Postgres 17: the gate, the UNIQUE index refusing a second redemption, the case-insensitive tick-off, the outstanding list. Eleven checks. '
+      + 'STILL TO DO: the owner redeems a code on dev as a real user, then production, then the Knowledge Base entry in Arabic and English.' },
+  { ref: '67', owner: 'claude', status: 'pending', priority: 3,
+    title: 'Credits carry their own expiry — segregate each grant instead of one pooled balance',
+    why: 'users.credits is ONE pooled number and users.expires_at is ONE account-level date. So 10 promo credits expiring 1 September and 100 bulk credits expiring 15 September become 110 credits expiring 15 September — the promo silently gets a two-week extension every time that person appears in a later batch. At workshop scale that is real revenue leaking.',
+    detail: 'Approved by the owner 2026-08-20 after they described the exact case and asked the right question themselves: how does the system know which credits to spend first? '
+      + 'ANSWER, AGREED: soonest-to-expire first. The 10 drain before the 100. The customer gets full value from what they hold instead of watching credits die while a later batch sits untouched, and there are no complaints about credits vanishing. Tie-break on equal dates: oldest grant first. '
+      + 'THE MODEL: a credit_lots row per grant, with its own amount and its own expiry. The balance becomes the sum of lots that have not expired. users.credits stays as a cached mirror because a lot of code reads it — with an SOP check that the mirror and the sum of lots always agree, so drift is caught by the screen and not by a customer. '
+      + 'ACCOUNT EXPIRY IS SEPARATE and stays extend-if-later: the person must still be able to sign in long enough to spend the credits. The lots decide which CREDITS are alive; expires_at decides whether they can log in. Those work together — an earlier note implying one replaced the other was wrong. '
+      + 'HIGHEST-RISK CHANGE ON THIS BOARD: it rewrites the path that moves money — charging, refunds, the video-charge sweeper, the balance display, credit_limit. Refunds are the subtle part: a refund must return to the lot it came from, or it resurrects dead credits or lands in the wrong bucket. '
+      + 'ESTIMATE 12-16 hours, dev first, and not to be rushed before a workshop. ACCEPTANCE TEST IS THE OWNER’S OWN EXAMPLE: 10 credits expiring 1 Sept, 100 expiring 15 Sept, spend some, advance past 1 Sept, confirm the 10 are gone and the 100 remain. '
+      + 'SUPERSEDES the bulk top-up piece: each bulk grant simply becomes a lot. bulk-provision.js is written but deliberately not wired, so it is not built twice.' },
   { ref: '50', owner: 'owner', status: 'pending', priority: 22,
     title: 'Second copy of the backup passphrase',
     why: 'Saved in the Mac Passwords app. If the laptop and DigitalOcean are lost together, every backup becomes permanently unreadable.',
