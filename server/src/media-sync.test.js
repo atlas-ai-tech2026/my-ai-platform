@@ -11,6 +11,7 @@ import { describe, it, expect, vi } from 'vitest';
 import {
   planSync, runSync, isFatalFailure, destKeyFor, sourceKeyFor,
   MEDIA_PREFIX, MAX_CONSECUTIVE_FAILURES, syncMediaOffsite, syncEnabled,
+  verifyCopies, chooseSample,
 } from './media-sync.js';
 
 const src = (key, size) => ({ key, size });
@@ -240,5 +241,59 @@ describe('the full slice', () => {
       listDest: async () => ({ error: 'AccessDenied' }), log: {},
     });
     expect(r.error).toMatch(/offsite bucket: AccessDenied/);
+  });
+});
+
+// ─── proving the copies are real ─────────────────────────────────────────────
+// The lesson of #34, applied before it can be forgotten: the platform had a
+// daily database backup for months and nobody had ever restored one. When it
+// was finally tried, that attempt was the first proof it had ever worked.
+//
+// An upload returning 200 proves the request was accepted. It does not prove
+// the bytes are there, that they are complete, or that they come back. Only
+// reading them does.
+describe('reading the copies back', () => {
+  const source = Array.from({ length: 9 }, (_, i) => src(`k${i}`, 100 + i));
+
+  it('passes when every sampled copy comes back the right size', async () => {
+    const readDest = vi.fn(async (key) => {
+      const k = sourceKeyFor(key);
+      return { contentLength: source.find((s) => s.key === k).size };
+    });
+    const r = await verifyCopies({ readDest, source, log: {} });
+    expect(r.state).toBe('ok');
+    expect(r.checked).toBe(3);
+    expect(r.bad).toEqual([]);
+  });
+
+  // A short copy is the failure mode that matters — it looks present and is
+  // useless, and nothing but reading it back would notice.
+  it('catches a copy that came back the wrong size', async () => {
+    const readDest = vi.fn(async () => ({ contentLength: 1 }));
+    const r = await verifyCopies({ readDest, source, log: {} });
+    expect(r.state).toBe('bad');
+    expect(r.bad[0].why).toMatch(/size does not match/);
+  });
+
+  it('catches a copy that is not there at all', async () => {
+    const readDest = vi.fn(async () => { throw new Error('NoSuchKey'); });
+    const r = await verifyCopies({ readDest, source, log: {} });
+    expect(r.state).toBe('bad');
+    expect(r.bad[0].why).toMatch(/NoSuchKey/);
+  });
+
+  // Evenly spaced, so a failure confined to one era of the bucket is found.
+  // Random would find it eventually; "eventually" is not a property to rely on
+  // for a backup.
+  it('spreads the sample across the list instead of checking the same few', () => {
+    const picked = chooseSample(source, 3).map((s) => s.key);
+    expect(new Set(picked).size).toBe(3);
+    expect(picked).not.toEqual(['k0', 'k1', 'k2']);
+  });
+
+  it('says nothing rather than failing when there is nothing to check', async () => {
+    const r = await verifyCopies({ readDest: vi.fn(), source: [], log: {} });
+    expect(r.state).toBe('quiet');
+    expect(r.checked).toBe(0);
   });
 });

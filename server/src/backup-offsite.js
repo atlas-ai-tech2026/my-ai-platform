@@ -33,7 +33,7 @@
 
 import crypto from 'node:crypto';
 import { S3Client, PutObjectCommand, ListObjectsV2Command,
-         DeleteObjectCommand } from '@aws-sdk/client-s3';
+         DeleteObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
 
 // ---- encryption ----------------------------------------------------------
 
@@ -150,6 +150,21 @@ export async function listOffsiteMedia(env = process.env) {
   } catch (e) {
     return { error: e.message };
   }
+}
+
+/**
+ * Read a media object back OUT of the offsite bucket.
+ *
+ * Only the length is used by the verification — it is what proves a copy is
+ * complete — but the body comes back too so a future check can compare content
+ * rather than size alone.
+ */
+export async function readMediaObject(key, env = process.env) {
+  if (!offsiteConfigured(env)) throw new Error('offsite storage is not configured');
+  const out = await offsiteClient(env).send(new GetObjectCommand({
+    Bucket: env.OFFSITE_S3_BUCKET.trim(), Key: key,
+  }));
+  return { body: out.Body, contentLength: Number(out.ContentLength) || 0 };
 }
 
 /**

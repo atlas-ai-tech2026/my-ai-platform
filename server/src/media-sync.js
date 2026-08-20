@@ -191,6 +191,65 @@ export async function runSync({
 }
 
 /**
+ * Pick a sample to prove the copies are really there and really readable.
+ *
+ * Deterministic-ish by design: `pick` is injected so a test can choose exactly
+ * which objects are sampled, and the caller can spread the sample across the
+ * whole list rather than always checking the same few.
+ */
+export function chooseSample(objects = [], size = 3, pick = (list, n) => {
+  // Evenly spaced rather than random: the oldest, middle and newest copies get
+  // checked, so a failure confined to one era of the bucket is found. Random
+  // sampling would eventually find it too — "eventually" is not a property
+  // worth relying on for a backup.
+  if (list.length <= n) return list;
+  const step = Math.floor(list.length / n);
+  return Array.from({ length: n }, (_, i) => list[i * step]);
+}) {
+  return pick(objects, size);
+}
+
+/**
+ * Read a sample back OUT of the offsite bucket and check it against the source.
+ *
+ * ── WHY THIS EXISTS AT ALL ─────────────────────────────────────────────────
+ * This is the lesson of #34, applied before it can be forgotten: a backup
+ * nobody has read is not a backup, it is a hope. The platform had a daily
+ * database backup for months and nobody had ever restored one — when it was
+ * finally tried, that was the first proof it worked at all.
+ *
+ * An upload returning 200 proves the request was accepted. It does not prove
+ * the bytes are there, that they are complete, or that they can be fetched
+ * back. Only reading them does.
+ */
+export async function verifyCopies({ readDest, source = [], sampleSize = 3, log = console } = {}) {
+  const sample = chooseSample(source, sampleSize);
+  if (!sample.length) return { checked: 0, ok: 0, bad: [], state: 'quiet' };
+
+  const bad = [];
+  let ok = 0;
+  for (const s of sample) {
+    try {
+      const got = await readDest(destKeyFor(s.key));
+      const size = Number(got?.contentLength) || 0;
+      if (size !== Number(s.size)) {
+        bad.push({ key: s.key, expected: s.size, found: size, why: 'size does not match' });
+      } else ok += 1;
+    } catch (e) {
+      bad.push({ key: s.key, expected: s.size, found: null, why: e.message });
+    }
+  }
+
+  if (bad.length) {
+    log.error?.(`[media-sync] VERIFY FAILED on ${bad.length} of ${sample.length}: `
+      + bad.map((b) => `${b.key} (${b.why})`).join(' · '));
+  } else {
+    log.log?.(`[media-sync] verified ${ok} sampled copy/copies readable offsite`);
+  }
+  return { checked: sample.length, ok, bad, state: bad.length ? 'bad' : 'ok' };
+}
+
+/**
  * Is the sync allowed to run?
  *
  * OFF BY DEFAULT, and that is not caution for its own sake. Backblaze gives
@@ -210,7 +269,7 @@ export function syncEnabled(env = process.env) {
  * neither storage module has to know the other exists.
  */
 export async function syncMediaOffsite({
-  listSource, listDest, read, write, env = process.env, limits = {}, log = console,
+  listSource, listDest, read, write, readDest, env = process.env, limits = {}, log = console,
 } = {}) {
   if (!syncEnabled(env)) {
     return { skipped: 'MEDIA_SYNC_ENABLED is not set — the offsite media copy is switched off' };
@@ -228,7 +287,23 @@ export async function syncMediaOffsite({
       + 'of what exists, because that is indistinguishable from "nothing is missing"' };
   }
 
-  return runSync({
+  const result = await runSync({
     read, write, source: srcList.objects, dest: dstList.objects, limits, log,
   });
+
+  // Read a sample back. An upload returning 200 proves the request was
+  // accepted; it proves nothing about whether the bytes are there, complete, or
+  // fetchable. This platform ran a daily database backup for MONTHS before
+  // anyone tried restoring one — that attempt was the first proof it worked.
+  // Not repeating that here, on the copy of every customer's work.
+  //
+  // Sampled from what is now supposed to BE there, not from what this run
+  // happened to copy: a file written correctly last week and corrupted since is
+  // exactly as broken, and only re-reading finds it.
+  if (readDest && !result.stopped) {
+    result.verify = await verifyCopies({
+      readDest, source: srcList.objects.filter((s) => s.size > 0), log,
+    });
+  }
+  return result;
 }

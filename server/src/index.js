@@ -98,7 +98,7 @@ import { loginThrottleVerdict } from './login-throttle.js';
 // M3 (audit 2026-07-28): encrypted second backup destination.
 import {
   encryptBackup, offsiteConfigured, uploadOffsite, missingOffsiteVars, pruneOffsite,
-  listOffsiteMedia, writeMediaObject,
+  listOffsiteMedia, writeMediaObject, readMediaObject,
 } from './backup-offsite.js';
 // H7 (audit 2026-07-28): admin session in an httpOnly cookie + CSRF.
 import {
@@ -6512,6 +6512,7 @@ function scheduleMediaSync() {
         listDest: listOffsiteMedia,
         read: readObject,
         write: writeMediaObject,
+        readDest: readMediaObject,
       });
       if (r.error) console.error(`[media-sync] ${r.error}`);
     } catch (e) {
