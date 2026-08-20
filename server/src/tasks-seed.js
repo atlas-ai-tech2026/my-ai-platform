@@ -128,6 +128,14 @@ export const SEED = [
       + 'DECIDED 2026-08-19 by the owner: currency is USD throughout · entries are dated by the INVOICE DATE received, so months line up with reality rather than with when someone typed them · Claude IS included at $100/month, in its own category, because the question being answered is what the BUSINESS costs to run, not just the platform · and expenses must be freely addable as monthly, annual OR one-time. '
       + 'Cancelled entries are marked, never deleted — a cost that disappears from history makes last quarter look wrong. '
       + 'Owes a Knowledge Base entry in Arabic and English once built and confirmed, per the standing rule.' },
+  { ref: '61', owner: 'claude', status: 'done', priority: 17,
+    title: 'Every SOP line must declare where its facts come from',
+    why: 'The owner, 2026-08-20: "When you said you build it and it is working fine, I must believe you. But now after this has happened, we need to verify everything in SOP, and this is wasting of time." They were right. Once ONE line has lied, my word that the others are fine is worth nothing — it is the same word I gave about the broken one.',
+    detail: 'DONE 2026-08-20. The Daily backup line read a module-level object that every restart wipes, so it reported "not checked" while backups ran perfectly. '
+      + 'THE AUDIT: every other line was traced. All read the database, the buckets, live API calls, the source files, or the environment. autoBackupStatus was the ONLY in-memory source in the whole tab, and it is now fixed — so the rest did NOT need re-verifying. '
+      + 'THE STRUCTURAL FIX, so this is a check and not a promise: sop-sources.js declares the source of every line, and the test suite refuses any line reading process memory, or any NEW line that forgets to declare at all. Verified by breaking it both ways — an undeclared line fails 2 tests, an in-memory source fails 3. '
+      + 'THE CHECK HAD ITS OWN BLIND SPOT: the first extractor missed four integrity lines emitted through a local helper rather than a literal key. Caught by the orphan test, fixed, and a canary added so the blind spot is detectable rather than silent. '
+      + 'ONE HONEST EXCEPTION: the "open security items" under Posture are a hand-maintained list. That is a RECORD, not a check — it can show a false red if something is fixed and nobody edits it. It cannot show a false green, which is the only reason it is allowed, and it must say so in its own declaration.' },
   { ref: '58', owner: 'claude', status: 'done', priority: 20,
     title: 'SOP — daily storage check that warns BEFORE a limit is crossed',
     why: 'Asked for on 2026-08-19: "tell me I will start or become to exceed the limit to start, make a subscription for them." Not "you are over" — "you are ABOUT to be over." A quota found by exceeding it is an outage; found 40 days out it is a diary entry.',
