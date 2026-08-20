@@ -166,6 +166,32 @@ export async function measureBucket(client, bucket, { ListObjectsV2Command, maxP
   return { bytes, objects, truncated: false };
 }
 
+/**
+ * Every object in a bucket, paginated — key and size only.
+ *
+ * Separate from measureBucket because the sync needs the LIST, not the total,
+ * and building the list twice from two different paginators is how the two
+ * quietly disagree about what is in the bucket.
+ */
+export async function listAllObjects(client, bucket, { ListObjectsV2Command, prefix, maxPages = 200 } = {}) {
+  const objects = [];
+  let token;
+  let pages = 0;
+  do {
+    const out = await client.send(new ListObjectsV2Command({
+      Bucket: bucket, MaxKeys: 1000, ContinuationToken: token,
+      ...(prefix ? { Prefix: prefix } : null),
+    }));
+    for (const o of out.Contents || []) objects.push({ key: o.Key, size: Number(o.Size) || 0 });
+    token = out.IsTruncated ? out.NextContinuationToken : undefined;
+    pages += 1;
+    // Truncation is REPORTED. A partial list handed to the sync would look
+    // exactly like "everything is already copied".
+    if (pages >= maxPages && token) return { objects, truncated: true };
+  } while (token);
+  return { objects, truncated: false };
+}
+
 export async function recordUsage(pool, { provider, bucket, bytes, objects }) {
   await ensureUsageTable(pool);
   await pool.query(

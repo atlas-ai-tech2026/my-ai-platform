@@ -137,6 +137,45 @@ export async function measureOffsiteMedia(env = process.env) {
   return measureOffsiteUsage(env, { prefix: MEDIA_PREFIX });
 }
 
+/** Every media object already offsite — the DESTINATION side of the sync. */
+export async function listOffsiteMedia(env = process.env) {
+  if (!offsiteConfigured(env)) return { error: 'offsite storage is not configured in this environment' };
+  try {
+    const { listAllObjects } = await import('./storage-usage.js');
+    const { MEDIA_PREFIX } = await import('./media-sync.js');
+    const r = await listAllObjects(offsiteClient(env), env.OFFSITE_S3_BUCKET.trim(), {
+      ListObjectsV2Command, prefix: MEDIA_PREFIX,
+    });
+    return { ...r, bucket: env.OFFSITE_S3_BUCKET.trim() };
+  } catch (e) {
+    return { error: e.message };
+  }
+}
+
+/**
+ * Write one media object offsite.
+ *
+ * NOT encrypted, unlike the database archives above — and that is deliberate.
+ * These are images and videos the customer can already fetch from a public URL,
+ * so encrypting them would add a passphrase dependency to 66 GiB of files
+ * without protecting anything that is not already public. The database backups
+ * contain emails and ledgers and stay encrypted.
+ *
+ * ContentLength is required: Backblaze's S3 layer will not accept a chunked
+ * body, which is why the stream is passed with its length rather than piped
+ * blind.
+ */
+export async function writeMediaObject({ key, body, contentLength, contentType }, env = process.env) {
+  if (!offsiteConfigured(env)) throw new Error('offsite storage is not configured');
+  await offsiteClient(env).send(new PutObjectCommand({
+    Bucket: env.OFFSITE_S3_BUCKET.trim(),
+    Key: key,
+    Body: body,
+    ContentLength: contentLength,
+    ContentType: contentType || 'application/octet-stream',
+  }));
+}
+
 let cachedClient = null;
 function offsiteClient(env = process.env) {
   if (cachedClient) return cachedClient;

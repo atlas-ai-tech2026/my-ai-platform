@@ -13,7 +13,8 @@ import dotenv from 'dotenv';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { pool, isReady as dbReady, migrate, ADMIN_EMAIL } from './db.js';
-import { persistOrFallback, persistBuffer, isReady as spacesReady, uploadPrivate, listKeys, deleteKey } from './storage.js';
+import { persistOrFallback, persistBuffer, isReady as spacesReady, uploadPrivate, listKeys, deleteKey,
+         listAllMedia, readObject } from './storage.js';
 import { configureKie, kieCreateTask, kieGetTask, kiePollUntilDone, kieUploadBuffer, kieGetCredits } from './kie.js';
 import { estimateKieCredits, backfillKieEstimate, KIE_USD_PER_CREDIT,
          KIE_CALIBRATION, kieBilledUsdPerCredit } from './kie-pricing.js';
@@ -70,6 +71,7 @@ import { registerOffersRoutes } from './offers-routes.js';
 import { registerNotificationsRoutes } from './notifications-routes.js';
 import { registerAlertsRoutes, runAlertChecks } from './alerts-routes.js';
 import { registerBackupVerifyRoutes, scheduleRestoreVerification } from './backup-verify-routes.js';
+import { syncMediaOffsite } from './media-sync.js';
 import { registerPnlRoutes } from './pnl-routes.js';
 import { registerReliabilityRoutes } from './reliability-routes.js';
 import { registerCustomerRoutes } from './customer-routes.js';
@@ -96,6 +98,7 @@ import { loginThrottleVerdict } from './login-throttle.js';
 // M3 (audit 2026-07-28): encrypted second backup destination.
 import {
   encryptBackup, offsiteConfigured, uploadOffsite, missingOffsiteVars, pruneOffsite,
+  listOffsiteMedia, writeMediaObject,
 } from './backup-offsite.js';
 // H7 (audit 2026-07-28): admin session in an httpOnly cookie + CSRF.
 import {
@@ -6485,6 +6488,46 @@ function scheduleVideoChargeReconcile() {
   setInterval(run, 60 * 60 * 1000).unref?.();
 }
 
+/**
+ * Copy customer media offsite, a slice at a time.
+ *
+ * INERT until MEDIA_SYNC_ENABLED is set — syncMediaOffsite checks that itself
+ * and returns immediately. Backblaze refuses every upload above 10 GB without a
+ * payment method, so an eager sync would spend its first night failing
+ * thousands of times.
+ *
+ * The `running` guard matters more than it looks. A slow run can outlast the
+ * interval, and two passes at once would copy the same objects twice and double
+ * the bandwidth for no benefit — each would see the same "missing" list,
+ * because neither has finished writing yet.
+ */
+let mediaSyncRunning = false;
+function scheduleMediaSync() {
+  const run = async () => {
+    if (mediaSyncRunning) return;
+    mediaSyncRunning = true;
+    try {
+      const r = await syncMediaOffsite({
+        listSource: listAllMedia,
+        listDest: listOffsiteMedia,
+        read: readObject,
+        write: writeMediaObject,
+      });
+      if (r.error) console.error(`[media-sync] ${r.error}`);
+    } catch (e) {
+      // Never let a backup job take the web process down — it would have made
+      // things worse than the gap it was closing.
+      console.error('[media-sync] pass failed:', e.message);
+    } finally {
+      mediaSyncRunning = false;
+    }
+  };
+  // Two minutes after boot, so a redeploy does not start heavy I/O while the
+  // process is still warming up and serving its first requests.
+  setTimeout(run, 2 * 60 * 1000).unref?.();
+  setInterval(run, 15 * 60 * 1000).unref?.();
+}
+
 migrate()
   .then(async () => {
     await backfillProviderCosts();
@@ -6532,6 +6575,22 @@ migrate()
     // then deleted: server/scripts/enable-versioning.mjs. The SOP screen reads
     // the bucket daily and says plainly whether it is on, so a setting nobody
     // applied cannot quietly look applied.
+
+    // #55, second half — the offsite copy of customer media.
+    //
+    // EVERY 15 MINUTES, not daily, and the arithmetic is the reason: each run
+    // is capped at 400 objects and 2 GiB so it cannot hog a web process that
+    // gets redeployed several times a day. At that cap, 11,320 objects and
+    // 66 GiB need ~34 runs. Daily, the first full copy would finish in 34 DAYS;
+    // every fifteen minutes it finishes in about 8.5 hours. Once caught up a
+    // run is two list calls and no work at all, so the frequency costs nothing
+    // afterwards.
+    //
+    // 900_000 ms is comfortably inside the 32-bit timer limit. A delay above
+    // 2,147,483,647 is silently coerced to 1ms — the bug that ran the restore
+    // verification 294 times in five seconds on 2026-08-17 and exhausted a
+    // provider's daily cap.
+    scheduleMediaSync();
     // Owner-editable cadences, driven by the last recorded run rather than a
     // timer, so they survive the many redeploys this app sees in a day.
     scheduleSopJobs(pool, dbReady);

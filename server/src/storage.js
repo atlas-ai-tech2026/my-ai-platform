@@ -187,6 +187,41 @@ export async function versioningStatus() {
 }
 
 /**
+ * Every object in the media bucket — the SOURCE side of the offsite sync.
+ *
+ * Truncation is passed through rather than swallowed: a partial list would look
+ * to the sync exactly like "everything is already copied", which is the most
+ * dangerous possible wrong answer for a backup job.
+ */
+export async function listAllMedia() {
+  if (!configured) return { error: 'Spaces not configured' };
+  try {
+    const { listAllObjects } = await import('./storage-usage.js');
+    const r = await listAllObjects(client, BUCKET, { ListObjectsV2Command });
+    return { ...r, bucket: BUCKET };
+  } catch (e) {
+    return { error: e.message };
+  }
+}
+
+/**
+ * Open an object for streaming.
+ *
+ * Returns the raw stream, NOT a buffer. A video can be hundreds of megabytes,
+ * and holding several in memory inside the web process is how a customer's
+ * generation dies of an out-of-memory error while a backup job runs.
+ */
+export async function readObject(key) {
+  if (!configured) throw new Error('Spaces not configured');
+  const out = await client.send(new GetObjectCommand({ Bucket: BUCKET, Key: key }));
+  return {
+    body: out.Body,
+    contentLength: Number(out.ContentLength) || 0,
+    contentType: out.ContentType || 'application/octet-stream',
+  };
+}
+
+/**
  * Total size of this bucket, for the daily quota check.
  *
  * Lives here rather than in storage-usage.js so the S3 client stays private to
