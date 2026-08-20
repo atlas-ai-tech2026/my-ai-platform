@@ -133,6 +133,9 @@ export const adminApi = {
   // itself stay locked so the credit ledger cannot disagree with the code.
   updatePromo: (id, body) => request('PATCH', `/api/admin/promocodes/${id}`, body),
   promoRedemptions: (id) => request('GET', `/api/admin/promocodes/${id}/redemptions`),
+  // Who the code was ADDRESSED to, and who has actually turned up. Different
+  // question from redemptions: this one can show you the people who have NOT.
+  promoInvites: (id) => request('GET', `/api/admin/promocodes/${id}/invites`),
   createGiftCards: (body) => request('POST', '/api/admin/giftcards', body),
   listGiftCards: (status = 'all') => request('GET', `/api/admin/giftcards?status=${status}`),
 

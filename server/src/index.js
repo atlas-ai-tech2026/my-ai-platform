@@ -21,6 +21,7 @@ import { estimateKieCredits, backfillKieEstimate, KIE_USD_PER_CREDIT,
 import { estimateFalCost, backfillFalEstimate } from './fal-pricing.js';
 import { publicReason } from './sanitize.js';
 import { normalizeBulkEmails, generateBulkPassword } from './bulk-helpers.js';
+import { mayRedeem, capForInvites, splitInvites, REFUSAL } from './promo-audience.js';
 import { verifyJwt, requireAdmin, requireNotBanned } from './middleware/auth.js';
 // Restored after the in-file getStore block was removed — DIST_DIR
 // at the bottom of this file still needs __dirname.
@@ -5546,8 +5547,33 @@ app.post('/api/redeem-code', redeemLimiter, verifyJwt, requireNotBanned, async (
     if (invalid) {
       await client.query('ROLLBACK');
       // One generic message — don't leak which codes exist vs expired.
-      return res.status(404).json({ error: 'This code is invalid, expired, or already used.' });
+      return res.status(404).json({ error: REFUSAL });
     }
+
+    // ── IS THIS CODE ADDRESSED TO THIS PERSON? ────────────────────────────
+    // A code with no rows here is open, which is every code issued before
+    // 2026-08-20. With a list, only those addresses may redeem — that is what
+    // makes a forwarded code worthless to whoever received it.
+    //
+    // The claim is checked against the account's OWN email from the database,
+    // never anything sent with the request.
+    const invitedRows = await client.query(
+      `SELECT email FROM promo_code_emails WHERE code_id = $1`, [p.id]);
+    if (invitedRows.rowCount > 0) {
+      const verdict = mayRedeem({
+        email: req.user.email,
+        invited: new Set(invitedRows.rows.map((r) => r.email)),
+      });
+      if (!verdict.allowed) {
+        await client.query('ROLLBACK');
+        console.log(`[redeem] ${code} refused for ${req.user.email} — not on the code's list`);
+        // THE SAME WORDS as every other refusal. "You are not on the list"
+        // would confirm to whoever holds a leaked code that the code is real
+        // and merely mis-addressed.
+        return res.status(404).json({ error: REFUSAL });
+      }
+    }
+
     try {
       await client.query('INSERT INTO promo_redemptions (code_id, user_id) VALUES ($1, $2)', [p.id, req.user.id]);
     } catch (e) {
@@ -5558,6 +5584,11 @@ app.post('/api/redeem-code', redeemLimiter, verifyJwt, requireNotBanned, async (
       throw e;
     }
     await client.query('UPDATE promo_codes SET redeemed_count = redeemed_count + 1 WHERE id = $1', [p.id]);
+    // Tick the invitation off. Harmlessly matches nothing on an open code.
+    await client.query(
+      `UPDATE promo_code_emails SET redeemed_by = $2, redeemed_at = NOW()
+        WHERE code_id = $1 AND LOWER(email) = LOWER($3) AND redeemed_at IS NULL`,
+      [p.id, req.user.id, req.user.email]);
     const credits = Number(p.credits);
     const balance = await grantRedeemedCredits(client, {
       userId: req.user.id, credits, action: 'promo', reason: `promo: ${code}`,
@@ -5842,12 +5873,46 @@ app.post('/api/admin/promocodes', adminGate, async (req, res) => {
       }
     }
 
-    const { rows } = await pool.query(
-      `INSERT INTO promo_codes (code, credits, max_redemptions, expires_at, created_by, description, access_days)
-       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
-      [code, credits, maxRedemptions, expiresAt, req.user?.email || ADMIN_EMAIL, description, accessDays]
-    );
-    res.json({ promo: rows[0] });
+    // ── WHO the code is for ───────────────────────────────────────────────
+    // Optional. Without a list the code behaves exactly as every code issued
+    // so far: anyone signed in who knows the string may redeem it once.
+    const { valid: invited, invalid: badEmails, dupes: dupeEmails } =
+      normalizeBulkEmails(req.body?.emails);
+    if (invited.length > 5000) {
+      return res.status(400).json({ error: `Too many emails (${invited.length}) — max 5000 per code.` });
+    }
+    // "One hundred emails, one hundred uses": the list IS the cap, so the two
+    // cannot drift apart. A smaller deliberate cap is still honoured.
+    const cap = capForInvites({ inviteCount: invited.length, requested: maxRedemptions });
+
+    // The code and its list commit together. A code that exists with half its
+    // audience missing would be open to exactly the people left off it.
+    const client = await pool.connect();
+    let created;
+    try {
+      await client.query('BEGIN');
+      const { rows } = await client.query(
+        `INSERT INTO promo_codes (code, credits, max_redemptions, expires_at, created_by, description, access_days)
+         VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+        [code, credits, cap, expiresAt, req.user?.email || ADMIN_EMAIL, description, accessDays]
+      );
+      created = rows[0];
+      for (const email of invited) {
+        await client.query(
+          `INSERT INTO promo_code_emails (code_id, email) VALUES ($1, $2)
+           ON CONFLICT (code_id, email) DO NOTHING`,
+          [created.id, email]);
+      }
+      await client.query('COMMIT');
+    } catch (e) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw e;
+    } finally {
+      client.release();
+    }
+    console.log(`[admin/promocodes] ${created.code} created — ${credits} credits, `
+      + `${invited.length ? `${invited.length} invited, cap ${cap}` : 'open to anyone with the code'}`);
+    res.json({ promo: created, invited: invited.length, invalid: badEmails, dupes: dupeEmails });
   } catch (err) {
     if (String(err.code) === '23505') return res.status(409).json({ error: 'That code already exists.' });
     console.error('[admin/promocodes] error:', err);
@@ -5970,6 +6035,33 @@ app.get('/api/admin/promocodes/:id/redemptions', adminGate, async (req, res) => 
   } catch (err) {
     console.error('[admin/promocodes] redemptions error:', err);
     res.status(500).json({ error: 'Could not load redemptions.' });
+  }
+});
+
+// Who was invited, and who has actually turned up.
+//
+// The screen that earns its keep BEFORE a workshop. The predictable failure is
+// not fraud — it is someone invited as ahmed@company.com signing up with
+// ahmed.k@gmail.com. A list showing only redemptions cannot surface that; one
+// showing who is still outstanding lets it be fixed in seconds.
+app.get('/api/admin/promocodes/:id/invites', adminGate, async (req, res) => {
+  if (!dbReady()) return res.status(503).json({ error: 'Database not available.' });
+  try {
+    const codeId = parseInt(req.params.id, 10);
+    if (!Number.isFinite(codeId) || codeId <= 0) {
+      return res.status(400).json({ error: 'Invalid code id.' });
+    }
+    const { rows } = await pool.query(
+      `SELECT e.email, e.redeemed_at, u.email AS redeemed_by_email
+         FROM promo_code_emails e
+         LEFT JOIN users u ON u.id = e.redeemed_by
+        WHERE e.code_id = $1
+        ORDER BY e.redeemed_at NULLS FIRST, e.email`,
+      [codeId]);
+    res.json(splitInvites(rows));
+  } catch (err) {
+    console.error('[admin/promocodes/invites] error:', err);
+    res.status(500).json({ error: 'Could not read the invitation list.' });
   }
 });
 

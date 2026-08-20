@@ -196,6 +196,29 @@ export async function migrate() {
         created_at      TIMESTAMPTZ  NOT NULL DEFAULT NOW()
       );
     `);
+    // ── WHO a code is for (2026-08-20) ────────────────────────────────────
+    // Until this, a promo code was a bearer token: know the string, spend a
+    // seat. These codes are how an organisation's PAID seats are handed out,
+    // so a hundred-use code forwarded into a group chat was spent by a hundred
+    // strangers while the customer's own attendees were refused.
+    //
+    // A code with NO rows here stays open, which is every code already issued.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS promo_code_emails (
+        id          SERIAL      PRIMARY KEY,
+        code_id     INTEGER     NOT NULL REFERENCES promo_codes(id) ON DELETE CASCADE,
+        email       VARCHAR(255) NOT NULL,
+        redeemed_by INTEGER     REFERENCES users(id) ON DELETE SET NULL,
+        redeemed_at TIMESTAMPTZ,
+        added_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        -- One seat per address per code, enforced by the database rather than
+        -- by a check that ran a moment before two people clicked at once.
+        UNIQUE (code_id, email)
+      );
+    `);
+    await client.query(
+      `CREATE INDEX IF NOT EXISTS promo_code_emails_lookup ON promo_code_emails (code_id, email)`);
+
     await client.query(`
       CREATE TABLE IF NOT EXISTS promo_redemptions (
         id         SERIAL      PRIMARY KEY,

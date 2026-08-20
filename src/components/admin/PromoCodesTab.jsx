@@ -100,6 +100,10 @@ export default function PromoCodesTab({ onError }) {
   const [maxRedemptions, setMaxRedemptions] = useState('');
   const [expiresAt, setExpiresAt] = useState('');
   const [accessDays, setAccessDays] = useState('');
+  // WHO the code is for. Blank = open to anyone holding the code, which is how
+  // every code issued before 2026-08-20 behaves and must keep behaving.
+  const [inviteText, setInviteText] = useState('');
+  const [inviteFileName, setInviteFileName] = useState('');
 
   // Per-row edit + expanded redemption list
   const [editingId, setEditingId] = useState(null);
@@ -108,6 +112,7 @@ export default function PromoCodesTab({ onError }) {
   const [saving, setSaving] = useState(false);
   const [expandedId, setExpandedId] = useState(null);
   const [redemptions, setRedemptions] = useState({}); // promo id → rows
+  const [invites, setInvites] = useState({});         // promo id → invited/waiting
 
   const load = useCallback(async () => {
     try {
@@ -119,6 +124,26 @@ export default function PromoCodesTab({ onError }) {
   useEffect(() => { load(); }, [load]);
 
   const missCredits = tried && !(Number(credits) > 0);
+
+  // Split on anything a spreadsheet or a mail client is likely to produce:
+  // newlines, commas, semicolons, tabs. Validation itself happens on the
+  // server, where normalizeBulkEmails is the single definition of a good
+  // address — a second, slightly different rule in the browser is how the two
+  // drift apart and start disagreeing about the same list.
+  const invitedEmails = useMemo(
+    () => inviteText.split(/[\s,;]+/).map((e) => e.trim()).filter(Boolean),
+    [inviteText]);
+
+  // A .csv or .txt is read here; a real .xlsx is not. Deliberately: parsing
+  // spreadsheets in the browser means shipping a library with its own
+  // advisories, and "Save As → CSV" is one step. Says so on the screen rather
+  // than silently accepting a file it cannot read.
+  const readInviteFile = useCallback(async (file) => {
+    if (!file) return;
+    const text = await file.text();
+    setInviteText(text);
+    setInviteFileName(file.name);
+  }, []);
 
   const create = useCallback(async () => {
     setTried(true);
@@ -133,13 +158,20 @@ export default function PromoCodesTab({ onError }) {
         max_redemptions: maxRedemptions.trim() || undefined,
         access_days: accessDays.trim() || undefined,
         expires_at: expiresAt || undefined,
+        emails: invitedEmails.length ? invitedEmails : undefined,
       });
-      toast.success(`Promo created: ${r.promo.code} (+${r.promo.credits} credits per redemption)`);
+      toast.success(r.invited
+        ? `Promo created: ${r.promo.code} — locked to ${r.invited} email${r.invited === 1 ? '' : 's'}, ${r.promo.credits} credits each`
+        : `Promo created: ${r.promo.code} (+${r.promo.credits} credits per redemption)`);
+      if (r.invalid?.length) {
+        toast.error(`${r.invalid.length} address(es) were not valid and were left out: ${r.invalid.slice(0, 3).join(', ')}`);
+      }
       setCode(''); setDescription(''); setCredits(''); setMaxRedemptions(''); setExpiresAt('');
+      setInviteText(''); setInviteFileName('');
       load();
     } catch (e) { onError?.(e, 'Promo creation failed'); }
     finally { setCreating(false); }
-  }, [code, description, credits, maxRedemptions, expiresAt, accessDays, load, onError]);
+  }, [code, description, credits, maxRedemptions, expiresAt, accessDays, invitedEmails, load, onError]);
 
   const toggle = useCallback(async (p) => {
     try {
@@ -183,6 +215,13 @@ export default function PromoCodesTab({ onError }) {
       const r = await adminApi.promoRedemptions(p.id);
       setRedemptions(prev => ({ ...prev, [p.id]: r.redemptions }));
     } catch (e) { onError?.(e, 'Could not load redemptions'); }
+    // Fetched alongside, because the useful question before a workshop is not
+    // "who redeemed" but "who HASN'T yet" — and only the invitation list can
+    // answer that. An open code simply returns nothing and renders nothing.
+    try {
+      const inv = await adminApi.promoInvites(p.id);
+      setInvites(prev => ({ ...prev, [p.id]: inv }));
+    } catch { /* an open code has no list; not a failure worth a toast */ }
   }, [expandedId, redemptions, onError]);
 
   /**
@@ -345,6 +384,37 @@ export default function PromoCodesTab({ onError }) {
             </button>
           </div>
         </FieldRow>
+
+        {/* WHO the code is for. Its own row because it is the only box here
+            that changes what the code IS — everything above tunes an open
+            code; this one stops it being a bearer token. */}
+        <FieldRow>
+          <Field label="Lock to these emails"
+            info="Paste the attendee list, or upload a .csv / .txt saved from Excel. Only these addresses can redeem the code, and each one only once — so a code that gets forwarded or screenshotted is worthless to whoever receives it. The redemption limit fills in from the list automatically. LEAVE IT EMPTY for an open code that anyone with the string can use, which is how every existing code works.">
+            <textarea
+              placeholder={'ahmed@company.com\nsara@company.com\n… or paste a whole column from Excel'}
+              value={inviteText}
+              onChange={e => { setInviteText(e.target.value); setInviteFileName(''); }}
+              rows={3}
+              style={{ ...inputStyle, minWidth: 340, width: '100%', fontFamily: 'inherit', resize: 'vertical' }} />
+          </Field>
+          <div style={buttonRowOffset}>
+            <label style={{ ...btnStyle, display: 'inline-block', cursor: 'pointer' }}>
+              Upload list…
+              <input type="file" accept=".csv,.txt,text/csv,text/plain"
+                onChange={e => readInviteFile(e.target.files?.[0])}
+                style={{ display: 'none' }} />
+            </label>
+          </div>
+        </FieldRow>
+        <div style={{ fontSize: 11.5, marginTop: 6,
+                      color: invitedEmails.length ? 'var(--crm-green)' : 'var(--crm-w40)' }}>
+          {invitedEmails.length
+            ? `${invitedEmails.length} address${invitedEmails.length === 1 ? '' : 'es'} — `
+              + `only these can redeem it, once each${inviteFileName ? ` (from ${inviteFileName})` : ''}`
+            : 'Empty = open code: anyone who has the string can redeem it once.'}
+          {' '}Excel files: save as CSV first — this reads .csv and .txt, not .xlsx.
+        </div>
         <div style={{ color: 'var(--crm-w40)', fontSize: 11.5, marginTop: 10 }}>
           Boxes marked <span style={{ color: 'var(--crm-red)', fontWeight: 700 }}>*</span> must be filled ·
           press <b>ⓘ</b> beside a box to see exactly what it expects.
@@ -471,6 +541,43 @@ export default function PromoCodesTab({ onError }) {
                   {isExpanded && (
                     <tr style={{ background: 'var(--crm-w03)' }}>
                       <td colSpan={COLS} style={{ padding: '12px 14px 16px' }}>
+                        {/* ── WHO HAS NOT TURNED UP ─────────────────────────
+                            Shown ABOVE the redemptions, because before a
+                            workshop the outstanding names are the useful ones.
+                            The predictable problem is not fraud — it is being
+                            invited as ahmed@company.com and signing up as
+                            ahmed.k@gmail.com, which a redemption list can
+                            never reveal. Only a code with a list renders it. */}
+                        {invites[p.id]?.total > 0 && (
+                          <div style={{ marginBottom: 14 }}>
+                            <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6 }}>
+                              Locked to {invites[p.id].total} email{invites[p.id].total === 1 ? '' : 's'} ·{' '}
+                              <span style={{ color: 'var(--crm-green)' }}>
+                                {invites[p.id].redeemedCount} redeemed
+                              </span>
+                              {invites[p.id].waitingCount > 0 && <>
+                                {' · '}
+                                <span style={{ color: 'var(--crm-amber)' }}>
+                                  {invites[p.id].waitingCount} not yet
+                                </span>
+                              </>}
+                            </div>
+                            {invites[p.id].waitingCount > 0 && (
+                              <>
+                                <div style={{ fontSize: 11.5, color: 'var(--crm-w40)', marginBottom: 4 }}>
+                                  Still to redeem — if someone says the code does not work, check they
+                                  signed up with the exact address below:
+                                </div>
+                                <div style={{
+                                  fontFamily: '"JetBrains Mono", monospace', fontSize: 11.5,
+                                  color: 'var(--crm-w60)', lineHeight: 1.7, wordBreak: 'break-all',
+                                }}>
+                                  {invites[p.id].waiting.map(r => r.email).join(' · ')}
+                                </div>
+                              </>
+                            )}
+                          </div>
+                        )}
                         {!rows && <div style={{ color: 'var(--crm-w40)', fontSize: 12 }}>Loading…</div>}
                         {rows?.length === 0 && (
                           <div style={{ color: 'var(--crm-w40)', fontSize: 12 }}>
