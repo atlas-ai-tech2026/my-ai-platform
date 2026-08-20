@@ -107,6 +107,27 @@ export function injectClarity(html, route, env = process.env) {
   return html.replace(/<\/head>/i, `${clarityTag(v.id)}</head>`);
 }
 
-/** Hosts the CSP must allow, or the browser refuses to load any of this. */
-export const CLARITY_SCRIPT_HOSTS = ['https://www.clarity.ms'];
-export const CLARITY_CONNECT_HOSTS = ['https://www.clarity.ms', 'https://*.clarity.ms'];
+/**
+ * Hosts the CSP must allow, or the browser refuses to load any of this.
+ *
+ * ── WHY A WILDCARD ON ONE VENDOR DOMAIN, AND NOT EXACT HOSTS ───────────────
+ * The first attempt allowed https://www.clarity.ms exactly. That is the
+ * BOOTSTRAP. It ran, fired its first beacon, and then inserted a second script
+ * from https://scripts.clarity.ms — the library that does the actual
+ * recording — which the CSP blocked. Proven in the browser: a
+ * securitypolicyviolation on script-src-elem, window.clarity still holding its
+ * stub queue, version null. Everything looked installed and nothing was
+ * recorded.
+ *
+ * Naming both hosts exactly would fix today and break silently again the moment
+ * Microsoft adds a third; the CDN path is already versioned (0.8.69), so they
+ * clearly move things. A wildcard across ONE VENDOR DOMAIN is the trade I would
+ * defend: every other origin on the internet is still refused, which is what
+ * N15 was protecting, and this particular failure cannot recur invisibly.
+ *
+ * img-src is already 'self' data: blob: https: — verified in the live header —
+ * so the c.clarity.ms beacon loads without a change. Left alone deliberately:
+ * widening a directive that already permits the request would be noise.
+ */
+export const CLARITY_SCRIPT_HOSTS = ['https://*.clarity.ms'];
+export const CLARITY_CONNECT_HOSTS = ['https://*.clarity.ms', 'https://*.bing.com'];

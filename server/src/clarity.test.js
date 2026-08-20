@@ -116,8 +116,18 @@ describe('a failed injection still leaves a working page', () => {
 describe('the CSP hosts it needs', () => {
   // Without these the browser refuses the script outright: nothing is recorded,
   // the dashboard stays empty, and it looks like Clarity is broken.
-  it('names the script host', () => {
-    expect(CLARITY_SCRIPT_HOSTS).toContain('https://www.clarity.ms');
+  // Proven in a real browser: www.clarity.ms is only the BOOTSTRAP. It inserts
+  // a second script from scripts.clarity.ms — the library that does the actual
+  // recording — and allowing only the first host blocked it with a
+  // script-src-elem violation while everything looked installed.
+  it('covers the whole vendor domain, not just the bootstrap host', () => {
+    expect(CLARITY_SCRIPT_HOSTS).toContain('https://*.clarity.ms');
+    const covers = (h) => CLARITY_SCRIPT_HOSTS.some(
+      (p) => p === h || (p.startsWith('https://*.') && h.endsWith(p.slice(9))));
+    expect(covers('https://www.clarity.ms')).toBe(true);
+    expect(covers('https://scripts.clarity.ms'),
+      'scripts.clarity.ms is the recording library — blocking it records nothing')
+      .toBe(true);
   });
 
   it('names the hosts it beacons back to', () => {
