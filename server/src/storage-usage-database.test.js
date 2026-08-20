@@ -20,7 +20,7 @@
 
 import { describe, it, expect } from 'vitest';
 import {
-  measureDatabase, describeTables, judgeUsage, ALLOWANCES, GIB,
+  measureDatabase, describeTables, judgeUsage, ALLOWANCES, GIB, dailyPoints,
 } from './storage-usage.js';
 
 /** A pool that answers the two queries by shape, so a typo cannot pass. */
@@ -170,5 +170,70 @@ describe('sizes are printed in a unit a human would have chosen', () => {
     expect(v.detail).toMatch(/GB/);
     expect(v.detail).not.toMatch(/GiB/);
     expect(v.state, '10.2 GB against a 10 GB allowance was reported as fine').not.toBe('ok');
+  });
+});
+
+// ── READINGS ARE NOT DAYS ───────────────────────────────────────────────────
+// recordUsage writes a row every time the SOP screen is OPENED. MIN_POINTS was
+// counting those rows, so opening the screen three times in one afternoon
+// satisfied "3 daily readings" and produced a confident crossing date from a
+// few hours of noise — the exact thing this module's header says it refuses to
+// do, and worst on the database line, where the projection matters most.
+describe('a projection needs days, not page loads', () => {
+  const day = (d, h) => new Date(Date.UTC(2026, 7, d, h));
+  const m = { bytes: 900 * 1024 ** 2, objects: 100, bucket: 'postgres' };
+
+  // THE CASE THAT SLIPPED THROUGH. Three rows spanning a day clears both the
+  // count guard and the span guard, so it projected a crossing date from what
+  // is really two days of data — one of them sampled twice because the screen
+  // happened to be opened twice.
+  it('two days sampled three times is two days, and projects nothing', () => {
+    const v = judgeUsage({ provider: 'database', measurement: m, history: [
+      { bytes: 880 * 1024 ** 2, at: day(18, 9) },
+      { bytes: 890 * 1024 ** 2, at: day(18, 17) },
+      { bytes: 900 * 1024 ** 2, at: day(19, 9) },
+    ] });
+    expect(v.detail, 'a date was projected from two days of data')
+      .not.toMatch(/crosses the allowance/);
+    expect(v.detail).toMatch(/2 of 3 daily readings/);
+  });
+
+  it('and a single afternoon is one day, however many times it was opened', () => {
+    const v = judgeUsage({ provider: 'database', measurement: m, history: [
+      { bytes: 880 * 1024 ** 2, at: day(19, 9) },
+      { bytes: 890 * 1024 ** 2, at: day(19, 13) },
+      { bytes: 900 * 1024 ** 2, at: day(19, 17) },
+    ] });
+    expect(v.detail).toMatch(/1 of 3 daily readings/);
+  });
+
+  it('the rate does not depend on what time of day the screen was opened', () => {
+    const spread = [];   // same three days, sampled at wildly different hours
+    for (const [d, hours] of [[15, [7]], [16, [3, 11, 22]], [17, [6, 19]]]) {
+      for (const h of hours) spread.push({ bytes: (700 + (d - 15) * 100) * 1024 ** 2, at: day(d, h) });
+    }
+    expect(judgeUsage({ provider: 'database', measurement: m, history: spread }).detail)
+      .toMatch(/growing 100 MiB\/day/);
+  });
+
+  it('counts each day once, however many times the screen was opened', () => {
+    const history = [];
+    for (const d of [15, 16, 17]) {
+      for (const h of [8, 12, 16, 20]) {
+        history.push({ bytes: (700 + (d - 15) * 100) * 1024 ** 2, at: day(d, h) });
+      }
+    }
+    const v = judgeUsage({ provider: 'database', measurement: m, history });
+    expect(v.detail).toMatch(/growing 100 MiB\/day/);
+    expect(v.detail).toMatch(/crosses the allowance in about \d+ days/);
+  });
+
+  it('a bad timestamp is dropped, not counted as a day', () => {
+    const v = judgeUsage({ provider: 'database', measurement: m, history: [
+      { bytes: 1, at: new Date('nonsense') },
+      { bytes: 880 * 1024 ** 2, at: day(18, 9) },
+      { bytes: 900 * 1024 ** 2, at: day(19, 9) },
+    ] });
+    expect(v.detail).toMatch(/2 of 3 daily readings/);
   });
 });

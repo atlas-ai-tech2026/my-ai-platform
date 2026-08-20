@@ -232,10 +232,43 @@ export async function usageHistory(pool, provider, days = 60) {
  * thin data. A fitted curve over five noisy points would look more rigorous and
  * be no more true.
  */
+/**
+ * One reading per calendar day — the LAST of each day.
+ *
+ * recordUsage writes a row every time the SOP screen is opened, so "readings"
+ * and "days" are not the same thing and MIN_POINTS was counting the wrong one.
+ * Opening the screen three times in an afternoon satisfied "3 daily readings"
+ * and produced a confident crossing date from a few hours of noise — precisely
+ * what the header of this file says it refuses to do.
+ *
+ * Days are taken in UTC. Kuwait is UTC+3, so a reading taken late in the
+ * evening lands on the next UTC day; that shifts which sample represents a day
+ * but never merges two days or splits one, and the rate is over days either way.
+ */
+export function dailyPoints(history = []) {
+  const byDay = new Map();
+  for (const p of history) {
+    const sampledAt = p.at instanceof Date ? p.at : new Date(p.at);
+    if (Number.isNaN(sampledAt.getTime())) continue;
+    const day = sampledAt.toISOString().slice(0, 10);
+    // The size is the last reading of the day; the TIME is the day itself.
+    //
+    // Keeping the sample's clock time would leave the denominator dependent on
+    // what hour the screen happened to be opened: the same three days of growth
+    // read as 80 MiB/day or 100 MiB/day depending on whether the first day was
+    // sampled at 07:00 or 22:00. Over a month that is noise. Over three days it
+    // is a fifth of the answer, and three days is exactly when this first
+    // speaks. A per-day rate should be measured in days.
+    byDay.set(day, { ...p, at: new Date(`${day}T00:00:00.000Z`), sampledAt });
+  }
+  return [...byDay.entries()].sort(([a], [b]) => (a < b ? -1 : 1)).map(([, p]) => p);
+}
+
 export function growthPerDay(history = []) {
-  if (history.length < MIN_POINTS) return null;
-  const first = history[0];
-  const last = history[history.length - 1];
+  const points = dailyPoints(history);
+  if (points.length < MIN_POINTS) return null;
+  const first = points[0];
+  const last = points[points.length - 1];
   const days = (last.at - first.at) / 864e5;
   if (!Number.isFinite(days) || days < MIN_SPAN_DAYS) return null;
   return (last.bytes - first.bytes) / days;
@@ -311,7 +344,8 @@ export function judgeUsage({ provider, measurement, history = [], now = Date.now
   if (measurement.truncated) parts.push('COUNT TRUNCATED — the real total is higher');
 
   if (perDay == null) {
-    parts.push(`growing at an unknown rate — ${history.length} of ${MIN_POINTS} daily readings so far`);
+    parts.push(`growing at an unknown rate — ${dailyPoints(history).length} of ${MIN_POINTS} `
+      + 'daily readings so far');
   } else if (perDay <= 0) {
     parts.push('not growing');
   } else {
