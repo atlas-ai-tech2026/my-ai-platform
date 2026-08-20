@@ -129,14 +129,18 @@ export const SEED = [
       + 'Cancelled entries are marked, never deleted — a cost that disappears from history makes last quarter look wrong. '
       + 'Owes a Knowledge Base entry in Arabic and English once built and confirmed, per the standing rule.' },
   { ref: '64', owner: 'claude', status: 'pending', priority: 22,
-    title: 'NEW TAB — Visitors: who reaches the site, not just who subscribes',
-    why: 'Requested 2026-08-20. The Users tab shows people who signed up. Nothing shows the far larger number who ARRIVE — so there is no way to tell whether a workshop announcement brought traffic, or how many visitors it takes to produce one subscription.',
+    title: 'NEW TAB — Audience: who reaches the site, and how long they stay',
+    why: 'Requested 2026-08-20. The Users tab shows people who signed up. Nothing shows the far larger number who ARRIVE — so there is no way to tell whether a workshop announcement brought traffic, or how many visitors produce one subscription.',
     detail: 'SPLIT IN TWO, because one half we are best placed to build and the other we would build badly. '
       + 'OURS — page views counted SERVER-SIDE from Express. Exact, not sampled; immune to ad-blockers, which hide a real share of visitors from every script-based tool; no cookie banner, no CSP change, no third party holding visitor data; and history for as long as we want. Per-path views, unique-ish visitors by hashed IP per day, and referrer so you can see where people came from. About 5-6 hours. '
       + 'THEIRS — Microsoft Clarity for the click question. Free forever, no traffic limits, and does exactly what was asked: "where they click, scroll and drop off", plus session recordings. Building heatmaps and session replay ourselves would be weeks and worse than a free tool. ~15 minutes to add. '
       + 'REJECTED — Cloudflare Web Analytics. Free and cookie-free, but its own dashboard says stats are "based on a 10% sample of page load events" and it keeps 30 days. A 10% sample extrapolated is not an answer to "how many people reached my site". '
       + 'DECIDE BEFORE #37: Clarity is a third-party script, so it needs a CSP entry AND a line in the privacy policy. Far better to settle that before the legal documents are published than to amend them after. '
-      + 'COUNTRY: available from Clarity, and also free from Cloudflare’s CF-IPCountry header once #54 is done — one more thing that task unblocks.' },
+      + 'COUNTRY: available from Clarity, and also free from Cloudflare’s CF-IPCountry header once #54 is done — one more thing that task unblocks. '
+      + 'THE NAME is "Audience", not "Analysis" or "Visitors". There is already a Users tab and that means ACCOUNTS; Audience means everyone who reaches the site, signed in or not — which is exactly the distinction the owner drew by saying "not subscribe". "Traffic" is the plainer alternative but implies arrivals only, not time spent. '
+      + 'TIME ON SITE, added 2026-08-20, and it splits the same way. '
+      + 'SIGNED-IN USERS: buildable TODAY from data already held. Every generation is timestamped in generation_events, so first action to last action gives an ACTIVE session length per person per day. For a workshop that is the number that matters — "they were working for 40 minutes" — and it needs no new tracking whatsoever. '
+      + 'ANONYMOUS VISITORS: the server genuinely CANNOT see this. Someone reading the pricing page for ten minutes without clicking sends the server nothing at all, so time-on-page is measurable only from the browser. Clarity already measures it; a heartbeat script of our own would cost ~2 hours and be blocked by exactly the same ad-blockers, so it would be a second script doing the same job less well. Recommend letting Clarity answer this alongside the click question rather than building a worse duplicate.' },
   { ref: '62', owner: 'claude', status: 'done', priority: 14,
     title: 'A git hook that makes committing to main impossible, not merely discouraged',
     why: 'I committed to main instead of dev FOUR times on 19 August. Every time I noticed afterwards; once it had to be unwound. Our own rule is dev first, verify, then merge — and I broke it four times in one night while writing rules about discipline.',
