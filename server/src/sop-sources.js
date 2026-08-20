@@ -83,6 +83,12 @@ export const LINE_SOURCES = {
   'written-': { prefix: true, kind: KIND.DATABASE, why: 'Counts nulls over a rolling window.' },
 
   // ── INTEGRITY ────────────────────────────────────────────────────────────
+  advisories: {
+    kind: KIND.LIVE_API,
+    why: 'Runs npm audit, which queries the registry for current advisories, and diffs the result '
+      + 'against the reviewed set held in known_advisories. Reports what is NEW — a count of the '
+      + 'total would say the same alarming thing every week and teach dismissal.',
+  },
   'dead-paths': { kind: KIND.SOURCE_FILE, why: 'Parses the client and server sources.' },
   'null-columns': { kind: KIND.DATABASE, why: 'pg_stats, then an exact count to confirm.' },
   'uncalled-routes': { kind: KIND.SOURCE_FILE, why: 'Parses registered routes against requested paths.' },

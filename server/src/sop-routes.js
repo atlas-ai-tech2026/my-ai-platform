@@ -20,6 +20,7 @@ import { latestVerification, runRestoreVerification, ensureVerifyTable } from '.
 import { runSmokeChecks, summariseSmoke } from './sop-smoke.js';
 import { runIntegrityChecks } from './sop-integrity.js';
 import { runWrittenChecks } from './sop-written.js';
+import { runAdvisoryCheck } from './sop-advisories.js';
 import { measureUsage as spacesUsage, versioningStatus, listKeys } from './storage.js';
 import { measureOffsiteUsage as offsiteUsage, measureOffsiteMedia as offsiteMedia,
          listOffsite } from './backup-offsite.js';
@@ -273,6 +274,40 @@ export function registerSopRoutes(app, {
     mk('unused-tables', 'Tables nothing reads', r.unreferenced_tables,
       'A table no server file mentions. Dead data that still grows and still gets backed up.',
       'Confirm it is unused, then drop it.');
+
+    // ── NEW dependency vulnerabilities ────────────────────────────────────
+    // Reported when they APPEAR, never counted. There are 11 advisories today;
+    // ten were reviewed and accepted deliberately, and nothing in the system
+    // would have reported an eleventh — nothing did.
+    //
+    // A line saying "11 advisories, 1 critical" every week is alarming,
+    // unchanging and mostly noise. It teaches dismissal, and then the real one
+    // gets dismissed too.
+    try {
+      const adv = await runAdvisoryCheck(pool, { root: REPO_ROOT });
+      out.push(line({
+        key: 'advisories', zone: 'integrity', label: 'New dependency advisories',
+        state: adv.state === 'critical' ? STATE.CRITICAL
+          : adv.state === 'warn' ? STATE.WARN
+          : adv.state === 'unknown' ? STATE.UNKNOWN : STATE.OK,
+        value: adv.added?.length ? `${adv.added.length} new` : 'none new',
+        checkedAt: new Date().toISOString(),
+        info: 'Runs npm audit and reports only what has appeared SINCE THE LAST CHECK. Production '
+          + 'dependencies outrank development ones whatever npm’s badge says — today’s single '
+          + 'CRITICAL is in a test runner that never reaches a customer, while the one that matters '
+          + 'is a HIGH in a library that parses customer spreadsheets.',
+        detail: adv.detail,
+        action: adv.action || '',
+      }));
+    } catch (e) {
+      out.push(line({
+        key: 'advisories', zone: 'integrity', label: 'New dependency advisories',
+        state: STATE.UNKNOWN, value: 'not checked', checkedAt: new Date().toISOString(),
+        info: 'Runs npm audit and reports what is new since the last check.',
+        detail: e.message,
+        action: 'The audit could not run. That is not the same as finding nothing.',
+      }));
+    }
 
     // ── the gap the check above could not see ─────────────────────────────
     // "Columns never written" finds a column empty in EVERY row. The Node
