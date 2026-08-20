@@ -44,7 +44,12 @@ export const OPEN_ITEMS = [
   {
     key: 'pre-m1-backups',
     label: 'Decide on pre-M1 backups',
-    detail: 'Backups taken before the M1 fix still contain scrubbed plaintext passwords.',
+    // WAS: "still contain scrubbed plaintext passwords" — which reads as though
+    // they are safe, when the entire point is that they are not. M1 redacted the
+    // admin audit log and its migration scrubbed the historical rows IN THE LIVE
+    // DATABASE. A backup taken before that migration was never touched by it.
+    detail: 'The M1 migration scrubbed cleartext passwords from the live admin audit log. '
+      + 'Backups taken before it were never touched, so they still hold those passwords in the clear.',
     action: 'Delete them, or accept and record the decision.',
   },
   {
@@ -94,7 +99,11 @@ export function checkSecurityConfig(env = process.env) {
   }
 
   const secret = (env.ORIGIN_SHARED_SECRET || '').trim();
-  if (!secret) notes.push('origin guard inert — the origin can be reached without Cloudflare');
+  // Stated as a NOTE, so this line stays green — and it was printing a live
+  // weakness under a FINE badge, two lines above the same fact in yellow.
+  // It is genuinely tracked elsewhere (#54, blocked on the DNS move), so the
+  // fix is to say that rather than to raise a second alarm for one problem.
+  if (!secret) notes.push('origin guard inert until the DNS move — see \u201cThe origin answers without Cloudflare\u201d below');
   else if (secret.length < 16) problems.push('ORIGIN_SHARED_SECRET is too short to be a secret');
 
   const ttl = String(env.ADMIN_JWT_EXPIRES_IN || '2h');

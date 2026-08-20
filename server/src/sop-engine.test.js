@@ -151,7 +151,13 @@ describe('failure rate', () => {
   it('refuses to compute a rate from too few attempts', () => {
     const l = failureRateLine({ spends: 1, failures: 3, now: NOW });
     expect(l.state).toBe(STATE.OK);
-    expect(l.detail).toMatch(/means nothing/);
+    // 3 of 4 is 75%, and publishing that number would be alarming and useless.
+    // Asserted as INTENT rather than as a fixed sentence: the wording changed on
+    // 2026-08-20 when the old one turned out to be an illustration printed where
+    // the real data goes, and a test pinned to prose blocks its own correction.
+    expect(l.detail, 'a percentage was published from four attempts').not.toMatch(/75%/);
+    expect(l.detail).toMatch(/too few attempts/);
+    expect(l.detail).toMatch(/3 of 4 failed/);
   });
 
   // The distinction the 8 August incident turned on.

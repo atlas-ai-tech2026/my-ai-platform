@@ -82,6 +82,11 @@ export function backupLine({ autoBackup, backupFreshness, now }) {
         : f.state === 'warn' ? STATE.WARN
         : f.state === 'unknown' ? STATE.UNKNOWN : STATE.OK,
       value: f.state === 'ok' ? 'both copies fresh' : f.state,
+      // This branch reads the BUCKETS on every load, so the check happened now.
+      // Leaving it unset rendered "both copies fresh" in green above the words
+      // "never checked" — a line contradicting itself in two lines, on the
+      // screen whose whole job is being believable.
+      checkedAt: new Date(now || Date.now()).toISOString(),
       detail: f.detail,
       action: f.action || '',
     });
@@ -252,7 +257,14 @@ export function failureRateLine({ spends, failures, accountDry, now, pct = 15, m
   if (attempts < minAttempts) {
     return line({ key: 'failures', zone: 'today', label: 'Failure rate', state: STATE.OK,
       info, value: `${attempts} attempts`, checkedAt: now,
-      detail: '3 failures out of 4 is 75% and means nothing — too few attempts to judge.' });
+      // Was a fixed sentence — "3 failures out of 4 is 75% and means nothing" —
+      // printed in the DETAIL slot, where every other line puts real numbers.
+      // Next to a value of "0 attempts" it read as though three requests had
+      // just failed. The explanation belongs in the ⓘ, not in the data.
+      detail: attempts === 0
+        ? 'no generations in the last hour — nothing to judge'
+        : `${failures || 0} of ${attempts} failed, which is too few attempts to draw a rate from `
+          + `(a rate is only reported above ${minAttempts})` });
   }
   const rate = Math.round((failures / attempts) * 100);
   if (accountDry > 0) {

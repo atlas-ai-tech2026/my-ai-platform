@@ -358,7 +358,12 @@ export function judgeUsage({ provider, measurement, history = [], now = Date.now
   const perDay = growthPerDay(history);
   const crossing = projectCrossing(used, perDay, a.limitBytes);
 
-  const parts = [`${fmtScaled(used, base)} of ${a.limitLabel} (${Math.round(pct * 100)}%)`,
+  // ONE rounding. The heading is built from `pct` below and the detail was
+  // rounded separately, so the same measurement appeared as "26.6% of 250
+  // GiB" and "(27%)" on a single line — small, and exactly the kind of
+  // thing that makes someone stop trusting the rest of the number.
+  const pct1 = Math.round(pct * 1000) / 10;
+  const parts = [`${fmtScaled(used, base)} of ${a.limitLabel} (${pct1}%)`,
     // "18,256 objects" is right for a bucket and wrong for a database, where
     // they are rows — and an ESTIMATED count of them at that.
     `${measurement.objects.toLocaleString()} ${a.unit || 'objects'}`];
@@ -403,7 +408,7 @@ export function judgeUsage({ provider, measurement, history = [], now = Date.now
   return {
     provider, label: a.label, state,
     bytes: used, objects: measurement.objects,
-    pct: Math.round(pct * 1000) / 10,
+    pct: pct1,
     perDayBytes: perDay,
     daysLeft: crossing?.already ? 0 : (crossing?.daysLeft ?? null),
     detail: parts.join(' · '),

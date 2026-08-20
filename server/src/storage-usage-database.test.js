@@ -89,7 +89,7 @@ describe('judging it', () => {
   it('measures against the 10 GiB disk of the db-s-1vcpu-1gb plan', () => {
     expect(ALLOWANCES.database.limitBytes).toBe(10 * GIB);
     const v = judgeUsage({ provider: 'database', measurement });
-    expect(v.detail).toMatch(/of 10 GiB \(4%\)/);
+    expect(v.detail).toMatch(/of 10 GiB \(4\.5%\)/);   // one decimal, matching the heading
   });
 
   // The distinction the owner asked for in the first place: not "you are over",

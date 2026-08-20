@@ -276,7 +276,13 @@ export function registerSopRoutes(app, {
       key, zone: 'integrity', label,
       state: items.length ? STATE.WARN : STATE.OK,
       value: String(items.length), checkedAt: r.checked_at, info,
-      detail: items.length ? items.slice(0, 6).join(' · ') : 'none found',
+      // NEVER a silent cap. The header said 11 and the detail listed 6, with
+      // nothing to say five were hidden — so the line read as a complete list
+      // that happened to disagree with its own count. If a check bounds what it
+      // shows, it says so; that rule is in this project for a reason.
+      detail: items.length
+        ? items.slice(0, 6).join(' · ') + (items.length > 6 ? ` … and ${items.length - 6} more` : '')
+        : 'none found',
       action: items.length ? action : '',
     }));
 
