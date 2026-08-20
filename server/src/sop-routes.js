@@ -20,8 +20,10 @@ import { latestVerification, runRestoreVerification, ensureVerifyTable } from '.
 import { runSmokeChecks, summariseSmoke } from './sop-smoke.js';
 import { runIntegrityChecks } from './sop-integrity.js';
 import { runWrittenChecks } from './sop-written.js';
-import { measureUsage as spacesUsage, versioningStatus } from './storage.js';
-import { measureOffsiteUsage as offsiteUsage, measureOffsiteMedia as offsiteMedia } from './backup-offsite.js';
+import { measureUsage as spacesUsage, versioningStatus, listKeys } from './storage.js';
+import { measureOffsiteUsage as offsiteUsage, measureOffsiteMedia as offsiteMedia,
+         listOffsite } from './backup-offsite.js';
+import { judgeBackups } from './backup-freshness.js';
 import { recordUsage, usageHistory, judgeUsage, judgeMediaBackup, ALLOWANCES } from './storage-usage.js';
 import { runPostureChecks } from './sop-posture.js';
 import {
@@ -58,6 +60,27 @@ export function registerSopRoutes(app, {
       facts.backupVerify = await latestVerification(pool);
     } catch {
       facts.backupVerify = undefined;      // renders as UNKNOWN, never as OK
+    }
+
+    // ── WHEN WAS THE LAST BACKUP, ASKED OF THE BUCKETS ───────────────────
+    // Not of a variable in this process. facts.autoBackup is wiped by every
+    // restart and the backup runs five minutes after boot, so on an app that
+    // deploys several times a day that line spent much of its life saying
+    // "not checked" while backups ran perfectly — indistinguishable from "the
+    // job is dead". The owner refused to accept it, and was right.
+    //
+    // BOTH destinations, judged separately: a single green light that hides a
+    // dead offsite copy defeats the reason the offsite copy exists.
+    try {
+      const [primary, offsite] = await Promise.all([
+        listKeys('backups/').then((objects) => ({ objects })).catch((e) => ({ error: e.message })),
+        listOffsite('backups/').then((objects) => ({ objects })).catch((e) => ({ error: e.message })),
+      ]);
+      facts.backupFreshness = judgeBackups({ primary, offsite });
+    } catch (e) {
+      // Left undefined rather than guessed — backupLine falls back and says
+      // plainly that it could not look, which is not the same as a failure.
+      console.error('[sop] could not read the backup buckets:', e.message);
     }
 
     const { rows } = await pool.query(`SELECT * FROM alert_settings WHERE id = 1`).catch(() => ({ rows: [] }));

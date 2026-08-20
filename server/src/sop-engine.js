@@ -59,16 +59,40 @@ export function line({ key, zone, label, state, value = null, detail = '', actio
 const hoursSince = (iso, now) =>
   (iso ? (new Date(now) - new Date(iso)) / 36e5 : null);
 
-export function backupLine({ autoBackup, now }) {
+export function backupLine({ autoBackup, backupFreshness, now }) {
   const info = 'A full copy of every table, written daily to DigitalOcean Spaces and to '
     + 'Backblaze — a different company — encrypted with your passphrase before it leaves '
-    + 'the server. Two copies exist so that losing one provider does not lose the data.';
+    + 'the server. Two copies exist so that losing one provider does not lose the data. '
+    + 'Read from the BUCKETS on every load, so a restart cannot make it say anything.';
+
+  // ── PREFERRED: what the buckets actually contain ─────────────────────────
+  // The fallback below reads a module-level object that every restart wipes,
+  // and the backup runs five minutes after boot. This app deploys several times
+  // a day, so that path spent much of its life reporting "not checked" while
+  // backups were running perfectly — indistinguishable from "the job is dead".
+  // The owner saw it, did not believe the reassurance, and was right.
+  //
+  // An archive in the bucket with a date on it is evidence. A variable saying a
+  // backup happened is a claim that dies with the process that made it.
+  if (backupFreshness) {
+    const f = backupFreshness;
+    return line({
+      key: 'backup', zone: 'today', label: 'Daily backup', info,
+      state: f.state === 'critical' ? STATE.CRITICAL
+        : f.state === 'warn' ? STATE.WARN
+        : f.state === 'unknown' ? STATE.UNKNOWN : STATE.OK,
+      value: f.state === 'ok' ? 'both copies fresh' : f.state,
+      detail: f.detail,
+      action: f.action || '',
+    });
+  }
 
   if (!autoBackup || !autoBackup.last_at) {
     return line({
       key: 'backup', zone: 'today', label: 'Daily backup', state: STATE.UNKNOWN, info,
-      detail: 'No backup has been recorded since this server started.',
-      action: 'If this persists past the next daily run, the backup job is not running.',
+      detail: 'The buckets could not be read, and nothing has been recorded since this server started.',
+      action: 'This says nothing about whether backups are running — only that we could not check. '
+        + 'Look for [auto-backup] in the logs.',
     });
   }
   const age = hoursSince(autoBackup.last_at, now);
@@ -278,7 +302,7 @@ export function buildToday(facts, settings = {}) {
     .filter((r) => /exhausted balance|credits insufficient|balance is insufficient/i.test(r.reason || ''))
     .length;
   return [
-    backupLine({ autoBackup: facts.autoBackup, now }),
+    backupLine({ autoBackup: facts.autoBackup, backupFreshness: facts.backupFreshness, now }),
     restoreLine({ backupVerify: facts.backupVerify, now,
       maxAgeDays: settings.restore_verify_max_age_days }),
     balanceLine({ credits: facts.credits, burnPerDay: facts.burnPerDay,
