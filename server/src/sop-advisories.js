@@ -274,6 +274,22 @@ export async function runAdvisoryCheck(pool, { root, exec } = {}) {
 // was taken — never "checked just now" over an answer from Tuesday, which is
 // the same lie as reporting a value nobody read.
 
+/**
+ * Bumped whenever the JUDGEMENT changes — wording, thresholds, ranking.
+ *
+ * A stored result is only as good as the code that produced it. The first
+ * version of this check reported "11 NEW advisories since the last check" on a
+ * run where nothing had happened; the fix landed the same day, and without a
+ * marker the corrected line would not have reached the screen until the
+ * following Tuesday. A week of showing a known-wrong answer, on a screen whose
+ * entire purpose is being trustworthy.
+ *
+ * So the version travels with the result, and a deploy that changes the
+ * judgement re-runs once instead of waiting for the cadence. The RAW audit is
+ * unchanged by any of this — only the reading of it.
+ */
+export const LOGIC_VERSION = 2;
+
 export async function ensureAdvisoryRunTable(pool) {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS advisory_runs (
@@ -284,18 +300,24 @@ export async function ensureAdvisoryRunTable(pool) {
       added      JSONB        NOT NULL DEFAULT '[]'::jsonb,
       checked_at TIMESTAMPTZ  NOT NULL DEFAULT NOW()
     )`);
+  // Added after the table existed on dev, so it must be a migration and not
+  // part of the CREATE — a column added only to the CREATE is a column that
+  // never appears anywhere the table already exists, which is everywhere real.
+  await pool.query(
+    `ALTER TABLE advisory_runs ADD COLUMN IF NOT EXISTS logic_version INTEGER NOT NULL DEFAULT 1`);
 }
 
 export async function saveAdvisoryRun(pool, judged) {
   await ensureAdvisoryRunTable(pool);
   await pool.query(
-    `INSERT INTO advisory_runs (id, state, detail, action, added, checked_at)
-     VALUES (1, $1, $2, $3, $4::jsonb, NOW())
+    `INSERT INTO advisory_runs (id, state, detail, action, added, checked_at, logic_version)
+     VALUES (1, $1, $2, $3, $4::jsonb, NOW(), $5)
      ON CONFLICT (id) DO UPDATE SET
        state = EXCLUDED.state, detail = EXCLUDED.detail, action = EXCLUDED.action,
-       added = EXCLUDED.added, checked_at = EXCLUDED.checked_at`,
+       added = EXCLUDED.added, checked_at = EXCLUDED.checked_at,
+       logic_version = EXCLUDED.logic_version`,
     [judged.state, judged.detail, judged.action || null,
-     JSON.stringify(judged.added || [])]);
+     JSON.stringify(judged.added || []), LOGIC_VERSION]);
 }
 
 export async function latestAdvisoryRun(pool) {
@@ -306,6 +328,7 @@ export async function latestAdvisoryRun(pool) {
   return {
     state: r.state, detail: r.detail, action: r.action || '',
     added: r.added || [], checkedAt: new Date(r.checked_at).toISOString(),
+    logicVersion: r.logic_version ?? 1,
   };
 }
 
@@ -341,6 +364,22 @@ export function presentAdvisoryRun(run, { now = Date.now() } = {}) {
     };
   }
   return { ...run, detail: `${run.detail} · checked ${age}` };
+}
+
+/**
+ * Should the audit run now, outside its cadence?
+ *
+ * Two reasons, and only two: it has never run, or the stored result was judged
+ * by code that has since been corrected. Deliberately NOT "the result is old" —
+ * that is what the weekly schedule is for, and re-running on age would quietly
+ * turn a weekly network call into a per-tick one.
+ */
+export function needsBootstrap(run, { logicVersion = LOGIC_VERSION } = {}) {
+  if (!run) return 'no dependency audit has ever run';
+  if ((run.logicVersion ?? 1) < logicVersion) {
+    return `the stored result was judged by older logic (v${run.logicVersion ?? 1} → v${logicVersion})`;
+  }
+  return null;
 }
 
 /** Run it for real and store the result. Called by the weekly job. */

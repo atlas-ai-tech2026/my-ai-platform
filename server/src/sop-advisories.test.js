@@ -13,7 +13,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   parseAudit, diffAdvisories, judgeAdvisories, advisoryKey, byRealRisk,
-  presentAdvisoryRun,
+  presentAdvisoryRun, needsBootstrap, LOGIC_VERSION,
 } from './sop-advisories.js';
 
 const auditJson = (vulns) => JSON.stringify({ vulnerabilities: vulns });
@@ -251,5 +251,39 @@ describe('the very first check', () => {
     const v = judgeAdvisories({ parsed: parseAudit(auditJson({})), known: [] });
     expect(v.state).toBe('ok');
     expect(v.baseline).toBeUndefined();
+  });
+});
+
+// ─── a stored result is only as good as the code that judged it ──────────────
+// The first version of this check reported "11 NEW advisories" on a run where
+// nothing had happened. The fix landed the same day — and without a version
+// marker the corrected line would not have reached the screen until the
+// following Tuesday, because the bootstrap only fired when NO result existed.
+// A week of knowingly showing a wrong answer, on a screen whose whole value is
+// being trustworthy.
+describe('re-running after the judgement changes', () => {
+  it('runs when it has never run', () => {
+    expect(needsBootstrap(null)).toMatch(/has ever run/);
+  });
+
+  it('runs when the stored result was judged by older logic', () => {
+    expect(needsBootstrap({ logicVersion: LOGIC_VERSION - 1 })).toMatch(/older logic/);
+  });
+
+  it('treats a row written before the column existed as version 1', () => {
+    expect(needsBootstrap({}, { logicVersion: 2 })).toMatch(/v1 → v2/);
+  });
+
+  it('does NOT run when the stored result is current', () => {
+    expect(needsBootstrap({ logicVersion: LOGIC_VERSION })).toBeNull();
+  });
+
+  // The distinction that keeps this from becoming a per-tick network call:
+  // staleness belongs to the weekly schedule, not to the bootstrap.
+  it('does NOT run merely because the result is old', () => {
+    expect(needsBootstrap({
+      logicVersion: LOGIC_VERSION,
+      checkedAt: new Date(Date.UTC(2020, 0, 1)).toISOString(),
+    })).toBeNull();
   });
 });

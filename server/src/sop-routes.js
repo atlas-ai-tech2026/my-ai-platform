@@ -20,7 +20,8 @@ import { latestVerification, runRestoreVerification, ensureVerifyTable } from '.
 import { runSmokeChecks, summariseSmoke } from './sop-smoke.js';
 import { runIntegrityChecks } from './sop-integrity.js';
 import { runWrittenChecks } from './sop-written.js';
-import { latestAdvisoryRun, presentAdvisoryRun, refreshAdvisories } from './sop-advisories.js';
+import { latestAdvisoryRun, presentAdvisoryRun, refreshAdvisories,
+         needsBootstrap } from './sop-advisories.js';
 import { measureUsage as spacesUsage, versioningStatus, listKeys } from './storage.js';
 import { measureOffsiteUsage as offsiteUsage, measureOffsiteMedia as offsiteMedia,
          listOffsite } from './backup-offsite.js';
@@ -639,13 +640,14 @@ export function scheduleSopJobs(pool, dbReady, { tickMs = 15 * 60 * 1000 } = {})
       // Deliberately conditioned on there being NO stored result at all, not
       // on the result being old: once one exists, the weekly cadence owns it.
       try {
-        if (!(await latestAdvisoryRun(pool))) {
-          console.log('[sop-schedule] no dependency audit has ever run — running the first one');
+        const why = needsBootstrap(await latestAdvisoryRun(pool));
+        if (why) {
+          console.log(`[sop-schedule] running the dependency audit now — ${why}`);
           const r = await refreshAdvisories(pool, { root: REPO_ROOT });
-          console.log(`[sop-schedule] first dependency audit: ${r.state} · ${r.detail}`);
+          console.log(`[sop-schedule] dependency audit: ${r.state} · ${r.detail}`);
         }
       } catch (e) {
-        console.error('[sop-schedule] first advisory run failed:', e.message);
+        console.error('[sop-schedule] advisory bootstrap failed:', e.message);
       }
     } catch (e) {
       console.error('[sop-schedule] tick failed:', e.message);
