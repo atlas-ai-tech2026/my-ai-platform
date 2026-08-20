@@ -256,12 +256,21 @@ export default function ExpiryPanel({ onError }) {
                   I have read this list — expire {plan.due.length} account
                   {plan.due.length === 1 ? '' : 's'} and {plan.creditsToExpire} credits
                 </label>
+                {/* Styled like the bulk-expiry button beside it: red on a
+                    red-tinted background, rather than white on solid red. The
+                    theme test caught the first version — the white literal sat
+                    on its own line, away from any accent background, which in
+                    light mode reads as invisible text. Following the pattern
+                    that already works beats teaching the guard an exception.
+                    (The guard scans comments too, which is why this one says
+                    "white" rather than spelling the value out.) */}
                 <button onClick={runExpiry} disabled={!armed || running}
                   style={{
                     marginTop: 8, fontSize: 12, padding: '6px 14px', borderRadius: 8,
-                    border: '1px solid var(--crm-red)',
-                    background: armed ? 'var(--crm-red)' : 'transparent',
-                    color: armed ? '#fff' : 'var(--crm-w30)',
+                    border: '1px solid var(--crm-red-br)',
+                    background: armed ? 'var(--crm-red-bg)' : 'transparent',
+                    color: armed ? 'var(--crm-red)' : 'var(--crm-w30)',
+                    fontWeight: armed ? 700 : 400,
                     cursor: armed && !running ? 'pointer' : 'not-allowed',
                   }}>
                   {running ? 'Expiring…' : 'Expire them'}
