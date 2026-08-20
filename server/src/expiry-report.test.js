@@ -15,6 +15,8 @@
 import { describe, it, expect } from 'vitest';
 import {
   daysUntil, groupByExpiryDay, summarise, actionable, SOON_DAYS,
+  expiryAfterManualGrant, planNormalisation, MANUAL_GRANT_DAYS,
+  clockStart, planCreditExpiry,
 } from './expiry-report.js';
 
 const NOW = new Date('2026-08-20T12:00:00Z').getTime();
@@ -181,5 +183,202 @@ describe("the owner's actual case: accounts created 21-23 June", () => {
   it('names them, so they can be extended one by one if that is the decision', () => {
     expect(actionable(r)[0].accounts.map((a) => a.email))
       .toEqual(['attendee1@org.com', 'attendee2@org.com']);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// The manual-grant standard, owner 2026-08-20: "I connect manually, and I added
+// must to be thirty days."
+//
+// Verified before writing it: a manual grant ran exactly one statement —
+// UPDATE users SET credits, credit_limit — and never touched expires_at. Credits
+// handed out by hand had no expiry at all.
+describe('a manual grant leaves 30 days behind', () => {
+  const NOW2 = new Date('2026-08-20T12:00:00Z').getTime();
+  const plus = (d) => new Date(NOW2 + d * 86400000).toISOString();
+
+  it('an account with no expiry gets 30 days', () => {
+    const r = expiryAfterManualGrant(null, NOW2);
+    expect(r.changed).toBe(true);
+    expect(r.value.toISOString()).toBe(plus(30));
+    expect(r.reason).toMatch(/had no expiry/);
+  });
+
+  it('an account with less than 30 days is extended to 30', () => {
+    const r = expiryAfterManualGrant(plus(5), NOW2);
+    expect(r.value.toISOString()).toBe(plus(30));
+    expect(r.changed).toBe(true);
+  });
+
+  // A grant is someone being GIVEN something. It must not also quietly remove
+  // access they already hold.
+  it('an account with more than 30 days keeps what it has', () => {
+    const r = expiryAfterManualGrant(plus(90), NOW2);
+    expect(r.value.toISOString()).toBe(plus(90));
+    expect(r.changed).toBe(false);
+    expect(r.reason).toMatch(/already has longer/);
+  });
+
+  it('an unreadable date is repaired to 30 days rather than left broken', () => {
+    expect(expiryAfterManualGrant('nonsense', NOW2).value.toISOString()).toBe(plus(30));
+  });
+
+  it('the standard is thirty days', () => {
+    expect(MANUAL_GRANT_DAYS).toBe(30);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// The RETROACTIVE pass — chosen by the owner against my recommendation, having
+// read it. It computes and performs NOTHING, because it exists to be looked at
+// first: 584 of 587 accounts had no expiry as of 2026-08-11, so most of the
+// customer base gets a lock date, and some of that access was paid for.
+describe('what normalising every existing account would do', () => {
+  const NOW2 = new Date('2026-08-20T12:00:00Z').getTime();
+  const plus = (d) => new Date(NOW2 + d * 86400000).toISOString();
+  const users = [
+    { id: 1, email: 'openended@x.com', expires_at: null, credits: 40, role: 'user' },
+    { id: 2, email: 'long@x.com', expires_at: plus(90), credits: 500, role: 'user' },
+    { id: 3, email: 'short@x.com', expires_at: plus(5), credits: 10, role: 'user' },
+    { id: 4, email: 'exact@x.com', expires_at: plus(30), credits: 0, role: 'user' },
+    { id: 5, email: 'info@voxel-ai.ai', expires_at: null, credits: 0, role: 'admin' },
+  ];
+  const plan = planNormalisation(users, NOW2);
+
+  it('separates the accounts that would LOSE access from the rest', () => {
+    expect(plan.counts.shortened).toBe(1);
+    expect(plan.shortened[0].email).toBe('long@x.com');
+    expect(plan.shortened[0].daysLost).toBe(60);
+  });
+
+  it('says how many credits sit behind the accounts being shortened', () => {
+    expect(plan.creditsBehindShortened).toBe(500);
+  });
+
+  it('counts the open-ended ones it would close — the bulk of the change', () => {
+    expect(plan.counts.openEnded).toBe(1);
+    expect(plan.opened[0].email).toBe('openended@x.com');
+  });
+
+  // Locking the owner out of their own control panel is not a policy, it is an
+  // outage.
+  it('never touches an admin', () => {
+    expect(plan.skippedAdmins).toEqual(['info@voxel-ai.ai']);
+    expect(plan.shortened.some((r) => r.email.includes('voxel-ai.ai'))).toBe(false);
+  });
+
+  // Burying the worst-affected under a count is how a list stops being read.
+  it('orders the losses worst-first', () => {
+    const many = planNormalisation([
+      { id: 1, email: 'a@x.com', expires_at: plus(45), credits: 0, role: 'user' },
+      { id: 2, email: 'b@x.com', expires_at: plus(200), credits: 0, role: 'user' },
+      { id: 3, email: 'c@x.com', expires_at: plus(60), credits: 0, role: 'user' },
+    ], NOW2);
+    expect(many.shortened.map((r) => r.email)).toEqual(['b@x.com', 'c@x.com', 'a@x.com']);
+  });
+
+  it('computes only — it returns a plan and changes nothing', () => {
+    const before = JSON.stringify(users);
+    planNormalisation(users, NOW2);
+    expect(JSON.stringify(users), 'the planner mutated the accounts it was asked to describe')
+      .toBe(before);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Expiring credits past their 30 days. Owner, 2026-08-20, reaffirmed after I
+// recommended against it: "not only for promo code... if they exceed the thirty
+// days, retrieve the credits."
+//
+// I argued for expiring ACCESS and leaving balances alone — locked-out credits
+// are already unspendable, and the balance is the record of what a paying
+// customer received. They decided otherwise. So this does the whole thing, and
+// the safety lives in the fact that it PLANS and performs nothing.
+describe('which accounts have run past their window', () => {
+  const NOW3 = new Date('2026-08-20T12:00:00Z').getTime();
+  const ago = (d) => new Date(NOW3 - d * 86400000).toISOString();
+
+  it('the clock starts at the LATER of joining and being topped up', () => {
+    expect(clockStart({ created_at: ago(200), last_grant_at: ago(5) }).toISOString())
+      .toBe(ago(5));
+    expect(clockStart({ created_at: ago(10), last_grant_at: ago(90) }).toISOString())
+      .toBe(ago(10));
+  });
+
+  // The alternative is cruel and arithmetically enormous: measuring purely from
+  // creation would expire someone topped up last week because they joined in May.
+  it('a recent top-up protects an old account', () => {
+    const plan = planCreditExpiry([
+      { id: 1, email: 'old-but-topped-up@x.com', credits: 100, role: 'user',
+        created_at: ago(200), last_grant_at: ago(3) },
+    ], NOW3);
+    expect(plan.counts.due, 'a customer topped up three days ago was expired').toBe(0);
+    expect(plan.counts.notYet).toBe(1);
+  });
+
+  it('an account past 30 days with credits is due', () => {
+    const plan = planCreditExpiry([
+      { id: 1, email: 'dormant@x.com', credits: 60, role: 'user',
+        created_at: ago(90), last_grant_at: ago(90) },
+    ], NOW3);
+    expect(plan.counts.due).toBe(1);
+    expect(plan.due[0].daysPast).toBe(60);
+    expect(plan.creditsToExpire).toBe(60);
+  });
+
+  it('says WHICH date it judged them on', () => {
+    const byGrant = planCreditExpiry([
+      { id: 1, email: 'a@x.com', credits: 5, role: 'user', created_at: ago(200), last_grant_at: ago(60) },
+    ], NOW3);
+    expect(byGrant.due[0].basis).toBe('last credit grant');
+    const byCreation = planCreditExpiry([
+      { id: 2, email: 'b@x.com', credits: 5, role: 'user', created_at: ago(60), last_grant_at: null },
+    ], NOW3);
+    expect(byCreation.due[0].basis).toBe('account created');
+  });
+
+  // Expiring a zero balance writes a ledger row saying nothing happened, and
+  // pads the list the owner has to read with rows that do not matter.
+  it('leaves out accounts with nothing to take', () => {
+    const plan = planCreditExpiry([
+      { id: 1, email: 'empty@x.com', credits: 0, role: 'user', created_at: ago(90) },
+    ], NOW3);
+    expect(plan.counts.due).toBe(0);
+    expect(plan.counts.nothingToTake).toBe(1);
+  });
+
+  it('never touches an admin', () => {
+    const plan = planCreditExpiry([
+      { id: 1, email: 'info@voxel-ai.ai', credits: 900, role: 'admin', created_at: ago(300) },
+    ], NOW3);
+    expect(plan.counts.due).toBe(0);
+    expect(plan.counts.admins).toBe(1);
+  });
+
+  // The accounts where this costs the most are the ones worth a second thought.
+  it('lists the biggest balances first', () => {
+    const plan = planCreditExpiry([
+      { id: 1, email: 'small@x.com', credits: 5, role: 'user', created_at: ago(90) },
+      { id: 2, email: 'big@x.com', credits: 500, role: 'user', created_at: ago(90) },
+      { id: 3, email: 'mid@x.com', credits: 80, role: 'user', created_at: ago(90) },
+    ], NOW3);
+    expect(plan.due.map((r) => r.email)).toEqual(['big@x.com', 'mid@x.com', 'small@x.com']);
+    expect(plan.creditsToExpire).toBe(585);
+  });
+
+  // THE PROPERTY THAT MAKES IT SAFE TO HAVE BUILT AT ALL.
+  it('plans and performs nothing', () => {
+    const users = [{ id: 1, email: 'a@x.com', credits: 100, role: 'user', created_at: ago(90) }];
+    const before = JSON.stringify(users);
+    planCreditExpiry(users, NOW3);
+    expect(JSON.stringify(users), 'the planner altered the accounts it was asked to describe')
+      .toBe(before);
+  });
+
+  it('an account with no dates at all is left alone, not swept up', () => {
+    const plan = planCreditExpiry([
+      { id: 1, email: 'dateless@x.com', credits: 50, role: 'user' },
+    ], NOW3);
+    expect(plan.counts.due).toBe(0);
   });
 });

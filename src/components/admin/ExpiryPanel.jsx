@@ -35,6 +35,9 @@ export default function ExpiryPanel({ onError }) {
   const [data, setData] = useState(null);
   const [days, setDays] = useState(14);
   const [open, setOpen] = useState(null);      // which day is expanded
+  const [plan, setPlan] = useState(null);      // credits past their 30 days
+  const [running, setRunning] = useState(false);
+  const [armed, setArmed] = useState(false);   // has the list been read?
 
   const load = useCallback(async () => {
     try { setData(await adminApi.expiryReport(days)); }
@@ -42,6 +45,28 @@ export default function ExpiryPanel({ onError }) {
   }, [days, onError]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Looking is separate from acting, and it is the only thing that happens
+  // automatically. The owner asked for credits past 30 days to be taken back;
+  // I recommended against it and they decided otherwise, so it is built — with
+  // the list in front of them and their finger on the button.
+  const preview = useCallback(async () => {
+    try {
+      const p = await adminApi.creditExpiryPreview(30);
+      setPlan(p); setArmed(false);
+    } catch (e) { onError?.(e, 'Could not build the preview'); }
+  }, [onError]);
+
+  const runExpiry = useCallback(async () => {
+    if (!plan) return;
+    setRunning(true);
+    try {
+      const r = await adminApi.creditExpiryRun({ days: 30, expect_accounts: plan.due.length });
+      toast.success(`${r.expired} account(s) expired · ${r.credits} credits`);
+      setPlan(null); setArmed(false); load();
+    } catch (e) { onError?.(e, 'The expiry run failed'); }
+    finally { setRunning(false); }
+  }, [plan, load, onError]);
 
   const copyEmails = (group) => {
     const text = group.accounts.map((a) => a.email).join('\n');
@@ -170,6 +195,82 @@ export default function ExpiryPanel({ onError }) {
           })}
         </div>
       )}
+
+      {/* ── CREDITS PAST 30 DAYS ─────────────────────────────────────────
+          Separated from everything above by a rule, because everything above
+          only reports and this one takes something away. */}
+      <div style={{ borderTop: '1px solid var(--crm-w08)', marginTop: 14, paddingTop: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <div style={{ fontSize: 13, fontWeight: 700 }}>Expire credits past 30 days</div>
+          <button onClick={preview} style={{
+            fontSize: 11.5, padding: '4px 10px', borderRadius: 6, cursor: 'pointer',
+            border: '1px solid var(--crm-w08)', background: 'transparent', color: 'var(--crm-w60)',
+          }}>
+            {plan ? 'refresh the list' : 'show me who'}
+          </button>
+        </div>
+        <div style={{ fontSize: 11.5, color: 'var(--crm-w40)', marginTop: 4, lineHeight: 1.5 }}>
+          Counts 30 days from the LATER of joining or the last credits granted — so someone
+          topped up recently is not included. Admins are never touched. Every removal is
+          written to the ledger, so it can be traced and reversed.
+        </div>
+
+        {plan && (
+          <div style={{ marginTop: 10 }}>
+            {plan.due.length === 0 ? (
+              <div style={{ fontSize: 12, color: 'var(--crm-green)' }}>
+                No account has credits past 30 days. Nothing to do.
+              </div>
+            ) : (
+              <>
+                <div style={{ fontSize: 12.5, marginBottom: 6 }}>
+                  <b style={{ color: 'var(--crm-red)' }}>{plan.due.length}</b> account
+                  {plan.due.length === 1 ? '' : 's'} ·{' '}
+                  <b style={{ color: 'var(--crm-red)' }}>{plan.creditsToExpire}</b> credits would
+                  be taken back and access closed
+                  <span style={{ color: 'var(--crm-w40)' }}>
+                    {' · '}{plan.counts.notYet} still inside their 30 days
+                    {' · '}{plan.counts.nothingToTake} already empty
+                  </span>
+                </div>
+                <div style={{
+                  maxHeight: 200, overflowY: 'auto', fontSize: 11.5,
+                  fontFamily: '"JetBrains Mono", monospace', lineHeight: 1.8,
+                  color: 'var(--crm-w60)', border: '1px solid var(--crm-w06)',
+                  borderRadius: 8, padding: '6px 10px',
+                }}>
+                  {plan.due.map((a) => (
+                    <div key={a.id}>
+                      {a.email}
+                      <span style={{ color: 'var(--crm-w30)' }}>
+                        {' · '}{a.credits} credits · {a.daysPast}d past · {a.basis}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+                <label style={{
+                  display: 'flex', alignItems: 'center', gap: 8,
+                  fontSize: 12, marginTop: 10, cursor: 'pointer',
+                }}>
+                  <input type="checkbox" checked={armed} onChange={e => setArmed(e.target.checked)} />
+                  I have read this list — expire {plan.due.length} account
+                  {plan.due.length === 1 ? '' : 's'} and {plan.creditsToExpire} credits
+                </label>
+                <button onClick={runExpiry} disabled={!armed || running}
+                  style={{
+                    marginTop: 8, fontSize: 12, padding: '6px 14px', borderRadius: 8,
+                    border: '1px solid var(--crm-red)',
+                    background: armed ? 'var(--crm-red)' : 'transparent',
+                    color: armed ? '#fff' : 'var(--crm-w30)',
+                    cursor: armed && !running ? 'pointer' : 'not-allowed',
+                  }}>
+                  {running ? 'Expiring…' : 'Expire them'}
+                </button>
+              </>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

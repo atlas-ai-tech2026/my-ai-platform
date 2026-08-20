@@ -132,3 +132,182 @@ export function actionable(report, withinDays = SOON_DAYS) {
     .filter((d) => d.daysLeft >= 0 && d.daysLeft <= withinDays)
     .sort((a, b) => a.daysLeft - b.daysLeft);
 }
+
+
+// ── THE MANUAL-GRANT STANDARD (owner, 2026-08-20) ──────────────────────────
+// "I connect manually, and I added must to be thirty days."
+//
+// Verified before writing this: a manual grant runs exactly one statement —
+// UPDATE users SET credits, credit_limit — and never touches expires_at. So
+// credits handed out by hand had no expiry at all, and on an open-ended account
+// they lived forever. Promo codes carry their own access_days and bulk carries
+// its own date; this is only about the manual path.
+
+export const MANUAL_GRANT_DAYS = 30;
+
+/**
+ * The expiry a MANUAL grant should leave behind.
+ *
+ * Never shortens. A grant is someone being given something; it must not also
+ * quietly remove access they already hold. If they have 90 days, they keep 90.
+ *
+ * NOTE the honest limit: while credit lots (#67) are parked, expiry is per
+ * ACCOUNT, not per grant — so on an account with 90 days left, the newly
+ * granted credits live 90 days rather than 30. Exact per-grant expiry needs
+ * that task. Stated here rather than left for someone to discover.
+ */
+export function expiryAfterManualGrant(currentExpiresAt, now = Date.now(), days = MANUAL_GRANT_DAYS) {
+  const target = new Date(new Date(now).getTime() + days * 86400000);
+  if (!currentExpiresAt) return { value: target, changed: true, reason: 'had no expiry' };
+  const cur = new Date(currentExpiresAt);
+  if (Number.isNaN(cur.getTime())) return { value: target, changed: true, reason: 'had an unreadable expiry' };
+  if (cur >= target) return { value: cur, changed: false, reason: 'already has longer than 30 days' };
+  return { value: target, changed: true, reason: 'extended to 30 days' };
+}
+
+/**
+ * What a RETROACTIVE normalisation would do to every existing account.
+ *
+ * The owner chose, against my recommendation and having read it, to apply the
+ * 30-day standard to accounts that already exist — including ones currently
+ * holding MORE than 30 days, which this shortens.
+ *
+ * So this computes the change and performs nothing. It exists to be READ
+ * first: 584 of 587 accounts had no expiry as of 2026-08-11, which means most
+ * of the customer base gets a lock date, and some of that access was paid for.
+ * A change of that size must be looked at before it is made, not explained
+ * afterwards.
+ *
+ * Admins are never touched — locking the owner out of their own panel is not a
+ * policy, it is an outage.
+ */
+export function planNormalisation(users = [], now = Date.now(), days = MANUAL_GRANT_DAYS) {
+  const target = new Date(new Date(now).getTime() + days * 86400000);
+  const shortened = [];
+  const opened = [];
+  const extended = [];
+  const unchanged = [];
+  const skippedAdmins = [];
+
+  for (const u of users) {
+    if (u.role === 'admin') { skippedAdmins.push(u.email); continue; }
+    const cur = u.expires_at ? new Date(u.expires_at) : null;
+    const row = {
+      id: u.id, email: u.email, credits: Number(u.credits) || 0,
+      from: cur && !Number.isNaN(cur.getTime()) ? cur.toISOString() : null,
+      to: target.toISOString(),
+    };
+    if (!cur || Number.isNaN(cur.getTime())) { opened.push(row); continue; }
+    const diffDays = Math.round((cur - target) / 86400000);
+    if (diffDays > 0) shortened.push({ ...row, daysLost: diffDays });
+    else if (diffDays < 0) extended.push({ ...row, daysGained: -diffDays });
+    else unchanged.push(row);
+  }
+
+  return {
+    target: target.toISOString(),
+    // Ordered worst-first: the accounts losing the most are the ones a person
+    // needs to see, and burying them under a count is how a list stops being read.
+    shortened: shortened.sort((a, b) => b.daysLost - a.daysLost),
+    opened, extended, unchanged, skippedAdmins,
+    counts: {
+      shortened: shortened.length,
+      openEnded: opened.length,
+      extended: extended.length,
+      unchanged: unchanged.length,
+      admins: skippedAdmins.length,
+      total: users.length,
+    },
+    creditsBehindShortened:
+      Math.round(shortened.reduce((n, r) => n + r.credits, 0) * 100) / 100,
+  };
+}
+
+
+// ── EXPIRING CREDITS THAT HAVE RUN PAST THEIR 30 DAYS ──────────────────────
+// Owner, 2026-08-20, reaffirmed after I recommended against it: "not only for
+// promo code. Even before promo code, we created a lot of users manually...
+// if they exceed the thirty days, retrieve the credits, and this credit will
+// expire."
+//
+// I argued for expiring ACCESS and leaving balances alone — locked-out credits
+// are already unspendable, and the balance is the record of what a paying
+// customer was given. They have decided otherwise, which is their call, so this
+// does the whole thing: access AND balance.
+//
+// ── WHAT MAKES IT SAFE TO HAVE BUILT ───────────────────────────────────────
+// It computes a plan and performs nothing. Nothing runs on deploy, nothing runs
+// on a schedule. The owner reads the list — who, how many credits, how far past
+// — and presses the button. That is the same shape as the bulk expiry already
+// in the panel, and it is why a destructive change to hundreds of paying
+// customers can exist in the code at all.
+//
+// Every removal writes a LEDGER ROW. A balance that changes with no record is
+// how a customer dispute becomes unanswerable, and it is the difference between
+// an expiry and a disappearance.
+
+/**
+ * The clock starts at the LATER of: the account being created, or the last time
+ * credits were granted.
+ *
+ * Stated deliberately, because the alternative is cruel and arithmetically
+ * enormous: measuring purely from creation would expire someone who was topped
+ * up last week simply because they joined in May. Their thirty days restarted
+ * when they were given something.
+ */
+export function clockStart(user) {
+  const created = user.created_at ? new Date(user.created_at) : null;
+  const granted = user.last_grant_at ? new Date(user.last_grant_at) : null;
+  const valid = [created, granted].filter((d) => d && !Number.isNaN(d.getTime()));
+  if (!valid.length) return null;
+  return new Date(Math.max(...valid.map((d) => d.getTime())));
+}
+
+/**
+ * Who has run past their window, and what it would cost them.
+ *
+ * Accounts with NOTHING to take are left out entirely — expiring a zero balance
+ * writes a ledger row that says nothing happened, and pads the list the owner
+ * has to read with rows that do not matter.
+ */
+export function planCreditExpiry(users = [], now = Date.now(), days = MANUAL_GRANT_DAYS) {
+  const cutoff = new Date(new Date(now).getTime() - days * 86400000);
+  const due = [];
+  const skippedAdmins = [];
+  let notYet = 0;
+  let nothingToTake = 0;
+
+  for (const u of users) {
+    if (u.role === 'admin') { skippedAdmins.push(u.email); continue; }
+    const start = clockStart(u);
+    if (!start) { notYet += 1; continue; }
+    if (start > cutoff) { notYet += 1; continue; }
+    const credits = Number(u.credits) || 0;
+    if (credits <= 0) { nothingToTake += 1; continue; }
+    due.push({
+      id: u.id,
+      email: u.email,
+      credits: Math.round(credits * 100) / 100,
+      since: start.toISOString(),
+      daysPast: Math.floor((new Date(now) - start) / 86400000) - days,
+      basis: (u.last_grant_at && new Date(u.last_grant_at) >= new Date(u.created_at || 0))
+        ? 'last credit grant' : 'account created',
+    });
+  }
+
+  return {
+    // Most credits first: the accounts where this costs the most are the ones
+    // worth a second thought, and a list ordered by id buries them.
+    due: due.sort((a, b) => b.credits - a.credits),
+    creditsToExpire: Math.round(due.reduce((n, r) => n + r.credits, 0) * 100) / 100,
+    counts: {
+      due: due.length,
+      notYet,
+      nothingToTake,
+      admins: skippedAdmins.length,
+      total: users.length,
+    },
+    cutoff: cutoff.toISOString(),
+    windowDays: days,
+  };
+}
