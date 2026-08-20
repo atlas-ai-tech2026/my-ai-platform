@@ -193,6 +193,17 @@ export async function versioningStatus() {
  * to the sync exactly like "everything is already copied", which is the most
  * dangerous possible wrong answer for a backup job.
  */
+/**
+ * What counts as customer media, in ONE place.
+ *
+ * The sync copies this prefix and the SOP check must count the same one. When
+ * they were written separately the check compared the WHOLE Spaces bucket
+ * against the media mirror and reported the 14 database archives in backups/ as
+ * unprotected customer files — permanently, since the sync is never going to
+ * copy them there. See measureMedia below.
+ */
+export const MEDIA_SOURCE_PREFIX = 'generations/';
+
 export async function listAllMedia() {
   if (!configured) return { error: 'Spaces not configured' };
   try {
@@ -206,7 +217,7 @@ export async function listAllMedia() {
     // Found on the FIRST production run, from a log line naming
     // backups/voxel-auto-2026-08-07.ndjson.gz.enc in a media verification.
     const r = await listAllObjects(client, BUCKET, {
-      ListObjectsV2Command, prefix: 'generations/',
+      ListObjectsV2Command, prefix: MEDIA_SOURCE_PREFIX,
     });
     return { ...r, bucket: BUCKET };
   } catch (e) {
@@ -248,6 +259,33 @@ export async function measureUsage() {
   try {
     const { measureBucket } = await import('./storage-usage.js');
     const r = await measureBucket(client, BUCKET, { ListObjectsV2Command });
+    return { ...r, bucket: BUCKET };
+  } catch (e) {
+    return { error: e.message };
+  }
+}
+
+/**
+ * Size and count of CUSTOMER MEDIA only — the same set the sync copies.
+ *
+ * measureUsage() measures the whole bucket, which is right for the quota line
+ * (the bill covers everything) and wrong for "is customer media backed up":
+ * the bucket also holds backups/, the encrypted database archives, which reach
+ * Backblaze by their own path and will never appear under media/.
+ *
+ * Comparing the two produced "11,372 of 11,386 files copied offsite — 14 not
+ * yet protected" on production while the sync itself reported "0 still to
+ * copy", correctly, every fifteen minutes. A check that cannot reach green is
+ * one you stop reading, and this screen's whole value is that its silence means
+ * something.
+ */
+export async function measureMedia() {
+  if (!configured) return { error: 'Spaces not configured in this environment' };
+  try {
+    const { measureBucket } = await import('./storage-usage.js');
+    const r = await measureBucket(client, BUCKET, {
+      ListObjectsV2Command, prefix: MEDIA_SOURCE_PREFIX,
+    });
     return { ...r, bucket: BUCKET };
   } catch (e) {
     return { error: e.message };

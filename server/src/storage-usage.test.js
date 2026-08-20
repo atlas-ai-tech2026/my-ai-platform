@@ -250,3 +250,69 @@ describe('the media backup reminder that cannot be ticked off', () => {
     expect(v.detail).toBeTruthy();
   });
 });
+
+// ─── the check that could never go green ─────────────────────────────────────
+// Seen on PRODUCTION, 2026-08-20, in the owner's own screenshot:
+//
+//   Customer media backed up — warn
+//   11,372 of 11,386 files copied offsite — 14 not yet protected
+//   Do: The sync is behind. Check the last run before assuming it is catching up.
+//
+// The sync was not behind. Its own log said "0 still to copy" every fifteen
+// minutes for two hours, and every sampled read-back succeeded. The line was
+// comparing the WHOLE Spaces bucket against the media mirror, so the 14
+// encrypted database archives under backups/ — which reach Backblaze by their
+// own path and will never appear under media/ — counted as unprotected customer
+// files. Permanently, by construction.
+//
+// A warning that cannot clear is worse than no warning: it is a yellow light
+// you learn to walk past, on the one screen whose silence is supposed to mean
+// something. The counts must be of the same set.
+describe('customer media is compared against customer media', () => {
+  it('goes green when every media file is copied, ignoring the DB archives', () => {
+    // What production actually had: 11,372 generations, all copied, plus 14
+    // database archives that were never part of this comparison.
+    const v = judgeMediaBackup({
+      source: { objects: 11_372, bytes: 71e9 },     // generations/ ONLY
+      offsite: { objects: 11_372, bytes: 71e9 },
+    });
+    expect(v.state, 'a completed sync still reported files unprotected').toBe('ok');
+    expect(v.action).toBeNull();
+  });
+
+  it('still reports a genuinely incomplete sync', () => {
+    const v = judgeMediaBackup({
+      source: { objects: 11_372 }, offsite: { objects: 9_000 },
+    });
+    expect(v.state).toBe('warn');
+    expect(v.detail).toMatch(/2,372 not yet protected/);
+  });
+
+  it('and still shouts when nothing at all is offsite', () => {
+    const v = judgeMediaBackup({ source: { objects: 11_372 }, offsite: { objects: 0 } });
+    expect(v.state).toBe('critical');
+  });
+});
+
+// The other half of the same bug: two places deciding independently what
+// "customer media" means. They agreed by luck until one of them didn't.
+describe('one definition of what customer media is', () => {
+  it('nothing hard-codes the prefix behind the constant\'s back', async () => {
+    const { readFileSync } = await import('node:fs');
+    const path = await import('node:path');
+    const { fileURLToPath } = await import('node:url');
+    const here = path.dirname(fileURLToPath(import.meta.url));
+    const src = readFileSync(path.join(here, 'storage.js'), 'utf8');
+
+    const declaration = /export const MEDIA_SOURCE_PREFIX = 'generations\/';/;
+    expect(src, 'the shared prefix constant is gone').toMatch(declaration);
+
+    // Every OTHER mention must go through the constant. A second literal is how
+    // the sync and the check drifted apart in the first place.
+    const stray = src.replace(declaration, '').match(/'generations\//g) || [];
+    expect(stray,
+      'storage.js hard-codes the media prefix somewhere instead of using '
+      + 'MEDIA_SOURCE_PREFIX — that is exactly how the sync and the SOP check '
+      + 'came to count different sets.').toEqual([]);
+  });
+});

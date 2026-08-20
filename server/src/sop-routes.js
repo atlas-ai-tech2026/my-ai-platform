@@ -22,7 +22,8 @@ import { runIntegrityChecks } from './sop-integrity.js';
 import { runWrittenChecks } from './sop-written.js';
 import { latestAdvisoryRun, presentAdvisoryRun, refreshAdvisories,
          needsBootstrap } from './sop-advisories.js';
-import { measureUsage as spacesUsage, versioningStatus, listKeys } from './storage.js';
+import { measureUsage as spacesUsage, measureMedia as spacesMedia,
+         versioningStatus, listKeys } from './storage.js';
 import { measureOffsiteUsage as offsiteUsage, measureOffsiteMedia as offsiteMedia,
          listOffsite } from './backup-offsite.js';
 import { judgeBackups } from './backup-freshness.js';
@@ -235,7 +236,11 @@ export function registerSopRoutes(app, {
     // this line goes quiet, and not one moment before — unlike a reminder
     // somebody can tick off while nothing has been copied.
     try {
-      const [src, off] = await Promise.all([spacesUsage(), offsiteMedia()]);
+      // CUSTOMER MEDIA on both sides. Comparing the whole Spaces bucket against
+      // the media mirror counted the 14 database archives in backups/ as
+      // unprotected customer files — a warning that could never clear, next to
+      // an instruction ("the sync is behind") that was simply untrue.
+      const [src, off] = await Promise.all([spacesMedia(), offsiteMedia()]);
       const v = judgeMediaBackup({ source: src, offsite: off });
       today.push(line({
         key: 'media-backup', zone: 'today', label: 'Customer media backed up',
