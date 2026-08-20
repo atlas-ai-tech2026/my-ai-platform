@@ -9,6 +9,7 @@ import { adminApi, ApiError, readCsrfCookie } from '@/lib/adminApi';
 import StatsCards from '@/components/admin/StatsCards';
 import UserTable from '@/components/admin/UserTable';
 import BulkExpiryPanel from '@/components/admin/BulkExpiryPanel';
+import AudienceTab from '@/components/admin/AudienceTab';
 import ExpiryPanel from '@/components/admin/ExpiryPanel';
 import CreditsModal from '@/components/admin/CreditsModal';
 import HistoryModal from '@/components/admin/HistoryModal';
@@ -63,6 +64,11 @@ const TABS = [
     desc: 'For while a workshop is actually running. Who is generating right now, what is failing in the last ten minutes, and what it is costing per minute. Refreshes itself every 10 seconds — do not reload it.' },
   { id: 'users', label: 'Users',
     desc: 'Every customer. Search, grant or remove credits, ban, reset a password. "Details" opens one person’s full story — every generation, whether it worked, and what they were charged.' },
+  // #64. Under Customers rather than System: it is about PEOPLE, and it sits
+  // next to Users because the distinction between them is the whole point —
+  // Users means accounts, Audience means everyone who reaches the site.
+  { id: 'audience', label: 'Audience',
+    desc: 'Everyone who reaches the site, signed in or not — how many arrived, where they came from, which pages they opened, and how long people actually worked. Arrivals are counted here from the day tracking started; the account and activity history goes back to your first customer, rebuilt from dates that were always kept. Clicks and session replays are in Microsoft Clarity, which never runs on this control panel.' },
   { id: 'usage', label: 'API Usage',
     desc: 'What you are spending with kie.ai: totals, your remaining balance, and which models consumed it. Money OUT to your supplier — as opposed to Logs, which is credits moving between you and customers.' },
   { id: 'logs',  label: 'Logs',
@@ -318,6 +324,7 @@ export default function AdminPanel() {
         {tab === 'alerts' && <AlertsTab onError={handleError} />}
 
         {tab === 'live' && <LiveTab onError={handleError} />}
+        {tab === 'audience' && <AudienceTab onError={handleError} />}
         {tab === 'costing' && <CostingTab onError={handleError} />}
         {tab === 'offers' && <OffersTab onError={handleError} />}
         {tab === 'notifications' && <NotificationsTab onError={handleError} />}

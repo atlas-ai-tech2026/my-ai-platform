@@ -144,6 +144,9 @@ export const adminApi = {
   // admin was shown, so a list that moved while it was being read is refused.
   creditExpiryPreview: (days) => request('GET', `/api/admin/users/credit-expiry-preview?days=${days || 30}`),
   creditExpiryRun: (body) => request('POST', '/api/admin/users/credit-expiry', body),
+  // #64 — arrivals counted here, plus the account history reconstructed from
+  // dates that were always kept.
+  audience: (days) => request('GET', `/api/admin/audience?days=${days || 90}`),
   createGiftCards: (body) => request('POST', '/api/admin/giftcards', body),
   listGiftCards: (status = 'all') => request('GET', `/api/admin/giftcards?status=${status}`),
 

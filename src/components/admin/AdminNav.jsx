@@ -39,7 +39,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import {
   ClipboardCheck, ListChecks, Bell, Activity, Users, Ticket, Gift, Layers,
   Calculator, BadgePercent, ScrollText, Gauge, ShieldCheck, Megaphone,
-  BookOpen, Circle, PanelLeftClose, PanelLeftOpen,
+  BookOpen, Circle, Globe, PanelLeftClose, PanelLeftOpen,
 } from 'lucide-react';
 
 export const NAV_WIDTH = 208;
@@ -55,7 +55,7 @@ export const NAV_WIDTH_COLLAPSED = 52;
 const RAIL = NAV_WIDTH_COLLAPSED - 1;
 
 const ICONS = {
-  sop: ClipboardCheck, tasks: ListChecks, alerts: Bell, live: Activity,
+  sop: ClipboardCheck, tasks: ListChecks, alerts: Bell, live: Activity, audience: Globe,
   users: Users, promos: Ticket, gifts: Gift, bulk: Layers,
   costing: Calculator, offers: BadgePercent,
   logs: ScrollText, usage: Gauge, security: ShieldCheck, notifications: Megaphone,
@@ -90,7 +90,7 @@ function writeCollapsed(v) {
 
 export const GROUPS = [
   { id: 'daily',     label: 'Daily',     tabs: ['sop', 'alerts', 'tasks', 'live'] },
-  { id: 'customers', label: 'Customers', tabs: ['users', 'promos', 'gifts', 'bulk'] },
+  { id: 'customers', label: 'Customers', tabs: ['users', 'audience', 'promos', 'gifts', 'bulk'] },
   { id: 'money',     label: 'Money',     tabs: ['costing', 'offers'] },
   { id: 'system',    label: 'System',    tabs: ['logs', 'usage', 'security', 'notifications'] },
 ];

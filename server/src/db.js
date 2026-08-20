@@ -1119,6 +1119,32 @@ export async function migrate() {
       console.log(`[db] promoted ${ADMIN_EMAIL} → role=admin`);
     }
 
+    // Audience counters (#64). Created here so the very first page view after a
+    // deploy has somewhere to go — a counter whose table appears lazily loses
+    // whatever arrived before someone opened the tab.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS page_views (
+        day           DATE         NOT NULL,
+        path          VARCHAR(200) NOT NULL,
+        referrer_host VARCHAR(120) NOT NULL DEFAULT 'direct',
+        views         INTEGER      NOT NULL DEFAULT 0,
+        PRIMARY KEY (day, path, referrer_host)
+      )`);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS page_visitors (
+        day          DATE        NOT NULL,
+        visitor_hash VARCHAR(32) NOT NULL,
+        PRIMARY KEY (day, visitor_hash)
+      )`);
+    // WHEN counting started — what lets the screen say "before this date is
+    // unknown" rather than drawing a zero nobody ever measured.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS audience_meta (
+        id         INTEGER PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+        started_on DATE NOT NULL DEFAULT CURRENT_DATE
+      )`);
+    await client.query(`INSERT INTO audience_meta (id) VALUES (1) ON CONFLICT DO NOTHING`);
+
     await client.query('COMMIT');
     console.log('[db] migrations ok — users + credits_history + admin_audit_log + failed_logins + entities + node_spaces ready');
   } catch (err) {

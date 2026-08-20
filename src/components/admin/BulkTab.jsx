@@ -172,6 +172,24 @@ export default function BulkTab({ onError }) {
         an optional model allow-list, and an optional expiry date.
       </div>
 
+      {/* ── WHAT THIS SCREEN DOES NOT DO ──────────────────────────────────
+          The owner nearly topped up an existing customer through here on
+          2026-08-20 and asked first. Bulk checks whether an email exists and
+          SKIPS it before reaching the credit code, so a returning attendee
+          receives nothing while everyone new in the same list gets their
+          credits. The batch half-works, which is the dangerous kind: it reads
+          as success. Said before the button, not only in the results. */}
+      <div style={{
+        border: '1px solid var(--crm-amber-br)', background: 'var(--crm-amber-bg)',
+        borderRadius: 10, padding: '10px 14px', marginBottom: 14,
+        fontSize: 12.5, lineHeight: 1.55, color: 'var(--crm-ink)',
+      }}>
+        <b>Creates NEW accounts only.</b> An email that already has an account is
+        skipped and receives <b>no credits</b> — it is listed as “already existed”
+        in the results. To top up someone who already has an account, use{' '}
+        <b>Users → grant</b>, which adds to their balance instead of replacing it.
+      </div>
+
       {/* Step 1 — emails */}
       <div style={panelStyle}>
         <div style={panelTitleStyle}>1 · Emails ({emails.length})</div>

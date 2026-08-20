@@ -96,14 +96,36 @@ describe('H5 — verification accepts the right codes and rejects the rest', () 
     expect(verifyTotp('not-valid-base32!!', '123456', { timestampMs: now })).toBe(null);
   });
 
-  it('brute force does not get lucky: 2000 random 6-digit guesses all fail', () => {
-    const real = generateTotp(secret, { timestampMs: now });
+  // ── THIS TEST USED TO FAIL ABOUT ONCE IN EVERY 250 RUNS ─────────────────
+  // The secret is random per run, and verifyTotp accepts a ±1 STEP WINDOW —
+  // three valid codes, not one. The old version skipped only the current code,
+  // so whenever a neighbouring code happened to land inside the 2000 deterministic
+  // guesses the assertion failed, and its own premise ("all fail") was simply
+  // untrue: two of those codes are SUPPOSED to be accepted.
+  //
+  // Hit on 2026-08-20 during an unrelated change. A test that fails at random
+  // is worse than no test: it blocks a deploy for no reason, and it teaches
+  // people to re-run until green — which is how a real failure gets waved
+  // through.
+  //
+  // Now it excludes every code the verifier legitimately accepts, so it is
+  // deterministic AND still says the thing worth saying: nothing outside the
+  // window gets in.
+  it('brute force does not get lucky: 2000 guesses outside the window all fail', () => {
+    const valid = new Set([-1, 0, 1].map(
+      (offset) => generateTotp(secret, { timestampMs: now + offset * 30_000 })));
+    expect(valid.size, 'the window should contain three distinct codes').toBe(3);
+
     let accepted = 0;
+    let tried = 0;
     for (let i = 0; i < 2000; i++) {
       const guess = String(i * 7919 % 1_000_000).padStart(6, '0');
-      if (guess === real) continue; // don't count the real code
+      if (valid.has(guess)) continue;          // legitimately accepted — not a guess
+      tried += 1;
       if (verifyTotp(secret, guess, { timestampMs: now }) !== null) accepted++;
     }
+    expect(tried, 'the guess list collapsed — this would pass without checking anything')
+      .toBeGreaterThan(1990);
     expect(accepted).toBe(0);
   });
 

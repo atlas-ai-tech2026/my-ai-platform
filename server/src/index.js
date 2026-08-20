@@ -24,6 +24,7 @@ import { normalizeBulkEmails, generateBulkPassword } from './bulk-helpers.js';
 import { mayRedeem, capForInvites, splitInvites, REFUSAL } from './promo-audience.js';
 import { groupByExpiryDay, summarise, actionable, SOON_DAYS,
          planCreditExpiry, expiryAfterManualGrant, MANUAL_GRANT_DAYS } from './expiry-report.js';
+import { audienceMiddleware, audienceReport, ensureAudienceTables } from './audience-store.js';
 import { injectClarity, clarityCspHash, shouldInject,
          CLARITY_SCRIPT_HOSTS, CLARITY_CONNECT_HOSTS } from './clarity.js';
 
@@ -5802,6 +5803,30 @@ app.get('/api/admin/models', adminGate, (req, res) => {
     editing: [...Object.keys(EDIT_VIDEO_MODELS), ...Object.keys(MOTION_CONTROL_MODELS)],
     node: Object.keys(NODE_SYNC_SPECS),
   });
+});
+
+// ── COUNTING ARRIVALS (#64) ────────────────────────────────────────────────
+// Runs on every request, decides with the pure rules in audience.js, and
+// records OUT OF BAND — next() is called first, so a visitor never waits for a
+// counter and a database hiccup can never take a page down with it. Analytics
+// are worth considerably less than the site.
+app.use(audienceMiddleware(pool, {
+  dbReady,
+  resolveIp: clientIp,
+  // Our own pages are not a source of our own traffic: /image → /video is
+  // navigation, and counting it would crowd out the real referrers.
+  ownHosts: ['voxel-ai.ai', 'www.voxel-ai.ai', 'voxel-app-dev-b8a2h.ondigitalocean.app'],
+}));
+
+app.get('/api/admin/audience', adminGate, async (req, res) => {
+  if (!dbReady()) return res.status(503).json({ error: 'Database not available.' });
+  try {
+    const days = Math.min(Math.max(parseInt(req.query.days, 10) || 90, 1), 1095);
+    res.json(await audienceReport(pool, { days }));
+  } catch (err) {
+    console.error('[admin/audience] error:', err);
+    res.status(500).json({ error: 'Could not build the audience report.' });
+  }
 });
 
 // ─── ADMIN: BULK USER PROVISIONING (CRM Bulk tab) ──────────────────
