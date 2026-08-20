@@ -59,7 +59,7 @@ export const SEED = [
     title: 'Move DNS to your own Cloudflare account',
     why: 'voxel-ai.ai sits behind DigitalOcean’s Cloudflare, not yours — so there is no WAF or bot management you control.',
     detail: 'Registrar is GoDaddy, not DigitalOcean. 19 records across THREE email systems. Needs a quiet window — a MORNING, not late night: the risk is email, and propagation takes 24–48h. Zone export already sent.' },
-  { ref: '55', owner: 'claude', status: 'in_progress', priority: 21,
+  { ref: '55', owner: 'claude', status: 'done', priority: 21,
     title: 'Back up customer media — versioning AND replication to Backblaze',
     why: 'The daily backup covers the database — every generation’s metadata and URL — but NOT the files. 66.1 GiB across 11,320 files exists in exactly one place. Lose the bucket and every customer’s history points at nothing.',
     detail: 'DECIDED 2026-08-19: do BOTH. Costed from the providers’ own pricing pages that day, not from memory. '
@@ -67,7 +67,16 @@ export const SEED = [
       + 'VERSIONING — $0, well inside the allowance. Stops an accidental delete or overwrite. Does NOT survive losing the bucket or the account. Must be enabled via the API; the console says so explicitly. '
       + 'BACKBLAZE — $6.95/TB/mo with the first 10 GB free, so 61 billable GB ≈ $0.42/month. Seeding it moves ~71 GB out of DigitalOcean, inside the included 1 TiB transfer, so $0 to start. This is the only option that survives losing the DigitalOcean account entirely. '
       + 'SMALLER THAN IT LOOKED: Backblaze is ALREADY configured and working for the database backups (OFFSITE_S3_*), so this extends something proven rather than building new. About 4 hours. '
-      + 'THE NUMBER TO WATCH: growth rate is unknown — 66 GiB accumulated since roughly 2 August. At 250 GiB the Backblaze cost would be about $1.80/month. Worth reporting into the SOP rather than assuming.' },
+      + 'THE NUMBER TO WATCH: growth rate is unknown — 66 GiB accumulated since roughly 2 August. At 250 GiB the Backblaze cost would be about $1.80/month. Worth reporting into the SOP rather than assuming. '
+      + 'DONE 2026-08-20. Versioning is on, and the replication FINISHED: 11,372 files / 71.4 GB offsite, with the sync reporting "0 still to copy" and three sampled read-backs verified every fifteen minutes. '
+      + 'What is left is not engineering — see #65: the free tier is passed and the account needs a payment method or the copy stops.' },
+  { ref: '65', owner: 'owner', status: 'pending', priority: 1,
+    title: '⚡ Confirm a payment method on Backblaze — the offsite copy stops without one',
+    why: 'The media replication finished on 2026-08-20 and pushed the account to 71.4 GB against a 10 GB free tier — 714%. Uploads were still succeeding that afternoon, so either a card is already on file or Backblaze has not enforced yet. Nobody knows which, and the difference decides whether the offsite copy keeps working.',
+    detail: 'THE COST IS NOT THE POINT: about $0.43/month at this size. 714% reads like a catastrophe and it is forty-three cents. '
+      + 'THE RISK IS: above the free allowance WITHOUT a payment method, uploads fail — and they fail quietly. The first symptom would be a customer noticing broken history weeks later, which is exactly the failure #55 was built to prevent. '
+      + 'TWO MINUTES: sign in to Backblaze, check Billing. If a card is on file, nothing to do and the SOP line will simply report the size. If not, add one. '
+      + 'The SOP screen now says ALREADY OVER with the monthly cost, instead of telling you to act "BEFORE this is crossed" seven times past crossing.' },
   { ref: '50', owner: 'owner', status: 'pending', priority: 22,
     title: 'Second copy of the backup passphrase',
     why: 'Saved in the Mac Passwords app. If the laptop and DigitalOcean are lost together, every backup becomes permanently unreadable.',
@@ -206,12 +215,15 @@ export const SEED = [
     title: 'Fix the site’s contradictions with the legal documents',
     why: 'Publishing "there are no subscriptions" while a logged-in attendee sees a $19/month plan makes the contradiction the evidence.',
     detail: 'Account page shows a $19/month plan with dead buttons; Community advertises a $500 contest with no rules; stripe-js is installed with zero imports.' },
-  { ref: '35', owner: 'claude', status: 'pending', priority: 16,
+  { ref: '35', owner: 'claude', status: 'done', priority: 16,
     title: 'Weekly checks — run the security review, new vulnerabilities, database growth',
     why: 'Ten advisories were accepted deliberately and nothing would report an eleventh. On 18 August there were 11, ALL with fixes available. And the security-review tool has existed all along, barely used — a capability nobody runs is the same as one nobody has.',
     detail: 'Alert on what CHANGED, never on "advisories exist" — otherwise it trains dismissal and the real one gets dismissed too. '
       + 'RAISED TO PRIORITY 2026-08-20 at the owner’s request, ahead of the Expenses tab: the weekly security review goes into the SOP schedule beside the structure check, so it runs on a cadence instead of when someone remembers. '
-      + 'Also covers the 18 items from the July audit and the four still open (#42) — a review that only ever looks at new code never re-checks what was accepted as fine a year ago.' },
+      + 'Also covers the 18 items from the July audit and the four still open (#42) — a review that only ever looks at new code never re-checks what was accepted as fine a year ago. '
+      + 'DONE 2026-08-20, on production. The audit runs WEEKLY with the structure checks instead of on every page load, and the screen shows the stored result with the date it was really taken. '
+      + 'Database size, growth rate and the five biggest tables are measured daily from the server — the only place that can, since the database accepts trusted sources only. '
+      + 'Verified in the production log, not inferred: "dependency audit: warn · first check — 11 advisories found, none reviewed yet · 4 in production dependencies".' },
   { ref: '36', owner: 'claude', status: 'pending', priority: 46,
     title: 'Pre-workshop pre-flight card',
     why: 'This is exactly what failed on 8 August: 415 generations failed mid-workshop from an empty supplier account, every one auto-refunded so nothing flagged it.',
