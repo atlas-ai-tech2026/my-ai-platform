@@ -104,6 +104,15 @@ export const SEED = [
       + 'THE ENGINE IS ALREADY BUILT AND COMMITTED: credit-lots.js, 30 tests, the owner’s worked example as the first one, and all four rules proven to fail loudly when broken. Resuming starts from a working core. '
       + 'WHAT REMAINS: the credit_lots table, the backfill of 601 balances, switching charging + refunds + the video-charge sweeper over, the expiry sweep, an SOP check that the balance and the sum of lots always agree, and the breakdown shown to customers and in the CRM. '
       + 'WHILE THIS IS PARKED, BULK STILL ADDS NOTHING TO AN EXISTING USER — it silently skips them. Use Users → grant to top up someone who already has an account.' },
+  { ref: '68', owner: 'claude', status: 'done', priority: 4,
+    title: 'Access expiry — who loses access and when, and the 30-day credit standard',
+    why: 'The owner asked which accounts created 21-23 June would expire, and there was NO WAY TO ANSWER IT: the Users table shows an access column per row and nothing sorts or filters by it, so answering meant scrolling 601 rows. Nothing warned in advance either, so the first sign of an expiry was a customer unable to sign in.',
+    detail: 'DONE 2026-08-20, on production. Users tab → Access expiry: who goes on which day, grouped BY DAY because the question is never "when does one person expire", it is "who goes tomorrow, and is that a workshop". Each day expands to names and copies their addresses. '
+      + 'WHAT EXPIRY ACTUALLY DOES, read from both enforcement points: login is refused, NOTHING is deleted, and clearing the date restores access with the same balance. A lock on the door, not a demolition — and that clause sits under the headline because someone reading "12 accounts expire tomorrow" needs it more than any number. '
+      + 'THE 30-DAY STANDARD (owner, 2026-08-20): a manual grant now leaves 30 days behind, never shortening what someone already has. Until then a manual grant touched credits and credit_limit and NOTHING else, so hand-granted credits had no expiry at all. Promo codes keep their own access_days; bulk keeps its batch date. '
+      + 'EXPIRING CREDITS PAST 30 DAYS is built and is the owner’s to run: preview, a checkbox naming the exact accounts and credits, then the button. Nothing fires on deploy or on a schedule, and if the list changes while it is being read the run refuses. Every removal writes a ledger row. '
+      + 'I RECOMMENDED AGAINST taking the credits — a locked-out account cannot spend, and the balance is the record of what a paying customer received. The owner decided otherwise having read that, so it is built in full. '
+      + 'The clock starts at the LATER of joining or the last credits granted, so someone topped up recently is not swept up.' },
   { ref: '50', owner: 'owner', status: 'pending', priority: 22,
     title: 'Second copy of the backup passphrase',
     why: 'Saved in the Mac Passwords app. If the laptop and DigitalOcean are lost together, every backup becomes permanently unreadable.',
@@ -164,7 +173,7 @@ export const SEED = [
       + 'DECIDED 2026-08-19 by the owner: currency is USD throughout · entries are dated by the INVOICE DATE received, so months line up with reality rather than with when someone typed them · Claude IS included at $100/month, in its own category, because the question being answered is what the BUSINESS costs to run, not just the platform · and expenses must be freely addable as monthly, annual OR one-time. '
       + 'Cancelled entries are marked, never deleted — a cost that disappears from history makes last quarter look wrong. '
       + 'Owes a Knowledge Base entry in Arabic and English once built and confirmed, per the standing rule.' },
-  { ref: '64', owner: 'claude', status: 'pending', priority: 22,
+  { ref: '64', owner: 'claude', status: 'done', priority: 22,
     title: 'NEW TAB — Audience: who reaches the site, and how long they stay',
     why: 'Requested 2026-08-20. The Users tab shows people who signed up. Nothing shows the far larger number who ARRIVE — so there is no way to tell whether a workshop announcement brought traffic, or how many visitors produce one subscription.',
     detail: 'SPLIT IN TWO, because one half we are best placed to build and the other we would build badly. '
@@ -176,6 +185,12 @@ export const SEED = [
       + 'THE NAME is "Audience", not "Analysis" or "Visitors". There is already a Users tab and that means ACCOUNTS; Audience means everyone who reaches the site, signed in or not — which is exactly the distinction the owner drew by saying "not subscribe". "Traffic" is the plainer alternative but implies arrivals only, not time spent. '
       + 'TIME ON SITE, added 2026-08-20, and it splits the same way. '
       + 'SIGNED-IN USERS: buildable TODAY from data already held. Every generation is timestamped in generation_events, so first action to last action gives an ACTIVE session length per person per day. For a workshop that is the number that matters — "they were working for 40 minutes" — and it needs no new tracking whatsoever. '
+      + 'DONE 2026-08-20, on production, and confirmed working by the owner in the control panel. '
+      + 'Customers → Audience. Arrivals counted server-side (crawlers excluded, the control panel excluded, self-referrals not counted as a source); signups, people-per-day and session lengths rebuilt from ledger dates going back to the first customer. '
+      + 'EACH BLOCK STATES ITS OWN PROVENANCE — visits start the day tracking began and earlier days are UNKNOWN, not zero; account history is real and needed no new tracking. Without that line an empty stretch reads as "nobody came" when it means "nobody was counting". '
+      + 'Microsoft Clarity is LIVE for clicks, scroll and replays (project y5h0454pmv) and NEVER loads on the control panel — a session replay there would send 601 customers’ emails, balances and revenue to a third party as video. Took three CSP fixes, every one of which looked like a working install from the server side. '
+      + 'Stored as daily totals, not one row per hit, on a 10 GiB disk that stops accepting writes when full. Visitor hash re-salted daily: no cookie, no consent banner, useless tomorrow. '
+      + 'STILL OWED: the Clarity line in the privacy policy BEFORE #37 publishes, and the Knowledge Base entry in Arabic and English. '
       + 'ANONYMOUS VISITORS: the server genuinely CANNOT see this. Someone reading the pricing page for ten minutes without clicking sends the server nothing at all, so time-on-page is measurable only from the browser. Clarity already measures it; a heartbeat script of our own would cost ~2 hours and be blocked by exactly the same ad-blockers, so it would be a second script doing the same job less well. Recommend letting Clarity answer this alongside the click question rather than building a worse duplicate.' },
   { ref: '62', owner: 'claude', status: 'done', priority: 14,
     title: 'A git hook that makes committing to main impossible, not merely discouraged',
