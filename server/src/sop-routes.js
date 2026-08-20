@@ -577,6 +577,7 @@ export function registerSopRoutes(app, {
  */
 export function scheduleSopJobs(pool, dbReady, { tickMs = 15 * 60 * 1000 } = {}) {
   let inFlight = false;
+  let announced = false;
 
   const tick = async () => {
     if (!dbReady() || inFlight) return;
@@ -584,6 +585,26 @@ export function scheduleSopJobs(pool, dbReady, { tickMs = 15 * 60 * 1000 } = {})
     try {
       await ensureScheduleTable(pool);
       const rows = await readSchedule(pool);
+
+      // ── SAY WHAT IT DECIDED, ONCE PER DEPLOY ─────────────────────────────
+      // Until now this logged only when something was DUE, which makes a
+      // healthy scheduler and a dead one produce identical output: nothing.
+      // Three hours of silence on dev could not be told apart from a crashed
+      // timer without reading the code. That is the same shape as the media
+      // sync's `if (running) return;`, which went quiet for 2h45m and looked
+      // exactly like success.
+      //
+      // One line per deploy, not per tick — a heartbeat every 15 minutes is
+      // noise, and noise is how the real line gets missed.
+      if (!announced) {
+        announced = true;
+        console.log('[sop-schedule] watching: ' + (rows.map((r) => {
+          const v = isDue(r, { lastRunIso: r.last_run_at });
+          return `${r.job}=${!r.enabled ? 'off' : v.due ? 'DUE' : `every ${r.every}, last ${
+            r.last_run_at ? new Date(r.last_run_at).toISOString().slice(0, 16) : 'never'}`}`;
+        }).join(' · ') || 'nothing configured'));
+      }
+
       for (const row of rows) {
         const v = isDue(row, { lastRunIso: row.last_run_at });
         if (!v.due) continue;
@@ -605,6 +626,24 @@ export function scheduleSopJobs(pool, dbReady, { tickMs = 15 * 60 * 1000 } = {})
           console.error(`[sop-schedule] ${row.job} failed:`, e.message);
           await markRan(pool, row.job).catch(() => {});
         }
+      }
+      // ── A CHECK THAT HAS NEVER RUN MUST NOT WAIT A WEEK ─────────────────
+      // The advisory check rides the weekly integrity slot. On the deploy that
+      // introduced it, that slot had run recently — so it was not due, and the
+      // screen would have read "not checked yet" for up to seven days on a
+      // feature that had just shipped. The owner would have opened the tab,
+      // seen nothing, and been right to conclude it did not work.
+      //
+      // Deliberately conditioned on there being NO stored result at all, not
+      // on the result being old: once one exists, the weekly cadence owns it.
+      try {
+        if (!(await latestAdvisoryRun(pool))) {
+          console.log('[sop-schedule] no dependency audit has ever run — running the first one');
+          const r = await refreshAdvisories(pool, { root: REPO_ROOT });
+          console.log(`[sop-schedule] first dependency audit: ${r.state} · ${r.detail}`);
+        }
+      } catch (e) {
+        console.error('[sop-schedule] first advisory run failed:', e.message);
       }
     } catch (e) {
       console.error('[sop-schedule] tick failed:', e.message);
