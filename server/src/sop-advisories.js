@@ -89,7 +89,15 @@ const SEVERITY_RANK = { critical: 4, high: 3, moderate: 2, low: 1, info: 0, unkn
  */
 export function byRealRisk(a, b) {
   if (a.production !== b.production) return a.production ? -1 : 1;
-  return (SEVERITY_RANK[b.severity] ?? 0) - (SEVERITY_RANK[a.severity] ?? 0);
+  const bySeverity = (SEVERITY_RANK[b.severity] ?? 0) - (SEVERITY_RANK[a.severity] ?? 0);
+  if (bySeverity) return bySeverity;
+  // Equal risk, so the tie-break is which one will still be here next week.
+  // One with a fix needs a COMMAND; one without needs a DECISION — accept the
+  // risk, or replace the library. Left alphabetical, "start with" recommended
+  // vite (one npm audit fix away) over xlsx (production, prototype pollution,
+  // no upstream fix), which is the opposite of useful.
+  if (a.fixAvailable !== b.fixAvailable) return a.fixAvailable ? 1 : -1;
+  return 0;
 }
 
 export function judgeAdvisories({ parsed, known = [], now = Date.now() }) {
@@ -102,6 +110,31 @@ export function judgeAdvisories({ parsed, known = [], now = Date.now() }) {
     };
   }
   const { added, resolved, unchanged } = diffAdvisories(parsed.advisories, known);
+
+  // ── A FIRST RUN IS A BASELINE, NOT A CHANGE ──────────────────────────────
+  // With nothing reviewed yet, every advisory diffs as "new" and the line reads
+  // "11 NEW advisories since the last check" — CRITICAL, on a day when nothing
+  // whatsoever happened. Seen for real on the dev deploy of 2026-08-20.
+  //
+  // That is this module's own stated failure mode arriving through the front
+  // door: alarming, unchanging, and untrue, which is exactly what teaches
+  // someone to dismiss the line that finally matters. Eleven unreviewed
+  // advisories still deserve attention — they do not deserve to be described as
+  // something that just happened.
+  if (!known.length && parsed.advisories.length) {
+    const prod = parsed.advisories.filter((a) => a.production);
+    const worst = [...parsed.advisories].sort(byRealRisk)[0];
+    return {
+      state: 'warn',
+      baseline: true,
+      detail: `first check — ${parsed.advisories.length} advisories found, none reviewed yet`
+        + (prod.length ? ` · ${prod.length} in production dependencies` : ''),
+      action: `Review them once and accept them; from then on this reports only what is NEW. `
+        + `Start with ${worst.name}${worst.production ? ' — a production dependency' : ''}`
+        + `${worst.fixAvailable ? ', and it has a fix available' : ', which has no upstream fix'}.`,
+      added: [], resolved: [], now,
+    };
+  }
 
   if (!added.length) {
     const prod = unchanged.filter((a) => a.production).length;

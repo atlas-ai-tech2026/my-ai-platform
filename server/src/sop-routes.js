@@ -311,7 +311,9 @@ export function registerSopRoutes(app, {
         state: adv.state === 'critical' ? STATE.CRITICAL
           : adv.state === 'warn' ? STATE.WARN
           : adv.state === 'unknown' ? STATE.UNKNOWN : STATE.OK,
-        value: adv.added?.length ? `${adv.added.length} new` : adv.checkedAt ? 'none new' : 'not checked',
+        value: adv.baseline ? 'first check'
+          : adv.added?.length ? `${adv.added.length} new`
+          : adv.checkedAt ? 'none new' : 'not checked',
         // The moment the audit actually ran, NOT the moment this page was opened.
         checkedAt: adv.checkedAt,
         info: 'Runs npm audit WEEKLY, with the structure checks, and reports only what has appeared '

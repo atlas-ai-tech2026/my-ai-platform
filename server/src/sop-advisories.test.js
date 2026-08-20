@@ -198,3 +198,58 @@ describe('the stored result', () => {
     expect(ran, 'displaying the line triggered an audit').toBe(false);
   });
 });
+
+// ─── the first run is a baseline, not eleven emergencies ─────────────────────
+// Seen for real on dev, 2026-08-20: the very first audit reported "11 NEW
+// advisories since the last check" and turned the line CRITICAL on a day when
+// nothing had happened. There was no last check. Everything diffs as new when
+// nothing is reviewed yet.
+//
+// This module's whole argument is that a check reporting totals teaches
+// dismissal. Shipping it in a state where day one reports totals — dressed as
+// change — would have taught that lesson on the first morning anyone looked.
+describe('the very first check', () => {
+  const parsed = () => parseAudit(REAL, { productionDeps: PROD });
+
+  it('says "first check", not "NEW since the last check"', () => {
+    const v = judgeAdvisories({ parsed: parsed(), known: [] });
+    expect(v.detail).toMatch(/first check/);
+    expect(v.detail, 'a baseline was described as a change').not.toMatch(/NEW/);
+    expect(v.baseline).toBe(true);
+  });
+
+  it('is not CRITICAL, because nothing happened', () => {
+    const v = judgeAdvisories({ parsed: parsed(), known: [] });
+    expect(v.state, 'day one turned the screen red on its own arrival').not.toBe('critical');
+    expect(v.state).toBe('warn');
+  });
+
+  // Not silent either. Four unreviewed advisories in production is worth a look.
+  it('still counts them, and says how many reach a customer', () => {
+    const v = judgeAdvisories({ parsed: parsed(), known: [] });
+    expect(v.detail).toMatch(/4 advisories found/);
+    expect(v.detail).toMatch(/2 in production dependencies/);
+  });
+
+  it('points at the one worth starting with, and whether a fix exists', () => {
+    const v = judgeAdvisories({ parsed: parsed(), known: [] });
+    expect(v.action).toMatch(/xlsx/);
+    expect(v.action).toMatch(/production dependency/);
+    expect(v.action).toMatch(/no upstream fix/);
+  });
+
+  // The baseline must not swallow a genuine change later on.
+  it('once anything is reviewed, a new advisory is reported as new again', () => {
+    const known = parsed().advisories.filter((a) => a.name !== 'nanoid').map(advisoryKey);
+    const v = judgeAdvisories({ parsed: parsed(), known });
+    expect(v.baseline).toBeUndefined();
+    expect(v.detail).toMatch(/1 NEW advisory/);
+  });
+
+  // An EMPTY audit with nothing reviewed is a clean project, not a baseline.
+  it('a clean project is simply ok', () => {
+    const v = judgeAdvisories({ parsed: parseAudit(auditJson({})), known: [] });
+    expect(v.state).toBe('ok');
+    expect(v.baseline).toBeUndefined();
+  });
+});
