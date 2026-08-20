@@ -169,7 +169,15 @@ describe('sizes are printed in a unit a human would have chosen', () => {
     });
     expect(v.detail).toMatch(/GB/);
     expect(v.detail).not.toMatch(/GiB/);
-    expect(v.state, '10.2 GB against a 10 GB allowance was reported as fine').not.toBe('ok');
+    // 9.5 GiB IS 10.2 GB. Printed in binary it would read "9.5" against a 10 GB
+    // tier — under it — when the tier has actually been passed.
+    //
+    // The STATE used to be the assertion here. It cannot be any more: since the
+    // card went on the Backblaze account, being above that free tier is a normal
+    // billed state and correctly reads as ok. The number is still the tell, and
+    // the number is what this test was always really about.
+    expect(v.detail).toMatch(/^10\.2 GB of 10 GB free/);
+    expect(v.detail).toMatch(/above the free tier/);
   });
 });
 

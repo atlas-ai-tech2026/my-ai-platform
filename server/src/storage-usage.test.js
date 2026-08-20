@@ -328,34 +328,35 @@ describe('one definition of what customer media is', () => {
 // it printed only when a daily rate was known — 714% on screen and not one word
 // saying the limit was passed. And the instruction still said "BEFORE this is
 // crossed", seven times past crossing, which reads as though there is time.
-describe('when the allowance is already passed', () => {
-  const over = { bytes: 71.4e9, objects: 11_394, bucket: 'voxel-offsite-backups' };
+describe('when a HARD allowance is already passed', () => {
+  // Demonstrated on Spaces, which has a real included allowance. It was written
+  // against Backblaze, and Backblaze has since become a BILLED free tier where
+  // "over" is where it is supposed to be — see the block below. The property is
+  // unchanged; only the provider that illustrates it moved.
+  const over = { bytes: 260 * GIB, objects: 11_394, bucket: 'voxel-ai-store' };
 
   it('says so without needing to know the growth rate', () => {
-    const v = judgeUsage({ provider: 'offsite', measurement: over, history: [] });
-    expect(v.detail).toMatch(/ALREADY OVER the allowance by 61\.4 GB/);
+    const v = judgeUsage({ provider: 'spaces', measurement: over, history: [] });
+    expect(v.detail).toMatch(/ALREADY OVER the allowance by 10\.0 GiB/);
     expect(v.detail).toMatch(/unknown rate/);   // still honest about the rate
   });
 
   it('stops telling you to act BEFORE something that has happened', () => {
-    const v = judgeUsage({ provider: 'offsite', measurement: over });
+    const v = judgeUsage({ provider: 'spaces', measurement: over });
     expect(v.action, 'the instruction still described a future event')
-      .not.toMatch(/BEFORE this is crossed/);
-    expect(v.action).toMatch(/ALREADY passed/);
-    expect(v.action).toMatch(/payment method/);
+      .not.toMatch(/until it is close|BEFORE/);
+    expect(v.action).toMatch(/Nothing breaks/);
   });
 
-  // 714% of a free tier reads like a catastrophe. It is about fifty cents.
-  // The difference between those two readings is a decision and a panic.
   it('says what the excess actually costs', () => {
-    const v = judgeUsage({ provider: 'offsite', measurement: over });
-    expect(v.detail).toMatch(/about \$0\.43 per month at this size/);
+    const v = judgeUsage({ provider: 'spaces', measurement: over });
+    expect(v.detail).toMatch(/about \$0\.20 per month at this size/);
   });
 
   it('never prints a crossing date for something already crossed', () => {
     const at = (d) => new Date(Date.UTC(2026, 7, d));
-    const v = judgeUsage({ provider: 'offsite', measurement: over, history: [
-      { bytes: 50e9, at: at(15) }, { bytes: 60e9, at: at(16) }, { bytes: 71.4e9, at: at(17) },
+    const v = judgeUsage({ provider: 'spaces', measurement: over, history: [
+      { bytes: 200 * GIB, at: at(15) }, { bytes: 230 * GIB, at: at(16) }, { bytes: 260 * GIB, at: at(17) },
     ] });
     expect(v.detail).not.toMatch(/crosses the allowance in/);
     expect(v.detail).toMatch(/ALREADY OVER/);
@@ -382,5 +383,52 @@ describe('when the allowance is already passed', () => {
     const v = judgeUsage({ provider: 'offsite', measurement: { bytes: 5e9, objects: 10 } });
     expect(v.detail).not.toMatch(/ALREADY OVER|per month at this size/);
     expect(v.state).toBe('ok');
+  });
+});
+
+// ─── a free tier that is billed is not a quota ───────────────────────────────
+// The owner put a card on the Backblaze account on 2026-08-20, hours after the
+// SOP started reporting 714% of the free 10 GB as CRITICAL. With billing on,
+// being above a free tier is a normal paid state — and pinning the line at red
+// forever would recreate, on the same screen, the exact failure that took two
+// fixes to remove today: a light that is always on is a light nobody reads.
+//
+// Above the tier the state follows the MONEY, because that is the thing that
+// can actually get out of hand. The size cannot: 714% of ten free gigabytes is
+// forty-three cents.
+describe('above a billed free tier, the bill decides', () => {
+  const at = (bytes) => judgeUsage({
+    provider: 'offsite', measurement: { bytes, objects: 11_394, bucket: 'voxel-offsite-backups' },
+  });
+
+  it("today's 71.4 GB is fine, not an emergency", () => {
+    const v = at(71.4e9);
+    expect(v.state, '714% of a free tier was still being treated as a quota breach').toBe('ok');
+    expect(v.action).toBeNull();
+    expect(v.detail).toMatch(/above the free tier, which is billed/);
+    expect(v.detail).toMatch(/about \$0\.43 per month/);
+  });
+
+  it('warns when the bill starts to matter, not when the tier is passed', () => {
+    expect(at(800e9).state).toBe('warn');       // ~$5.49/month
+    expect(at(3e12).state).toBe('critical');    // ~$20.78/month
+  });
+
+  it('no longer calls it ALREADY OVER, because over is where it is meant to be', () => {
+    expect(at(71.4e9).detail).not.toMatch(/ALREADY OVER/);
+  });
+
+  // The reframing must not leak to the provider it does not apply to. A full
+  // Postgres disk is not a billing event at any size.
+  it('a database is still judged as a hard limit', () => {
+    const v = judgeUsage({ provider: 'database', measurement: { bytes: 9.8 * GIB, objects: 1 } });
+    expect(v.state).toBe('critical');
+    expect(v.monthlyUsd).toBeNull();
+  });
+
+  it('and Spaces, which has a real included allowance, still is too', () => {
+    const v = judgeUsage({ provider: 'spaces', measurement: { bytes: 210 * GIB, objects: 1 } });
+    expect(v.state).toBe('warn');          // 84% — a quota, judged as one
+    expect(v.monthlyUsd).toBeNull();
   });
 });

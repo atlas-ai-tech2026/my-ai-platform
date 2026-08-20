@@ -125,7 +125,59 @@ describe('looking at now, not at all of history', () => {
     const spec = MUST_BE_WRITTEN.find((s) => s.column === 'duration_ms');
     const pool = poolReturning({ 'generation_events.duration_ms': { total: 100, written: 100 } });
     await measureWritten(pool, { specs: [spec] });
-    expect(pool.query.mock.calls[0][0]).toContain("outcome <> 'pending'");
+    // Asserted as INTENT, not as a fixed clause: this used to pin the literal
+    // string "outcome <> 'pending'", which turned out to be the bug.
+    expect(pool.query.mock.calls[0][0]).toMatch(/AND \(outcome IN/);
+    expect(spec.where).not.toMatch(/pending/);
+  });
+
+  // ── the reason that clause changed ────────────────────────────────────────
+  // sweepStale marks an attempt `unknown` when the browser tab closed and it
+  // never reported back, and leaves duration_ms null ON PURPOSE — inventing a
+  // duration there would fabricate the exact number this column exists to give
+  // honestly. `outcome <> 'pending'` counted every one of them as a gap: 44.4%
+  // of the window on production, with the line pointing at a bug that was not
+  // there.
+  it('does not count an attempt that never reported back as a missing duration', () => {
+    const spec = MUST_BE_WRITTEN.find((s) => s.column === 'duration_ms');
+    expect(spec.where).toBe("outcome IN ('delivered', 'failed')");
+    expect(spec.where, 'swept-unknown rows were judged for a duration they cannot have')
+      .not.toMatch(/unknown/);
+  });
+
+  // ── a column is not judged on rows written before it existed ─────────────
+  // Nothing wrote pending_video_charges.model_label until 2026-08-19. Over a
+  // 7-day window it read 79.5% missing the day AFTER the fix shipped, blaming
+  // call sites that all pass modelLabel correctly.
+  describe('columns that started being written on a known date', () => {
+    it('excludes rows older than that date', async () => {
+      const spec = MUST_BE_WRITTEN.find((s) => s.table === 'pending_video_charges');
+      const pool = poolReturning({ 'pending_video_charges.model_label': { total: 10, written: 10 } });
+      await measureWritten(pool, { specs: [spec], days: 7 });
+      const [sql, params] = pool.query.mock.calls[0];
+      expect(sql).toMatch(/created_at >= \$2::date/);
+      expect(params).toEqual([7, '2026-08-19']);
+    });
+
+    it('leaves every other column judged over the whole window', async () => {
+      const spec = MUST_BE_WRITTEN.find((s) => s.column === 'model_label' && s.table === 'generation_events');
+      const pool = poolReturning({ 'generation_events.model_label': { total: 10, written: 10 } });
+      await measureWritten(pool, { specs: [spec], days: 7 });
+      const [sql, params] = pool.query.mock.calls[0];
+      expect(sql).not.toMatch(/::date/);
+      expect(params).toEqual([7]);
+    });
+
+    // It must not become a way to hide a regression: only rows BEFORE the date
+    // are excluded, so anything written after it is still judged in full, and
+    // once the rolling window clears the date the clause stops mattering.
+    it('is reported as an error rather than interpolated when it is not a date', async () => {
+      const measured = await measureWritten(poolReturning({}), {
+        specs: [{ table: 'users', column: 'email', why: 'w', action: 'a', maxNullPct: 5,
+                  since: "2026-08-19'; DROP TABLE users --" }],
+      });
+      expect(measured[0].error).toMatch(/since must be YYYY-MM-DD/);
+    });
   });
 
   // The identifiers are ours, not user input — but a hand-edited list is still

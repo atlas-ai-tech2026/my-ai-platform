@@ -75,7 +75,20 @@ export const ALLOWANCES = {
     included: 'the always-free allowance',
     overage: '$6.95 per TB per month',
     overageUsdPerUnit: 6.95, overageUnitBytes: 1000 ** 4,
-    // The one that can actually STOP working, which is why its wording differs.
+    // ── 10 GB IS A FREE TIER, NOT A CEILING ────────────────────────────────
+    // The owner put a card on the account on 2026-08-20, so being above it is
+    // a billed, expected state — like any other paid service. Judging it as a
+    // quota would have pinned this line at 714% CRITICAL permanently, and a
+    // light that is always red is one nobody looks at. That failure has cost
+    // this project real time twice already this week.
+    //
+    // So above the free tier the state follows the MONEY, which is the thing
+    // that can actually get out of hand. $5/month is roughly 720 GB — ten
+    // times today's size and far more than customer media can plausibly reach
+    // without something being wrong.
+    billedAboveFreeTier: true,
+    costWarnUsd: 5,
+    costCriticalUsd: 20,
     action: 'Add a payment method to Backblaze BEFORE this is crossed. Above the free allowance without one, uploads fail and the offsite copy silently stops.',
     overAction: 'The free allowance is ALREADY passed — this is no longer something to do before it '
       + 'happens. Confirm a payment method is on file at Backblaze. Without one, uploads start '
@@ -377,7 +390,9 @@ export function judgeUsage({ provider, measurement, history = [], now = Date.now
   // depend on knowing how fast you got there.
   const over = used - a.limitBytes;
   if (over > 0) {
-    parts.push(`ALREADY OVER the allowance by ${fmtScaled(over, base)}`);
+    parts.push(a.billedAboveFreeTier
+      ? `${fmtScaled(over, base)} above the free tier, which is billed`
+      : `ALREADY OVER the allowance by ${fmtScaled(over, base)}`);
     const cost = overageCost(over, a);
     // The percentage alone reads like a catastrophe. 714% of a free tier that
     // starts at 10 GB is about fifty cents a month, and knowing that is the
@@ -395,10 +410,20 @@ export function judgeUsage({ provider, measurement, history = [], now = Date.now
     if (over <= 0 && crossing) parts.push(`crosses the allowance in about ${crossing.daysLeft} days`);
   }
 
+  // Above a FREE TIER that is billed, the percentage stops being the thing
+  // worth judging — 714% of a free 10 GB is forty-three cents. What matters is
+  // the bill, so that is what sets the state.
+  const monthlyUsd = a.billedAboveFreeTier && over > 0
+    ? (over / a.overageUnitBytes) * a.overageUsdPerUnit
+    : null;
+
   // A truncated count means we do not know the size, so it cannot be a pass.
   let state = 'ok';
   if (measurement.truncated) state = 'unknown';
-  else if (pct >= CRITICAL_AT) state = 'critical';
+  else if (monthlyUsd != null) {
+    state = monthlyUsd >= (a.costCriticalUsd ?? Infinity) ? 'critical'
+      : monthlyUsd >= (a.costWarnUsd ?? Infinity) ? 'warn' : 'ok';
+  } else if (pct >= CRITICAL_AT) state = 'critical';
   else if (pct >= WARN_AT) state = 'warn';
   // The projection escalates on its own: comfortably inside the limit today but
   // arriving within a month is exactly the moment worth a warning, and is the
@@ -413,6 +438,7 @@ export function judgeUsage({ provider, measurement, history = [], now = Date.now
     daysLeft: crossing?.already ? 0 : (crossing?.daysLeft ?? null),
     detail: parts.join(' · '),
     action: state === 'ok' ? null : (over > 0 && a.overAction) ? a.overAction : a.action,
+    monthlyUsd,
     now,
   };
 }

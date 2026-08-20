@@ -28,7 +28,7 @@ import { measureOffsiteUsage as offsiteUsage, measureOffsiteMedia as offsiteMedi
          listOffsite } from './backup-offsite.js';
 import { judgeBackups } from './backup-freshness.js';
 import { recordUsage, usageHistory, judgeUsage, judgeMediaBackup, ALLOWANCES,
-         measureDatabase, describeTables } from './storage-usage.js';
+         measureDatabase, describeTables, fmtScaled, GB } from './storage-usage.js';
 import { runPostureChecks } from './sop-posture.js';
 import {
   readSchedule, writeSchedule, markRan, isDue, ensureScheduleTable, JOBS,
@@ -159,8 +159,14 @@ export function registerSopRoutes(app, {
           state: v.state === 'critical' ? STATE.CRITICAL
             : v.state === 'warn' ? STATE.WARN
             : v.state === 'unknown' ? STATE.UNKNOWN : STATE.OK,
+          // A percentage OF A FREE TIER stops meaning anything once the tier is
+          // passed and billed: "713.6% of 10 GB free" reads like an emergency
+          // and describes forty-three cents. Above a billed tier the heading is
+          // the size and the bill, which is what the owner would act on.
           value: v.bytes == null ? 'not checked'
-            : `${v.pct}% of ${ALLOWANCES[provider]?.limitLabel || 'allowance'}`,
+            : v.monthlyUsd != null
+              ? `${fmtScaled(v.bytes, GB)} · about $${v.monthlyUsd.toFixed(2)}/month`
+              : `${v.pct}% of ${ALLOWANCES[provider]?.limitLabel || 'allowance'}`,
           checkedAt: new Date().toISOString(),
           info: `${ALLOWANCES[provider]?.label} — ${ALLOWANCES[provider]?.included}, then `
             + `${ALLOWANCES[provider]?.overage}. Measured daily so the growth rate is real rather `

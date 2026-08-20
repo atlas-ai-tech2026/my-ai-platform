@@ -41,13 +41,28 @@ export const MUST_BE_WRITTEN = [
   },
   {
     table: 'generation_events', column: 'duration_ms', maxNullPct: 25,
-    where: "outcome <> 'pending'",
+    // Only attempts that actually REPORTED BACK. `outcome <> 'pending'` also
+    // swept in `unknown` — the rows sweepStale marks when a browser tab closed
+    // and the attempt never returned. Those have no duration deliberately;
+    // inventing one would be making up the very number this column exists to
+    // give honestly. They were 44.4% of the window on production, so the line
+    // sat yellow pointing at a bug that was not there.
+    where: "outcome IN ('delivered', 'failed')",
     why: 'How long a finished generation took. Empty means "which model is fastest" has no '
       + 'answer for it — the question clients actually ask.',
-    action: 'A route is closing an attempt without settleAttempt(), or not closing it at all.',
+    action: 'A route is closing an attempt without settleAttempt(), or not closing it at all. '
+      + 'Attempts that never reported back are counted separately and are not this.',
   },
   {
     table: 'pending_video_charges', column: 'model_label', maxNullPct: 10,
+    // Nothing wrote this column until ea4ac90 on 2026-08-19. Judged over a
+    // 7-day window it reported 79.5% missing the day after the fix shipped —
+    // six days of rows that never could have had a value, described as a live
+    // bug in call sites that all pass modelLabel correctly.
+    //
+    // A `since` self-expires: once the rolling window clears the date it stops
+    // mattering, and a genuine regression after it is still caught in full.
+    since: '2026-08-19',
     why: 'Which model a video job used. Empty means its failure can only ever be inferred by '
       + 'matching refunds to spends, never recorded.',
     action: 'A trackVideoCharge() call site is not passing modelLabel — see video-charge-model-id.test.js.',
@@ -81,13 +96,21 @@ export async function measureWritten(pool, { days = 7, specs = MUST_BE_WRITTEN }
       out.push({ ...s, error: 'unsafe identifier in MUST_BE_WRITTEN' });
       continue;
     }
+    // `since` is bound as a parameter, but it is still checked: everything in
+    // this file is interpolated somewhere, and one exception is how the next
+    // person learns it is optional.
+    if (s.since && !/^\d{4}-\d{2}-\d{2}$/.test(s.since)) {
+      out.push({ ...s, error: `since must be YYYY-MM-DD, got "${s.since}"` });
+      continue;
+    }
     try {
       const { rows } = await pool.query(
         `SELECT COUNT(*)::int AS total, COUNT("${s.column}")::int AS written
            FROM "${s.table}"
           WHERE created_at > NOW() - ($1 || ' days')::INTERVAL
+            ${s.since ? 'AND created_at >= $2::date' : ''}
             ${s.where ? `AND (${s.where})` : ''}`,
-        [days]);
+        s.since ? [days, s.since] : [days]);
       out.push({ ...s, total: rows[0].total, written: rows[0].written });
     } catch (e) {
       // A missing table is a finding, not a crash — but it is reported as

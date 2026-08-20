@@ -70,13 +70,15 @@ export const SEED = [
       + 'THE NUMBER TO WATCH: growth rate is unknown — 66 GiB accumulated since roughly 2 August. At 250 GiB the Backblaze cost would be about $1.80/month. Worth reporting into the SOP rather than assuming. '
       + 'DONE 2026-08-20. Versioning is on, and the replication FINISHED: 11,372 files / 71.4 GB offsite, with the sync reporting "0 still to copy" and three sampled read-backs verified every fifteen minutes. '
       + 'What is left is not engineering — see #65: the free tier is passed and the account needs a payment method or the copy stops.' },
-  { ref: '65', owner: 'owner', status: 'pending', priority: 1,
+  { ref: '65', owner: 'owner', status: 'done', priority: 1,
     title: '⚡ Confirm a payment method on Backblaze — the offsite copy stops without one',
     why: 'The media replication finished on 2026-08-20 and pushed the account to 71.4 GB against a 10 GB free tier — 714%. Uploads were still succeeding that afternoon, so either a card is already on file or Backblaze has not enforced yet. Nobody knows which, and the difference decides whether the offsite copy keeps working.',
     detail: 'THE COST IS NOT THE POINT: about $0.43/month at this size. 714% reads like a catastrophe and it is forty-three cents. '
       + 'THE RISK IS: above the free allowance WITHOUT a payment method, uploads fail — and they fail quietly. The first symptom would be a customer noticing broken history weeks later, which is exactly the failure #55 was built to prevent. '
       + 'TWO MINUTES: sign in to Backblaze, check Billing. If a card is on file, nothing to do and the SOP line will simply report the size. If not, add one. '
-      + 'The SOP screen now says ALREADY OVER with the monthly cost, instead of telling you to act "BEFORE this is crossed" seven times past crossing.' },
+      + 'The SOP screen now says ALREADY OVER with the monthly cost, instead of telling you to act "BEFORE this is crossed" seven times past crossing. '
+      + 'DONE 2026-08-20 — the owner added a card, so Backblaze bills the excess instead of refusing uploads. The offsite copy is now paid for and will keep running. '
+      + 'The SOP line stays RED while usage is above the free tier, which is correct: it is reporting a real, billed overage, not a fault. Expect roughly $0.43/month at this size.' },
   { ref: '50', owner: 'owner', status: 'pending', priority: 22,
     title: 'Second copy of the backup passphrase',
     why: 'Saved in the Mac Passwords app. If the laptop and DigitalOcean are lost together, every backup becomes permanently unreadable.',
