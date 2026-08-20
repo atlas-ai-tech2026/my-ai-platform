@@ -22,6 +22,7 @@ import { estimateFalCost, backfillFalEstimate } from './fal-pricing.js';
 import { publicReason } from './sanitize.js';
 import { normalizeBulkEmails, generateBulkPassword } from './bulk-helpers.js';
 import { mayRedeem, capForInvites, splitInvites, REFUSAL } from './promo-audience.js';
+import { injectClarity, CLARITY_SCRIPT_HOSTS, CLARITY_CONNECT_HOSTS } from './clarity.js';
 import { verifyJwt, requireAdmin, requireNotBanned } from './middleware/auth.js';
 // Restored after the in-file getStore block was removed — DIST_DIR
 // at the bottom of this file still needs __dirname.
@@ -226,7 +227,12 @@ app.use(helmet({
   contentSecurityPolicy: {
     directives: {
       defaultSrc: ["'self'"],
-      scriptSrc: ["'self'"],
+      // Microsoft Clarity (#64). Without this the browser refuses the tag
+      // outright — nothing is recorded, the dashboard stays empty, and it
+      // reads as Clarity being broken rather than as a policy blocking it.
+      // An exact host, never a scheme wildcard: `https:` here would undo the
+      // whole point of N15 from the July audit.
+      scriptSrc: ["'self'", ...CLARITY_SCRIPT_HOSTS],
       styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
       fontSrc: ["'self'", 'https://fonts.gstatic.com', 'data:'],
       // N15 (recheck 2026-08-03): connect-src was 'https:' — anything on the
@@ -245,7 +251,9 @@ app.use(helmet({
       // breaking those would blank out images users can still see today.
       imgSrc: ["'self'", 'data:', 'blob:', 'https:'],
       mediaSrc: ["'self'", 'data:', 'blob:', 'https:'],
-      connectSrc: ["'self'", 'blob:', 'data:', ...mediaConnectSources()],
+      // Clarity beacons what it records back over fetch, so the script host
+      // alone is not enough: it would load and then silently fail to send.
+      connectSrc: ["'self'", 'blob:', 'data:', ...CLARITY_CONNECT_HOSTS, ...mediaConnectSources()],
       workerSrc: ["'self'", 'blob:'],
       objectSrc: ["'none'"],
       baseUri: ["'self'"],
@@ -6245,26 +6253,34 @@ if (existsSync(DIST_DIR)) {
     res.set('Cache-Control', 'public, max-age=60, must-revalidate');
     res.type('html');
 
+    // Every HTML answer leaves through here, so the analytics tag is added in
+    // ONE place. The control panel takes the 404 branch below (it is not in
+    // ROUTE_META), which is exactly why injectClarity excludes it by ROUTE and
+    // not by whether the route is known — a session replay of that screen would
+    // ship 601 customers' emails, balances and revenue to a third party as
+    // video. See clarity.js.
+    const page = (html) => injectClarity(html, route);
+
     if (GONE_PATHS.has(route)) {
-      return res.status(410).send(injectMeta(SHELL, {
+      return res.status(410).send(page(injectMeta(SHELL, {
         title: 'Page removed — VOXEL.AI', noindex: true,
-      }));
+      })));
     }
     if (!(route in ROUTE_META)) {
       // Unknown route: still render the SPA (client shows its 404 page) but
       // with an honest 404 status + noindex so crawlers don't index junk.
-      return res.status(404).send(injectMeta(SHELL, {
+      return res.status(404).send(page(injectMeta(SHELL, {
         title: 'Page not found — VOXEL.AI', noindex: true,
-      }));
+      })));
     }
     const meta = ROUTE_META[route];
-    if (!meta) return res.send(SHELL); // homepage — shell tags are already right
+    if (!meta) return res.send(page(SHELL)); // homepage — shell tags already right
     // A noindex route gets no canonical: pointing crawlers at a page we are
     // simultaneously telling them to ignore is a contradiction.
-    return res.send(injectMeta(SHELL, {
+    return res.send(page(injectMeta(SHELL, {
       ...meta,
       canonical: meta.noindex ? undefined : `https://voxel-ai.ai/${route}`,
-    }));
+    })));
   });
   console.log(`[voxel-api] serving static frontend from ${DIST_DIR}`);
 } else {
