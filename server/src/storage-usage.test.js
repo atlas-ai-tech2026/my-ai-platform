@@ -316,3 +316,71 @@ describe('one definition of what customer media is', () => {
       + 'came to count different sets.').toEqual([]);
   });
 });
+
+// ─── being over is a fact about now, not a projection ────────────────────────
+// From the owner's production screenshot, 2026-08-20:
+//
+//   Storage used — Backblaze B2 · 713.6% of 10 GB free
+//   71.4 GB of 10 GB free (714%) · 11,394 objects · growing at an unknown rate
+//   Do: Add a payment method to Backblaze BEFORE this is crossed.
+//
+// Two things wrong at once. "ALREADY OVER" lived inside the growth branch, so
+// it printed only when a daily rate was known — 714% on screen and not one word
+// saying the limit was passed. And the instruction still said "BEFORE this is
+// crossed", seven times past crossing, which reads as though there is time.
+describe('when the allowance is already passed', () => {
+  const over = { bytes: 71.4e9, objects: 11_394, bucket: 'voxel-offsite-backups' };
+
+  it('says so without needing to know the growth rate', () => {
+    const v = judgeUsage({ provider: 'offsite', measurement: over, history: [] });
+    expect(v.detail).toMatch(/ALREADY OVER the allowance by 61\.4 GB/);
+    expect(v.detail).toMatch(/unknown rate/);   // still honest about the rate
+  });
+
+  it('stops telling you to act BEFORE something that has happened', () => {
+    const v = judgeUsage({ provider: 'offsite', measurement: over });
+    expect(v.action, 'the instruction still described a future event')
+      .not.toMatch(/BEFORE this is crossed/);
+    expect(v.action).toMatch(/ALREADY passed/);
+    expect(v.action).toMatch(/payment method/);
+  });
+
+  // 714% of a free tier reads like a catastrophe. It is about fifty cents.
+  // The difference between those two readings is a decision and a panic.
+  it('says what the excess actually costs', () => {
+    const v = judgeUsage({ provider: 'offsite', measurement: over });
+    expect(v.detail).toMatch(/about \$0\.43 per month at this size/);
+  });
+
+  it('never prints a crossing date for something already crossed', () => {
+    const at = (d) => new Date(Date.UTC(2026, 7, d));
+    const v = judgeUsage({ provider: 'offsite', measurement: over, history: [
+      { bytes: 50e9, at: at(15) }, { bytes: 60e9, at: at(16) }, { bytes: 71.4e9, at: at(17) },
+    ] });
+    expect(v.detail).not.toMatch(/crosses the allowance in/);
+    expect(v.detail).toMatch(/ALREADY OVER/);
+  });
+
+  // Each provider's consequence is different and the wording must carry it.
+  it('a full database says the platform stops, not that it costs more', () => {
+    const v = judgeUsage({ provider: 'database', measurement: { bytes: 11 * GIB, objects: 1 } });
+    expect(v.action).toMatch(/DISK IS FULL/);
+    expect(v.action).toMatch(/refusing writes/);
+    // Not a blanket ban on the word — "no invoice warns you" is the point.
+    // What it must never do is frame a full disk AS a billing event.
+    expect(v.action, 'a full database was framed as something you simply pay for')
+      .not.toMatch(/larger invoice|bills automatically|simply bills/i);
+  });
+
+  it('over-quota Spaces says nothing breaks, because nothing does', () => {
+    const v = judgeUsage({ provider: 'spaces', measurement: { bytes: 260 * GIB, objects: 1 } });
+    expect(v.action).toMatch(/Nothing breaks/);
+    expect(v.detail).toMatch(/about \$0\.20 per month/);
+  });
+
+  it('under the allowance, none of this appears', () => {
+    const v = judgeUsage({ provider: 'offsite', measurement: { bytes: 5e9, objects: 10 } });
+    expect(v.detail).not.toMatch(/ALREADY OVER|per month at this size/);
+    expect(v.state).toBe('ok');
+  });
+});

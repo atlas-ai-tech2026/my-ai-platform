@@ -46,7 +46,9 @@ export const ALLOWANCES = {
     unit: 'objects',
     included: 'included in the $5/month plan',
     overage: '$0.02 per extra GiB',
+    overageUsdPerUnit: 0.02, overageUnitBytes: GIB,
     action: 'Nothing to do until it is close. Above the limit DigitalOcean bills automatically — no interruption, just a larger invoice.',
+    overAction: 'Over the included 250 GiB. Nothing breaks — DigitalOcean simply bills the excess.',
   },
   database: {
     label: 'Postgres',
@@ -62,6 +64,8 @@ export const ALLOWANCES = {
     // means generations fail and nobody can sign in.
     action: 'Resize the database BEFORE it fills. A full Postgres disk does not bill you extra — '
       + 'it stops accepting writes, and the platform stops working.',
+    overAction: 'THE DISK IS FULL. Postgres will be refusing writes: generations fail and nobody '
+      + 'can sign in. Resize the database now — this does not resolve itself and no invoice warns you.',
   },
   offsite: {
     label: 'Backblaze B2',
@@ -70,8 +74,12 @@ export const ALLOWANCES = {
     unit: 'objects',
     included: 'the always-free allowance',
     overage: '$6.95 per TB per month',
+    overageUsdPerUnit: 6.95, overageUnitBytes: 1000 ** 4,
     // The one that can actually STOP working, which is why its wording differs.
     action: 'Add a payment method to Backblaze BEFORE this is crossed. Above the free allowance without one, uploads fail and the offsite copy silently stops.',
+    overAction: 'The free allowance is ALREADY passed — this is no longer something to do before it '
+      + 'happens. Confirm a payment method is on file at Backblaze. Without one, uploads start '
+      + 'failing and the offsite copy stops with no error anyone sees.',
   },
 };
 
@@ -314,6 +322,19 @@ export function fmtScaled(bytes, base = GIB) {
 }
 
 /**
+ * What the excess costs per month, in words, or null when it is not billed.
+ *
+ * Rounded to cents and never below one cent, because "$0.00 per month" reads as
+ * a bug rather than as "this is negligible".
+ */
+export function overageCost(overBytes, allowance) {
+  const { overageUsdPerUnit: rate, overageUnitBytes: unit } = allowance || {};
+  if (!rate || !unit || !(overBytes > 0)) return null;
+  const usd = (overBytes / unit) * rate;
+  return usd < 0.01 ? 'under $0.01' : `$${usd.toFixed(2)}`;
+}
+
+/**
  * Turn a measurement plus its history into something worth reading at 6am.
  *
  * Three states and a deliberate fourth: `unknown` when the bucket could not be
@@ -343,6 +364,22 @@ export function judgeUsage({ provider, measurement, history = [], now = Date.now
     `${measurement.objects.toLocaleString()} ${a.unit || 'objects'}`];
   if (measurement.truncated) parts.push('COUNT TRUNCATED — the real total is higher');
 
+  // ── ALREADY OVER IS SAID FIRST, AND WITHOUT NEEDING A RATE ───────────────
+  // This used to live inside the growth branch, so it printed only when a daily
+  // rate was known. On production Backblaze read "71.4 GB of 10 GB free (714%)
+  // · growing at an unknown rate" — 714% on the screen and not one word saying
+  // the limit was passed. Being over is a fact about right now; it does not
+  // depend on knowing how fast you got there.
+  const over = used - a.limitBytes;
+  if (over > 0) {
+    parts.push(`ALREADY OVER the allowance by ${fmtScaled(over, base)}`);
+    const cost = overageCost(over, a);
+    // The percentage alone reads like a catastrophe. 714% of a free tier that
+    // starts at 10 GB is about fifty cents a month, and knowing that is the
+    // difference between a decision and a panic.
+    if (cost) parts.push(`about ${cost} per month at this size`);
+  }
+
   if (perDay == null) {
     parts.push(`growing at an unknown rate — ${dailyPoints(history).length} of ${MIN_POINTS} `
       + 'daily readings so far');
@@ -350,8 +387,7 @@ export function judgeUsage({ provider, measurement, history = [], now = Date.now
     parts.push('not growing');
   } else {
     parts.push(`growing ${fmtScaled(perDay, base)}/day`);
-    if (crossing?.already) parts.push('ALREADY OVER the allowance');
-    else if (crossing) parts.push(`crosses the allowance in about ${crossing.daysLeft} days`);
+    if (over <= 0 && crossing) parts.push(`crosses the allowance in about ${crossing.daysLeft} days`);
   }
 
   // A truncated count means we do not know the size, so it cannot be a pass.
@@ -371,7 +407,7 @@ export function judgeUsage({ provider, measurement, history = [], now = Date.now
     perDayBytes: perDay,
     daysLeft: crossing?.already ? 0 : (crossing?.daysLeft ?? null),
     detail: parts.join(' · '),
-    action: state === 'ok' ? null : a.action,
+    action: state === 'ok' ? null : (over > 0 && a.overAction) ? a.overAction : a.action,
     now,
   };
 }
