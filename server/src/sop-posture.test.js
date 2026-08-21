@@ -108,7 +108,18 @@ describe('runtime support — a deadline, not novelty', () => {
 describe('open items', () => {
   // Every one needs an OWNER action. An item with no action is a worry, not a task.
   it('each carries a detail and an action', () => {
-    expect(OPEN_ITEMS.length).toBeGreaterThan(2);
+    // Was `> 2`, which was a snapshot of "there are four right now" rather than
+    // an invariant. On 2026-08-21 two items were legitimately resolved — the
+    // pre-M1 backups that never existed, and xlsx, uninstalled — and the canary
+    // fired because work got DONE. A guard that goes off when the list shrinks
+    // teaches people to edit the guard.
+    //
+    // What it is actually protecting is that the list has not been EMPTIED or
+    // broken, leaving the posture check silently reporting nothing. Zero open
+    // items is a legitimate end state; an empty array where items should be is
+    // not, and `> 0` still catches that while the per-item assertions below do
+    // the real work.
+    expect(OPEN_ITEMS.length).toBeGreaterThan(0);
     for (const i of OPEN_ITEMS) {
       expect(i.detail.length, i.key).toBeGreaterThan(30);
       expect(i.action.length, i.key).toBeGreaterThan(15);

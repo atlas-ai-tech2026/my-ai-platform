@@ -36,8 +36,49 @@ const xlsx = vi.hoisted(() => ({
   },
   writeFile: vi.fn(),
 }));
-vi.mock('xlsx', () => ({ ...xlsx, default: xlsx }));
+// ── exceljs, not SheetJS ────────────────────────────────────────────────────
+// SheetJS carries two unfixable HIGH advisories with no upstream fix. These
+// tests used to spy on XLSX.utils.json_to_sheet and XLSX.writeFile; the same
+// two facts are captured here — WHAT rows were written, and WHAT the file is
+// called — so the assertions below are about the export, not about a library.
+vi.mock('exceljs', () => {
+  // A REGULAR function, not an arrow: the component calls `new ExcelJS.Workbook()`
+  // and arrows cannot be constructed. The first version used an arrow and every
+  // export test failed with an empty capture rather than a useful error.
+  function Workbook() {
+    this.addWorksheet = () => ({
+      set columns(v) { sheet.headers = v.map((c) => c.header); },
+      get columns() { return []; },
+      addRows(rows) { sheet.rows = rows; },
+      getRow: () => ({ font: {} }),
+    });
+    this.xlsx = { writeBuffer: async () => new ArrayBuffer(8) };
+  }
+  return { default: { Workbook } };
+});
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
+
+// What the export produced, captured by the mock above and the anchor below.
+const sheet = { rows: [], headers: [], filename: null };
+
+beforeEach(() => {
+  sheet.rows = []; sheet.headers = []; sheet.filename = null;
+  // exceljs cannot save a file from a browser, so the page builds a Blob and
+  // clicks a link. That link IS the filename assertion now.
+  globalThis.URL.createObjectURL = vi.fn(() => 'blob:test');
+  globalThis.URL.revokeObjectURL = vi.fn();
+  const realCreate = document.createElement.bind(document);
+  vi.spyOn(document, 'createElement').mockImplementation((tag) => {
+    const el = realCreate(tag);
+    if (tag === 'a') {
+      Object.defineProperty(el, 'download', {
+        set(v) { sheet.filename = v; }, get() { return sheet.filename; }, configurable: true,
+      });
+      el.click = vi.fn();
+    }
+    return el;
+  });
+});
 
 const future = new Date(Date.now() + 30 * 864e5).toISOString();
 const past = new Date(Date.now() - 5 * 864e5).toISOString();
@@ -334,8 +375,8 @@ describe('per-code Excel export of redeeming users', () => {
     const user = await openRedemptions();
     await user.click(screen.getByRole('button', { name: /Excel — VOXEL-OLD-0001/ }));
 
-    await waitFor(() => expect(xlsx.utils.json_to_sheet).toHaveBeenCalled());
-    const rows = xlsx.utils.json_to_sheet.mock.calls[0][0];
+    await waitFor(() => expect(sheet.rows.length).toBeGreaterThan(0));
+    const rows = sheet.rows;
     expect(rows).toHaveLength(2);
     expect(rows[0]).toMatchObject({
       'Email': 'sara@example.com',
@@ -358,9 +399,8 @@ describe('per-code Excel export of redeeming users', () => {
   it('names the file after the code and the day', async () => {
     const user = await openRedemptions();
     await user.click(screen.getByRole('button', { name: /Excel — VOXEL-OLD-0001/ }));
-    await waitFor(() => expect(xlsx.writeFile).toHaveBeenCalled());
-    const name = xlsx.writeFile.mock.calls[0][1];
-    expect(name).toMatch(/^voxel-promo-VOXEL-OLD-0001-users-\d{4}-\d{2}-\d{2}\.xlsx$/);
+    await waitFor(() => expect(sheet.filename).toBeTruthy());
+    expect(sheet.filename).toMatch(/^voxel-promo-VOXEL-OLD-0001-users-\d{4}-\d{2}-\d{2}\.xlsx$/);
   });
 });
 
@@ -378,8 +418,8 @@ describe('the credit columns say what they mean', () => {
     await user.click(within(row).getByRole('button', { name: /7 \/ 100/ }));
     await screen.findByText('sara@example.com');
     await user.click(screen.getByRole('button', { name: /Excel — VOXEL-OLD-0001/ }));
-    await waitFor(() => expect(xlsx.utils.json_to_sheet).toHaveBeenCalled());
-    return xlsx.utils.json_to_sheet.mock.calls[0][0];
+    await waitFor(() => expect(sheet.rows.length).toBeGreaterThan(0));
+    return sheet.rows;
   };
 
   it('separates THIS code, ALL promo codes, and the whole wallet', async () => {

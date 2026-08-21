@@ -59,12 +59,20 @@ export const OPEN_ITEMS = [
   //
   // Deliberately NOT replaced with a green "nothing to decide" line. A screen
   // that lists resolved non-problems is how the real ones get lost.
-  {
-    key: 'xlsx',
-    label: 'Decide on the xlsx dependency',
-    detail: 'Its advisories are unfixable upstream. Porting to exceljs is 1–2 hours.',
-    action: 'Port it, or accept and record the decision.',
-  },
+  // ── REMOVED 2026-08-21: xlsx IS GONE ─────────────────────────────────────
+  // Two HIGH advisories with no upstream fix and none coming — prototype
+  // pollution and a ReDoS, both while PARSING. The task described it as an
+  // export problem; the exposure was the Bulk UPLOAD, the one path that parses
+  // a file somebody else made.
+  //
+  // Ported to exceljs and the dependency uninstalled, so it cannot come back.
+  // Legacy .xls is no longer readable — decided with the owner: carrying an
+  // unfixable vulnerability to support a 2003 format was the worse trade. A
+  // .xls is refused with an instruction, not a silent failure.
+  //
+  // The parsing had NO test coverage at all. It does now: 13 tests, including
+  // the case that actually happens — Excel turning a pasted address into a
+  // hyperlink object, which a naive read would have missed entirely.
 ];
 
 // ── the assertions ──────────────────────────────────────────────────────────

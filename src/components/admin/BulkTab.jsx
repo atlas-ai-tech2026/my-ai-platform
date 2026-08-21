@@ -22,6 +22,64 @@ const MODEL_GROUP_LABELS = {
   node: 'Node canvas',
 };
 
+/**
+ * Pull every email address out of an uploaded sheet.
+ *
+ * ── WHY THIS IS A FUNCTION AND NOT BURIED IN A COMPONENT ───────────────────
+ * This is the only place the platform parses a file somebody else made, which
+ * makes it the one path the SheetJS advisories were actually about — prototype
+ * pollution and a ReDoS, both while parsing. It was rewritten on 2026-08-21 to
+ * use exceljs, and it had no test coverage whatsoever because it lived inside a
+ * click handler. Security-relevant parsing that cannot be tested is trusted
+ * rather than verified.
+ *
+ * Legacy .xls is refused. exceljs does not read the 2003 binary format, and
+ * carrying an unfixable vulnerability to support it was the worse trade —
+ * decided with the owner. Refused with an instruction, never a silent failure.
+ */
+export async function extractEmails(file, { loadExcelJS = () => import('exceljs') } = {}) {
+  const name = String(file?.name || '').toLowerCase();
+  if (name.endsWith('.xls')) {
+    return { error: 'That is an old .xls file. Open it in Excel and use '
+      + 'File → Save As → .xlsx, then upload it again.' };
+  }
+
+  const buf = await file.arrayBuffer();
+  const found = [];
+
+  if (name.endsWith('.csv') || name.endsWith('.txt')) {
+    // A separated-values file needs no library to yield its cells, and not
+    // reaching for one removes a parser from the attack surface entirely.
+    const text = new TextDecoder().decode(buf);
+    for (const line of text.split(/\r?\n/)) {
+      for (const cell of line.split(/[,;\t]/)) {
+        const v = String(cell ?? '').trim().replace(/^"|"$/g, '').toLowerCase();
+        if (EMAIL_RE.test(v)) found.push(v);
+      }
+    }
+    return { found };
+  }
+
+  const ExcelJS = (await loadExcelJS()).default;
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.load(buf);
+  wb.eachSheet((ws) => {
+    ws.eachRow((row) => {
+      row.eachCell({ includeEmpty: false }, (cell) => {
+        // A cell may be a string, a number, a formula result, or a HYPERLINK
+        // object — which is what Excel turns a pasted email into. Reading only
+        // .value would miss exactly the case that happens most.
+        const raw = cell.text ?? cell.value ?? '';
+        const v = String(typeof raw === 'object' && raw !== null
+          ? (raw.text || raw.result || raw.hyperlink || '') : raw)
+          .trim().replace(/^mailto:/, '').toLowerCase();
+        if (EMAIL_RE.test(v)) found.push(v);
+      });
+    });
+  });
+  return { found };
+}
+
 export default function BulkTab({ onError }) {
   // Emails (from file or pasted)
   const [emails, setEmails] = useState([]);
@@ -69,25 +127,17 @@ export default function BulkTab({ onError }) {
     if (!file) return;
     setFileName(file.name);
     try {
-      // SheetJS loads lazily so the admin chunk stays small until needed.
-      const XLSX = await import('xlsx');
-      const wb = XLSX.read(await file.arrayBuffer(), { type: 'array' });
-      const found = [];
-      for (const sheetName of wb.SheetNames) {
-        const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header: 1, raw: false });
-        for (const row of rows) {
-          for (const cell of (row || [])) {
-            const v = String(cell ?? '').trim().toLowerCase();
-            if (EMAIL_RE.test(v)) found.push(v);
-          }
-        }
-      }
+      const { found, error } = await extractEmails(file);
+      if (error) { toast.error(error); setFileName(''); return; }
       if (!found.length) { toast.error('No email addresses found in that sheet'); return; }
       addEmails(found);
       toast.success(`Found ${found.length} email(s) in ${file.name}`);
     } catch (e) {
-      console.error('[bulk] sheet parse failed:', e);
-      toast.error('Could not read that file — is it a valid .xlsx / .csv?');
+      // A sheet that will not open is a finding, not a crash — and the reason
+      // is shown, because "could not read that file" sends someone hunting.
+      console.error('[bulk] could not read the sheet:', e);
+      toast.error(`Could not read that file — ${e.message}`);
+      setFileName('');
     }
   }, [addEmails]);
 

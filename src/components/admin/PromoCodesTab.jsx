@@ -234,7 +234,12 @@ export default function PromoCodesTab({ onError }) {
     const rows = redemptions[p.id];
     if (!rows?.length) { toast.error('Nothing to export — nobody has redeemed this code'); return; }
     try {
-      const XLSX = await import('xlsx');
+      // exceljs, not SheetJS. SheetJS carries two unfixable HIGH advisories —
+      // prototype pollution and a ReDoS — with no upstream fix and none coming.
+      // Both are PARSING bugs, so this write path was never the exposure; it is
+      // ported anyway so the dependency can be removed entirely rather than
+      // kept alive by one caller.
+      const ExcelJS = (await import('exceljs')).default;
       const fmt = (v) => v ? new Date(v).toISOString().slice(0, 10) : '';
       const sheetRows = rows.map(r => ({
         'Email':            r.email,
@@ -260,16 +265,32 @@ export default function PromoCodesTab({ onError }) {
         'Last login':       fmt(r.last_login_at),
         'Account status':   r.banned ? 'banned' : 'active',
       }));
-      const ws = XLSX.utils.json_to_sheet(sheetRows);
+      const wb = new ExcelJS.Workbook();
+      // Sheet names are capped at 31 chars and reject some symbols — same rule
+      // as before, it is Excel's limit rather than a library's.
+      const ws = wb.addWorksheet(String(p.code).replace(/[\\/?*\[\]:]/g, '-').slice(0, 31));
+
       // Readable column widths — a sheet where every email is clipped is noise.
-      ws['!cols'] = [{ wch: 32 }, { wch: 18 }, { wch: 10 }, { wch: 12 }, { wch: 12 },
-                     { wch: 13 }, { wch: 10 },
-                     { wch: 20 }, { wch: 24 }, { wch: 19 }, { wch: 24 },
-                     { wch: 12 }, { wch: 13 }];
-      const wb = XLSX.utils.book_new();
-      // Sheet names are capped at 31 chars and reject some symbols.
-      XLSX.utils.book_append_sheet(wb, ws, String(p.code).replace(/[\\/?*\[\]:]/g, '-').slice(0, 31));
-      XLSX.writeFile(wb, `voxel-promo-${p.code}-users-${new Date().toISOString().slice(0, 10)}.xlsx`);
+      const headers = Object.keys(sheetRows[0]);
+      const widths = [32, 18, 10, 12, 12, 13, 10, 20, 24, 19, 24, 12, 13];
+      ws.columns = headers.map((h, i) => ({ header: h, key: h, width: widths[i] || 16 }));
+      ws.addRows(sheetRows);
+      ws.getRow(1).font = { bold: true };
+
+      // exceljs has no writeFile in a browser — it produces the bytes and the
+      // page hands them to the user. Same result, one more step.
+      const buffer = await wb.xlsx.writeBuffer();
+      const url = URL.createObjectURL(new Blob([buffer], {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      }));
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `voxel-promo-${p.code}-users-${new Date().toISOString().slice(0, 10)}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      // Revoked, or the whole file stays in memory until the tab closes.
+      URL.revokeObjectURL(url);
       toast.success(`Exported ${rows.length} user${rows.length === 1 ? '' : 's'} for ${p.code}`
         + (rows.length === 1000 ? ' (first 1,000 — the list is capped)' : ''));
     } catch (e) {
