@@ -337,3 +337,53 @@ export async function pruneOffsite({ prefix, keep, dryRun = true }, env = proces
 
 // Exported for tests.
 export const __testing = { MAGIC, deriveKey, requirePrefix };
+
+
+/**
+ * Prune the PRIMARY copy in DigitalOcean Spaces.
+ *
+ * ── THE GAP THIS CLOSES, AND WHAT IT DELIBERATELY DOES NOT DO ──────────────
+ * pruneOffsite has always covered Backblaze. Nothing has ever covered Spaces,
+ * so the primary copy grows without limit and, worse, without anyone able to
+ * SEE that it is growing. The two copies have been quietly diverging: offsite
+ * trimmed to a retention, primary unbounded.
+ *
+ * It reuses choosePrunable, so both copies obey one definition of what may be
+ * removed — a second, slightly different rule is how the two would drift.
+ *
+ * DRY BY DEFAULT, like its sibling. The last time backups were pruned, the
+ * owner read the list first and the outcome was to WIDEN retention rather than
+ * delete: those archives are the only copies reaching back, and storage is not
+ * a constraint here. So this ships able to report and unable to delete until
+ * someone deliberately says otherwise.
+ */
+export async function prunePrimary(
+  { prefix, keep, dryRun = true, list, remove } = {}, env = process.env) {
+  const p = requirePrefix(prefix);
+  const objects = await list(p);
+  const { doomed, capped } = choosePrunable(objects, { prefix: p, keep });
+
+  console.log(`[primary-prune] ${p} — ${objects.length} object(s), keeping ${keep}, `
+    + `${doomed.length} to remove${capped ? ` (capped from ${capped})` : ''}`
+    + `${dryRun ? '  [DRY RUN — nothing deleted]' : ''}`);
+
+  // Name every file BEFORE anything goes, so the log is a record even if the
+  // pass dies halfway through.
+  for (const o of doomed) {
+    console.log(`[primary-prune] ${dryRun ? 'would delete' : 'DELETING'}: ${o.key} (${o.size} bytes)`);
+  }
+  if (dryRun) return { objects: objects.length, doomed, deleted: 0, dryRun: true, capped };
+
+  let deleted = 0;
+  for (const o of doomed) {
+    // The same refusal the offsite prune carries: never touch a key that fell
+    // outside the prefix we were asked to work in.
+    if (!o.key.startsWith(p)) {
+      console.error(`[primary-prune] REFUSED — ${o.key} is outside ${p}`);
+      continue;
+    }
+    try { await remove(o.key); deleted += 1; }
+    catch (e) { console.error(`[primary-prune] could not delete ${o.key}:`, e.message); }
+  }
+  return { objects: objects.length, doomed, deleted, dryRun: false, capped };
+}

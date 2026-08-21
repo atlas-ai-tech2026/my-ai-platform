@@ -8,7 +8,7 @@ import { describe, it, expect } from 'vitest';
 import zlib from 'node:zlib';
 import {
   encryptBackup, decryptBackup,
-  encryptionConfigured, offsiteConfigured, missingOffsiteVars, choosePrunable, MAX_PRUNE_PER_PASS } from './backup-offsite.js';
+  encryptionConfigured, offsiteConfigured, missingOffsiteVars, choosePrunable, MAX_PRUNE_PER_PASS, prunePrimary,} from './backup-offsite.js';
 
 const PASS = 'a-long-random-backup-passphrase-2026';
 const sample = Buffer.from(JSON.stringify({ table: 'users', row: { id: 1, email: 'a@b.c' } }));
@@ -185,5 +185,77 @@ describe('retention policy: offsite outlives the primary', () => {
   it('clears dev orphans completely — they protect nothing', () => {
     const dev = files(17).map((f) => ({ ...f, key: f.key.replace('backups/', 'dev-backups/') }));
     expect(choosePrunable(dev, { prefix: 'dev-backups/', keep: 0 }).doomed).toHaveLength(17);
+  });
+});
+
+// ─── the gap: nothing ever pruned the PRIMARY copy ───────────────────────────
+// pruneOffsite has always covered Backblaze. Nothing covered Spaces, so the
+// primary grew without limit and — the worse half — without anyone able to see
+// that it was growing. The two copies were quietly diverging: offsite trimmed
+// to a retention, primary unbounded.
+//
+// It ships DRY. The last time backups were pruned the owner read the list first
+// and the outcome was to WIDEN retention rather than delete, because those
+// archives are the only copies reaching back and storage is not a constraint.
+describe('pruning the primary copy', () => {
+  const objects = Array.from({ length: 40 }, (_, i) => ({
+    key: `backups/voxel-auto-2026-07-${String(i + 1).padStart(2, '0')}.ndjson.gz.enc`,
+    size: 1000 + i,
+  }));
+  const listing = () => Promise.resolve(objects);
+
+  it('reports without deleting, by default', async () => {
+    const removed = [];
+    const r = await prunePrimary({
+      prefix: 'backups/', keep: 30, list: listing, remove: (k) => removed.push(k),
+    });
+    expect(r.dryRun).toBe(true);
+    expect(r.doomed).toHaveLength(10);
+    expect(r.deleted).toBe(0);
+    expect(removed, 'a dry run deleted something').toEqual([]);
+  });
+
+  it('deletes only when told to, and only the ones beyond the retention', async () => {
+    const removed = [];
+    const r = await prunePrimary({
+      prefix: 'backups/', keep: 30, dryRun: false,
+      list: listing, remove: async (k) => { removed.push(k); },
+    });
+    expect(r.deleted).toBe(10);
+    expect(removed).toHaveLength(10);
+    expect(removed.every((k) => k.startsWith('backups/'))).toBe(true);
+  });
+
+  it('keeps everything when the retention covers the lot', async () => {
+    const r = await prunePrimary({ prefix: 'backups/', keep: 100, list: listing, remove: () => {} });
+    expect(r.doomed).toEqual([]);
+  });
+
+  // The same refusal its sibling carries. A prefix bug must not become a
+  // bucket-wide delete.
+  it('refuses a key that falls outside the prefix it was given', async () => {
+    const removed = [];
+    await prunePrimary({
+      prefix: 'backups/', keep: 0, dryRun: false,
+      list: () => Promise.resolve([
+        { key: 'backups/ok.enc', size: 1 },
+        { key: 'generations/customer-image.png', size: 1 },   // must never go
+      ]),
+      remove: async (k) => { removed.push(k); },
+    });
+    expect(removed, 'customer media was inside a backup prune').toEqual(['backups/ok.enc']);
+  });
+
+  it('refuses to run with no prefix at all, rather than treating it as everything', async () => {
+    await expect(prunePrimary({ prefix: '', keep: 1, list: listing, remove: () => {} }))
+      .rejects.toThrow(/refusing to prune without a directory prefix/);
+  });
+
+  // Both copies obey ONE definition of what may be removed. A second, slightly
+  // different rule is exactly how the two would drift apart again.
+  it('uses the same chooser as the offsite prune', async () => {
+    const r = await prunePrimary({ prefix: 'backups/', keep: 30, list: listing, remove: () => {} });
+    const { doomed } = choosePrunable(objects, { prefix: 'backups/', keep: 30 });
+    expect(r.doomed).toEqual(doomed);
   });
 });

@@ -115,7 +115,7 @@ import { originGuard } from './origin-guard.js';
 import { loginThrottleVerdict } from './login-throttle.js';
 // M3 (audit 2026-07-28): encrypted second backup destination.
 import {
-  encryptBackup, offsiteConfigured, uploadOffsite, missingOffsiteVars, pruneOffsite,
+  encryptBackup, offsiteConfigured, uploadOffsite, missingOffsiteVars, pruneOffsite, prunePrimary,
   listOffsiteMedia, writeMediaObject, readMediaObject,
 } from './backup-offsite.js';
 // H7 (audit 2026-07-28): admin session in an httpOnly cookie + CSRF.
@@ -6690,6 +6690,11 @@ const OFFSITE_PRUNE_DRY_RUN = process.env.OFFSITE_PRUNE_DRY_RUN === 'true';
 // unnoticed for a while. A 14-day window means anything discovered on day 15
 // is gone. 30 days costs about 160 MB against a 10 GB tier, so the wider
 // window is effectively free protection.
+// Generous on purpose: the owner's decision last time was to keep more, not
+// less. 60 daily archives is two months and costs almost nothing at this size.
+const PRIMARY_KEEP = Number(process.env.PRIMARY_KEEP) || 60;
+// Deleting is opt-IN. Set PRIMARY_PRUNE_DRY_RUN=false to arm it.
+const PRIMARY_PRUNE_DRY_RUN = String(process.env.PRIMARY_PRUNE_DRY_RUN ?? 'true') !== 'false';
 const OFFSITE_KEEP = 30;
 const autoBackupStatus = {
   last_at: null, last_key: null, last_error: null,
@@ -6840,9 +6845,33 @@ async function runAutomatedBackup() {
         // production and protect nothing.
         await pruneOffsite({ prefix: 'dev-backups/', keep: 0, dryRun: OFFSITE_PRUNE_DRY_RUN });
       } catch (e) {
-        // Housekeeping must never fail a backup that already succeeded.
         console.error('[offsite-prune] failed (backup itself was fine):', e.message);
       }
+    }
+
+    // ── THE PRIMARY COPY, WHICH NOTHING HAS EVER PRUNED ──────────────────
+    // pruneOffsite covers Backblaze and always has. Spaces has never been
+    // covered, so the primary grew without limit and — the worse half — without
+    // anyone able to SEE it growing. The two copies have been quietly
+    // diverging: offsite trimmed to a retention, primary unbounded.
+    //
+    // DRY unless PRIMARY_PRUNE_DRY_RUN is explicitly turned off. The last time
+    // backups were pruned the owner read the list first and the answer was to
+    // WIDEN retention rather than delete — those archives are the only copies
+    // reaching back, and storage is not a constraint here. So this reports and
+    // does not delete until somebody deliberately says otherwise.
+    try {
+      const r = await prunePrimary({
+        prefix: 'backups/',
+        keep: PRIMARY_KEEP,
+        dryRun: PRIMARY_PRUNE_DRY_RUN,
+        list: (prefix) => listKeys(prefix),
+        remove: (key) => deleteKey(key),
+      });
+      console.log(`[primary-prune] ${r.objects} archive(s) in Spaces, keeping ${PRIMARY_KEEP}`);
+    } catch (e) {
+      // Housekeeping must never fail a backup that already succeeded.
+      console.error('[primary-prune] failed (backup itself was fine):', e.message);
     }
 
     // Fail LOUDLY when a second copy was EXPECTED and did not arrive. Silently
