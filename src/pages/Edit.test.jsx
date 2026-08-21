@@ -18,6 +18,15 @@ const success = vi.fn();
 const error = vi.fn();
 vi.mock('sonner', () => ({ toast: { success: (...a) => success(...a), error: (...a) => error(...a) } }));
 
+// /edit became a GATE on 2026-08-21 — signed out shows the waitlist, signed in
+// shows the real editor. The waitlist is the half these tests exist for, so the
+// visitor is pinned as signed OUT. Asserting through <Edit /> rather than
+// through the waitlist component directly is deliberate: it proves the bug
+// cannot come back through the route a real visitor actually takes.
+vi.mock('@/lib/AuthContext', () => ({
+  useAuth: () => ({ isAuthenticated: false, isLoadingAuth: false, openAuthModal: vi.fn() }),
+}));
+
 beforeEach(() => { success.mockReset(); error.mockReset(); });
 afterEach(() => { vi.unstubAllGlobals(); });
 

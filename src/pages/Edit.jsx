@@ -1,176 +1,62 @@
-import React, { useState } from 'react';
-import { Input } from '@/components/ui/input';
-import { Button } from '@/components/ui/button';
-import VoxelLogo from '@/components/VoxelLogo';
-import { 
-  CheckCircle2, Bell
-} from 'lucide-react';
-import { toast } from 'sonner';
+// ─── Edit.jsx ────────────────────────────────────────────────────────────────
+// /edit — a gate, since 2026-08-21.
+//
+//   signed out  →  EditWaitlist   (what this whole page used to be)
+//   signed in   →  EditWorkspace  (the real editor)
+//
+// ── WHY THE LIBRARY IS FETCHED HERE AND NOT IN THE WORKSPACE ───────────────
+// The workspace takes clips as a prop and knows nothing about the network. That
+// keeps the part with all the editing logic testable without mocking an API,
+// and it is also what lets the same component be driven later by a saved
+// project rather than by a live library fetch.
+//
+// ── WHY ONLY VIDEO ─────────────────────────────────────────────────────────
+// Phase 1 edits video. Images and audio are in the library too, and both will
+// come — but shipping a picture into a screen whose every tool assumes a
+// timeline would be worse than not offering it. The filter is in the workspace,
+// where the tools are.
 
-const comingFeatures = [
-  'AI-powered auto-edit',
-  '30+ transitions built-in',
-  'Lipsync & voice sync',
-  'One-click effects',
-  'Multi-track timeline',
-  '4K export',
-  'Caption generator',
-  'Music & SFX library',
-  'Background remover',
-  'Color grading AI',
-];
+import React, { useCallback, useEffect, useState } from 'react';
+import { useAuth } from '@/lib/AuthContext';
+import { base44 } from '@/api/base44Client';
+
+import EditWaitlist from '@/components/edit/EditWaitlist';
+import EditWorkspace from '@/components/edit/EditWorkspace';
+
+const History_ = base44.entities.GenerationHistory;
+
+/** One page of history is plenty to edit from, and it loads instantly. */
+const PAGE = 60;
 
 export default function Edit() {
-  const [email, setEmail] = useState('');
-  const [saving, setSaving] = useState(false);
+  const { isAuthenticated, isLoadingAuth, openAuthModal } = useAuth();
+  const [clips, setClips] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
 
-  // This used to validate the address, show a success toast, and throw the
-  // address away — no request, no table, no record. Everyone who ever asked
-  // to hear about VOXEL Edit was lost while the page kept asking.
-  //
-  // The success message now only appears if the server actually stored it.
-  const handleNotify = async () => {
-    if (!email.includes('@')) {
-      toast.error('Please enter a valid email');
-      return;
-    }
-    setSaving(true);
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
     try {
-      const res = await fetch('/api/waitlist', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: email.trim(), source: 'edit' }),
-      });
-      const data = await res.json().catch(() => null);
-      if (!res.ok) {
-        // Say what went wrong instead of thanking them for nothing.
-        toast.error(data?.error || 'Could not save that — please try again.');
-        return;
-      }
-      toast.success("You'll be notified when VOXEL Edit launches!");
-      setEmail('');
-    } catch {
-      toast.error('Could not reach the server — please try again.');
+      const rows = await History_.filter({ type: 'video' }, '-created_date', PAGE, 0);
+      setClips(Array.isArray(rows) ? rows : []);
+    } catch (err) {
+      // Never an empty grid that looks like "you have no videos" when the real
+      // answer is "we could not ask". The two are indistinguishable on screen
+      // and lead somewhere very different.
+      setError(err?.message || 'Could not load your library.');
     } finally {
-      setSaving(false);
+      setLoading(false);
     }
-  };
+  }, []);
 
-  return (
-    <div className="min-h-screen relative overflow-hidden">
-      {/* Background Editor Mockup (blurred) */}
-      <div className="absolute inset-0 opacity-30 blur-sm">
-        {/* Top Toolbar */}
-        <div className="h-14 bg-background-secondary border-b border-border flex items-center justify-between px-4">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded bg-muted" />
-            <div className="w-8 h-8 rounded bg-muted" />
-            <div className="w-8 h-8 rounded bg-muted" />
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="w-20 h-8 rounded bg-primary/30" />
-          </div>
-        </div>
+  useEffect(() => { if (isAuthenticated) load(); }, [isAuthenticated, load]);
 
-        {/* Main Area */}
-        <div className="flex h-[calc(100vh-14rem)]">
-          {/* Left Panel */}
-          <div className="w-64 bg-background-secondary border-r border-border p-4">
-            <div className="space-y-2">
-              {[...Array(6)].map((_, i) => (
-                <div key={i} className="h-16 rounded bg-muted" />
-              ))}
-            </div>
-          </div>
+  if (isLoadingAuth) {
+    return <div className="min-h-screen flex items-center justify-center text-foreground-secondary">Loading…</div>;
+  }
 
-          {/* Preview Area */}
-          <div className="flex-1 flex items-center justify-center bg-background p-8">
-            <div className="w-full max-w-4xl aspect-video bg-card-gradient-2 rounded-lg" />
-          </div>
+  if (!isAuthenticated) return <EditWaitlist onSignIn={openAuthModal} />;
 
-          {/* Right Panel */}
-          <div className="w-72 bg-background-secondary border-l border-border p-4">
-            <div className="space-y-3">
-              {[...Array(5)].map((_, i) => (
-                <div key={i} className="h-12 rounded bg-muted" />
-              ))}
-            </div>
-          </div>
-        </div>
-
-        {/* Timeline */}
-        <div className="h-48 bg-background-secondary border-t border-border p-4">
-          <div className="flex items-center gap-2 mb-4">
-            <div className="w-8 h-8 rounded bg-muted" />
-            <div className="flex-1 h-2 rounded bg-muted" />
-          </div>
-          <div className="space-y-2">
-            <div className="h-12 rounded bg-card-gradient-1" />
-            <div className="h-12 rounded bg-card-gradient-3" />
-          </div>
-        </div>
-      </div>
-
-      {/* Coming Soon Overlay */}
-      <div className="absolute inset-0 flex items-center justify-center p-4">
-        <div className="max-w-2xl w-full glass rounded-2xl border border-primary/40 border-glow-red p-8 sm:p-12 text-center">
-          {/* Pulsing Logo */}
-          <div className="flex justify-center mb-6">
-            <div className="animate-pulse">
-              <VoxelLogo size="large" showText={false} />
-            </div>
-          </div>
-
-          {/* Title */}
-          <h1 className="font-heading text-4xl sm:text-5xl tracking-wider text-white mb-2">
-            VOXEL EDIT
-          </h1>
-          <p className="text-xl text-primary font-medium mb-4">
-            AI-Powered Video Editor
-          </p>
-
-          {/* Description */}
-          <p className="text-foreground-secondary mb-8 max-w-md mx-auto">
-            Cut, trim, add transitions, sync audio, apply effects — all with AI assistance. 
-            No timeline experience needed.
-          </p>
-
-          {/* Coming Soon Badge */}
-          <div className="inline-flex items-center gap-2 px-4 py-2 bg-primary/20 rounded-full text-primary font-semibold mb-8">
-            <span className="w-2 h-2 rounded-full bg-primary animate-pulse" />
-            COMING SOON
-          </div>
-
-          {/* Features Grid */}
-          <div className="grid grid-cols-2 gap-3 mb-8 text-left">
-            {comingFeatures.map((feature, i) => (
-              <div key={i} className="flex items-center gap-2 text-foreground-secondary text-sm">
-                <CheckCircle2 className="w-4 h-4 text-primary flex-shrink-0" />
-                {feature}
-              </div>
-            ))}
-          </div>
-
-          {/* Email Signup */}
-          <div className="flex flex-col sm:flex-row gap-3 max-w-md mx-auto">
-            <Input
-              type="email"
-              placeholder="Enter your email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="flex-1 bg-background border-border text-white placeholder:text-foreground-muted"
-            />
-            <Button
-              onClick={handleNotify}
-              disabled={saving}
-              className="bg-primary hover:bg-primary-hover text-white"
-            >
-              <Bell className="w-4 h-4 mr-2" />
-              {saving ? 'Saving…' : 'Notify Me'}
-            </Button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
+  return <EditWorkspace clips={clips} loading={loading} error={error} onReload={load} />;
 }

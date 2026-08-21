@@ -96,6 +96,7 @@ import { registerPnlRoutes } from './pnl-routes.js';
 import { registerReliabilityRoutes } from './reliability-routes.js';
 import { registerCustomerRoutes } from './customer-routes.js';
 import { registerWaitlistRoutes } from './waitlist.js';
+import { registerEditEventRoutes } from './edit-events.js';
 import { registerSopRoutes, scheduleSopJobs } from './sop-routes.js';
 import { registerTaskRoutes, ensureTasksTable, upsertTask } from './tasks.js';
 import { seedTasks } from './tasks-seed.js';
@@ -4613,6 +4614,19 @@ registerWaitlistRoutes(app, {
   pool, dbReady, adminGate, limiter: waitlistLimiter, resolveIp: clientIp,
 });
 
+// ─── EDIT ACTIVITY (task #31) ────────────────────────────────────────────────
+// The count that decides whether Phase 2 of the editor is worth building.
+// Phase 1 runs in the browser and costs nothing; Phase 2 adds a render worker
+// at $12–24/month, which is roughly ONE extra Basic subscription. Cheap to
+// decide on evidence, expensive to guess.
+//
+// The ADMIN route ships in the same breath as the recording on purpose: the
+// waitlist bug in waitlist.js was addresses nobody could see, and a count
+// nobody can read is the same bug wearing a different hat.
+registerEditEventRoutes(app, {
+  pool, dbReady, verifyJwt, adminGate, limiter: waitlistLimiter,
+});
+
 // ─── SOP / DAILY OPERATIONS (task #52) ───────────────────────────────────────
 // Every check already existed and not one of them had a face: asked on
 // 2026-08-18 how to check the backup system, the honest answer was "open a raw
@@ -6540,7 +6554,11 @@ const ROUTE_META = {
   'image': { title: 'AI Image Generator — VOXEL.AI', desc: 'Generate production-quality AI images with camera, lens and aperture control. Nano Banana Pro, GPT Image 2, Midjourney and more.' },
   'video': { title: 'AI Video Generator — VOXEL.AI', desc: 'Create cinematic AI video from text or images with Kling 3.0, Veo 3, Sora 2, Seedance 2.0 — camera motion, duration and audio control.' },
   'audio': { title: 'AI Audio & Voice Studio — VOXEL.AI', desc: 'Synthesize voice-overs and audio with ElevenLabs-quality AI voices in the VOXEL.AI Audio Studio.' },
-  'edit': { title: 'AI Video Editor — VOXEL.AI', desc: 'Edit and refine AI-generated video with Kling O1 and omni editing tools on VOXEL.AI.' },
+  // Rewritten 2026-08-21 when the editor actually shipped. It used to promise
+  // "Kling O1 and omni editing tools", which /edit has never had — this is the
+  // description search engines index, so it was the site advertising a feature
+  // that did not exist (task #30's problem, in the one place nobody looks).
+  'edit': { title: 'Free Video Editor — VOXEL.AI', desc: 'Trim your AI-generated videos, resize them for Reels, posts and YouTube, and add captions — free, with no credits used.' },
   'apps': { title: 'AI Apps & Tools — VOXEL.AI', desc: 'Face swap, relight, upscale, skin enhancer and more one-click AI apps on VOXEL.AI.' },
   'templates': { title: 'AI Templates — VOXEL.AI', desc: 'Start from proven AI generation templates for images and video on VOXEL.AI.' },
   'community': { title: 'Community — VOXEL.AI', desc: 'See what creators are making with VOXEL.AI and share your own AI generations.' },
