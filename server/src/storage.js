@@ -49,7 +49,19 @@ if (configured) {
     maxAttempts: 2,
     requestHandler: { connectionTimeout: 3000, requestTimeout: 8000 },
   });
-  console.log(`[storage] DO Spaces configured → bucket=${BUCKET} region=${REGION}`);
+  // ── WHICH KEY IS ACTUALLY IN USE ────────────────────────────────────────
+  // An access key ID is NOT a secret — it is the public half, like a username;
+  // the secret is the other value and never appears here. But it is the only
+  // way to know which of several keys a running app is holding, and on
+  // 2026-08-21 that mattered: three Spaces keys existed, two of them for the
+  // same production bucket, and nobody could say which one the app used. The
+  // owner was about to delete one.
+  //
+  // Deleting the live key takes down every customer image and video instantly.
+  // "The media sync is working" proves A key works, not WHICH — so the safe
+  // answer was not a guess, it was making it observable.
+  console.log(`[storage] DO Spaces configured → bucket=${BUCKET} region=${REGION} `
+    + `key=${String(process.env.SPACES_KEY || '').slice(0, 8)}…`);
 } else {
   console.warn('[storage] DO Spaces NOT configured — generated outputs will use raw FAL urls (not durable).');
 }
