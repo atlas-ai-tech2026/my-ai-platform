@@ -26,8 +26,23 @@ services:
     build_command: npm ci && npm run build && npm --prefix server ci --omit=dev
     run_command: node server/src/index.js
     http_port: 8080
-    instance_count: 1
-    instance_size_slug: basic-xxs
+    # ── CORRECTED 2026-08-21 — THIS FILE HAD DRIFTED FROM PRODUCTION ────────
+    # It said `instance_count: 1` and `basic-xxs` while the live app was
+    # already running 2 × apps-s-1vcpu-1gb. Verified against the running app,
+    # not against this file:
+    #   doctl apps get 10140864-3ac3-4561-bcab-fbb82a9e8b39 -o json
+    #
+    # The drift pointed the DANGEROUS way. CLAUDE.md calls this file the one
+    # source of truth for deployment, so anyone applying it would have HALVED
+    # production's instances and downsized the box — a capacity cut arriving
+    # as a routine deploy, with nothing on screen to say so.
+    #
+    # Found while checking whether ffmpeg could share this box (it cannot —
+    # the Node buildpack has no ffmpeg, so Phase 1 of the edit module runs in
+    # the browser instead). Unrelated to that work; fixed because a spec file
+    # that lies is worse than no spec file.
+    instance_count: 2
+    instance_size_slug: apps-s-1vcpu-1gb
     routes:
       - path: /
     health_check:
