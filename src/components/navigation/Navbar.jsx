@@ -263,7 +263,12 @@ const primaryNavItems = [
   { name: 'Audio', path: 'Audio' },
   { name: 'Studio', path: 'Studio', badge: 'New' },
   { name: 'Voxel Node', path: 'node', badge: 'Beta' },
-  { name: 'Edit', path: 'Edit', badge: 'Coming Soon' },
+  // 'Coming Soon' until 2026-08-21, when the editor actually shipped. Leaving
+  // it would have had the navigation contradicting the page it links to — the
+  // nav saying "coming soon" while /edit says "available now, free" is exactly
+  // the self-contradiction task #30 is about, and the first thing a customer
+  // sees is the nav.
+  { name: 'Edit', path: 'Edit', badge: 'New' },
 ];
 
 const secondaryNavItems = [
