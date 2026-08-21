@@ -9,6 +9,27 @@ export default defineConfig({
       '@': path.resolve(__dirname, './src'),
     },
   },
+  // ── ffmpeg.wasm MUST NOT BE PRE-BUNDLED ────────────────────────────────
+  // @ffmpeg/ffmpeg spawns a Worker with
+  //     new Worker(new URL('./worker.js', import.meta.url), {type:'module'})
+  // Vite's dependency optimiser rewrites that to
+  //     /node_modules/.vite/deps/worker.js?worker_file&type=module
+  // which is a 404. The worker never starts.
+  //
+  // ── AND IT FAILS COMPLETELY SILENTLY ───────────────────────────────────
+  // ffmpeg.load() then NEVER RESOLVES AND NEVER REJECTS. No console error, no
+  // network error, no exception — the editor just sits there. Found on
+  // 2026-08-21 by loading it in a real browser and checking the network log
+  // for a request that was never made; reading the code would never have shown
+  // it, and no unit test can, because it only happens under Vite's optimiser.
+  //
+  // Excluding these from optimizeDeps leaves the worker URL alone so it
+  // resolves against the real package. loadFFmpeg() also carries a timeout now
+  // — see edit-exec-browser.js — because a hang with no error is the one
+  // failure mode this codebase treats as a bug in itself.
+  optimizeDeps: {
+    exclude: ['@ffmpeg/ffmpeg', '@ffmpeg/util'],
+  },
   build: {
     rollupOptions: {
       output: {

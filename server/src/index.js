@@ -258,7 +258,28 @@ app.use(helmet({
       //
       // A HASH, never 'unsafe-inline': the latter would switch off what N15
       // bought in the July audit, in exchange for a heatmap.
-      scriptSrc: ["'self'", ...CLARITY_CSP],
+      //
+      // ── 'wasm-unsafe-eval' — ADDED 2026-08-21 FOR THE /edit MODULE ────────
+      // The editor runs ffmpeg compiled to WebAssembly in the browser, because
+      // DigitalOcean's Node buildpack has no ffmpeg and production's two boxes
+      // are 1 vCPU each — a server render would fight Express for the core and
+      // slow the live site. WebAssembly.instantiate is blocked by CSP without
+      // this directive, and it fails looking like a broken build rather than
+      // like a policy decision.
+      //
+      // This is NOT 'unsafe-eval', and the difference is the whole point:
+      // 'wasm-unsafe-eval' permits compiling WebAssembly ONLY. It does not
+      // permit eval() of JavaScript strings, new Function(), or setTimeout on a
+      // string — the injection paths 'unsafe-eval' would reopen and that the
+      // July audit closed. It is the narrowest directive that lets WebAssembly
+      // run at all.
+      //
+      // The wasm binary itself is served from OUR OWN ORIGIN (public/ffmpeg/,
+      // copied out of node_modules at build time), so 'self' already covers
+      // fetching it and no CDN is added to connectSrc. Loading it from unpkg —
+      // which is what every ffmpeg.wasm example does — would have meant
+      // anything published there could execute inside a signed-in session.
+      scriptSrc: ["'self'", "'wasm-unsafe-eval'", ...CLARITY_CSP],
       styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
       fontSrc: ["'self'", 'https://fonts.gstatic.com', 'data:'],
       // N15 (recheck 2026-08-03): connect-src was 'https:' — anything on the
