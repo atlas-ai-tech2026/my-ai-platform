@@ -161,6 +161,15 @@ export const SEED = [
       + 'THE QUESTION: when it was saved into DigitalOcean, was it the value from the screenshot or a freshly generated one? If fresh, the visible string is meaningless and this task closes. '
       + 'IF UNSURE, TREAT AS EXPOSED AND ROTATE — but plan it, because rotation has a real catch: every EXISTING backup stays encrypted with the OLD passphrase. Discarding it makes every archive taken before the change permanently unreadable. So the old value must be archived alongside the new one, with the cutover date recorded, and the restore verification (#34) run afterwards to prove the new one actually works. '
       + 'Related habit worth keeping: press Cmd+K in Terminal before screenshotting. Two secrets have reached a screenshot from old scrollback this month.' },
+  { ref: '69', owner: 'claude', status: 'pending', priority: 12,
+    title: 'Point-in-time recovery is UNTESTED — and long-term archive does not exist',
+    why: 'These were inside #55 and went with it when I closed that task for the media replication. The word PITR appears nowhere on this board as a result. Work disappearing because a wider task was closed around it is the precise thing this board exists to stop, and it happened anyway.',
+    detail: 'TWO SEPARATE GAPS, both real. '
+      + 'PITR: DigitalOcean managed Postgres keeps write-ahead logs, so the database can be restored to ANY MOMENT, not just the 05:26 snapshot. That answers "somebody deleted the wrong thing at 14:32" in a way no daily backup can — and the daily dump cannot answer it at all, because it would lose everything after the morning. '
+      + 'It has NEVER BEEN TESTED. An untested recovery path is not a recovery path; it is a belief. This platform ran a daily backup for MONTHS before anyone tried restoring one, and #34 exists because that attempt was the first proof it worked. Same lesson, different mechanism. '
+      + 'TEST SAFELY: restore to a NEW database from a point in time, confirm a known row is present at that moment and absent before it, then destroy the copy. Never restore over production to test a restore. '
+      + 'LONG-TERM ARCHIVE: retention is 30 days offsite and 60 days primary. Nothing survives a year. For a B2B business that is the gap that bites in a dispute — an organisation asking what their attendees generated last quarter, after the archives holding it have rolled off. Monthly archives kept for a year cost almost nothing at this size. '
+      + 'ESTIMATE: 2 hours for the PITR test, 2 hours for monthly archiving.' },
   { ref: '59', owner: 'claude', status: 'pending', priority: 12,
     title: 'NEW TAB — Expenses: what this business actually costs per month',
     why: 'Requested 2026-08-19. Costs are spread across DigitalOcean, GoDaddy, Microsoft 365, Backblaze, Claude, FAL and kie, and nowhere adds them up. Without the total there is no break-even figure, so nobody can say whether a workshop was profitable.',
