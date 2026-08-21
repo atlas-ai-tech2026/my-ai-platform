@@ -7,6 +7,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import TasksTab from './TasksTab';
+import { openCount } from './TasksTab';
 
 const tasks = vi.fn();
 const taskStatus = vi.fn();
@@ -145,5 +146,44 @@ describe('reordering', () => {
     render(<TasksTab onError={vi.fn()} />);
     await userEvent.click(await screen.findByRole('button', { name: /Higher priority/i }));
     await waitFor(() => expect(taskMove).toHaveBeenCalledWith(1, 'up'));
+  });
+});
+
+// ─── the three numbers must agree ────────────────────────────────────────────
+// Spotted by the owner on 2026-08-21: the pill said "16 mine open", the section
+// header said "Mine (18)", and the sidebar badge said 29. Three numbers
+// describing the same list, disagreeing.
+//
+// The pill counted `pending + blocked` and silently dropped in_progress — the
+// two items marked "Doing now". 16 + 2 = 18.
+//
+// It also read `a + b || 0`, which parses as `(a + b) || 0`: one missing status
+// key turned the WHOLE pill into 0 rather than a partial count.
+describe('the open count', () => {
+  it('includes work that is IN PROGRESS, not just waiting and blocked', () => {
+    expect(openCount({ pending: 10, blocked: 6, in_progress: 2, done: 43 })).toBe(18);
+  });
+
+  it('never counts done', () => {
+    expect(openCount({ pending: 1, done: 999 })).toBe(1);
+  });
+
+  // `a + b || 0` turned a partial count into zero. A screen that says 0 open
+  // when 11 are open is worse than one that says nothing.
+  it('a missing status key does not zero the whole count', () => {
+    expect(openCount({ pending: 11 })).toBe(11);
+    expect(openCount({ blocked: 4 })).toBe(4);
+  });
+
+  it('an empty or absent bucket is 0, not NaN', () => {
+    expect(openCount({})).toBe(0);
+    expect(openCount(undefined)).toBe(0);
+    expect(Number.isNaN(openCount({}))).toBe(false);
+  });
+
+  // Derived from the status list rather than named by hand — which is what let
+  // in_progress be forgotten. Add a fifth status tomorrow and this still adds up.
+  it('picks up a new status automatically', () => {
+    expect(openCount({ pending: 1, blocked: 1, in_progress: 1 })).toBe(3);
   });
 });

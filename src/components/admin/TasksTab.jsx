@@ -30,6 +30,16 @@ const STATUS = {
   done:        { label: 'Done',      dot: 'var(--crm-green)', bg: 'transparent' },
 };
 
+/**
+ * Every status that is not "done" — derived from STATUS below, never listed by
+ * hand. Naming them by hand is how in_progress got left out of the open count.
+ */
+export function openCount(bucket = {}) {
+  return Object.keys(STATUS)
+    .filter((k) => k !== 'done')
+    .reduce((n, k) => n + (Number(bucket?.[k]) || 0), 0);
+}
+
 const OWNER_LABEL = { owner: 'Yours', claude: 'Mine' };
 
 function when(iso) {
@@ -203,8 +213,20 @@ export default function TasksTab({ onError }) {
   return (
     <div>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 16 }}>
-        <Pill n={sum.owner?.pending + sum.owner?.blocked || 0} label="yours open" tone="var(--crm-amber)" />
-        <Pill n={sum.claude?.pending + sum.claude?.blocked || 0} label="mine open" tone="var(--crm-blue)" />
+        {/* ── COUNT EVERYTHING THAT IS NOT DONE ──────────────────────────
+            This said `pending + blocked` and silently dropped in_progress, so
+            the pill read 16 while the section below it listed 18 and the sidebar
+            badge said 29. Spotted by the owner on 2026-08-21 — three numbers
+            describing the same list and disagreeing, which is exactly the kind
+            of thing that makes a whole screen stop being trusted.
+
+            It also read `a + b || 0`, which parses as `(a + b) || 0`: one
+            missing status key turns the WHOLE pill into 0 rather than a partial
+            count. Both fixed by deriving from the status list instead of naming
+            statuses by hand — add a fifth status tomorrow and this still adds
+            up. */}
+        <Pill n={openCount(sum.owner)} label="yours open" tone="var(--crm-amber)" />
+        <Pill n={openCount(sum.claude)} label="mine open" tone="var(--crm-blue)" />
         <Pill n={(sum.owner?.done || 0) + (sum.claude?.done || 0)} label="done" tone="var(--crm-green)" />
         <InfoDot
           label="this board"
