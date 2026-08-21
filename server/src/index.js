@@ -88,7 +88,9 @@ import { registerCostingRoutes } from './costing-routes.js';
 import { registerOffersRoutes } from './offers-routes.js';
 import { registerNotificationsRoutes } from './notifications-routes.js';
 import { registerAlertsRoutes, runAlertChecks } from './alerts-routes.js';
-import { registerBackupVerifyRoutes, scheduleRestoreVerification } from './backup-verify-routes.js';
+import { registerBackupVerifyRoutes, scheduleRestoreVerification,
+         runRestoreVerification } from './backup-verify-routes.js';
+import { fetchOldestOffsite } from './backup-verify.js';
 import { syncMediaOffsite, RUN_WATCHDOG_MS } from './media-sync.js';
 import { registerPnlRoutes } from './pnl-routes.js';
 import { registerReliabilityRoutes } from './reliability-routes.js';
@@ -5955,6 +5957,37 @@ app.get('/api/admin/audience', adminGate, async (req, res) => {
 // answering meant scrolling 601 rows — a chore that produces a guess. Nothing
 // warned in advance either, so the first sign of an expiry was a customer
 // unable to sign in, possibly during a workshop they had paid for.
+// ── HAS THE BACKUP PASSPHRASE CHANGED? ────────────────────────────────────
+// The owner, 2026-08-21, on whether it was rotated after appearing in a
+// screenshot on 18 August: "I did not remember."
+//
+// Nobody has to. If the CURRENT passphrase opens the OLDEST archive still held,
+// it has not changed since that archive was written. If it fails, it has — and
+// everything older than the change is unreadable, which is a thing to find out
+// deliberately rather than during a real restore.
+//
+// Read-only: it downloads one archive, decrypts it in memory, and writes
+// nothing. It runs the same verification as the monthly check; only the choice
+// of archive differs.
+app.post('/api/admin/backup/passphrase-check', adminGate, async (req, res) => {
+  if (!dbReady()) return res.status(503).json({ error: 'Database not available.' });
+  try {
+    const r = await runRestoreVerification(pool, { fetcher: fetchOldestOffsite });
+    res.json({
+      opened: r.ok,
+      archive: r.key || null,
+      exported_at: r.exportedAt || null,
+      problems: r.problems || [],
+      verdict: r.ok
+        ? 'The current passphrase opened the oldest archive we hold — it has not been changed since that archive was written.'
+        : 'The current passphrase could NOT open the oldest archive. Either it was changed, or that archive is damaged — see problems.',
+    });
+  } catch (err) {
+    console.error('[passphrase-check] error:', err);
+    res.status(500).json({ error: `Could not check: ${err.message}` });
+  }
+});
+
 app.get('/api/admin/users/expiry-report', adminGate, async (req, res) => {
   if (!dbReady()) return res.status(503).json({ error: 'Database not available.' });
   try {

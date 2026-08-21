@@ -181,6 +181,42 @@ function s3(env) {
  * which is the whole scenario M3 was about. Verifying the convenient copy
  * would prove the least important half.
  */
+/**
+ * Fetch the OLDEST archive still offsite, not the newest.
+ *
+ * ── THE QUESTION THIS ANSWERS ──────────────────────────────────────────────
+ * The owner, 2026-08-21, on whether the backup passphrase was changed after it
+ * appeared in a screenshot on 18 August: "I did not remember."
+ *
+ * That is answerable without anyone remembering anything. If the CURRENT
+ * passphrase decrypts the OLDEST archive we still hold, then it has not changed
+ * since that archive was written. If it fails, it has — and every archive older
+ * than the change is unreadable, which is a thing to discover on purpose rather
+ * than during a restore.
+ *
+ * It is the same verification the monthly check already runs; only the choice
+ * of archive differs. Nothing here is a second implementation that could
+ * disagree with the first.
+ */
+export async function fetchOldestOffsite(env = process.env, { client = null } = {}) {
+  const c = client || s3(env);
+  const prefix = (env.OFFSITE_S3_PREFIX || 'backups/').replace(/^\/+/, '');
+  const listed = await c.send(new ListObjectsV2Command({
+    Bucket: env.OFFSITE_S3_BUCKET.trim(), Prefix: prefix,
+  }));
+  const objects = (listed.Contents || []).filter((o) => o.Key && o.Size > 0);
+  if (!objects.length) throw new Error(`no objects under ${prefix} in the offsite bucket`);
+
+  objects.sort((a, b) => new Date(a.LastModified) - new Date(b.LastModified));
+  const oldest = objects[0];
+
+  const got = await c.send(new GetObjectCommand({
+    Bucket: env.OFFSITE_S3_BUCKET.trim(), Key: oldest.Key,
+  }));
+  const body = Buffer.from(await got.Body.transformToByteArray());
+  return { key: oldest.Key, size: body.length, lastModified: oldest.LastModified, body };
+}
+
 export async function fetchLatestOffsite(env = process.env, { client = null } = {}) {
   const c = client || s3(env);
   const prefix = (env.OFFSITE_S3_PREFIX || 'backups/').replace(/^\/+/, '');
