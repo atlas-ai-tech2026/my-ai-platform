@@ -29,6 +29,28 @@ import { runPlan } from '@/lib/edit-exec-browser';
 
 const fmt = (s) => (Number.isFinite(s) ? `${s.toFixed(1)}s` : '—');
 
+/**
+ * ── SAMPLES, SO AN EMPTY LIBRARY IS NOT AN EMPTY EDITOR ────────────────────
+ * Found on 2026-08-21 the moment the owner tried it: signing in with no
+ * finished videos gives a working editor with nothing to edit, which is
+ * indistinguishable from a broken page. Every genuinely new customer would hit
+ * the same wall on their first visit — the one visit where "this does nothing"
+ * is the conclusion they keep.
+ *
+ * These are clips the site already ships and already serves, so they cost no
+ * bandwidth that was not already being spent and add no new asset to maintain.
+ * They are labelled SAMPLE and listed after the customer's own work, so nobody
+ * mistakes one for something they made.
+ */
+const SAMPLE_CLIPS = [
+  { id: 'sample-seedance', url: '/media/seedance-2-hero.mp4', type: 'video', sample: true,
+    prompt: 'Sample · racing car', duration: null },
+  { id: 'sample-explore', url: '/media/explore-hero.mp4', type: 'video', sample: true,
+    prompt: 'Sample · castle', duration: null },
+  { id: 'sample-kling', url: '/media/kling-3-card.mp4', type: 'video', sample: true,
+    prompt: 'Sample · Kling clip', duration: null },
+];
+
 export default function EditWorkspace({ clips = [], loading = false, error = null, onReload }) {
   const [selected, setSelected] = useState(null);
   const [settings, setSettings] = useState({ ratio: null, speed: 1, text: '', trim: null });
@@ -39,10 +61,15 @@ export default function EditWorkspace({ clips = [], loading = false, error = nul
   const [failure, setFailure] = useState(null);
   const videoRef = useRef(null);
 
-  const editable = useMemo(
+  const mine = useMemo(
     () => clips.filter(isEditable).map(toClip).filter(Boolean).filter((c) => c.type === 'video'),
     [clips],
   );
+  // Samples come AFTER the customer's own work and are never mixed into it, so
+  // "my videos" always means my videos. They are still offered when the library
+  // has clips — trying a tool on a sample before touching real work is a
+  // reasonable thing to want.
+  const editable = useMemo(() => [...mine, ...SAMPLE_CLIPS], [mine]);
 
   // Duration is missing on older history rows, so it is read off the element
   // that is already playing the clip rather than trusted from the database.
@@ -155,9 +182,10 @@ export default function EditWorkspace({ clips = [], loading = false, error = nul
             </div>
           )}
 
-          {!loading && !error && editable.length === 0 && (
-            <div className="glass rounded-xl border border-border p-4 text-sm text-foreground-secondary">
-              No finished videos yet. Generate one on the Video page and it will appear here.
+          {!loading && !error && mine.length === 0 && (
+            <div className="glass rounded-xl border border-border p-4 mb-3 text-sm text-foreground-secondary">
+              No finished videos of your own yet — generate one on the Video page and it
+              will appear here. <span className="text-white">Try the samples below in the meantime.</span>
             </div>
           )}
 
@@ -174,13 +202,21 @@ export default function EditWorkspace({ clips = [], loading = false, error = nul
                     : 'border-border hover:border-primary/50'
                 }`}
               >
-                <video
-                  src={clip.url}
-                  muted
-                  playsInline
-                  preload="metadata"
-                  className="w-full aspect-video object-cover bg-background-elevated"
-                />
+                <span className="relative block">
+                  <video
+                    src={clip.url}
+                    muted
+                    playsInline
+                    preload="metadata"
+                    className="w-full aspect-video object-cover bg-background-elevated"
+                  />
+                  {clip.sample && (
+                    <span className="absolute top-1.5 right-1.5 rounded bg-background/85 px-1.5 py-0.5
+                                     text-[10px] font-semibold tracking-wide text-foreground-secondary">
+                      SAMPLE
+                    </span>
+                  )}
+                </span>
                 <span className="block px-2.5 py-2 text-xs text-foreground-secondary line-clamp-2">
                   {clip.prompt || 'Untitled'}
                 </span>

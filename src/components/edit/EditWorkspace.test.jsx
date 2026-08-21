@@ -70,13 +70,46 @@ describe('what appears in the library', () => {
 
   it('distinguishes "no videos" from "could not ask"', () => {
     const { rerender } = render(<EditWorkspace clips={[]} />);
-    expect(screen.getByText(/No finished videos yet/i)).toBeInTheDocument();
+    expect(screen.getByText(/No finished videos of your own yet/i)).toBeInTheDocument();
 
     rerender(<EditWorkspace clips={[]} error="Loading GenerationHistory failed" />);
     expect(screen.getByText(/Loading GenerationHistory failed/)).toBeInTheDocument();
-    expect(screen.queryByText(/No finished videos yet/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/No finished videos of your own/i)).not.toBeInTheDocument();
     // And it must offer the way out, not just the bad news.
     expect(screen.getByRole('button', { name: /try again/i })).toBeInTheDocument();
+  });
+});
+
+describe('an empty library is not an empty editor', () => {
+  // Found the moment the owner first tried it: signing in with no finished
+  // videos gave a working editor with nothing to edit, which is
+  // indistinguishable from a broken page. Every genuinely new customer hits
+  // this on their FIRST visit — the one visit where "this does nothing" is the
+  // conclusion they keep.
+  it('always offers something to edit, even with nothing in the library', () => {
+    render(<EditWorkspace clips={[]} />);
+    const samples = screen.getAllByText('SAMPLE');
+    expect(samples.length).toBeGreaterThan(0);
+    expect(screen.getByRole('button', { name: /Sample · racing car/ })).toBeEnabled();
+  });
+
+  it('marks every sample so none can be mistaken for the customer’s own work', () => {
+    render(<EditWorkspace clips={[done()]} />);
+    // One badge per sample, and none on the real clip.
+    const own = screen.getByRole('button', { name: 'A yellow race car' });
+    expect(own.textContent).not.toMatch(/SAMPLE/);
+    expect(screen.getAllByText('SAMPLE').length).toBe(3);
+  });
+
+  it('lists the customer’s own work FIRST', () => {
+    // "My library" must mean my library. Samples that sort above real work
+    // would make the customer scroll past demo content to reach their own.
+    render(<EditWorkspace clips={[done()]} />);
+    const labels = screen.getAllByRole('button')
+      .map((b) => b.getAttribute('aria-label'))
+      .filter(Boolean);
+    expect(labels[0]).toBe('A yellow race car');
+    expect(labels.findIndex((l) => /^Sample/.test(l))).toBeGreaterThan(0);
   });
 });
 
