@@ -123,24 +123,54 @@ export function breakEven(fixedMonthly, marginPerSubscription) {
  * the platform and the ability to recover it, gone together. So this warns at
  * 60, 30 and 7 days: before, never on the day.
  */
+/**
+ * A renewal date is a CALENDAR DAY, not a moment — and reading it as a moment
+ * was wrong by a whole day.
+ *
+ * node-postgres hands back a DATE column as LOCAL midnight. In Kuwait (UTC+3)
+ * the 26th arrives as 2026-08-25T21:00Z, so flooring it in UTC produced the
+ * 25th: every renewal displayed a day early, and would have read OVERDUE a day
+ * before it was. Found on 2026-08-21 by a check that expected 5 days and got 4.
+ *
+ * So the calendar parts are taken as they were written — local for a Date that
+ * pg built locally, verbatim for a 'YYYY-MM-DD' string — and compared as days,
+ * never as timestamps.
+ */
+export function calendarDay(value) {
+  if (!value) return null;
+  if (typeof value === 'string') {
+    const m = value.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+  }
+  const d = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(d.getTime())) return null;
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
+/** Whole days between two calendar days, with no timezone in the arithmetic. */
+export function daysBetween(fromDay, toDay) {
+  if (!fromDay || !toDay) return null;
+  const ms = (day) => Date.UTC(...day.split('-').map((n, i) => (i === 1 ? +n - 1 : +n)));
+  return Math.round((ms(toDay) - ms(fromDay)) / 86400000);
+}
+
 export function renewals(expenses = [], now = Date.now()) {
-  const today = new Date(now);
-  today.setUTCHours(0, 0, 0, 0);
+  const today = calendarDay(new Date(now));
 
   return expenses
     .filter(isActive)
     .filter((e) => e.renews_on)
     .map((e) => {
-      const when = new Date(e.renews_on);
-      if (Number.isNaN(when.getTime())) return null;
-      when.setUTCHours(0, 0, 0, 0);
-      const days = Math.round((when - today) / 86400000);
+      const day = calendarDay(e.renews_on);
+      if (!day) return null;
+      const days = daysBetween(today, day);
       return {
         id: e.id,
         name: e.name,
         amount: round2(Number(e.amount) || 0),
         cycle: e.cycle,
-        renews_on: when.toISOString().slice(0, 10),
+        renews_on: day,
         daysLeft: days,
         // Only three states, because a scale of severity nobody agreed on is
         // just colour. Past due is its own thing: it has already happened.

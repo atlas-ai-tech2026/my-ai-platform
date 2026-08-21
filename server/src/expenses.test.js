@@ -17,6 +17,7 @@ import { describe, it, expect } from 'vitest';
 import {
   monthlyCost, runRate, byCategory, breakEven, renewals, renewalHeadline,
   monthlySeries, isActive, CYCLES, RENEWAL_WARN_DAYS, round2,
+  calendarDay, daysBetween,
 } from './expenses.js';
 
 const NOW = new Date('2026-08-21T12:00:00Z').getTime();
@@ -245,5 +246,51 @@ describe('the arithmetic', () => {
   it('rounds to cents, because money does', () => {
     expect(round2(0.1 + 0.2)).toBe(0.3);
     expect(monthlyCost(e({ amount: 100, cycle: 'annual' }))).toBe(8.33);
+  });
+});
+
+// ─── a renewal date is a CALENDAR DAY, not a moment ──────────────────────────
+// Found on 2026-08-21 by a check that expected 5 days and got 4.
+//
+// node-postgres hands back a DATE column as LOCAL midnight. In Kuwait (UTC+3)
+// the 26th arrives as 2026-08-25T21:00Z, so flooring it in UTC produced the
+// 25th. Every renewal would have displayed a day early — and said OVERDUE a day
+// before it was, which on a screen about money is exactly the kind of wrongness
+// that stops the screen being believed.
+describe('renewal dates survive the timezone', () => {
+  it('reads a plain YYYY-MM-DD verbatim', () => {
+    expect(calendarDay('2026-08-26')).toBe('2026-08-26');
+    expect(calendarDay('2026-08-26T00:00:00Z')).toBe('2026-08-26');
+  });
+
+  // THE CASE THAT WAS WRONG. This is exactly what pg produces for DATE
+  // '2026-08-26' when the server clock is east of UTC.
+  it('reads a Date that pg built at LOCAL midnight as the day it was written', () => {
+    const fromPg = new Date(2026, 7, 26, 0, 0, 0);      // local midnight, 26 Aug
+    expect(calendarDay(fromPg),
+      'a DATE column was shifted back a day by UTC flooring').toBe('2026-08-26');
+  });
+
+  it('counts whole days with no timezone in the arithmetic', () => {
+    expect(daysBetween('2026-08-21', '2026-08-26')).toBe(5);
+    expect(daysBetween('2026-08-21', '2026-08-21')).toBe(0);
+    expect(daysBetween('2026-08-21', '2026-08-18')).toBe(-3);
+    expect(daysBetween('2026-08-28', '2026-09-02')).toBe(5);   // across a month
+    expect(daysBetween('2026-12-30', '2027-01-02')).toBe(3);   // across a year
+  });
+
+  it('a renewal five days out reports five, not four', () => {
+    const inFive = new Date(2026, 7, 26, 0, 0, 0);            // as pg would give it
+    const [r] = renewals([e({ renews_on: inFive })], new Date(2026, 7, 21, 12).getTime());
+    expect(r.daysLeft).toBe(5);
+    expect(r.renews_on).toBe('2026-08-26');
+    expect(r.state).toBe('critical');
+  });
+
+  it('and is not called OVERDUE on the day before it is due', () => {
+    const tomorrow = new Date(2026, 7, 22, 0, 0, 0);
+    const [r] = renewals([e({ renews_on: tomorrow })], new Date(2026, 7, 21, 23, 30).getTime());
+    expect(r.daysLeft).toBe(1);
+    expect(r.state, 'a renewal due tomorrow was reported as overdue').not.toBe('overdue');
   });
 });
