@@ -223,7 +223,8 @@ describe('month by month, so a rising bill is seen coming', () => {
   });
 
   it('a month with no data is zero, not absent', () => {
-    expect(series[0]).toEqual({ month: '2026-03', infrastructure: 0, suppliers: 0, total: 0 });
+    expect(series[0]).toEqual({
+      month: '2026-03', infrastructure: 0, preview: false, suppliers: 0, total: 0 });
   });
 
   // Separate lines on purpose: a jump in SUPPLIERS means customers generated
@@ -292,5 +293,33 @@ describe('renewal dates survive the timezone', () => {
     const [r] = renewals([e({ renews_on: tomorrow })], new Date(2026, 7, 21, 23, 30).getTime());
     expect(r.daysLeft).toBe(1);
     expect(r.state, 'a renewal due tomorrow was reported as overdue').not.toBe('overdue');
+  });
+});
+
+// ─── the current month is not in `invoices` at all ───────────────────────────
+// DigitalOcean returns settled invoices in `invoices` and the month IN PROGRESS
+// in a separate `invoice_preview` object. Reading only the array dropped the
+// current month silently: the tab showed August as $0.00 when the real figure
+// was $45.60 — and $0.00 is the one number on a cost screen nobody questions.
+//
+// It is also a RUNNING TOTAL: $43.22 yesterday, $45.60 today. Presenting an
+// accruing number as a settled bill is a different kind of wrong.
+describe('a month still accruing is labelled as such', () => {
+  const series = monthlySeries({
+    invoices: [
+      { month: '2026-07', amount: 31, preview: false },
+      { month: '2026-08', amount: 45.6, preview: true },
+    ],
+    measured: [], months: 2, now: new Date('2026-08-21T12:00:00Z').getTime(),
+  });
+
+  it('includes the current month rather than showing zero', () => {
+    const aug = series.find((r) => r.month === '2026-08');
+    expect(aug.infrastructure, 'the current month was dropped and read as zero').toBe(45.6);
+  });
+
+  it('marks it as a preview, so it is not read as a settled bill', () => {
+    expect(series.find((r) => r.month === '2026-08').preview).toBe(true);
+    expect(series.find((r) => r.month === '2026-07').preview).toBe(false);
   });
 });

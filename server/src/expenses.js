@@ -223,12 +223,15 @@ export function monthlySeries({ invoices = [], measured = [], months = 6, now = 
   for (let i = months - 1; i >= 0; i -= 1) {
     const d = new Date(Date.UTC(cur.getUTCFullYear(), cur.getUTCMonth() - i, 1));
     const key = d.toISOString().slice(0, 7);
-    const inv = invoices.filter((r) => String(r.month) === key)
-      .reduce((n, r) => n + (Number(r.amount) || 0), 0);
+    const forMonth = invoices.filter((r) => String(r.month) === key);
+    const inv = forMonth.reduce((n, r) => n + (Number(r.amount) || 0), 0);
+    // A month still accruing is labelled, never presented as a settled bill.
+    const isPreview = forMonth.some((r) => r.preview);
     const m = measured.find((r) => String(r.month) === key);
     out.push({
       month: key,
       infrastructure: round2(inv),
+      preview: isPreview,
       suppliers: round2((Number(m?.fal) || 0) + (Number(m?.kie) || 0)),
       total: round2(inv + (Number(m?.fal) || 0) + (Number(m?.kie) || 0)),
     });

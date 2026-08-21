@@ -47,6 +47,11 @@ export async function ensureExpenseTables(pool) {
       fetched_at TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
       PRIMARY KEY (provider, month)
     )`);
+  // Added after the table existed, so it must be a migration and not part of
+  // the CREATE — a column added only to a CREATE never appears anywhere the
+  // table already exists, which is every environment that matters.
+  await pool.query(
+    `ALTER TABLE provider_invoices ADD COLUMN IF NOT EXISTS preview BOOLEAN NOT NULL DEFAULT FALSE`);
 }
 
 export async function listExpenses(pool) {
@@ -106,11 +111,31 @@ export async function fetchDigitalOceanInvoices(env = process.env, fetchFn = fet
     });
     if (!res.ok) return { error: `DigitalOcean billing returned ${res.status}` };
     const body = await res.json();
-    const rows = (body?.invoices || [])
-      .map((i) => ({
-        month: String(i.invoice_period || '').slice(0, 7),
-        amount: round2(Number(i.amount) || 0),
-      }))
+
+    // ── THE CURRENT MONTH IS NOT IN `invoices` ──────────────────────────
+    // DigitalOcean returns settled invoices in `invoices`, and the month in
+    // progress in a SEPARATE `invoice_preview` object. Reading only the array
+    // silently dropped the current month — so the Expenses tab showed August as
+    // $0.00 while the real figure was $45.60, and $0.00 is the one number on
+    // that screen nobody would question.
+    //
+    // The preview is a RUNNING TOTAL: it was $43.22 yesterday and $45.60 today.
+    // It is flagged so the screen can say "so far this month" rather than
+    // presenting an accruing number as a settled bill.
+    const settled = (body?.invoices || []).map((i) => ({
+      month: String(i.invoice_period || '').slice(0, 7),
+      amount: round2(Number(i.amount) || 0),
+      preview: false,
+    }));
+
+    const p = body?.invoice_preview;
+    const preview = p ? [{
+      month: String(p.invoice_period || '').slice(0, 7),
+      amount: round2(Number(p.amount) || 0),
+      preview: true,
+    }] : [];
+
+    const rows = [...settled, ...preview]
       .filter((r) => /^\d{4}-\d{2}$/.test(r.month));
     return { invoices: rows };
   } catch (e) {
@@ -123,11 +148,11 @@ export async function cacheInvoices(pool, provider, invoices = []) {
   await ensureExpenseTables(pool);
   for (const inv of invoices) {
     await pool.query(
-      `INSERT INTO provider_invoices (provider, month, amount, fetched_at)
-       VALUES ($1,$2,$3,NOW())
+      `INSERT INTO provider_invoices (provider, month, amount, preview, fetched_at)
+       VALUES ($1,$2,$3,$4,NOW())
        ON CONFLICT (provider, month) DO UPDATE
-         SET amount = EXCLUDED.amount, fetched_at = NOW()`,
-      [provider, inv.month, inv.amount]);
+         SET amount = EXCLUDED.amount, preview = EXCLUDED.preview, fetched_at = NOW()`,
+      [provider, inv.month, inv.amount, Boolean(inv.preview)]);
   }
   return invoices.length;
 }
@@ -135,7 +160,7 @@ export async function cacheInvoices(pool, provider, invoices = []) {
 export async function cachedInvoices(pool, provider = 'digitalocean') {
   await ensureExpenseTables(pool);
   const { rows } = await pool.query(
-    `SELECT month, amount::float, fetched_at FROM provider_invoices
+    `SELECT month, amount::float, preview, fetched_at FROM provider_invoices
       WHERE provider = $1 ORDER BY month`, [provider]);
   return rows;
 }

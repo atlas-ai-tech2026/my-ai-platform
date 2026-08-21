@@ -41,17 +41,24 @@ export const OPEN_ITEMS = [
     action: 'Move DNS to your own Cloudflare account, then set ORIGIN_SHARED_SECRET. The guard is '
       + 'already deployed and inert, waiting for it.',
   },
-  {
-    key: 'pre-m1-backups',
-    label: 'Decide on pre-M1 backups',
-    // WAS: "still contain scrubbed plaintext passwords" — which reads as though
-    // they are safe, when the entire point is that they are not. M1 redacted the
-    // admin audit log and its migration scrubbed the historical rows IN THE LIVE
-    // DATABASE. A backup taken before that migration was never touched by it.
-    detail: 'The M1 migration scrubbed cleartext passwords from the live admin audit log. '
-      + 'Backups taken before it were never touched, so they still hold those passwords in the clear.',
-    action: 'Delete them, or accept and record the decision.',
-  },
+  // ── REMOVED 2026-08-21: THERE ARE NO PRE-M1 BACKUPS ───────────────────────
+  // This asked the owner to decide what to do about backups taken before the M1
+  // fix, which "still hold those passwords in the clear". No such backup exists.
+  //
+  //   M1 — passwords scrubbed      2026-08-01 23:20
+  //   M3 — backups first written   2026-08-01 23:41
+  //
+  // Twenty-one minutes apart, and git confirms no backup mechanism existed
+  // before that commit. Every archive was written after the scrub.
+  //
+  // It sat here for three weeks as an open decision with no subject, and on
+  // 2026-08-21 the owner was about to download and store encrypted archives to
+  // protect data that had never been in them. A hand-maintained list can show a
+  // false RED — sop-sources.js says exactly that, as the reason the kind is
+  // permitted at all — and this is what one looks like in practice.
+  //
+  // Deliberately NOT replaced with a green "nothing to decide" line. A screen
+  // that lists resolved non-problems is how the real ones get lost.
   {
     key: 'xlsx',
     label: 'Decide on the xlsx dependency',

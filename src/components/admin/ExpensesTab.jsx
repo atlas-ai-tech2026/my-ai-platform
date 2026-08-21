@@ -196,6 +196,12 @@ export default function ExpensesTab({ onError }) {
               <span style={{ fontFamily: '"JetBrains Mono", monospace', minWidth: 64 }}>{m.month}</span>
               <span style={{ color: 'var(--crm-w40)', minWidth: 150 }}>
                 infrastructure {usd(m.infrastructure)}
+                {/* A month still running is NOT a settled bill. DigitalOcean's
+                    preview rose from $43.22 to $45.60 in a day; showing it like
+                    the closed months would invite reading it as final. */}
+                {m.preview && (
+                  <span style={{ color: 'var(--crm-amber)', fontSize: 11 }}> so far</span>
+                )}
               </span>
               <span style={{ color: 'var(--crm-w40)', minWidth: 130 }}>
                 suppliers {usd(m.suppliers)}
@@ -207,6 +213,8 @@ export default function ExpensesTab({ onError }) {
         <div style={{ fontSize: 11, color: 'var(--crm-w35)', marginTop: 8, lineHeight: 1.5 }}>
           Two lines on purpose: a rise in <b>suppliers</b> means customers generated more, which is
           good news. A rise in <b>infrastructure</b> means a subscription changed, which is not.
+          The current month is marked <b>so far</b> — DigitalOcean bills it as it accrues, so that
+          figure keeps rising until the month closes.
         </div>
       </div>
 
