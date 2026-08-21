@@ -1145,6 +1145,31 @@ export async function migrate() {
       )`);
     await client.query(`INSERT INTO audience_meta (id) VALUES (1) ON CONFLICT DO NOTHING`);
 
+    // Expenses (#59). Created at boot so the tab works the moment it is opened
+    // rather than lazily on first write.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS expenses (
+        id           SERIAL PRIMARY KEY,
+        name         VARCHAR(120)  NOT NULL,
+        category     VARCHAR(40)   NOT NULL DEFAULT 'other',
+        amount       NUMERIC(12,2) NOT NULL,
+        cycle        VARCHAR(16)   NOT NULL DEFAULT 'monthly',
+        renews_on    DATE,
+        critical     BOOLEAN       NOT NULL DEFAULT FALSE,
+        note         TEXT,
+        cancelled_at TIMESTAMPTZ,
+        created_at   TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
+        updated_at   TIMESTAMPTZ   NOT NULL DEFAULT NOW()
+      )`);
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS provider_invoices (
+        provider   VARCHAR(40)   NOT NULL,
+        month      VARCHAR(7)    NOT NULL,
+        amount     NUMERIC(12,2) NOT NULL,
+        fetched_at TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
+        PRIMARY KEY (provider, month)
+      )`);
+
     await client.query('COMMIT');
     console.log('[db] migrations ok — users + credits_history + admin_audit_log + failed_logins + entities + node_spaces ready');
   } catch (err) {

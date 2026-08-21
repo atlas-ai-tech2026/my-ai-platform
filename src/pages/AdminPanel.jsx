@@ -10,6 +10,7 @@ import StatsCards from '@/components/admin/StatsCards';
 import UserTable from '@/components/admin/UserTable';
 import BulkExpiryPanel from '@/components/admin/BulkExpiryPanel';
 import AudienceTab from '@/components/admin/AudienceTab';
+import ExpensesTab from '@/components/admin/ExpensesTab';
 import ExpiryPanel from '@/components/admin/ExpiryPanel';
 import CreditsModal from '@/components/admin/CreditsModal';
 import HistoryModal from '@/components/admin/HistoryModal';
@@ -69,6 +70,10 @@ const TABS = [
   // Users means accounts, Audience means everyone who reaches the site.
   { id: 'audience', label: 'Audience',
     desc: 'Everyone who reaches the site, signed in or not — how many arrived, where they came from, which pages they opened, and how long people actually worked. Arrivals are counted here from the day tracking started; the account and activity history goes back to your first customer, rebuilt from dates that were always kept. Clicks and session replays are in Microsoft Clarity, which never runs on this control panel.' },
+  // #59. Under Money, beside Costing and Offers: those two are about what
+  // customers pay you; this is what you pay everyone else.
+  { id: 'expenses', label: 'Expenses',
+    desc: 'What the business costs to run each month, and how many customers cover it. Fixed subscriptions are entered once — they change about once a year. FAL and kie are measured straight from the ledger and never typed. DigitalOcean is pulled from their billing API. Renewals warn at 60, 30 and 7 days: if the domain lapses the site AND every email address stop, including the one password resets come from.' },
   { id: 'usage', label: 'API Usage',
     desc: 'What you are spending with kie.ai: totals, your remaining balance, and which models consumed it. Money OUT to your supplier — as opposed to Logs, which is credits moving between you and customers.' },
   { id: 'logs',  label: 'Logs',
@@ -325,6 +330,7 @@ export default function AdminPanel() {
 
         {tab === 'live' && <LiveTab onError={handleError} />}
         {tab === 'audience' && <AudienceTab onError={handleError} />}
+        {tab === 'expenses' && <ExpensesTab onError={handleError} />}
         {tab === 'costing' && <CostingTab onError={handleError} />}
         {tab === 'offers' && <OffersTab onError={handleError} />}
         {tab === 'notifications' && <NotificationsTab onError={handleError} />}

@@ -25,6 +25,10 @@ import { mayRedeem, capForInvites, splitInvites, REFUSAL } from './promo-audienc
 import { groupByExpiryDay, summarise, actionable, SOON_DAYS,
          planCreditExpiry, expiryAfterManualGrant, MANUAL_GRANT_DAYS } from './expiry-report.js';
 import { audienceMiddleware, audienceReport, ensureAudienceTables } from './audience-store.js';
+import { runRate, breakEven, renewals, renewalHeadline, monthlySeries, CYCLES }
+  from './expenses.js';
+import { ensureExpenseTables, listExpenses, measuredSupplierCost,
+         fetchDigitalOceanInvoices, cacheInvoices, cachedInvoices } from './expenses-store.js';
 import { injectClarity, clarityCspHash, shouldInject,
          CLARITY_SCRIPT_HOSTS, CLARITY_CONNECT_HOSTS } from './clarity.js';
 
@@ -5817,6 +5821,115 @@ app.use(audienceMiddleware(pool, {
   // navigation, and counting it would crowd out the real referrers.
   ownHosts: ['voxel-ai.ai', 'www.voxel-ai.ai', 'voxel-app-dev-b8a2h.ondigitalocean.app'],
 }));
+
+// ── WHAT THE BUSINESS COSTS (#59) ─────────────────────────────────────────
+// Three sources, each labelled on the screen: TYPED (the handful that barely
+// moves), MEASURED (FAL and kie, off the ledger), PULLED (DigitalOcean, from
+// their billing API using a token the owner sets — never a password I hold).
+app.get('/api/admin/expenses', adminGate, async (req, res) => {
+  if (!dbReady()) return res.status(503).json({ error: 'Database not available.' });
+  try {
+    const months = Math.min(Math.max(parseInt(req.query.months, 10) || 6, 1), 24);
+    const margin = Number(req.query.margin);
+
+    const [expenses, measured, invoices] = await Promise.all([
+      listExpenses(pool),
+      measuredSupplierCost(pool, { months }).catch(() => []),
+      cachedInvoices(pool, 'digitalocean').catch(() => []),
+    ]);
+
+    const thisMonth = new Date().toISOString().slice(0, 7);
+    const current = measured.find((m) => m.month === thisMonth) || { fal: 0, kie: 0 };
+    const rate = runRate(expenses, current);
+    const renewalList = renewals(expenses);
+
+    res.json({
+      expenses,
+      runRate: rate,
+      renewals: renewalList,
+      renewalHeadline: renewalHeadline(renewalList),
+      // Break-even needs a margin per subscription. Passed in rather than
+      // assumed: an invented margin would flow straight into the answer and
+      // look like a fact.
+      breakEven: breakEven(rate.fixed, margin),
+      series: monthlySeries({ invoices, measured, months }),
+      measured,
+      digitalocean: {
+        cached: invoices.length,
+        lastFetched: invoices[0]?.fetched_at || null,
+        // Said plainly so an empty DigitalOcean line is never mistaken for zero
+        // cost — it means nobody has given the server a way to look.
+        note: invoices.length ? null
+          : 'No DigitalOcean invoices pulled yet. Set DIGITALOCEAN_TOKEN in the app '
+            + 'environment (a READ-ONLY token is enough) and press Refresh.',
+      },
+      cycles: CYCLES,
+    });
+  } catch (err) {
+    console.error('[admin/expenses] error:', err);
+    res.status(500).json({ error: 'Could not build the expenses report.' });
+  }
+});
+
+app.post('/api/admin/expenses', adminGate, async (req, res) => {
+  if (!dbReady()) return res.status(503).json({ error: 'Database not available.' });
+  try {
+    await ensureExpenseTables(pool);
+    const name = String(req.body?.name || '').trim().slice(0, 120);
+    const amount = Number(req.body?.amount);
+    const cycle = CYCLES.includes(req.body?.cycle) ? req.body.cycle : 'monthly';
+    if (!name) return res.status(400).json({ error: 'A name is required.' });
+    if (!Number.isFinite(amount) || amount <= 0) {
+      return res.status(400).json({ error: 'Amount must be a positive number.' });
+    }
+    const renewsOn = req.body?.renews_on ? new Date(req.body.renews_on) : null;
+    if (renewsOn && Number.isNaN(renewsOn.getTime())) {
+      return res.status(400).json({ error: 'Bad renewal date.' });
+    }
+    const { rows } = await pool.query(
+      `INSERT INTO expenses (name, category, amount, cycle, renews_on, critical, note)
+       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
+      [name, String(req.body?.category || 'other').slice(0, 40), amount, cycle,
+       renewsOn, Boolean(req.body?.critical),
+       String(req.body?.note || '').slice(0, 500) || null]);
+    res.json({ expense: rows[0] });
+  } catch (err) {
+    console.error('[admin/expenses] create failed:', err);
+    res.status(500).json({ error: 'Could not save the expense.' });
+  }
+});
+
+// Cancel, never delete — a cost that disappears makes last quarter look wrong.
+app.post('/api/admin/expenses/:id/cancel', adminGate, async (req, res) => {
+  if (!dbReady()) return res.status(503).json({ error: 'Database not available.' });
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isFinite(id)) return res.status(400).json({ error: 'Invalid id.' });
+    const reopen = req.body?.reopen === true;
+    const { rows } = await pool.query(
+      `UPDATE expenses SET cancelled_at = ${reopen ? 'NULL' : 'NOW()'}, updated_at = NOW()
+        WHERE id = $1 RETURNING *`, [id]);
+    if (!rows[0]) return res.status(404).json({ error: 'Not found.' });
+    res.json({ expense: rows[0] });
+  } catch (err) {
+    console.error('[admin/expenses] cancel failed:', err);
+    res.status(500).json({ error: 'Could not update the expense.' });
+  }
+});
+
+app.post('/api/admin/expenses/refresh-digitalocean', adminGate, async (req, res) => {
+  if (!dbReady()) return res.status(503).json({ error: 'Database not available.' });
+  try {
+    const result = await fetchDigitalOceanInvoices();
+    if (result.error) return res.status(400).json({ error: result.error });
+    const n = await cacheInvoices(pool, 'digitalocean', result.invoices);
+    console.log(`[expenses] pulled ${n} DigitalOcean invoice(s)`);
+    res.json({ pulled: n, invoices: result.invoices });
+  } catch (err) {
+    console.error('[admin/expenses] refresh failed:', err);
+    res.status(500).json({ error: 'Could not reach DigitalOcean billing.' });
+  }
+});
 
 app.get('/api/admin/audience', adminGate, async (req, res) => {
   if (!dbReady()) return res.status(503).json({ error: 'Database not available.' });

@@ -147,6 +147,12 @@ export const adminApi = {
   // #64 — arrivals counted here, plus the account history reconstructed from
   // dates that were always kept.
   audience: (days) => request('GET', `/api/admin/audience?days=${days || 90}`),
+  // #59 — what the business costs. Three sources: typed, measured, pulled.
+  expenses: ({ months = 6, margin = '' } = {}) =>
+    request('GET', `/api/admin/expenses?months=${months}&margin=${encodeURIComponent(margin)}`),
+  addExpense: (body) => request('POST', '/api/admin/expenses', body),
+  cancelExpense: (id, body) => request('POST', `/api/admin/expenses/${id}/cancel`, body),
+  refreshDigitalOcean: () => request('POST', '/api/admin/expenses/refresh-digitalocean'),
   createGiftCards: (body) => request('POST', '/api/admin/giftcards', body),
   listGiftCards: (status = 'all') => request('GET', `/api/admin/giftcards?status=${status}`),
 
