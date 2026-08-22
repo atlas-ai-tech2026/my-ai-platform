@@ -30,14 +30,51 @@ describe('ordering — what needs doing, in the order to do it', () => {
 });
 
 describe('the summary the owner reads at a glance', () => {
-  it('counts each side separately', () => {
+  it('counts each side separately, across EVERY status', () => {
     const s = summarise([
       { owner: 'owner', status: 'pending' }, { owner: 'owner', status: 'done' },
       { owner: 'claude', status: 'pending' }, { owner: 'claude', status: 'blocked' },
     ]);
-    expect(s.owner).toEqual({ pending: 1, blocked: 0, done: 1 });
-    expect(s.claude).toEqual({ pending: 1, blocked: 1, done: 0 });
+    expect(s.owner).toEqual({ pending: 1, in_progress: 0, blocked: 0, done: 1 });
+    expect(s.claude).toEqual({ pending: 1, in_progress: 0, blocked: 1, done: 0 });
     expect(s.open).toBe(3);
+  });
+
+  // ── THE BUG THIS FILE FAILED TO CATCH ────────────────────────────────────
+  // summarise() used to list pending/blocked/done by hand and silently drop
+  // in_progress. On the owner's screen 2026-08-22 that read "11 yours open ·
+  // 17 mine open" above a list headed "Mine (19)", with a badge of 30.
+  // 11 + 17 = 28. The two missing were the two tasks actually being worked on.
+  //
+  // The client already derived its count from every status — but the server
+  // never SENT in_progress, so `Number(undefined) || 0` made it zero. A correct
+  // calculation over incomplete data.
+  //
+  // The old assertion used toEqual on a three-key object and PASSED, because it
+  // pinned the broken shape as if it were the specification.
+  it('counts in_progress — the status that went missing', () => {
+    const s = summarise([
+      { owner: 'claude', status: 'in_progress' },
+      { owner: 'claude', status: 'in_progress' },
+      { owner: 'claude', status: 'pending' },
+      { owner: 'owner', status: 'blocked' },
+      { owner: 'owner', status: 'done' },
+    ]);
+    expect(s.claude.in_progress).toBe(2);
+    expect(s.claudeOpen, 'work in progress vanished from the count').toBe(3);
+    expect(s.ownerOpen).toBe(1);
+    expect(s.open).toBe(4);
+  });
+
+  it('the halves always add up to the whole', () => {
+    // The invariant behind the owner's complaint: whatever the pills say, they
+    // must sum to the badge. No status may sit outside both.
+    const rows = STATUSES.flatMap((status) => [
+      { owner: 'owner', status }, { owner: 'claude', status },
+    ]);
+    const s = summarise(rows);
+    expect(s.ownerOpen + s.claudeOpen).toBe(s.open);
+    expect(s.open).toBe(rows.filter((r) => r.status !== 'done').length);
   });
 });
 

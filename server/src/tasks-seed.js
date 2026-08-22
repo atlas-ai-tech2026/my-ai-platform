@@ -172,7 +172,7 @@ export const SEED = [
       + 'TEST SAFELY: restore to a NEW database from a point in time, confirm a known row is present at that moment and absent before it, then destroy the copy. Never restore over production to test a restore. '
       + 'LONG-TERM ARCHIVE: retention is 30 days offsite and 60 days primary. Nothing survives a year. For a B2B business that is the gap that bites in a dispute — an organisation asking what their attendees generated last quarter, after the archives holding it have rolled off. Monthly archives kept for a year cost almost nothing at this size. '
       + 'ESTIMATE: 2 hours for the PITR test, 2 hours for monthly archiving.' },
-  { ref: '59', owner: 'claude', status: 'pending', priority: 12,
+  { ref: '59', owner: 'claude', status: 'done', priority: 12,
     title: 'NEW TAB — Expenses: what this business actually costs per month',
     why: 'Requested 2026-08-19. Costs are spread across DigitalOcean, GoDaddy, Microsoft 365, Backblaze, Claude, FAL and kie, and nowhere adds them up. Without the total there is no break-even figure, so nobody can say whether a workshop was profitable.',
     detail: 'THE DESIGN POINT: do NOT ask for FAL and kie by hand. Every generation already records fal_cost and kie_credits in credits_history, so those are MEASURED. Manual entry would be work that is instantly stale and less accurate than what we already hold. '
@@ -390,6 +390,25 @@ export const SEED = [
   { ref: '27', owner: 'claude', status: 'done', priority: 220,
     title: 'Record model, outcome and duration for every generation',
     why: 'Collecting since 16 August. This is what makes the timing question answerable — see #29 for the half that is still missing.' },
+
+  // ── FOUND 2026-08-22, BOTH FROM THE OWNER'S SCREENSHOTS ──────────────────
+  // Neither was found by a check, a test or an alert. Both were found because
+  // the owner photographed a screen and asked me to look at it.
+  { ref: '70', owner: 'claude', status: 'pending', priority: 6,
+    title: 'Three SOP lines are blind for ONE reason — Backblaze cannot be listed',
+    why: 'The only three non-green checks on the whole SOP screen — daily backup, Backblaze storage, customer media backed up — all fail with the SAME error: a 10-second connection timeout. "Customer media backed up" has NEVER once succeeded. That silence is why both of us concluded the media was not backed up at all; the owner\'s Backblaze screenshot then showed 72.2 GB sitting there. A check that cannot run is worse than no check, because the screen still implies coverage.',
+    detail: 'WRITES TO THAT BUCKET WORK — the daily archive landed at 14:04 today and the media sync has copied 72.2 GB. It is LISTING that fails. '
+      + 'backup-offsite.js:224 sets connectionTimeout 10s / requestTimeout 120s, and the error is the CONNECTION one, so it never reaches a slow response — sockets are not being established at all. '
+      + 'HYPOTHESIS, NOT YET PROVEN: the three checks each run their own full listing of ~11,744 objects concurrently, possibly alongside the media sync doing the same. That is dozens of simultaneous connections against a default socket pool; they queue, and a queued connection blows the 10s budget. Writes succeed because they go one at a time. '
+      + 'VERIFY BEFORE FIXING: run the three checks serially. If serial passes and parallel fails, the fix is SHARING one listing between them — not a longer timeout, which would only hide a contention bug behind a slower screen. '
+      + 'LIKELY ALSO FIXES POST /api/admin/backup/passphrase-check, which lists the bucket to find the oldest archive, and which task #60 depends on.' },
+  { ref: '71', owner: 'claude', status: 'pending', priority: 20,
+    title: 'The daily backup runs on every boot — 16 copies of one day',
+    why: 'The bucket holds one 7.6 MB archive per day, then 2026-08-21 at 122.4 MB across SIXTEEN versions and 2026-08-22 across two. Each copy is healthy; the job simply ran sixteen times. It was invisible until bucket versioning was switched on 19 August — before that each upload silently overwrote the last, so this has probably been happening since the feature shipped and left no trace.',
+    detail: 'CAUSE — index.js:7068: `setTimeout(runAutomatedBackup, 5 * 60 * 1000)` fires five minutes after EVERY BOOT, with no "has today already been written?" guard. Production runs TWO instances, so ONE deploy produces TWO backups; sixteen versions is eight deploys. '
+      + 'NOT AN EMERGENCY — no data is at risk and every archive is valid. But each run is a full table scan of production on a 1 vCPU box that is also serving customers, both instances dump simultaneously against the same database, and it burns storage and Backblaze transactions on every deploy forever. '
+      + 'IT ALSO MAKES THE ADMIN SCREEN LIE: autoBackupStatus is per-instance, so with two instances the CRM\'s "last backup" line depends on which one answers, and can read stale immediately after a successful backup. '
+      + 'FIX: check whether today\'s offsite key already exists and return early. That fixes the multi-instance case for free — both instances ask the same question of the same bucket and the second skips. KEEP the boot run: on a fresh environment it is the only thing that produces a first backup. Add a test that a second call the same day writes nothing, because without versioning the bug is invisible.' },
 ];
 
 /**
