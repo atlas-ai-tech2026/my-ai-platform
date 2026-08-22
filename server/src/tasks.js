@@ -83,13 +83,37 @@ export function sortTasks(rows) {
   });
 }
 
+/**
+ * ── THE COUNTS MUST ADD UP, AND THEY DID NOT ───────────────────────────────
+ * This listed pending / blocked / done by hand and SILENTLY DROPPED
+ * `in_progress`. STATUSES has four values; three were counted.
+ *
+ * On the owner's screen 2026-08-22 that read: "11 yours open · 17 mine open"
+ * above a list headed "Mine (19)", with a sidebar badge of 30. 11 + 17 = 28.
+ * The two missing were the two tasks actually being worked on — the most
+ * important rows on the board, invisible to the summary.
+ *
+ * The owner had already caught this once ("eleven and sixteen — there is
+ * something not right"). It was fixed in TasksTab.jsx and left broken here, so
+ * the client and the server disagreed about the same number.
+ *
+ * Now DERIVED from STATUSES. A fifth status cannot be forgotten, because
+ * nothing here names one.
+ */
 export function summarise(rows) {
   const by = (o, s) => rows.filter((r) => r.owner === o && r.status === s).length;
+  const forOwner = (o) => Object.fromEntries(STATUSES.map((s) => [s, by(o, s)]));
+  const counts = { owner: forOwner('owner'), claude: forOwner('claude') };
+  // "Open" means every status except done — stated once, not re-derived per
+  // caller, so the pills and the badge cannot drift apart again.
+  const openOf = (c) => STATUSES.filter((s) => s !== 'done')
+    .reduce((n, s) => n + c[s], 0);
   return {
     total: rows.length,
-    owner:  { pending: by('owner', 'pending'),  blocked: by('owner', 'blocked'),  done: by('owner', 'done') },
-    claude: { pending: by('claude', 'pending'), blocked: by('claude', 'blocked'), done: by('claude', 'done') },
-    open: rows.filter((r) => r.status !== 'done').length,
+    ...counts,
+    ownerOpen: openOf(counts.owner),
+    claudeOpen: openOf(counts.claude),
+    open: openOf(counts.owner) + openOf(counts.claude),
   };
 }
 
