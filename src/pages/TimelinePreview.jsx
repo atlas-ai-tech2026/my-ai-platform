@@ -13,7 +13,8 @@
 import React, { useState } from 'react';
 
 import Timeline from '@/components/edit/Timeline';
-import { createProject, createClip, addClip, addTrack, __resetIds } from '@/lib/timeline';
+import Viewer from '@/components/edit/Viewer';
+import { createProject, createClip, addClip, addTrack, addSource, __resetIds } from '@/lib/timeline';
 import { createHistory, commit, undo, redo, canUndo, canRedo } from '@/lib/timeline-history';
 
 function demoProject() {
@@ -24,9 +25,19 @@ function demoProject() {
   p = addTrack(p, 'text');
   const t1 = p.tracks[2].id;
 
-  p = addClip(p, v1, createClip({ kind: 'video', sourceId: 'racing car', name: 'racing car', start: 0, in: 0, out: 12 }));
+  // Real files the site already serves, so the viewer shows actual video
+  // rather than a placeholder. The `prompt` and `model` are what a generated
+  // clip carries in production — the thing no upload-based editor has.
+  p = addSource(p, { id: 'racing', url: '/media/seedance-2-hero.mp4', kind: 'video',
+    prompt: 'a yellow race car on a circuit at golden hour, low angle', model: 'Seedance 2.5' });
+  p = addSource(p, { id: 'castle', url: '/media/explore-hero.mp4', kind: 'video',
+    prompt: 'a dragon over a castle at dusk, wide establishing shot', model: 'Kling 3.0' });
+  p = addSource(p, { id: 'kling', url: '/media/kling-3-card.mp4', kind: 'video',
+    prompt: 'cinematic product reveal, slow push in', model: 'Kling 3.0' });
+
+  p = addClip(p, v1, createClip({ kind: 'video', sourceId: 'racing', name: 'racing car', start: 0, in: 0, out: 12 }));
   p = addClip(p, v1, createClip({ kind: 'video', sourceId: 'castle', name: 'castle', start: 14, in: 2, out: 20 }));
-  p = addClip(p, a1, createClip({ kind: 'audio', sourceId: 'music', name: 'music bed', start: 0, in: 0, out: 30 }));
+  p = addClip(p, a1, createClip({ kind: 'audio', sourceId: 'kling', name: 'music bed', start: 0, in: 0, out: 30 }));
   p = addClip(p, t1, createClip({ kind: 'text', sourceId: 'title', name: 'Title card', start: 1, in: 0, out: 4 }));
   return p;
 }
@@ -35,6 +46,7 @@ export default function TimelinePreview() {
   const [history, setHistory] = useState(() => createHistory(demoProject()));
   const [selected, setSelected] = useState(null);
   const [playhead, setPlayhead] = useState(6);
+  const [playing, setPlaying] = useState(false);
 
   const project = history.present;
   const change = (next, opts) => setHistory((h) => commit(h, next, opts));
@@ -66,6 +78,16 @@ export default function TimelinePreview() {
           <span className="self-center text-xs text-foreground-muted font-mono">
             {history.past.length} undo · {history.future.length} redo
           </span>
+        </div>
+
+        <div className="max-w-3xl mb-4">
+          <Viewer
+            project={project}
+            playhead={playhead}
+            onScrub={setPlayhead}
+            playing={playing}
+            onPlayingChange={setPlaying}
+          />
         </div>
 
         <div className="glass rounded-xl border border-border overflow-hidden">

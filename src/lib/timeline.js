@@ -68,6 +68,23 @@ export function createProject({ name = 'Untitled project', ratio = '16:9' } = {}
     schema: SCHEMA_VERSION,
     name,
     ratio,
+    // ── SOURCES, KEPT ONCE AND REFERENCED BY MANY CLIPS ────────────────────
+    // A clip holds a sourceId, never a URL. Split one clip into six and there
+    // is still ONE source; copying the url into each would mean six places to
+    // update when a signed link is refreshed, and five of them would be missed.
+    //
+    // ── AND THIS IS WHERE THE DIFFERENTIATOR LIVES ────────────────────────
+    // A source carries the PROMPT that made it, plus model, camera, lens,
+    // focal length and f-stop — all of which VOXEL already records per
+    // generation and no upload-based editor can ever have, because their user
+    // arrives with a file and no history.
+    //
+    // That is what makes "regenerate this shot in place" possible: the clip on
+    // the timeline knows the words that produced it, so it can be remade with
+    // one changed and dropped back keeping the in/out points and the edit
+    // around it. Carried from the start rather than bolted on, because a
+    // schema change after projects exist is a migration.
+    sources: {},
     tracks: [
       { id: newId('t'), kind: 'video', name: 'Video 1', clips: [], muted: false, hidden: false, locked: false },
       { id: newId('t'), kind: 'audio', name: 'Audio 1', clips: [], muted: false, hidden: false, locked: false },
@@ -103,6 +120,29 @@ export function createClip({ kind = 'video', sourceId, start = 0, in: inPoint = 
     fadeOut: 0,
   };
 }
+
+/**
+ * Register a source. Everything except id/url is optional — an uploaded file
+ * has no prompt, and that is a fact about it, not a gap to be filled with a
+ * placeholder that later reads as real.
+ */
+export function addSource(project, source) {
+  if (!source?.id || !source?.url) throw new Error('A source needs an id and a url.');
+  return { ...project, sources: { ...project.sources, [source.id]: { ...source } } };
+}
+
+/** The source behind a clip, or null. Null is a real answer: a source can be
+ *  missing because a link expired, and that must not read as an empty project. */
+export const sourceOf = (project, clip) => project.sources?.[clip?.sourceId] || null;
+
+/**
+ * Can this shot be remade?
+ *
+ * Only when the prompt survived. An uploaded file cannot be regenerated at any
+ * price — VOXEL never knew how it was made — so the button must not offer it
+ * and then fail.
+ */
+export const canRegenerate = (project, clip) => Boolean(sourceOf(project, clip)?.prompt);
 
 /** How long a clip occupies the timeline — source length divided by speed. */
 export const clipDuration = (clip) => round((clip.out - clip.in) / (clip.speed || 1));
