@@ -210,3 +210,45 @@ describe('a 503 keeps the server’s own words', () => {
     expect(r.message).not.toMatch(/database is unavailable/);
   });
 });
+
+describe('adopting the project the page found', () => {
+  it('does not create a second row when the id arrives after mount', async () => {
+    // The page has to ASK the server which project this is, so the id lands
+    // after mount. Without adopting it, every reload creates a new project and
+    // the one you were working on is buried.
+    const { renderHook, act } = await import('@testing-library/react');
+    const { useServerAutosave } = await import('./project-store.js');
+    vi.useFakeTimers();
+
+    const e = fakeEntity({ p1: { id: 'p1', updated_date: '2026-08-23T11:00:00Z', project: PROJECT } });
+    const { result, rerender } = renderHook(
+      ({ id, at }) => useServerAutosave(PROJECT, { entity: e, projectId: id, lastSeenAt: at, delay: 10 }),
+      { initialProps: { id: null, at: null } },
+    );
+    rerender({ id: 'p1', at: '2026-08-23T11:00:00Z' });
+    await act(async () => { await result.current.saveNow(); });
+
+    expect(e.create, 'it made a second project instead of using the one it was given').not.toHaveBeenCalled();
+    expect(e.update).toHaveBeenCalledWith('p1', expect.anything());
+    vi.useRealTimers();
+  });
+
+  it('a late answer never repoints a session that already owns an id', async () => {
+    const { renderHook, act } = await import('@testing-library/react');
+    const { useServerAutosave } = await import('./project-store.js');
+    vi.useFakeTimers();
+
+    const e = fakeEntity({
+      p1: { id: 'p1', updated_date: '2026-08-23T11:00:00Z', project: PROJECT },
+      p2: { id: 'p2', updated_date: '2026-08-23T11:00:00Z', project: PROJECT },
+    });
+    const { result, rerender } = renderHook(
+      ({ id }) => useServerAutosave(PROJECT, { entity: e, projectId: id, delay: 10 }),
+      { initialProps: { id: 'p1' } },
+    );
+    rerender({ id: 'p2' });          // a stale request answering late
+    await act(async () => { await result.current.saveNow(); });
+    expect(e.update, 'it wrote to a different project mid-edit').toHaveBeenCalledWith('p1', expect.anything());
+    vi.useRealTimers();
+  });
+});

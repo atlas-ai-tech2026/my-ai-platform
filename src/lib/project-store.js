@@ -167,6 +167,18 @@ export function useServerAutosave(project, {
   latest.current = project;
   const idRef = useRef(projectId);
   const lastSeen = useRef(lastSeenAt);
+
+  // The id and version usually arrive AFTER mount — the page has to ask the
+  // server which project this is. Without adopting them, every page load
+  // creates a brand-new row: reload five times, get five projects, and the one
+  // you were actually working on is buried.
+  //
+  // Only ever adopted, never overwritten: once this session owns an id, a late
+  // answer must not repoint it at a different project mid-edit.
+  useEffect(() => {
+    if (projectId && !idRef.current) idRef.current = projectId;
+    if (lastSeenAt && !lastSeen.current) lastSeen.current = lastSeenAt;
+  }, [projectId, lastSeenAt]);
   // One save at a time. Without this a slow round trip overlapping the next
   // debounce fires two writes, and the conflict check compares against a value
   // the in-flight save is about to change.

@@ -1,56 +1,33 @@
 // ─── Edit.jsx ────────────────────────────────────────────────────────────────
-// /edit — a gate, since 2026-08-21.
+// /edit — a gate.
 //
-//   signed out  →  EditWaitlist   (what this whole page used to be)
-//   signed in   →  EditWorkspace  (the real editor)
+//   signed out  →  EditWaitlist  (collects the address, and actually stores it)
+//   signed in   →  EditCut       (Voxel Edit Cut)
 //
-// ── WHY THE LIBRARY IS FETCHED HERE AND NOT IN THE WORKSPACE ───────────────
-// The workspace takes clips as a prop and knows nothing about the network. That
-// keeps the part with all the editing logic testable without mocking an API,
-// and it is also what lets the same component be driven later by a saved
-// project rather than by a live library fetch.
+// ── WHAT CHANGED, 2026-08-23 ───────────────────────────────────────────────
+// A signed-in customer used to get EditWorkspace: a single-clip editor with a
+// row of free tools. The owner reviewed it and rejected it — "this is what I
+// need for edit, not the one which you created" — and Edit Cut is what
+// replaced it: a real timeline, multiple tracks, cuts, trims, a viewer, export,
+// and remaking a shot in place.
 //
-// ── WHY ONLY VIDEO ─────────────────────────────────────────────────────────
-// Phase 1 edits video. Images and audio are in the library too, and both will
-// come — but shipping a picture into a screen whose every tool assumes a
-// timeline would be worse than not offering it. The filter is in the workspace,
-// where the tools are.
+// EditWorkspace is left in the tree on purpose. BUILD BEFORE YOU DELETE: it
+// comes out once the owner has confirmed Edit Cut works for them here, not on
+// the strength of me believing it does.
+//
+// ── NO LIBRARY FETCH HERE ANY MORE ─────────────────────────────────────────
+// This page used to load the customer's videos and pass them down. Edit Cut
+// fetches its own, because the library is one panel among several and the page
+// has no business knowing about it. This file is now only the gate.
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React from 'react';
 import { useAuth } from '@/lib/AuthContext';
-import { base44 } from '@/api/base44Client';
 
 import EditWaitlist from '@/components/edit/EditWaitlist';
-import EditWorkspace from '@/components/edit/EditWorkspace';
-
-const History_ = base44.entities.GenerationHistory;
-
-/** One page of history is plenty to edit from, and it loads instantly. */
-const PAGE = 60;
+import EditCut from '@/components/edit/EditCut';
 
 export default function Edit() {
   const { isAuthenticated, isLoadingAuth, openAuthModal } = useAuth();
-  const [clips, setClips] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const rows = await History_.filter({ type: 'video' }, '-created_date', PAGE, 0);
-      setClips(Array.isArray(rows) ? rows : []);
-    } catch (err) {
-      // Never an empty grid that looks like "you have no videos" when the real
-      // answer is "we could not ask". The two are indistinguishable on screen
-      // and lead somewhere very different.
-      setError(err?.message || 'Could not load your library.');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => { if (isAuthenticated) load(); }, [isAuthenticated, load]);
 
   if (isLoadingAuth) {
     return <div className="min-h-screen flex items-center justify-center text-foreground-secondary">Loading…</div>;
@@ -58,5 +35,7 @@ export default function Edit() {
 
   if (!isAuthenticated) return <EditWaitlist onSignIn={openAuthModal} />;
 
-  return <EditWorkspace clips={clips} loading={loading} error={error} onReload={load} />;
+  // No `demo`: a customer opens their own work or an empty timeline. Never a
+  // project of racing cars they did not make, autosaving into their account.
+  return <EditCut />;
 }
