@@ -87,6 +87,7 @@ import { useEditorShortcuts, SHORTCUTS } from '@/lib/useEditorShortcuts';
 import { useAutosave, loadProject, setAside, clearProject } from '@/lib/editor-autosave';
 import { exportPlan, estimateSeconds } from '@/lib/timeline-export';
 import { usePanelLayout, useIsWide } from '@/lib/usePanelLayout';
+import { useServerAutosave, ENTITY as PROJECT_ENTITY } from '@/lib/project-store';
 
 function demoProject() {
   __resetIds();
@@ -167,6 +168,20 @@ export default function TimelinePreview() {
 
   const project = history.present;
   const save = useAutosave(project);
+
+  // ── AND TO THE SERVER, ALONGSIDE ───────────────────────────────────────
+  // Not instead of. Local fires at 800ms and is the crash net; this fires at
+  // four seconds and is what makes the work reachable from another machine.
+  // If the network is gone, local still has it.
+  // Gated on being signed in. Without the gate a signed-out visitor fires a
+  // doomed request every four seconds for as long as the tab is open — noise
+  // in the log, load on the API, and an error message that is not their
+  // problem to solve.
+  const signedIn = typeof window !== 'undefined' && Boolean(localStorage.getItem('voxel_token'));
+  const cloud = useServerAutosave(project, {
+    entity: base44.entities[PROJECT_ENTITY],
+    enabled: signedIn,
+  });
 
   // Recomputed as the timeline changes, so the warnings shown next to the
   // button are always about the CURRENT edit rather than the one at mount.
@@ -364,6 +379,25 @@ export default function TimelinePreview() {
           {save.status === 'saving' && 'Saving…'}
           {save.status === 'saved' && `Saved ${clockOf(save.at)}`}
           {save.status === 'idle' && 'Not saved yet'}
+        </span>
+
+        {/* ── THE SERVER SAVE, SHOWN SEPARATELY ─────────────────────────
+            Two different promises, so two different read-outs. "Saved" on
+            this machine and "saved to your account" are not the same thing,
+            and a single indicator that means either would be a lie half the
+            time.
+            CONFLICT gets its own colour and its own words. Every other error
+            means try again; this one means do NOT try again — the next
+            attempt would win, and destroy the other tab's work. */}
+        <span
+          data-testid="cloud-status"
+          className={`text-[11px] ${cloud.status === 'conflict' ? 'text-amber-400' : cloud.status === 'error' ? 'text-primary' : 'text-foreground-muted'}`}
+        >
+          {cloud.status === 'conflict' && `⚠ ${cloud.error}`}
+          {cloud.status === 'error' && `· ${cloud.error}`}
+          {cloud.status === 'saving' && '· syncing…'}
+          {cloud.status === 'saved' && '· in your account'}
+          {!signedIn && '· sign in to save to your account'}
         </span>
 
         <div className="ml-auto flex items-center gap-2">
