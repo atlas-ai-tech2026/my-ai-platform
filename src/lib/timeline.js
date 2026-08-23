@@ -276,6 +276,65 @@ export function locateClip(project, clipId) {
 }
 
 /**
+ * ── THE HOLES NOBODY IS TOLD ABOUT ─────────────────────────────────────────
+ * Found by the owner on 2026-08-23, asked as a question about the clock rather
+ * than a bug report: drag a clip right and the total duration grows. That part
+ * is correct — the total is the furthest point any clip reaches.
+ *
+ * What it does NOT say is that the extra time is BLACK SILENCE. On their screen
+ * the total read 1:24 with a forty-eight second hole in the middle of the video
+ * track, and nothing anywhere mentioned it. You find out on export, or when a
+ * client watches it.
+ *
+ * So gaps become visible objects rather than absence. Showing them tells the
+ * truth and leaves the decision to the editor — a magnetic timeline that closes
+ * them automatically is great for a quick social cut and infuriating when the
+ * pause was deliberate, for a title or a beat.
+ *
+ * Leading gaps count: two seconds of black before the first clip is still two
+ * seconds of black. Trailing does not — after the last clip the project ends.
+ *
+ * `cursor` tracks the furthest END so far, not the previous clip's end, so
+ * OVERLAPPING clips do not invent a gap that is actually covered.
+ */
+export function trackGaps(track, { minGap = MIN_CLIP } = {}) {
+  const gaps = [];
+  let cursor = 0;
+  for (const clip of track.clips) {
+    if (clip.start - cursor > minGap) {
+      gaps.push({ start: round(cursor), end: round(clip.start), duration: round(clip.start - cursor) });
+    }
+    cursor = Math.max(cursor, clipEnd(clip));
+  }
+  return gaps;
+}
+
+/** Every gap in the project, tagged with the track it belongs to. */
+export const projectGaps = (project) => project.tracks.flatMap(
+  (track) => trackGaps(track).map((gap) => ({ ...gap, trackId: track.id })));
+
+/**
+ * Close a gap: pull everything after it left by exactly its length.
+ *
+ * ONE TRACK ONLY, deliberately. Rippling the whole project would mean closing a
+ * hole in the video silently shifting the music out of sync with the picture
+ * that is still there — a destructive edit disguised as tidying up. Per-track
+ * is predictable; an all-tracks ripple can be an explicit second action later.
+ */
+export function closeGap(project, trackId, gapStart) {
+  const track = findTrack(project, trackId);
+  if (!track || track.locked) return project;
+  const gap = trackGaps(track).find((g) => Math.abs(g.start - gapStart) < 0.001);
+  if (!gap) return project;
+
+  return mapClips(project, (t) => (t.id !== trackId ? t.clips : sortClips(
+    t.clips.map((c) => (c.start >= gap.end - 0.001
+      ? { ...c, start: round(Math.max(0, c.start - gap.duration)) }
+      : c)),
+  )));
+}
+
+/**
  * What plays at a given moment — used by the preview and by export.
  *
  * Returns the topmost non-hidden video/image, plus every audible audio clip,

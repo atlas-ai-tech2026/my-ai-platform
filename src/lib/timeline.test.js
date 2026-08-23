@@ -14,6 +14,7 @@ import {
   createProject, createClip, addClip, removeClip, moveClip, trimClip, splitClip,
   updateClip, addTrack, locateClip, activeAt, sourceTimeAt,
   clipDuration, clipEnd, projectDuration, MIN_CLIP, TRACK_KINDS, __resetIds,
+  trackGaps, closeGap,
 } from './timeline.js';
 
 beforeEach(__resetIds);
@@ -249,3 +250,76 @@ describe('locateClip', () => {
 });
 
 const round3 = (n) => Math.round(n * 1000) / 1000;
+
+describe('gaps — the black silence nobody is told about', () => {
+  it('finds the hole between two clips', () => {
+    // The owner's exact shape: a clip ending at 12, the next starting at 60.
+    // The total said 1:24 and forty-eight seconds of it was nothing.
+    let p = createProject();
+    const v = p.tracks[0].id;
+    p = addClip(p, v, createClip({ kind: 'video', sourceId: 'a', start: 0, out: 12 }));
+    p = addClip(p, v, createClip({ kind: 'video', sourceId: 'b', start: 60, in: 0, out: 24 }));
+
+    const [gap] = trackGaps(p.tracks[0]);
+    expect(gap).toMatchObject({ start: 12, end: 60, duration: 48 });
+  });
+
+  it('counts a LEADING gap — black before the first clip is still black', () => {
+    let p = createProject();
+    p = addClip(p, p.tracks[0].id, createClip({ kind: 'video', sourceId: 'a', start: 3, out: 5 }));
+    expect(trackGaps(p.tracks[0])[0]).toMatchObject({ start: 0, end: 3 });
+  });
+
+  it('does NOT count time after the last clip', () => {
+    // The project simply ends there. Reporting it as a gap would mean every
+    // project always has one.
+    let p = createProject();
+    p = addClip(p, p.tracks[0].id, createClip({ kind: 'video', sourceId: 'a', start: 0, out: 5 }));
+    expect(trackGaps(p.tracks[0])).toHaveLength(0);
+  });
+
+  it('does not invent a gap where clips OVERLAP', () => {
+    // Tracking the previous clip's end rather than the furthest end so far
+    // reports a hole that is actually covered by the clip on top of it.
+    let p = createProject();
+    const v = p.tracks[0].id;
+    p = addClip(p, v, createClip({ kind: 'video', sourceId: 'long', start: 0, out: 30 }));
+    p = addClip(p, v, createClip({ kind: 'video', sourceId: 'short', start: 5, in: 0, out: 5 }));
+    expect(trackGaps(p.tracks[0])).toHaveLength(0);
+  });
+
+  it('closes a gap by pulling everything after it left, exactly', () => {
+    let p = createProject();
+    const v = p.tracks[0].id;
+    p = addClip(p, v, createClip({ kind: 'video', sourceId: 'a', start: 0, out: 12 }));
+    p = addClip(p, v, createClip({ kind: 'video', sourceId: 'b', start: 60, in: 0, out: 24 }));
+
+    const closed = closeGap(p, v, 12);
+    expect(closed.tracks[0].clips[1].start, 'b should meet a exactly').toBe(12);
+    expect(trackGaps(closed.tracks[0]), 'no gap should remain').toHaveLength(0);
+  });
+
+  it('closes ONE track and leaves the others where they are', () => {
+    // Rippling every track would silently pull the music out of sync with the
+    // picture still on screen — a destructive edit disguised as tidying up.
+    let p = createProject();
+    const v = p.tracks[0].id;
+    const a = p.tracks[1].id;
+    p = addClip(p, v, createClip({ kind: 'video', sourceId: 'a', start: 0, out: 10 }));
+    p = addClip(p, v, createClip({ kind: 'video', sourceId: 'b', start: 40, in: 0, out: 10 }));
+    p = addClip(p, a, createClip({ kind: 'audio', sourceId: 'music', start: 40, in: 0, out: 10 }));
+
+    const closed = closeGap(p, v, 10);
+    expect(closed.tracks[0].clips[1].start).toBe(10);
+    expect(closed.tracks[1].clips[0].start, 'the music must not move').toBe(40);
+  });
+
+  it('refuses to close a gap on a locked track', () => {
+    let p = createProject();
+    const v = p.tracks[0].id;
+    p = addClip(p, v, createClip({ kind: 'video', sourceId: 'a', start: 0, out: 5 }));
+    p = addClip(p, v, createClip({ kind: 'video', sourceId: 'b', start: 20, in: 0, out: 5 }));
+    const locked = { ...p, tracks: p.tracks.map((t) => ({ ...t, locked: true })) };
+    expect(closeGap(locked, v, 5)).toBe(locked);
+  });
+});

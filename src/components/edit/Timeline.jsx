@@ -22,6 +22,7 @@ import { Scissors, Lock, Unlock, Eye, EyeOff, Volume2, VolumeX } from 'lucide-re
 
 import {
   clipDuration, projectDuration, moveClip, trimClip, splitClip, locateClip,
+  trackGaps, closeGap,
 } from '@/lib/timeline';
 
 // ── ZOOM IS CONTINUOUS AND LOGARITHMIC ────────────────────────────────────
@@ -258,6 +259,37 @@ export default function Timeline({
                 className={`relative border-b border-border ${track.locked ? 'opacity-60' : ''}`}
                 onPointerDown={() => onSelect?.(null)}
               >
+                {/* ── GAPS ────────────────────────────────────────────
+                    Black silence made visible. The owner dragged a clip right,
+                    saw the total grow to 1:24, and asked whether that was a
+                    mistake — it was not, but forty-eight seconds of the middle
+                    were nothing and the screen said so nowhere.
+
+                    Drawn BEHIND the clips and hatched, so it reads as absence
+                    rather than as another block of content. */}
+                {!track.locked && trackGaps(track).map((gap) => (
+                  <button
+                    key={`gap-${gap.start}`}
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onClick={() => onChange(closeGap(project, track.id, gap.start), {})}
+                    title={`${fmtGap(gap.duration)} of nothing — click to close it`}
+                    aria-label={`Close ${fmtGap(gap.duration)} gap`}
+                    style={{
+                      left: gap.start * pps,
+                      width: Math.max(2, gap.duration * pps),
+                      backgroundImage:
+                        'repeating-linear-gradient(45deg, rgba(255,255,255,.10) 0 5px, transparent 5px 10px)',
+                    }}
+                    className="absolute top-1 bottom-1 rounded border border-dashed border-white/25
+                               hover:border-primary hover:bg-primary/10 cursor-pointer group"
+                  >
+                    <span className="pointer-events-none block truncate px-1 text-[10px]
+                                     text-white/45 group-hover:text-primary">
+                      {gap.duration * pps > 46 ? fmtGap(gap.duration) : ''}
+                    </span>
+                  </button>
+                ))}
+
                 {track.clips.map((clip) => {
                   const selected = clip.id === selectedId;
                   return (
@@ -332,6 +364,11 @@ function TrackToggle({ on, On, Off, label }) {
       <Icon className="w-3 h-3" />
     </button>
   );
+}
+
+/** Gaps read better in plain seconds until they are long enough to be minutes. */
+function fmtGap(seconds) {
+  return seconds < 60 ? `${Math.round(seconds)}s gap` : `${fmtTime(seconds)} gap`;
 }
 
 /** m:ss for anything under an hour — the format an editor actually reads. */

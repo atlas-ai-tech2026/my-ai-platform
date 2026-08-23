@@ -126,3 +126,39 @@ describe('zoom', () => {
       .toBeGreaterThan(before);
   });
 });
+
+describe('gaps are visible, not silent', () => {
+  const withGap = () => {
+    let p = createProject();
+    const v = p.tracks[0].id;
+    p = addClip(p, v, createClip({ kind: 'video', sourceId: 'a', start: 0, out: 12 }));
+    p = addClip(p, v, createClip({ kind: 'video', sourceId: 'b', start: 60, in: 0, out: 24 }));
+    return { project: p, v };
+  };
+
+  it('draws the hole the owner found, with its length', () => {
+    // Their screen said 1:24 total with 48 seconds of nothing in the middle,
+    // and no part of the interface mentioned it.
+    const { project } = withGap();
+    render(<Timeline project={project} onChange={vi.fn()} />);
+    expect(screen.getByLabelText(/close 48s gap/i)).toBeInTheDocument();
+  });
+
+  it('closes it on click and pulls the next clip up exactly', () => {
+    const { project } = withGap();
+    const onChange = vi.fn();
+    render(<Timeline project={project} onChange={onChange} />);
+
+    screen.getByLabelText(/close 48s gap/i).click();
+
+    const [next] = onChange.mock.calls[0];
+    expect(next.tracks[0].clips[1].start, 'the second clip should meet the first').toBe(12);
+  });
+
+  it('offers no gap control on a locked track', () => {
+    const { project } = withGap();
+    const locked = { ...project, tracks: project.tracks.map((t) => ({ ...t, locked: true })) };
+    render(<Timeline project={locked} onChange={vi.fn()} />);
+    expect(screen.queryByLabelText(/close .* gap/i)).not.toBeInTheDocument();
+  });
+});
