@@ -109,6 +109,15 @@ export function useEditorShortcuts(handlers = {}, { enabled = true } = {}) {
       case 'c': case 'C':
         h.onSplit?.();
         break;
+      case '`':
+        // Give the picture the room, and give it back. Backtick because that
+        // is what ChatCut binds fullscreen to — an editor who has used one
+        // reaches for the same key, and it costs nothing to be where they
+        // expect.
+        e.preventDefault();
+        h.onFocusViewer?.();
+        break;
+
       case 's': case 'S':
         // Snapping. Bound to S because that is what every NLE uses and what
         // ChatCut's own tooltip says — matching a binding an editor already
@@ -167,6 +176,7 @@ export const SHORTCUTS = [
   ['J · K · L', 'Shuttle back · stop · forward (press again to speed up)'],
   ['C', 'Split at the playhead'],
   ['S', 'Snapping on / off'],
+  ['`', 'Big picture — hide the side panels'],
   ['I · O', 'Mark in · mark out'],
   ['← →', 'One frame'],
   ['⇧ ← →', 'One second'],

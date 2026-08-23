@@ -11,7 +11,7 @@
 // crawler will find it.
 
 import React, { useRef, useState } from 'react';
-import { Undo2, Redo2, Download, Sparkles } from 'lucide-react';
+import { Undo2, Redo2, Download, Sparkles, PanelLeftClose, PanelLeftOpen, Maximize2, Minimize2 } from 'lucide-react';
 
 /**
  * The library column's tabs.
@@ -30,9 +30,35 @@ const LIBRARY_TABS = [
 
 /** A quiet uppercase panel header. Small and grey on purpose: a panel label
  *  should tell you where you are without competing with the work inside it. */
-const PanelLabel = ({ children }) => (
-  <div className="shrink-0 px-3 py-2 border-b border-border text-[10px] font-medium uppercase tracking-wider text-foreground-muted">
-    {children}
+/**
+ * ── WHY THE PANELS SNAP INSTEAD OF SLIDING ─────────────────────────────────
+ * The owner asked for the smooth 150ms feel of the control-panel banner, and
+ * that is not what this does. It is deliberate, and the reason is worth
+ * keeping.
+ *
+ * A width transition on these panels DOES NOT COMPLETE. The inline width
+ * changed to 36px and the COMPUTED width stayed at 340px — so the panel
+ * content swapped to a rail while the panel itself stayed wide. Nothing threw.
+ * The DOM looked completely correct.
+ *
+ * The cause is visible in the computed style: `transition-property: all`,
+ * inherited from a global rule in the app's CSS. Transitioning `all` across a
+ * layout property is exactly the case that misbehaves, and an explicit inline
+ * `transition: width 150ms` did not rescue it either.
+ *
+ * Found by setting `transition: none` by hand in the console and watching the
+ * width snap to 36px immediately — then measuring: 780px → 1368px of viewer.
+ *
+ * A collapse that WORKS instantly beats one that animates and leaves the panel
+ * wide. VS Code and Figma both snap their panels. If the animation is wanted
+ * later, the global `transition: all` is the thing to fix first — and that is a
+ * site-wide change, not an editor one.
+ */
+
+const PanelLabel = ({ children, action = null }) => (
+  <div className="shrink-0 flex items-center gap-2 px-3 py-2 border-b border-border text-[10px] font-medium uppercase tracking-wider text-foreground-muted">
+    <span>{children}</span>
+    {action && <span className="ml-auto">{action}</span>}
   </div>
 );
 
@@ -58,6 +84,7 @@ import { createHistory, commit, undo, redo, canUndo, canRedo } from '@/lib/timel
 import { useEditorShortcuts, SHORTCUTS } from '@/lib/useEditorShortcuts';
 import { useAutosave, loadProject, setAside, clearProject } from '@/lib/editor-autosave';
 import { exportPlan, estimateSeconds } from '@/lib/timeline-export';
+import { usePanelLayout, useIsWide } from '@/lib/usePanelLayout';
 
 function demoProject() {
   __resetIds();
@@ -131,6 +158,8 @@ export default function TimelinePreview() {
   // a toggle the keyboard cannot reach is a button that works next to a
   // shortcut that silently does nothing.
   const [snapping, setSnapping] = useState(true);
+  const layout = usePanelLayout();
+  const wide = useIsWide();
 
   const project = history.present;
   const save = useAutosave(project);
@@ -282,6 +311,7 @@ export default function TimelinePreview() {
     // the export work, when playback stops being a requestAnimationFrame loop.
     onShuttle: (rate) => setPlaying(rate !== 0),
     onToggleSnap: () => setSnapping((v) => !v),
+    onFocusViewer: layout.focusViewer,
   });
 
   // ── LAYOUT ─────────────────────────────────────────────────────────────
@@ -345,6 +375,16 @@ export default function TimelinePreview() {
           </button>
 
           <button
+            onClick={layout.focusViewer}
+            title={layout.focused ? 'Show the panels (`)' : 'Big picture — hide the panels (`)'}
+            aria-pressed={layout.focused}
+            data-testid="focus-viewer"
+            className={`p-1.5 rounded border border-border ${layout.focused ? 'text-primary' : ''}`}
+          >
+            {layout.focused ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
+          </button>
+
+          <button
             onClick={doExport}
             disabled={!plan.ok || Boolean(exporting)}
             className="ml-1 inline-flex items-center gap-2 rounded bg-primary px-3 py-1.5 text-xs text-white hover:bg-primary-hover disabled:opacity-40"
@@ -360,11 +400,59 @@ export default function TimelinePreview() {
       {/* ── BODY ─────────────────────────────────────────────────────────
           Stacks below lg — a three-column editor on a narrow screen is a
           different product, and #72 covers the whole site properly. */}
-      <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-[340px_1fr]">
+      {/* ── A STATIC CLASS WITH A DYNAMIC VALUE ────────────────────────
+          The width comes from a CSS custom property, NOT from swapping
+          Tailwind classes. Swapping produced a class that was on the element
+          with no rule behind it — Tailwind only generates what it can find by
+          scanning source, and a class assembled at runtime is not reliably
+          found. The element changed, the layout did not, and nothing errored.
+          A static class referencing var() is always generated; only the value
+          moves. */}
+      <div
+        className="flex-1 min-h-0 flex flex-col lg:flex-row"
+      >
 
         {/* ── LEFT: the shot, and where the agent will live ───────────── */}
-        <aside className="flex flex-col min-h-0 border-b lg:border-b-0 lg:border-r border-border">
-          <PanelLabel>This shot</PanelLabel>
+        {/* WIDTH, not a grid track. grid-template-columns refused to
+            interpolate between 340px and 2.25rem — the inline value changed and
+            the COMPUTED value stayed at 340px, so the panel content swapped to
+            a rail while the column stayed wide. Width is a plain length and
+            animates reliably. Found by reading inline vs computed side by side. */}
+        <aside
+          style={wide ? { width: layout.left ? 340 : 36 } : undefined}
+          className="shrink-0 min-w-0 flex flex-col min-h-0 overflow-hidden border-b lg:border-b-0 lg:border-r border-border"
+        >
+          {/* ── COLLAPSED: A RAIL, NOT NOTHING ────────────────────────────
+              A panel that vanishes completely leaves nothing to click to get
+              it back except a menu you have to go hunting for. A 36px strip
+              with the icon keeps it one click away, always. */}
+          {!layout.left ? (
+            <button
+              type="button"
+              onClick={layout.toggleLeft}
+              title="Show this shot"
+              data-testid="rail-left"
+              className="h-full w-9 flex items-start justify-center pt-3 text-foreground-muted hover:text-white hover:bg-background-elevated"
+            >
+              <PanelLeftOpen className="w-4 h-4" />
+            </button>
+          ) : (
+          <>
+          <PanelLabel
+            action={
+              <button
+                type="button"
+                onClick={layout.toggleLeft}
+                title="Hide this shot"
+                data-testid="collapse-left"
+                className="text-foreground-muted hover:text-white"
+              >
+                <PanelLeftClose className="w-3.5 h-3.5" />
+              </button>
+            }
+          >
+            This shot
+          </PanelLabel>
           <div className="flex-1 min-h-0 overflow-y-auto p-3">
             <RegeneratePanel
               clip={selectedClip}
@@ -410,11 +498,13 @@ export default function TimelinePreview() {
               </span>
             </div>
           </div>
+          </>
+          )}
         </aside>
 
         {/* ── RIGHT: assets + viewer, then the timeline beneath both ──── */}
-        <div className="flex flex-col min-h-0">
-          <div className="flex-1 min-h-0 grid grid-cols-1 md:grid-cols-[minmax(240px,22rem)_1fr]">
+        <div className="flex-1 min-w-0 flex flex-col min-h-0">
+          <div className="flex-1 min-h-0 flex flex-col md:flex-row">
 
             {/* ── THE LIBRARY COLUMN ───────────────────────────────────
                 ChatCut reserves this space with three tabs — MY ASSETS,
@@ -427,7 +517,22 @@ export default function TimelinePreview() {
                 with what they will hold — reserving the room now so the layout
                 does not have to be rearranged later, and so nobody wonders
                 whether uploads were forgotten. */}
-            <section className="flex flex-col min-h-0 border-b md:border-b-0 md:border-r border-border">
+            <section
+              style={wide ? { width: layout.middle ? 320 : 36 } : undefined}
+              className="shrink-0 min-w-0 flex flex-col min-h-0 overflow-hidden border-b md:border-b-0 md:border-r border-border"
+            >
+              {!layout.middle ? (
+                <button
+                  type="button"
+                  onClick={layout.toggleMiddle}
+                  title="Show your generations"
+                  data-testid="rail-middle"
+                  className="h-full w-9 flex items-start justify-center pt-3 text-foreground-muted hover:text-white hover:bg-background-elevated"
+                >
+                  <PanelLeftOpen className="w-4 h-4" />
+                </button>
+              ) : (
+              <>
               <div className="shrink-0 flex items-stretch border-b border-border">
                 {LIBRARY_TABS.map((t) => (
                   <button
@@ -446,6 +551,15 @@ export default function TimelinePreview() {
                     {t.label}
                   </button>
                 ))}
+                <button
+                  type="button"
+                  onClick={layout.toggleMiddle}
+                  title="Hide your generations"
+                  data-testid="collapse-middle"
+                  className="ml-auto px-3 text-foreground-muted hover:text-white"
+                >
+                  <PanelLeftClose className="w-3.5 h-3.5" />
+                </button>
               </div>
 
               <div className="flex-1 min-h-0 overflow-y-auto p-3">
@@ -459,9 +573,11 @@ export default function TimelinePreview() {
                   </>
                 )}
               </div>
+              </>
+              )}
             </section>
 
-            <section className="flex flex-col min-h-0">
+            <section className="flex-1 min-w-0 flex flex-col min-h-0">
               <PanelLabel>Viewer</PanelLabel>
               <div className="flex-1 min-h-0 overflow-y-auto p-4">
                 <div className="max-w-3xl mx-auto">
