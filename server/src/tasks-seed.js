@@ -146,6 +146,18 @@ export const SEED = [
     detail: 'Standing rule: I ask before ANY 2FA change reaches production.' },
 
   // ── MINE, outstanding, priority order ────────────────────────────────────
+  { ref: '74', owner: 'claude', status: 'pending', priority: 20,
+    title: 'First-time guided tour — show a new customer the place, once',
+    why: 'Owner’s request 2026-08-23. A new customer lands on a site with Image, Video, Audio, Studio, Voxel Node and Edit and no idea which one they want. In a WORKSHOP this matters twice over: one instructor cannot hand-hold twenty attendees at once, and the tour is the instructor scaling.',
+    detail: 'WHAT: the screen dims and a small box points at one thing at a time — "this is where you generate an image" → Next → "this is video" → Next — until they have been shown the place. Per page, including /edit. First time only. '
+      + '── FIVE RECOMMENDATIONS, and the first is the one that decides whether anyone finishes it ── '
+      + '1. PER PAGE, NOT ONE GIANT TOUR. A twenty-step walkthrough of the whole site on first visit gets skipped by everyone. Three or four steps when somebody first opens EACH page, in context, while they are actually looking at it. Short enough to finish is the whole design. '
+      + '2. NEVER REPEATS, AND THAT STATE BELONGS ON THE SERVER. In localStorage it replays on every device and on every cleared browser — a tour that will not stop is worse than no tour. One row per user recording which pages they have been shown. '
+      + '3. IT MUST NOT TRAP ANYONE. Escape closes it, a visible Skip on every step, and clicking outside continues. Somebody who knows what they are doing must be able to leave in one action. '
+      + '4. IT MUST SURVIVE A MISSING ELEMENT. This is the failure mode of every tour library: an element moves or is not rendered yet, and the box points at empty space or throws. Each step names the element it anchors to; if it is not there, that STEP is skipped, not the tour. A tour that breaks the page it is explaining is the worst possible outcome. '
+      + '5. IT HAS TO WORK IN ARABIC. The audience is Kuwaiti and Gulf B2B; the boxes need RTL positioning, not just translated strings. Worth building in from the start — retrofitting direction into a positioned overlay is a rewrite. '
+      + '── BUILD, DO NOT INSTALL ── Driver.js and Shepherd are the obvious libraries and both are small, but the platform rule is no new runtime dependency where existing tools do the job. The hard parts here are the missing-element handling and RTL, and both need custom behaviour anyway — so a library would be a dependency AND a wrapper. About 200 lines. '
+      + '── WHERE TO START ── /edit and /video, because those are the two a workshop attendee opens first and the two with the most on screen. Not the home page: somebody who has just arrived has not decided to do anything yet.' },
   { ref: '73', owner: 'claude', status: 'pending', priority: 30,
     title: 'Storage per account — how much space each customer actually uses',
     why: 'Owner’s idea, 2026-08-23, and a good one. Nobody can currently answer "which accounts are driving our storage bill" or "how big is this customer". It also finds ORPHANS — files in Spaces with no database row are money spent on nothing, and today they are invisible.',
