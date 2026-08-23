@@ -67,6 +67,53 @@ describe('offsiteObjectExists — unknown is not the same as absent', () => {
   });
 });
 
+describe('the guard must work in EVERY environment, not just production', () => {
+  // ── THE BUG THIS FILE SHIPPED WITH ────────────────────────────────────────
+  // The first guard asked the OFFSITE bucket, full stop. Production has one, so
+  // it worked there and the tests passed. Dev has NO offsite bucket by design
+  // (#51 — dev must not spend production's Backblaze allowance), so the check
+  // returned "not configured", the guard failed open, and dev backed up on
+  // EVERY BOOT. Dev deploys far more often than production.
+  //
+  // The old tests could never have caught it: every one of them assumed offsite
+  // was configured. A guard is only proven by the environment that has the
+  // least, not the one that has the most.
+  const decide = (offsiteConfigured, offsiteSays, primarySays) => {
+    const answer = offsiteConfigured ? offsiteSays : primarySays;
+    return answer === true ? 'skip' : 'run';
+  };
+
+  it('production (offsite configured) asks OFFSITE', () => {
+    expect(decide(true, true, false), 'offsite has it — skip').toBe('skip');
+    expect(decide(true, false, true), 'offsite lacks it — run, whatever primary says').toBe('run');
+  });
+
+  it('dev (no offsite) asks the PRIMARY bucket instead of failing open', () => {
+    // The whole bug in one assertion: before the fix this returned 'run',
+    // because "not configured" was treated as "no archive today".
+    expect(decide(false, null, true), 'dev already backed up today — must skip').toBe('skip');
+    expect(decide(false, null, false), 'dev has not — must run').toBe('run');
+  });
+
+  it('still fails open when the environment it asks cannot answer', () => {
+    expect(decide(true, null, null), 'offsite unreachable — run').toBe('run');
+    expect(decide(false, null, null), 'primary unreachable — run').toBe('run');
+  });
+
+  it('sixteen boots on DEV also produce one archive, not sixteen', () => {
+    // Same shape as the production case below, but with no offsite bucket —
+    // the configuration that was completely unprotected until this fix.
+    let written = 0;
+    let existsPrimary = false;
+    for (let boot = 0; boot < 16; boot += 1) {
+      if (decide(false, null, existsPrimary) === 'skip') continue;
+      written += 1;
+      existsPrimary = true;
+    }
+    expect(written, 'the guard does not hold without an offsite bucket').toBe(1);
+  });
+});
+
 describe('the invariant the sixteen copies violated', () => {
   it('a second run on the same day must write nothing', () => {
     // Expressed as the decision the guard makes, because running the real

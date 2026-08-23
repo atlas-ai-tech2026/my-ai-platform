@@ -14,7 +14,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { pool, isReady as dbReady, migrate, ADMIN_EMAIL } from './db.js';
 import { persistOrFallback, persistBuffer, isReady as spacesReady, uploadPrivate, listKeys, deleteKey,
-         listAllMedia, readObject } from './storage.js';
+         listAllMedia, readObject, primaryObjectExists } from './storage.js';
 import { configureKie, kieCreateTask, kieGetTask, kiePollUntilDone, kieUploadBuffer, kieGetCredits } from './kie.js';
 import { estimateKieCredits, backfillKieEstimate, KIE_USD_PER_CREDIT,
          KIE_CALIBRATION, kieBilledUsdPerCredit } from './kie-pricing.js';
@@ -6828,9 +6828,25 @@ async function claimTodaysBackup() {
   const day = new Date().toISOString().slice(0, 10);
   const key = archiveKeyFor(day, Boolean(process.env.BACKUP_ENCRYPTION_PASSPHRASE));
 
-  const already = await offsiteObjectExists(key).catch(() => null);
+  // ── ASK THE DESTINATION THIS ENVIRONMENT ACTUALLY WRITES TO ──────────────
+  // The first version of this guard asked the OFFSITE bucket, full stop. That
+  // is right on production and useless on dev, which has no offsite bucket by
+  // design (#51). There the check returned "not configured", the guard failed
+  // open, and dev backed up on EVERY BOOT — and dev deploys far more often than
+  // production, so the environment with the least valuable data was doing the
+  // most backing up.
+  //
+  // Found the same day it shipped, by the owner asking whether dev needed
+  // backups at all. The honest answer was that the guard I had just deployed
+  // did not work there. A guard that only holds in one environment is not a
+  // guard; it is a guard-shaped thing that happens to cover production.
+  const where = offsiteConfigured() ? 'offsite' : 'primary';
+  const already = await (offsiteConfigured()
+    ? offsiteObjectExists(key)
+    : primaryObjectExists(key)).catch(() => null);
+
   if (already === true) {
-    console.log(`[auto-backup] skipped — ${key} already exists offsite`);
+    console.log(`[auto-backup] skipped — ${key} already exists (${where})`);
     return null;
   }
   if (already === null) {
