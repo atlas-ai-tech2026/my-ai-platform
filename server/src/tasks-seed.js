@@ -395,6 +395,14 @@ export const SEED = [
     title: 'Record model, outcome and duration for every generation',
     why: 'Collecting since 16 August. This is what makes the timing question answerable — see #29 for the half that is still missing.' },
 
+  { ref: '72', owner: 'claude', status: 'pending', priority: 14,
+    title: 'Mobile and tablet — review the WHOLE site at every device size',
+    why: 'Raised by the owner on 2026-08-23, and widened by them immediately: this is not one broken picker, it is whether voxel-ai.ai works on the devices people actually hold. Their words — "for the whole mobile version when I use from mobile or tablet, we need to review to be sure everything is right, and design it as the device responds. Eleven inch, nine inch, whatever the size of the device."\n\nWorkshop attendees are handed a link and open it on whatever is in their pocket. If the site is only right on a laptop, the first impression most people get is the wrong one.',
+    detail: 'THE ONE CONFIRMED DEFECT, reported from the owner’s own phone: generating an image and stepping through camera → lens → focal length. Something is wrong in that flow on a phone. NOT DIAGNOSED — reproduce it before assuming a cause. Camera metadata is a distinguishing feature of the platform, so getting it wrong on the device most people carry undercuts the thing that makes the output look considered. '
+      + 'SCOPE IS EVERY PAGE, NOT A LIST OF FIXES: Explore, Image, Video, Audio, Studio, Node, Edit, Account, Pricing, Community, and the control panel. At phone (375–430), small tablet (768), large tablet (1024–1194) and laptop. The task is to WALK each one and write down what is actually wrong, then fix — not to guess at breakpoints from the code. '
+      + 'WHAT USUALLY BREAKS, as somewhere to start looking and NOT as findings: dropdowns opening off-screen, dependent lists that do not reset when their parent changes, touch targets under 44px, tables that scroll the page sideways instead of themselves, fixed widths, and modals taller than the viewport with no internal scroll. '
+      + 'THERE IS ALREADY A GUARD FOR ONE CLASS OF THIS: src/layout-safety.test.jsx asserts no table anywhere hides a column. Whatever this review finds should end the same way — a test, not a memory. '
+      + 'RELATED: #43 (PWA with web push) is the wider mobile PROJECT. This is the responsive review and must not wait for it — a PWA of a site that does not fit the screen is a faster way to reach the same bad layout.' },
   // ── FOUND 2026-08-22, BOTH FROM THE OWNER'S SCREENSHOTS ──────────────────
   // Neither was found by a check, a test or an alert. Both were found because
   // the owner photographed a screen and asked me to look at it.
