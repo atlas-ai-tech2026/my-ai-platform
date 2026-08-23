@@ -146,6 +146,17 @@ export const SEED = [
     detail: 'Standing rule: I ask before ANY 2FA change reaches production.' },
 
   // ── MINE, outstanding, priority order ────────────────────────────────────
+  { ref: '73', owner: 'claude', status: 'pending', priority: 30,
+    title: 'Storage per account — how much space each customer actually uses',
+    why: 'Owner’s idea, 2026-08-23, and a good one. Nobody can currently answer "which accounts are driving our storage bill" or "how big is this customer". It also finds ORPHANS — files in Spaces with no database row are money spent on nothing, and today they are invisible.',
+    detail: 'DEFERRED by agreement — recorded now, built after Voxel Edit Cut. '
+      + 'THE DESIGN MATTERS MORE THAN THE FEATURE. The obvious build is a storage_bytes column on the user, incremented on every upload. Do NOT do that: it DRIFTS. Any code path that stores a file without updating the counter makes the number silently wrong, and a wrong number is worse than no number, because decisions get made on it. '
+      + 'DERIVE IT INSTEAD. Every stored file already has a row in generation history. Record the BYTE SIZE on that row at the moment storage.js re-hosts the file — one column, written by the one function that already knows. Then per-account storage is SUM() grouped by user. It cannot drift, because it is computed from the same rows that represent the files. '
+      + 'AND IT GIVES THE BREAKDOWN FREE: by account, by type (image vs video), by month, and by SOURCE — generated in Voxel, remade in Edit Cut, or exported. The owner asked for exactly that split. '
+      + 'ONE-TIME BACKFILL NEEDED: recording at write time only covers NEW files. The ~11,000 existing objects need a one-off sweep of HEAD requests to fill in sizes. Slow, cheap, run once, and it must be resumable — not a script that has to complete in one go. '
+      + 'RECONCILIATION IS THE PART THAT MAKES IT TRUSTWORTHY: the truth is what is actually in Spaces, not what the database believes. A weekly SOP line comparing SUM(recorded bytes) against real bucket size catches drift AND surfaces orphans. Without it this is a number that looks right and slowly stops being right. '
+      + 'WHAT IT IS FOR: (1) cost attribution — which accounts drive the bill; (2) a future plan limit, if storage is ever included in a tier; (3) finding waste. '
+      + 'CONTEXT ON URGENCY: not urgent. Media was ~72 GB on 2026-08-20; DigitalOcean’s $5/mo already includes 250 GiB and Backblaze at that size is ~$0.43/month. The threshold worth watching is 250 GiB. This task is about VISIBILITY before the number matters, not about a bill that hurts today.' },
   { ref: '31', owner: 'claude', status: 'in_progress', priority: 1,
     title: 'Voxel Edit Cut — the video editor under /edit',
     why: 'Every generated clip currently leaves the platform to be edited somewhere else. This is the piece that keeps the work — and the credits — here.',
