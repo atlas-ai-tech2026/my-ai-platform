@@ -71,7 +71,7 @@ describe('the tooltip itself', () => {
 describe('no icon-only button ships unlabelled', () => {
   // The guard. Adding tooltips by hand is exactly how the NEXT button goes out
   // without one — this reads the source and refuses that.
-  const FILES = ['Timeline.jsx', 'Viewer.jsx', 'RatioPicker.jsx', 'MediaLibrary.jsx', 'RegeneratePanel.jsx'];
+  const FILES = ['Timeline.jsx', 'Viewer.jsx', 'RatioPicker.jsx', 'MediaLibrary.jsx', 'RegeneratePanel.jsx', 'AgentChat.jsx'];
 
   for (const file of FILES) {
     it(`${file} labels every button`, () => {

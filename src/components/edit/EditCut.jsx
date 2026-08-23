@@ -17,7 +17,7 @@
 // empty screen by a long way.
 
 import React, { useEffect, useRef, useState } from 'react';
-import { Undo2, Redo2, Download, Sparkles, PanelLeftClose, PanelLeftOpen, Maximize2, Minimize2, FolderOpen } from 'lucide-react';
+import { Undo2, Redo2, Download, PanelLeftClose, PanelLeftOpen, Maximize2, Minimize2, FolderOpen } from 'lucide-react';
 
 /**
  * The library column's tabs.
@@ -93,6 +93,7 @@ import { useEditorShortcuts, SHORTCUTS } from '@/lib/useEditorShortcuts';
 import { useAutosave, loadProject, setAside, clearProject } from '@/lib/editor-autosave';
 import { exportPlan, estimateSeconds } from '@/lib/timeline-export';
 import { usePanelLayout, useIsWide } from '@/lib/usePanelLayout';
+import AgentChat from './AgentChat';
 import { useServerAutosave, listProjects, fetchProject, shouldSyncToAccount, hasContent, ENTITY as PROJECT_ENTITY } from '@/lib/project-store';
 
 function demoProject() {
@@ -539,7 +540,7 @@ export default function EditCut({ demo = false, startWith = null, onLeave = null
             <button
               type="button"
               onClick={layout.toggleLeft}
-              title="Show this shot"
+              title="Show the assistant"
               data-testid="rail-left"
               className="h-full w-9 flex items-start justify-center pt-3 text-foreground-muted hover:text-white hover:bg-background-elevated"
             >
@@ -549,10 +550,10 @@ export default function EditCut({ demo = false, startWith = null, onLeave = null
           <>
           <PanelLabel
             action={
-              <Tip label="Hide this shot"><button
+              <Tip label="Hide the assistant"><button
                 type="button"
                 onClick={layout.toggleLeft}
-                aria-label="Hide this shot"
+                aria-label="Hide the assistant"
                 data-testid="collapse-left"
                 className="text-foreground-muted hover:text-white"
               >
@@ -560,9 +561,16 @@ export default function EditCut({ demo = false, startWith = null, onLeave = null
               </button></Tip>
             }
           >
-            This shot
+            {/* The column is mostly the conversation now — the shot card at
+                the top is context for it. Labelling the whole thing "This
+                shot" described the smaller half. */}
+            Assistant
           </PanelLabel>
-          <div className="flex-1 min-h-0 overflow-y-auto p-3">
+          {/* The shot is CONTEXT and the chat is the work, so the shot is
+              capped and the conversation takes what is left. Giving both
+              flex-1 in a 340px column left the transcript about four lines
+              tall, which is not a conversation. */}
+          <div className="shrink-0 max-h-[42%] overflow-y-auto p-3">
             <RegeneratePanel
               clip={selectedClip}
               source={selectedSource}
@@ -595,18 +603,20 @@ export default function EditCut({ demo = false, startWith = null, onLeave = null
             )}
           </div>
 
-          {/* The composer sits at the BOTTOM of this column, exactly where
-              ChatCut puts it — it is the primary input and must always be
-              reachable. Disabled until Stage 3, and SAYING it is not built is
-              better than a box that swallows what somebody types. */}
-          <div className="border-t border-border p-3 shrink-0">
-            <div className="rounded-lg border border-border/60 px-3 py-2 text-[11px] text-foreground-muted">
-              <span className="flex items-center gap-1.5">
-                <Sparkles className="w-3 h-3" />
-                “Cut this to 30 seconds” — the agent arrives in Stage 3. Not built yet.
-              </span>
-            </div>
-          </div>
+          {/* ── THE AGENT ──────────────────────────────────────────────────
+              Transcript plus composer, composer pinned to the bottom of the
+              column exactly where ChatCut puts it: it is the primary input
+              and must be reachable without scrolling the conversation.
+
+              onApply commits ONCE. The agent can make seven changes from one
+              sentence, and undoing that sentence must take one press of ⌘Z,
+              not seven. */}
+          <AgentChat
+            project={project}
+            onApply={(next) => { change(next); setSelected(null); }}
+            disabled={!signedIn}
+            disabledReason="Sign in to use the assistant — it runs on the server."
+          />
           </>
           )}
         </aside>

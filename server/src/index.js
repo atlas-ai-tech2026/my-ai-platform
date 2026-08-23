@@ -20,6 +20,7 @@ import { estimateKieCredits, backfillKieEstimate, KIE_USD_PER_CREDIT,
          KIE_CALIBRATION, kieBilledUsdPerCredit } from './kie-pricing.js';
 import { estimateFalCost, backfillFalEstimate } from './fal-pricing.js';
 import { publicReason } from './sanitize.js';
+import { AGENT_SYSTEM } from './edit-agent-prompt.js';
 import { normalizeBulkEmails, generateBulkPassword } from './bulk-helpers.js';
 import { mayRedeem, capForInvites, splitInvites, REFUSAL } from './promo-audience.js';
 import { groupByExpiryDay, summarise, actionable, SOON_DAYS,
@@ -2985,6 +2986,68 @@ Keep the original intent. 50–90 words. One paragraph.`;
     console.error('[ENHANCE] ❌ LLM error:', e.message);
     if (respondIfProviderTimeout(res, e)) return;
     return res.status(500).json({ error: 'Enhancer failed: ' + publicError(e.message) });
+  }
+});
+
+// ─── EDIT CUT — THE CHAT AGENT ─────────────────────────────────────
+// Turns "cut the first three seconds" into commands the timeline understands.
+//
+// ── WHAT THIS ROUTE DELIBERATELY DOES NOT DO ──────────────────────
+// It does not touch the project, and it does not validate the commands. It is
+// an LLM proxy and nothing more. The browser holds the real project, checks
+// every command against it (src/lib/edit-agent.js) and refuses anything that
+// does not fit. Validating here instead would mean trusting a SUMMARY the
+// client sent us to describe a project we cannot see — which proves nothing
+// and would let a bad answer through with a server's authority behind it.
+//
+// So the trust boundary is: this route can return nonsense, and the worst
+// outcome is a message in the chat saying the edit was refused.
+//
+// The command list below MUST match COMMANDS in src/lib/edit-agent.js. That is
+// not left to discipline — src/lib/edit-agent-contract.test.js fails if they
+// drift, because a command the model is never told about looks to a customer
+// exactly like the feature quietly not working.
+app.post('/api/edit-agent', verifyJwt, requireNotBanned, enhanceLimiter, requireFalKey, async (req, res) => {
+  const { instruction, timeline } = req.body || {};
+  if (!instruction || typeof instruction !== 'string' || !instruction.trim()) {
+    return res.status(400).json({ error: 'Say what you want changed.' });
+  }
+  if (instruction.length > 2000) {
+    return res.status(400).json({ error: 'That instruction is very long — try saying it in a sentence.' });
+  }
+
+  // The summary is built by the client and is small by construction. A cap
+  // anyway, because an oversized body here is a bill, not just a slow request.
+  const summary = JSON.stringify(timeline ?? {});
+  if (summary.length > 60_000) {
+    return res.status(413).json({ error: 'That project is too large for the assistant to read in one go.' });
+  }
+
+  try {
+    const result = await falSubscribe('fal-ai/any-llm', {
+      input: {
+        model: 'google/gemini-flash-1.5',
+        system_prompt: AGENT_SYSTEM,
+        prompt: `TIMELINE:\n${summary}\n\nINSTRUCTION:\n${instruction.trim()}`,
+      },
+      logs: false,
+    }, 'FAL-EDIT-AGENT');
+
+    const raw =
+      result?.data?.output ?? result?.output ??
+      result?.data?.text ?? result?.text ?? '';
+
+    if (!String(raw).trim()) {
+      console.error('[EDIT-AGENT] empty LLM response');
+      return res.status(502).json({ error: 'The assistant did not answer. Try again.' });
+    }
+    // Returned as TEXT on purpose. The browser parses it, because the browser
+    // is the only place that can check it against the real project.
+    return res.json({ raw: String(raw) });
+  } catch (e) {
+    console.error('[EDIT-AGENT] ❌', e.message);
+    if (respondIfProviderTimeout(res, e)) return;
+    return res.status(500).json({ error: 'The assistant failed: ' + publicError(e.message) });
   }
 });
 
