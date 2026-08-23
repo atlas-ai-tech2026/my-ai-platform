@@ -1,0 +1,251 @@
+// ─── timeline.test.js ────────────────────────────────────────────────────────
+// Every bug this file guards against is one you cannot see while editing.
+//
+// A split that leaves a rounding gap looks perfect on the timeline and puts a
+// one-frame flash between every cut on export. A left-edge trim that forgets to
+// move `start` makes the clip crawl backwards under the cursor. A source-time
+// calculation that ignores speed drifts picture from sound only after somebody
+// changes speed. None of them throw, and none of them are visible until the
+// customer has already published.
+
+import { describe, it, expect, beforeEach } from 'vitest';
+
+import {
+  createProject, createClip, addClip, removeClip, moveClip, trimClip, splitClip,
+  updateClip, addTrack, locateClip, activeAt, sourceTimeAt,
+  clipDuration, clipEnd, projectDuration, MIN_CLIP, TRACK_KINDS, __resetIds,
+} from './timeline.js';
+
+beforeEach(__resetIds);
+
+const seed = () => {
+  const p = createProject();
+  const videoTrack = p.tracks[0].id;
+  const clip = createClip({ kind: 'video', sourceId: 's1', start: 0, in: 0, out: 10 });
+  return { project: addClip(p, videoTrack, clip), videoTrack, clipId: clip.id };
+};
+
+describe('a new project is somewhere to put something', () => {
+  it('starts with a video track and an audio track, not empty', () => {
+    // An empty project with no tracks renders as a void with nothing to drop
+    // onto. The first moment in the editor should be a place, not a blank.
+    const p = createProject();
+    expect(p.tracks.map((t) => t.kind)).toEqual(['video', 'audio']);
+  });
+
+  it('has no stored duration', () => {
+    // A stored duration is a second source of truth. It goes stale the moment
+    // the last clip is deleted, and then export renders black after the end.
+    expect(createProject()).not.toHaveProperty('duration');
+    expect(projectDuration(createProject())).toBe(0);
+  });
+});
+
+describe('split — the one-frame flash', () => {
+  it('leaves NO gap and NO overlap: left.out === right.in', () => {
+    const { project, clipId } = seed();
+    const after = splitClip(project, clipId, 4);
+    const [left, right] = after.tracks[0].clips;
+
+    expect(left.out).toBe(right.in);          // exactly, not approximately
+    expect(clipEnd(left)).toBe(right.start);  // and no gap on the timeline
+  });
+
+  it('the two halves add up to the original, to the millisecond', () => {
+    const { project, clipId } = seed();
+    const before = projectDuration(project);
+    const after = splitClip(project, clipId, 4);
+    expect(projectDuration(after)).toBe(before);
+    const [l, r] = after.tracks[0].clips;
+    expect(round3(clipDuration(l) + clipDuration(r))).toBe(before);
+  });
+
+  it('splits correctly on a clip that is NOT at speed 1', () => {
+    // At 2x, four seconds of timeline is eight seconds of source. Using the
+    // timeline offset directly as a source offset halves the cut point and
+    // nobody notices until the export is wrong.
+    const { project, clipId } = seed();
+    const fast = updateClip(project, clipId, { speed: 2 });
+    const after = splitClip(fast, clipId, 2);          // 2s in on the timeline
+    const [left] = after.tracks[0].clips;
+    expect(left.out, 'the cut must be 4s into the SOURCE, not 2s').toBe(4);
+  });
+
+  it('refuses a split that would make a sliver', () => {
+    const { project, clipId } = seed();
+    expect(splitClip(project, clipId, 0.01).tracks[0].clips).toHaveLength(1);
+    expect(splitClip(project, clipId, 9.999).tracks[0].clips).toHaveLength(1);
+  });
+
+  it('does not carry a fade into the middle of what was one shot', () => {
+    const { project, clipId } = seed();
+    const faded = updateClip(project, clipId, { fadeIn: 1, fadeOut: 1 });
+    const [left, right] = splitClip(faded, clipId, 5).tracks[0].clips;
+    expect(left.fadeIn, 'the opening fade stays on the opening').toBe(1);
+    expect(right.fadeIn, 'a fade must not appear mid-shot').toBe(0);
+    expect(right.fadeOut, 'the closing fade stays on the closing').toBe(1);
+  });
+});
+
+describe('trim — the clip that crawls backwards', () => {
+  it('dragging the LEFT edge right moves start by the same amount', () => {
+    // If `start` does not move with `in`, the clip appears to slide LEFT while
+    // the customer drags RIGHT. Editors that get this wrong feel haunted.
+    const { project, clipId } = seed();
+    const after = trimClip(project, clipId, 'start', 2);
+    const [c] = after.tracks[0].clips;
+    expect(c.in).toBe(2);
+    expect(c.start, 'the visible left edge must stay under the cursor').toBe(2);
+    expect(clipDuration(c)).toBe(8);
+  });
+
+  it('dragging the RIGHT edge changes only the length', () => {
+    const { project, clipId } = seed();
+    const [c] = trimClip(project, clipId, 'end', -3).tracks[0].clips;
+    expect(c.start).toBe(0);
+    expect(c.out).toBe(7);
+  });
+
+  it('never lets a clip invert or vanish', () => {
+    const { project, clipId } = seed();
+    const [a] = trimClip(project, clipId, 'start', 999).tracks[0].clips;
+    expect(a.in).toBeLessThan(a.out);
+    expect(clipDuration(a)).toBeGreaterThanOrEqual(MIN_CLIP - 1e-6);
+
+    const [b] = trimClip(project, clipId, 'end', -999).tracks[0].clips;
+    expect(b.out).toBeGreaterThan(b.in);
+  });
+
+  it('never trims a clip to start before zero', () => {
+    const { project, clipId } = seed();
+    const [c] = trimClip(project, clipId, 'start', -5).tracks[0].clips;
+    expect(c.start).toBeGreaterThanOrEqual(0);
+    expect(c.in).toBeGreaterThanOrEqual(0);
+  });
+});
+
+describe('speed — where picture drifts from sound', () => {
+  it('halves the timeline length at 2x', () => {
+    const { project, clipId } = seed();
+    const [c] = updateClip(project, clipId, { speed: 2 }).tracks[0].clips;
+    expect(clipDuration(c)).toBe(5);
+  });
+
+  it('sourceTimeAt scales with speed', () => {
+    // One second on the timeline is two seconds of source at 2x. Off by this
+    // factor and the drift only shows after somebody changes speed.
+    const clip = createClip({ kind: 'video', sourceId: 's', start: 10, in: 4, out: 20 });
+    expect(sourceTimeAt({ ...clip, speed: 1 }, 12)).toBe(6);
+    expect(sourceTimeAt({ ...clip, speed: 2 }, 12)).toBe(8);
+    expect(sourceTimeAt({ ...clip, speed: 0.5 }, 12)).toBe(5);
+  });
+});
+
+describe('the document is never mutated', () => {
+  it('every operation returns a new project and leaves the old one alone', () => {
+    // Undo/redo snapshots this object. One in-place mutation and every stored
+    // snapshot silently becomes the present — undo stops working, and the bug
+    // looks like "undo is broken" rather than "move mutated its input".
+    const { project, clipId, videoTrack } = seed();
+    const snapshot = JSON.stringify(project);
+
+    moveClip(project, clipId, 5);
+    trimClip(project, clipId, 'end', -2);
+    splitClip(project, clipId, 5);
+    updateClip(project, clipId, { volume: -6 });
+    removeClip(project, clipId);
+    addTrack(project, 'text');
+    addClip(project, videoTrack, createClip({ kind: 'video', sourceId: 'x', out: 3 }));
+
+    expect(JSON.stringify(project), 'an operation mutated its input').toBe(snapshot);
+  });
+});
+
+describe('locked tracks', () => {
+  it('ignore every edit', () => {
+    const { project, clipId, videoTrack } = seed();
+    const locked = { ...project, tracks: project.tracks.map((t) => ({ ...t, locked: true })) };
+    expect(moveClip(locked, clipId, 9).tracks[0].clips[0].start).toBe(0);
+    expect(removeClip(locked, clipId).tracks[0].clips).toHaveLength(1);
+    expect(splitClip(locked, clipId, 5).tracks[0].clips).toHaveLength(1);
+    expect(addClip(locked, videoTrack, createClip({ kind: 'video', sourceId: 'y', out: 2 }))
+      .tracks[0].clips).toHaveLength(1);
+  });
+});
+
+describe('what plays at a moment', () => {
+  it('takes the TOPMOST picture but every audible sound', () => {
+    // Track order is z-order for picture. Audio layers; pictures do not.
+    let p = createProject();
+    const v1 = p.tracks[0].id;
+    const a1 = p.tracks[1].id;
+    p = addTrack(p, 'video');
+    const v2 = p.tracks[2].id;
+
+    p = addClip(p, v1, createClip({ kind: 'video', sourceId: 'top', start: 0, out: 10 }));
+    p = addClip(p, v2, createClip({ kind: 'video', sourceId: 'under', start: 0, out: 10 }));
+    p = addClip(p, a1, createClip({ kind: 'audio', sourceId: 'music', start: 0, out: 10 }));
+
+    const at = activeAt(p, 5);
+    expect(at.picture.clip.sourceId, 'the first track wins the picture').toBe('top');
+    expect(at.audio.map((x) => x.clip.sourceId).sort()).toEqual(['music', 'top', 'under']);
+  });
+
+  it('respects hidden and muted', () => {
+    let p = createProject();
+    p = addClip(p, p.tracks[0].id, createClip({ kind: 'video', sourceId: 'v', out: 10 }));
+    const dark = { ...p, tracks: p.tracks.map((t) => ({ ...t, hidden: true, muted: true })) };
+    const at = activeAt(dark, 5);
+    expect(at.picture).toBeNull();
+    expect(at.audio).toHaveLength(0);
+  });
+
+  it('a moment past the end has nothing in it', () => {
+    const { project } = seed();
+    expect(activeAt(project, 99).picture).toBeNull();
+  });
+});
+
+describe('guards at the door', () => {
+  it('refuses a clip with no length', () => {
+    expect(() => createClip({ kind: 'video', sourceId: 's', in: 5, out: 5 })).toThrow(/out point/i);
+    expect(() => createClip({ kind: 'video', sourceId: 's', in: 5, out: 2 })).toThrow(/out point/i);
+  });
+
+  it('refuses an unknown kind', () => {
+    expect(() => createClip({ kind: 'hologram', sourceId: 's', out: 1 })).toThrow(/Unknown clip kind/);
+    expect(() => addTrack(createProject(), 'hologram')).toThrow(/Unknown track kind/);
+  });
+
+  it('refuses audio on a video track', () => {
+    const p = createProject();
+    expect(() => addClip(p, p.tracks[0].id, createClip({ kind: 'audio', sourceId: 's', out: 5 })))
+      .toThrow(/cannot go on a video track/);
+  });
+
+  it('allows an image on a video track — that is a real thing to want', () => {
+    const p = createProject();
+    expect(() => addClip(p, p.tracks[0].id, createClip({ kind: 'image', sourceId: 's', out: 5 })))
+      .not.toThrow();
+  });
+
+  it('covers every track kind the schema declares', () => {
+    // A kind added to TRACK_KINDS and forgotten everywhere else would pass a
+    // test suite that only names the ones that already work.
+    for (const kind of TRACK_KINDS) {
+      expect(() => addTrack(createProject(), kind)).not.toThrow();
+    }
+  });
+});
+
+describe('locateClip', () => {
+  it('finds the clip and the track holding it', () => {
+    const { project, clipId, videoTrack } = seed();
+    const found = locateClip(project, clipId);
+    expect(found.track.id).toBe(videoTrack);
+    expect(found.clip.id).toBe(clipId);
+    expect(locateClip(project, 'nope')).toBeNull();
+  });
+});
+
+const round3 = (n) => Math.round(n * 1000) / 1000;
