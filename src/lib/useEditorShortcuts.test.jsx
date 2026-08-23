@@ -28,7 +28,7 @@ beforeEach(() => {
   h = {
     onTogglePlay: vi.fn(), onShuttle: vi.fn(), onSplit: vi.fn(),
     onMarkIn: vi.fn(), onMarkOut: vi.fn(), onStep: vi.fn(),
-    onGoTo: vi.fn(), onDelete: vi.fn(), onUndo: vi.fn(), onRedo: vi.fn(), onToggleSnap: vi.fn(),
+    onGoTo: vi.fn(), onDelete: vi.fn(), onUndo: vi.fn(), onRedo: vi.fn(), onToggleSnap: vi.fn(), onTool: vi.fn(), onFocusViewer: vi.fn(),
   };
 });
 afterEach(cleanup);
@@ -188,5 +188,29 @@ describe('snapping', () => {
 
   it('is documented in the help list', () => {
     expect(SHORTCUTS.map(([k]) => k).join(' ').toLowerCase()).toContain('s');
+  });
+});
+
+describe('tool modes', () => {
+  it('V, N and B pick select, trim and blade', () => {
+    // The same keys Premiere uses for two of the three, and exactly what
+    // ChatCut's tooltips say. An editor's hand already knows them.
+    render(<Harness handlers={h} />);
+    press('v'); press('n'); press('b');
+    expect(h.onTool.mock.calls.map((c) => c[0])).toEqual(['select', 'trim', 'blade']);
+  });
+
+  it('they are ignored while typing', () => {
+    render(<Harness handlers={h} />);
+    const field = screen.getByLabelText('clip name');
+    for (const k of ['v', 'n', 'b']) fireEvent.keyDown(field, { key: k });
+    expect(h.onTool, 'typing "b" in a name switched to the blade').not.toHaveBeenCalled();
+  });
+
+  it('are documented', () => {
+    const doc = SHORTCUTS.map(([k]) => k).join(' ');
+    expect(doc).toMatch(/V/);
+    expect(doc).toMatch(/N/);
+    expect(doc).toMatch(/B/);
   });
 });

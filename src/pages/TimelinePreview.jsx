@@ -155,6 +155,7 @@ export default function TimelinePreview() {
   const [exportError, setExportError] = useState(null);
   const [regenerating, setRegenerating] = useState(false);
   const [libraryTab, setLibraryTab] = useState('voxel');
+  const [tool, setTool] = useState('select');
   // Owned here, not inside Timeline: the S key lives in the shortcuts hook, and
   // a toggle the keyboard cannot reach is a button that works next to a
   // shortcut that silently does nothing.
@@ -314,6 +315,7 @@ export default function TimelinePreview() {
     // the export work, when playback stops being a requestAnimationFrame loop.
     onShuttle: (rate) => setPlaying(rate !== 0),
     onToggleSnap: () => setSnapping((v) => !v),
+    onTool: setTool,
     onFocusViewer: layout.focusViewer,
   });
 
@@ -601,8 +603,11 @@ export default function TimelinePreview() {
               >
                 Viewer
               </PanelLabel>
-              <div className="flex-1 min-h-0 overflow-y-auto p-4">
-                <div className="max-w-3xl mx-auto">
+              {/* The PICTURE gets a bounded, non-scrolling area so the frame
+                  can size itself by height. The read-outs below it scroll on
+                  their own — a viewer that scrolls is a viewer you can lose. */}
+              <div className="flex-1 min-h-0 flex flex-col p-4 gap-3">
+                <div className="flex-1 min-h-0 flex flex-col">
                   <Viewer
                     project={project}
                     playhead={playhead}
@@ -611,9 +616,11 @@ export default function TimelinePreview() {
                     onPlayingChange={setPlaying}
                   />
 
-                  {/* Export detail stays under the viewer; the BUTTON is in the
-                      top bar where it is always reachable. */}
-                  <div className="mt-3 space-y-2 text-[11px]">
+                </div>
+
+                {/* Export detail stays under the viewer; the BUTTON is in the
+                    top bar where it is always reachable. */}
+                <div className="shrink-0 max-h-32 overflow-y-auto space-y-2 text-[11px]">
                     <p className="font-mono text-foreground-muted">
                       {plan.dimensions && `${plan.dimensions.width}×${plan.dimensions.height}`}
                       {' · '}{plan.duration.toFixed(1)}s
@@ -654,7 +661,6 @@ export default function TimelinePreview() {
                         </div>
                       </div>
                     )}
-                  </div>
                 </div>
               </div>
             </section>
@@ -676,6 +682,8 @@ export default function TimelinePreview() {
               onScrub={setPlayhead}
               snapping={snapping}
               onSnappingChange={setSnapping}
+              tool={tool}
+              onToolChange={setTool}
             />
             <div className="flex flex-wrap gap-x-4 gap-y-0.5 px-3 py-1.5 border-t border-border/60 text-[10px] text-foreground-muted">
               {SHORTCUTS.map(([key, what]) => (

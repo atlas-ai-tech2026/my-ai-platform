@@ -118,6 +118,21 @@ export function useEditorShortcuts(handlers = {}, { enabled = true } = {}) {
         h.onFocusViewer?.();
         break;
 
+      // ── TOOL MODES ───────────────────────────────────────────────────
+      // V / N / B, exactly as ChatCut labels them: Selection Mode (V), Trim
+      // Edit Mode (N), Blade Edit Mode (B). Premiere uses V and B for the
+      // same two, so this is not one product's convention — it is the
+      // convention. An editor's hand already knows these.
+      case 'v': case 'V':
+        h.onTool?.('select');
+        break;
+      case 'n': case 'N':
+        h.onTool?.('trim');
+        break;
+      case 'b': case 'B':
+        h.onTool?.('blade');
+        break;
+
       case 's': case 'S':
         // Snapping. Bound to S because that is what every NLE uses and what
         // ChatCut's own tooltip says — matching a binding an editor already
@@ -175,6 +190,7 @@ export const SHORTCUTS = [
   ['Space', 'Play / pause'],
   ['J · K · L', 'Shuttle back · stop · forward (press again to speed up)'],
   ['C', 'Split at the playhead'],
+  ['V · N · B', 'Select · trim · blade'],
   ['S', 'Snapping on / off'],
   ['`', 'Big picture — hide the side panels'],
   ['I · O', 'Mark in · mark out'],

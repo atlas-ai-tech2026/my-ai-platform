@@ -18,7 +18,8 @@
 // Zoom changes the distance deliberately; nothing else does.
 
 import React, { useCallback, useMemo, useRef, useState } from 'react';
-import { Scissors, Lock, Unlock, Eye, EyeOff, Volume2, VolumeX, Magnet } from 'lucide-react';
+import { Scissors, Lock, Unlock, Eye, EyeOff, Volume2, VolumeX, Magnet,
+  MousePointer2, MoveHorizontal, Slice } from 'lucide-react';
 
 import {
   clipDuration, projectDuration, moveClip, trimClip, splitClip, locateClip,
@@ -50,6 +51,14 @@ const RULER_H = 28;
  *  select a short clip at all, because the whole thing becomes edge. */
 const EDGE_PX = 8;
 
+/** Labels are ChatCut's, verbatim. Keys match Premiere for two of the three,
+ *  so this is the convention rather than one product's habit. */
+const TOOLS = [
+  { id: 'select', label: 'Selection Mode (V)', icon: MousePointer2 },
+  { id: 'trim', label: 'Trim Edit Mode (N)', icon: MoveHorizontal },
+  { id: 'blade', label: 'Blade Edit Mode (B)', icon: Slice },
+];
+
 const KIND_COLOUR = {
   video: 'var(--crm-blue, #3b82f6)',
   audio: 'var(--crm-green, #22c55e)',
@@ -70,6 +79,12 @@ export default function Timeline({
   // reach is a button that works and a shortcut that silently does nothing.
   snapping = true,
   onSnappingChange,
+  // ── TOOL MODES ─────────────────────────────────────────────────────────
+  // Owned by the page for the same reason snapping is: V/N/B live in the
+  // keyboard hook, and a toolbar the keyboard cannot reach is two controls
+  // that disagree.
+  tool = 'select',
+  onToolChange,
 }) {
   const [zoom, setZoom] = useState(DEFAULT_ZOOM);
   const pps = ppsFor(zoom);
@@ -115,6 +130,25 @@ export default function Timeline({
   // leaves the clip — which it always does, because you are moving it.
   const startDrag = (e, clip, mode) => {
     e.stopPropagation();
+
+    // ── BLADE ────────────────────────────────────────────────────────────
+    // Cut where you CLICKED, not at the playhead. That is the whole reason a
+    // blade tool exists next to a split key: the playhead is where you were
+    // looking, the pointer is where you want the cut.
+    if (tool === 'blade') {
+      onChange(splitClip(project, clip.id, xToTime(e.clientX)), {});
+      onSelect?.(clip.id);
+      return;
+    }
+
+    // ── TRIM ─────────────────────────────────────────────────────────────
+    // The whole clip becomes an edge: the half you grabbed is the edge you
+    // move. Without this, trimming means hitting an 8px target, which is a
+    // fight on a short clip and impossible on a phone.
+    if (tool === 'trim' && mode === 'move') {
+      const box = e.currentTarget.getBoundingClientRect();
+      mode = (e.clientX - box.left) < box.width / 2 ? 'trimStart' : 'trimEnd';
+    }
     // ORDER MATTERS. The drag is armed FIRST, capture second.
     //
     // setPointerCapture throws for a pointerId the browser does not consider
@@ -224,6 +258,27 @@ export default function Timeline({
           <Scissors className="w-4 h-4" />
         </button>
 
+        {/* The three tools. Labels lifted verbatim from ChatCut's tooltips —
+            an editor who has used one should not have to learn a new word for
+            the same thing. */}
+        <div className="flex items-center gap-0.5 mr-1" role="group" aria-label="Tool">
+          {TOOLS.map(({ id, label, icon: Icon }) => (
+            <button
+              key={id}
+              type="button"
+              onClick={() => onToolChange?.(id)}
+              title={label}
+              aria-label={label}
+              aria-pressed={tool === id}
+              data-testid={`tool-${id}`}
+              className={`p-1.5 rounded hover:bg-background-elevated
+                ${tool === id ? 'text-primary bg-primary/10' : 'text-foreground-muted'}`}
+            >
+              <Icon className="w-4 h-4" />
+            </button>
+          ))}
+        </div>
+
         {/* Named "Snapping (S)" after ChatCut's own tooltip — matching the
             wording an editor already knows costs nothing and saves explaining. */}
         <button
@@ -249,7 +304,7 @@ export default function Timeline({
         />
       </div>
 
-      <div className="flex">
+      <div className="flex" style={{ cursor: tool === 'blade' ? 'crosshair' : tool === 'trim' ? 'ew-resize' : 'default' }}>
         {/* ── track headers, fixed while the lanes scroll ───────────── */}
         <div className="shrink-0 w-40 border-r border-border">
           <div style={{ height: RULER_H }} className="border-b border-border" />

@@ -100,11 +100,24 @@ export default function Viewer({ project, playhead = 0, onScrub, playing = false
   }, [playing, playhead, duration, onScrub, onPlayingChange]);
 
   return (
-    <div className="flex flex-col gap-2">
+    // flex-1: FILL the space the panel gives, do not size to content. Without
+    // it the viewer took only as much height as its controls needed, and the
+    // frame — bounded by that height — came out a fraction of the panel.
+    <div className="flex-1 min-h-0 flex flex-col gap-2">
+      {/* ── THE FRAME IS BOUNDED BY HEIGHT, NOT WIDTH ────────────────────────
+          It used to take the panel's full WIDTH and derive height from the
+          ratio. For 16:9 that is fine. For 9:16 it asked for a box nearly
+          twice as tall as the screen, which then clipped — so the video sat
+          at the top with a huge black area beneath it and the frame was not
+          the chosen shape at all.
+          Bounding by height and letting the ratio choose the width makes a
+          tall shape narrow instead of enormous, which is what an editor
+          expects and what the export actually produces. */}
+      <div className="flex-1 min-h-0 flex items-center justify-center">
       <div
         style={{ aspectRatio: ratio.replace(':', ' / ') }}
         data-testid="viewer-frame"
-        className="relative bg-black rounded-lg overflow-hidden flex items-center justify-center mx-auto max-h-full"
+        className="relative bg-black rounded-lg overflow-hidden flex items-center justify-center h-full max-h-full max-w-full"
       >
         <video
           ref={videoRef}
@@ -138,6 +151,7 @@ export default function Viewer({ project, playhead = 0, onScrub, playing = false
             <AlertCircle className="w-4 h-4" /> {problem}
           </span>
         )}
+      </div>
       </div>
 
       <div className="flex items-center gap-3">
