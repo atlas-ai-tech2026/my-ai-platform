@@ -14,8 +14,12 @@ import React, { useState } from 'react';
 
 import Timeline from '@/components/edit/Timeline';
 import Viewer from '@/components/edit/Viewer';
-import { createProject, createClip, addClip, addTrack, addSource, __resetIds } from '@/lib/timeline';
+import {
+  createProject, createClip, addClip, addTrack, addSource, __resetIds,
+  splitClip, removeClip, projectDuration,
+} from '@/lib/timeline';
 import { createHistory, commit, undo, redo, canUndo, canRedo } from '@/lib/timeline-history';
+import { useEditorShortcuts, SHORTCUTS } from '@/lib/useEditorShortcuts';
 
 function demoProject() {
   __resetIds();
@@ -50,6 +54,21 @@ export default function TimelinePreview() {
 
   const project = history.present;
   const change = (next, opts) => setHistory((h) => commit(h, next, opts));
+  const duration = projectDuration(project);
+  const seek = (t) => setPlayhead(Math.min(duration, Math.max(0, t)));
+
+  useEditorShortcuts({
+    onTogglePlay: () => setPlaying((p) => !p),
+    onSplit: () => selected && change(splitClip(project, selected, playhead), {}),
+    onDelete: () => { if (selected) { change(removeClip(project, selected), {}); setSelected(null); } },
+    onStep: (delta) => seek(playhead + delta),
+    onGoTo: (where) => seek(where === 'start' ? 0 : duration),
+    onUndo: () => setHistory(undo),
+    onRedo: () => setHistory(redo),
+    // Shuttle drives the same play flag for now; variable RATE arrives with
+    // the export work, when playback stops being a requestAnimationFrame loop.
+    onShuttle: (rate) => setPlaying(rate !== 0),
+  });
 
   return (
     <div className="min-h-screen bg-background text-foreground p-6">
@@ -90,7 +109,7 @@ export default function TimelinePreview() {
           />
         </div>
 
-        <div className="glass rounded-xl border border-border overflow-hidden">
+        <div className="glass rounded-xl border border-border overflow-hidden mb-4">
           <Timeline
             project={project}
             onChange={change}
@@ -99,6 +118,13 @@ export default function TimelinePreview() {
             playhead={playhead}
             onScrub={setPlayhead}
           />
+        </div>
+        <div className="mt-4 flex flex-wrap gap-x-5 gap-y-1 text-[11px] text-foreground-muted">
+          {SHORTCUTS.map(([key, what]) => (
+            <span key={key}>
+              <kbd className="font-mono text-foreground-secondary">{key}</kbd> {what}
+            </span>
+          ))}
         </div>
       </div>
     </div>
