@@ -483,6 +483,7 @@ export default function Navbar() {
           {/* Mobile Menu Button */}
           <button
             className="lg:hidden p-2 text-foreground-secondary hover:text-white"
+            aria-label={mobileOpen ? 'Close menu' : 'Open menu'}
             onClick={() => setMobileOpen(!mobileOpen)}
           >
             {mobileOpen ? <X size={24} /> : <Menu size={24} />}
