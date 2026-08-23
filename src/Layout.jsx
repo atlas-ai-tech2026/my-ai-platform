@@ -14,7 +14,11 @@ const MINIMAL_FOOTER_PAGES = ['/image', '/video', '/edit', '/apps'];
 // the navbar but drops the footer so the Voice Canvas takes the full
 // remaining viewport — otherwise the Synthesize button gets pushed
 // below the fold and users can't reach it.
-const NO_FOOTER_PAGES = ['/audio'];
+// /timelinepreview is Voxel Edit Cut. Same reason as Audio, more sharply: a
+// video editor fills the viewport and each panel scrolls inside itself. With
+// the footer present the PAGE scrolled, which put the timeline — the one part
+// you cannot work without — below the fold.
+const NO_FOOTER_PAGES = ['/audio', '/timelinepreview'];
 
 export default function Layout({ children, currentPageName }) {
   const location = useLocation();

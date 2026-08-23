@@ -11,6 +11,30 @@
 // crawler will find it.
 
 import React, { useRef, useState } from 'react';
+import { Undo2, Redo2, Download, Sparkles } from 'lucide-react';
+
+/**
+ * The library column's tabs.
+ *
+ * "From Voxel" is FIRST and it is the only live one, because it is the only
+ * one that matters here: the customer's own generations, already present. The
+ * other two are rendered disabled rather than omitted — the room is reserved
+ * now so the layout does not shift when they arrive, and so nobody has to
+ * wonder whether uploads were forgotten about.
+ */
+const LIBRARY_TABS = [
+  { id: 'voxel', label: 'From Voxel', ready: true, hint: 'Everything you generated here' },
+  { id: 'uploads', label: 'Uploads', ready: false, hint: 'Music, logos and footage you bring in' },
+  { id: 'transcript', label: 'Transcript', ready: false, hint: 'Edit by deleting words' },
+];
+
+/** A quiet uppercase panel header. Small and grey on purpose: a panel label
+ *  should tell you where you are without competing with the work inside it. */
+const PanelLabel = ({ children }) => (
+  <div className="shrink-0 px-3 py-2 border-b border-border text-[10px] font-medium uppercase tracking-wider text-foreground-muted">
+    {children}
+  </div>
+);
 
 import Timeline from '@/components/edit/Timeline';
 import Viewer from '@/components/edit/Viewer';
@@ -102,6 +126,7 @@ export default function TimelinePreview() {
   const [result, setResult] = useState(null);         // {url, bytes, warnings}
   const [exportError, setExportError] = useState(null);
   const [regenerating, setRegenerating] = useState(false);
+  const [libraryTab, setLibraryTab] = useState('voxel');
 
   const project = history.present;
   const save = useAutosave(project);
@@ -254,204 +279,267 @@ export default function TimelinePreview() {
     onShuttle: (rate) => setPlaying(rate !== 0),
   });
 
-  return (
-    <div className="min-h-screen bg-background text-foreground p-6">
-      <div className="max-w-[1200px] mx-auto">
-        <h1 className="font-heading text-2xl tracking-wider text-white mb-1">VOXEL EDIT CUT</h1>
-        <p className="text-sm text-foreground-secondary mb-4">
-          Timeline — first look. Drag a clip, drag its edges, click the ruler to scrub,
-          select a clip and press Split.
-        </p>
+  // ── LAYOUT ─────────────────────────────────────────────────────────────
+  // Modelled on ChatCut's arrangement, deliberately: left column full height
+  // for the conversation, assets and viewer side by side, timeline spanning
+  // beneath them. It is the right shape and worth following.
+  //
+  // TWO PLACES IT DIVERGES, ON PURPOSE:
+  //
+  // 1. DARK, not light. Every professional NLE — Premiere, Resolve, Avid,
+  //    Final Cut — is dark for one reason: a bright interface around the frame
+  //    changes how you judge exposure and colour. A light editor makes footage
+  //    look darker and more saturated than it is. Copying their theme would
+  //    mean copying the one decision they got wrong for this kind of tool.
+  //
+  // 2. The assets column is not an empty bin asking for an upload. It is the
+  //    customer's own generations, already there. Theirs must say "This bin is
+  //    empty" on first open, because their user arrives with nothing.
 
-        <div className="flex gap-2 mb-4">
+  const selectedClip = locateClip(project, selected)?.clip || null;
+  const selectedSource = selectedClip ? sourceOf(project, selectedClip) : null;
+
+  return (
+    // 4rem is the site nav above this page. h-screen was wrong and visibly so:
+    // the editor started BELOW a 64px nav and was still a full viewport tall,
+    // so the timeline — the one part you cannot work without — sat under the
+    // fold and the whole page scrolled. An editor must never scroll as a page;
+    // each panel scrolls inside itself.
+    <div className="h-[calc(100dvh-4rem)] flex flex-col overflow-hidden bg-background text-foreground">
+      {/* ── TOP BAR ──────────────────────────────────────────────────── */}
+      <header className="flex items-center gap-3 h-12 px-4 border-b border-border shrink-0">
+        <span className="font-heading text-sm tracking-wider text-white">VOXEL EDIT CUT</span>
+        <span className="text-xs text-foreground-muted truncate max-w-[16rem]">{project.name}</span>
+
+        <span
+          data-testid="save-status"
+          className={`text-[11px] ${save.status === 'error' ? 'text-primary' : 'text-foreground-muted'}`}
+        >
+          {save.status === 'error' && `⚠ ${save.error}`}
+          {save.status === 'saving' && 'Saving…'}
+          {save.status === 'saved' && `Saved ${clockOf(save.at)}`}
+          {save.status === 'idle' && 'Not saved yet'}
+        </span>
+
+        <div className="ml-auto flex items-center gap-2">
           <button
             onClick={() => setHistory(undo)}
             disabled={!canUndo(history)}
-            className="px-3 py-1.5 rounded border border-border text-sm disabled:opacity-30"
+            title="Undo (⌘Z)"
+            className="p-1.5 rounded border border-border text-xs disabled:opacity-30"
           >
-            Undo
+            <Undo2 className="w-3.5 h-3.5" />
           </button>
           <button
             onClick={() => setHistory(redo)}
             disabled={!canRedo(history)}
-            className="px-3 py-1.5 rounded border border-border text-sm disabled:opacity-30"
+            title="Redo (⇧⌘Z)"
+            className="p-1.5 rounded border border-border text-xs disabled:opacity-30"
           >
-            Redo
+            <Redo2 className="w-3.5 h-3.5" />
           </button>
-          <span className="self-center text-xs text-foreground-muted font-mono">
-            {history.past.length} undo · {history.future.length} redo
-          </span>
 
-          {/* ── THE SAVE STATUS ──────────────────────────────────────────
-              Not decoration. A browser that blocks storage, or one whose
-              quota is full, silently saves NOTHING — and the only way
-              anybody finds out is here, in time to export instead. */}
-          <span
-            data-testid="save-status"
-            className={`self-center ml-auto text-xs ${save.status === 'error' ? 'text-primary' : 'text-foreground-muted'}`}
+          <button
+            onClick={doExport}
+            disabled={!plan.ok || Boolean(exporting)}
+            className="ml-1 inline-flex items-center gap-2 rounded bg-primary px-3 py-1.5 text-xs text-white hover:bg-primary-hover disabled:opacity-40"
           >
-            {save.status === 'error' && `⚠ ${save.error}`}
-            {save.status === 'saving' && 'Saving…'}
-            {save.status === 'saved' && `Saved ${clockOf(save.at)}`}
-            {save.status === 'idle' && 'Not saved yet'}
-          </span>
+            <Download className="w-3.5 h-3.5" />
+            {exporting
+              ? `${exporting.stage}${exporting.progress ? ` ${Math.round(exporting.progress * 100)}%` : ''}…`
+              : 'Export'}
+          </button>
         </div>
+      </header>
 
-        {/* An unreadable or newer-than-us save. Said out loud, with where it
-            went, because the alternative is a project silently replaced by an
-            empty one. */}
-        {notice && (
-          <div className="mb-4 rounded-lg border border-primary/40 bg-primary/10 px-3 py-2 text-xs text-foreground-secondary">
-            {notice}
-            <button onClick={() => setNotice(null)} className="ml-3 underline">Dismiss</button>
-          </div>
-        )}
+      {/* ── BODY ─────────────────────────────────────────────────────────
+          Stacks below lg — a three-column editor on a narrow screen is a
+          different product, and #72 covers the whole site properly. */}
+      <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-[340px_1fr]">
 
-        {restored && (
-          <div className="mb-4 flex items-center gap-3 rounded-lg border border-border px-3 py-2 text-xs text-foreground-secondary">
-            <span>Restored the project you left open.</span>
-            <button
-              onClick={() => {
-                clearProject();
-                setHistory(createHistory(demoProject()));
-                setSelected(null);
-                setRestored(false);
-              }}
-              className="underline"
-            >
-              Start fresh instead
-            </button>
-            <button onClick={() => setRestored(false)} className="ml-auto underline">Dismiss</button>
-          </div>
-        )}
+        {/* ── LEFT: the shot, and where the agent will live ───────────── */}
+        <aside className="flex flex-col min-h-0 border-b lg:border-b-0 lg:border-r border-border">
+          <PanelLabel>This shot</PanelLabel>
+          <div className="flex-1 min-h-0 overflow-y-auto p-3">
+            <RegeneratePanel
+              clip={selectedClip}
+              source={selectedSource}
+              onRegenerate={regenerateSelected}
+              busy={regenerating}
+            />
 
-        <div className="max-w-3xl mb-4">
-          <Viewer
-            project={project}
-            playhead={playhead}
-            onScrub={setPlayhead}
-            playing={playing}
-            onPlayingChange={setPlaying}
-          />
-        </div>
-
-        <div className="glass rounded-xl border border-border overflow-hidden mb-4">
-          <Timeline
-            project={project}
-            onChange={change}
-            selectedId={selected}
-            onSelect={setSelected}
-            playhead={playhead}
-            onScrub={setPlayhead}
-          />
-        </div>
-        {/* ── YOUR GENERATIONS ───────────────────────────────────────────
-            The thing that makes this Voxel's editor and not a generic one:
-            what lands on the timeline is not a file, it is a generation, and
-            it arrives carrying the prompt that made it. */}
-        <div className="glass rounded-xl border border-border p-4 mb-4">
-          <h2 className="text-sm font-medium text-white mb-1">Your generations</h2>
-          <p className="text-xs text-foreground-muted mb-3">
-            Click one to add it to the end of the video track. Each clip keeps the prompt,
-            the model and the camera settings that made it.
-          </p>
-          <MediaLibrary entity={base44.entities.GenerationHistory} onAdd={addFromLibrary} />
-        </div>
-
-        {/* ── REMAKE A SHOT ──────────────────────────────────────────────
-            The one thing an upload-based editor can never do, because their
-            user arrived with a file and no history. */}
-        <div className="glass rounded-xl border border-border p-4 mb-4">
-          <h2 className="text-sm font-medium text-white mb-1">Remake this shot</h2>
-          <p className="text-xs text-foreground-muted mb-3">
-            Change the words and generate a new take in the same place. Everything cut
-            around it stays put — and the original is one undo away.
-          </p>
-          <RegeneratePanel
-            clip={locateClip(project, selected)?.clip || null}
-            source={(() => {
-              const f = locateClip(project, selected);
-              return f ? sourceOf(project, f.clip) : null;
-            })()}
-            onRegenerate={regenerateSelected}
-            busy={regenerating}
-          />
-        </div>
-
-        {/* ── EXPORT ─────────────────────────────────────────────────────
-            The warnings are printed BEFORE the button, not after the render.
-            Finding out that the title card is missing from a file you have
-            already sent to a client is the failure this ordering prevents. */}
-        <div className="glass rounded-xl border border-border p-4 mb-4">
-          <div className="flex items-center gap-3 flex-wrap">
-            <button
-              onClick={doExport}
-              disabled={!plan.ok || Boolean(exporting)}
-              className="px-4 py-2 rounded bg-primary hover:bg-primary-hover text-white text-sm disabled:opacity-40"
-            >
-              {exporting
-                ? `${exporting.stage}${exporting.progress ? ` ${Math.round(exporting.progress * 100)}%` : ''}…`
-                : 'Export MP4'}
-            </button>
-
-            {/* A render is a minute of nothing happening. A bar that MOVES is
-                the difference between waiting and assuming it has hung. */}
-            {exporting && (
-              <div className="h-1.5 w-40 rounded-full bg-border overflow-hidden">
-                <div
-                  className="h-full bg-primary transition-[width] duration-200"
-                  style={{ width: `${Math.round((exporting.progress || 0) * 100)}%` }}
-                />
+            {notice && (
+              <div className="mt-3 rounded-lg border border-primary/40 bg-primary/10 px-3 py-2 text-[11px] text-foreground-secondary">
+                {notice}
+                <button onClick={() => setNotice(null)} className="ml-2 underline">Dismiss</button>
               </div>
             )}
-            <span className="text-xs text-foreground-muted font-mono">
-              {plan.dimensions && `${plan.dimensions.width}×${plan.dimensions.height}`}
-              {' · '}{plan.duration.toFixed(1)}s
-              {' · '}{plan.inputs.length} source{plan.inputs.length === 1 ? '' : 's'}
-              {' · ~'}{estimateSeconds(plan.duration)}s to render
-            </span>
-            {exporting && (
-              <span className="text-xs text-foreground-secondary">
-                The engine is ~10 MB on first use, then cached.
+            {restored && (
+              <div className="mt-3 rounded-lg border border-border px-3 py-2 text-[11px] text-foreground-secondary">
+                Restored the project you left open.
+                <button
+                  onClick={() => {
+                    clearProject();
+                    setHistory(createHistory(demoProject()));
+                    setSelected(null);
+                    setRestored(false);
+                  }}
+                  className="ml-2 underline"
+                >
+                  Start fresh
+                </button>
+                <button onClick={() => setRestored(false)} className="ml-2 underline">Dismiss</button>
+              </div>
+            )}
+          </div>
+
+          {/* The composer sits at the BOTTOM of this column, exactly where
+              ChatCut puts it — it is the primary input and must always be
+              reachable. Disabled until Stage 3, and SAYING it is not built is
+              better than a box that swallows what somebody types. */}
+          <div className="border-t border-border p-3 shrink-0">
+            <div className="rounded-lg border border-border/60 px-3 py-2 text-[11px] text-foreground-muted">
+              <span className="flex items-center gap-1.5">
+                <Sparkles className="w-3 h-3" />
+                “Cut this to 30 seconds” — the agent arrives in Stage 3. Not built yet.
               </span>
-            )}
+            </div>
+          </div>
+        </aside>
+
+        {/* ── RIGHT: assets + viewer, then the timeline beneath both ──── */}
+        <div className="flex flex-col min-h-0">
+          <div className="flex-1 min-h-0 grid grid-cols-1 md:grid-cols-[minmax(240px,22rem)_1fr]">
+
+            {/* ── THE LIBRARY COLUMN ───────────────────────────────────
+                ChatCut reserves this space with three tabs — MY ASSETS,
+                LIBRARY, TRANSCRIPT — and their MY ASSETS opens EMPTY, because
+                their user arrives with nothing and has to upload.
+
+                Ours opens FULL. "From Voxel" is everything the customer has
+                already generated here, and it is the first tab because it is
+                the one that will be used. The other two are shown, disabled,
+                with what they will hold — reserving the room now so the layout
+                does not have to be rearranged later, and so nobody wonders
+                whether uploads were forgotten. */}
+            <section className="flex flex-col min-h-0 border-b md:border-b-0 md:border-r border-border">
+              <div className="shrink-0 flex items-stretch border-b border-border">
+                {LIBRARY_TABS.map((t) => (
+                  <button
+                    key={t.id}
+                    type="button"
+                    disabled={!t.ready}
+                    onClick={() => setLibraryTab(t.id)}
+                    title={t.ready ? t.hint : `${t.hint} — not built yet`}
+                    data-testid={`library-tab-${t.id}`}
+                    className={`px-3 py-2 text-[10px] font-medium uppercase tracking-wider transition-colors
+                      ${libraryTab === t.id
+                        ? 'text-white border-b-2 border-primary'
+                        : 'text-foreground-muted border-b-2 border-transparent'}
+                      ${t.ready ? 'hover:text-foreground-secondary' : 'opacity-40 cursor-not-allowed'}`}
+                  >
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+
+              <div className="flex-1 min-h-0 overflow-y-auto p-3">
+                {libraryTab === 'voxel' && (
+                  <>
+                    <p className="text-[11px] text-foreground-muted mb-2">
+                      Everything you generated in Voxel. Click one to add it to the end of the
+                      video track — it keeps the prompt, model and camera that made it.
+                    </p>
+                    <MediaLibrary entity={base44.entities.GenerationHistory} onAdd={addFromLibrary} />
+                  </>
+                )}
+              </div>
+            </section>
+
+            <section className="flex flex-col min-h-0">
+              <PanelLabel>Viewer</PanelLabel>
+              <div className="flex-1 min-h-0 overflow-y-auto p-4">
+                <div className="max-w-3xl mx-auto">
+                  <Viewer
+                    project={project}
+                    playhead={playhead}
+                    onScrub={setPlayhead}
+                    playing={playing}
+                    onPlayingChange={setPlaying}
+                  />
+
+                  {/* Export detail stays under the viewer; the BUTTON is in the
+                      top bar where it is always reachable. */}
+                  <div className="mt-3 space-y-2 text-[11px]">
+                    <p className="font-mono text-foreground-muted">
+                      {plan.dimensions && `${plan.dimensions.width}×${plan.dimensions.height}`}
+                      {' · '}{plan.duration.toFixed(1)}s
+                      {' · '}{plan.inputs.length} source{plan.inputs.length === 1 ? '' : 's'}
+                      {' · ~'}{estimateSeconds(plan.duration)}s to render
+                    </p>
+
+                    {exporting && (
+                      <div className="h-1.5 w-full max-w-xs rounded-full bg-border overflow-hidden">
+                        <div
+                          className="h-full bg-primary transition-[width] duration-200"
+                          style={{ width: `${Math.round((exporting.progress || 0) * 100)}%` }}
+                        />
+                      </div>
+                    )}
+
+                    {plan.problems.map((p) => (
+                      <p key={p} className="text-primary">⚠ {p}</p>
+                    ))}
+                    {plan.warnings.map((w) => (
+                      <p key={w} className="text-foreground-secondary">• Not included: {w}</p>
+                    ))}
+                    {exportError && (
+                      <p className="text-primary" data-testid="export-error">⚠ {exportError}</p>
+                    )}
+
+                    {result && (
+                      <div className="flex items-center gap-3 pt-1">
+                        <video src={result.url} controls className="w-48 rounded border border-border" />
+                        <div className="space-y-1">
+                          <div className="text-foreground-secondary">
+                            {(result.bytes / 1024 / 1024).toFixed(1)} MB
+                            {result.dimensions && ` · ${result.dimensions.width}×${result.dimensions.height}`}
+                          </div>
+                          <a href={result.url} download="voxel-edit.mp4" className="underline text-primary">
+                            Download voxel-edit.mp4
+                          </a>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </section>
           </div>
 
-          {plan.problems.length > 0 && (
-            <ul className="mt-3 text-xs text-primary space-y-1">
-              {plan.problems.map((p) => <li key={p}>⚠ {p}</li>)}
-            </ul>
-          )}
-          {plan.warnings.length > 0 && (
-            <ul className="mt-3 text-xs text-foreground-secondary space-y-1">
-              {plan.warnings.map((w) => <li key={w}>• Not included: {w}</li>)}
-            </ul>
-          )}
-          {exportError && (
-            <p className="mt-3 text-xs text-primary" data-testid="export-error">⚠ {exportError}</p>
-          )}
-          {result && (
-            <div className="mt-3 flex items-center gap-3 text-xs">
-              <video src={result.url} controls className="w-64 rounded border border-border" />
-              <div className="space-y-1">
-                <div className="text-foreground-secondary">
-                  {(result.bytes / 1024 / 1024).toFixed(1)} MB
-                  {result.dimensions && ` · ${result.dimensions.width}×${result.dimensions.height}`}
-                </div>
-                <a href={result.url} download="voxel-edit.mp4" className="underline text-primary">
-                  Download voxel-edit.mp4
-                </a>
-              </div>
+          {/* ── TIMELINE ─────────────────────────────────────────────────
+              Spanning beneath assets AND viewer, not the whole window, so the
+              left column stays full height for the conversation. */}
+          {/* Capped and scrolling inside itself: a project with ten tracks
+              would otherwise grow the timeline until it pushed the viewer off
+              the screen entirely. */}
+          <div className="border-t border-border shrink-0 max-h-[45%] overflow-y-auto">
+            <Timeline
+              project={project}
+              onChange={change}
+              selectedId={selected}
+              onSelect={setSelected}
+              playhead={playhead}
+              onScrub={setPlayhead}
+            />
+            <div className="flex flex-wrap gap-x-4 gap-y-0.5 px-3 py-1.5 border-t border-border/60 text-[10px] text-foreground-muted">
+              {SHORTCUTS.map(([key, what]) => (
+                <span key={key}>
+                  <kbd className="font-mono text-foreground-secondary">{key}</kbd> {what}
+                </span>
+              ))}
             </div>
-          )}
-        </div>
-
-        <div className="mt-4 flex flex-wrap gap-x-5 gap-y-1 text-[11px] text-foreground-muted">
-          {SHORTCUTS.map(([key, what]) => (
-            <span key={key}>
-              <kbd className="font-mono text-foreground-secondary">{key}</kbd> {what}
-            </span>
-          ))}
+          </div>
         </div>
       </div>
     </div>
