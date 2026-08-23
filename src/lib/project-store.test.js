@@ -129,8 +129,11 @@ describe('the list', () => {
       p1: { id: 'p1', updated_date: '2026-08-23T10:00:00Z', project: PROJECT },
     });
     const r = await listProjects(e);
-    expect(r.projects[0]).toEqual({ id: 'p1', name: 'Reel', updatedAt: '2026-08-23T10:00:00Z', ratio: '9:16' });
+    expect(r.projects[0]).toMatchObject({ id: 'p1', name: 'Reel', updatedAt: '2026-08-23T10:00:00Z', ratio: '9:16' });
+    // The point is that the CLIPS do not come along — a summary carries what a
+    // card needs to draw, not the whole timeline twenty times over.
     expect(r.projects[0].tracks).toBeUndefined();
+    expect(r.projects[0].sources).toBeUndefined();
   });
 
   it('asks for newest first', async () => {
@@ -292,5 +295,46 @@ describe('an empty timeline is not a project', () => {
     for (const bad of [null, undefined, {}, { tracks: null }]) {
       expect(hasContent(bad), `${JSON.stringify(bad)} threw or counted`).toBe(false);
     }
+  });
+});
+
+describe('a card has to be tellable apart', () => {
+  it('carries a poster frame, a duration and a clip count', async () => {
+    // A name and a date is not enough. Four projects called "Demo" with only a
+    // timestamp between them is a list you have to open one by one, which is
+    // the same as having no list.
+    const e = fakeEntity({ p1: { id: 'p1', updated_date: 'x', project: {
+      name: 'Reel', ratio: '9:16',
+      sources: { s1: { id: 's1', url: 'https://s/first.mp4' }, s2: { id: 's2', url: 'https://s/later.mp4' } },
+      tracks: [
+        { kind: 'video', clips: [
+          { id: 'c2', sourceId: 's2', start: 6, in: 0, out: 4 },
+          { id: 'c1', sourceId: 's1', start: 0, in: 0, out: 5 },
+        ] },
+        { kind: 'audio', clips: [{ id: 'c3', sourceId: 's1', start: 0, in: 0, out: 10 }] },
+      ],
+    } } });
+    const r = await listProjects(e);
+    expect(r.projects[0]).toMatchObject({
+      name: 'Reel', clips: 3, duration: 10, ratio: '9:16',
+    });
+  });
+
+  it('the poster is the clip the project OPENS on, not whichever is first in the array', async () => {
+    // What somebody pictures when they think of a project is its first frame.
+    const e = fakeEntity({ p1: { id: 'p1', updated_date: 'x', project: {
+      sources: { early: { url: 'EARLY.mp4' }, late: { url: 'LATE.mp4' } },
+      tracks: [{ kind: 'video', clips: [
+        { id: 'b', sourceId: 'late', start: 30, in: 0, out: 2 },
+        { id: 'a', sourceId: 'early', start: 0, in: 0, out: 2 },
+      ] }],
+    } } });
+    expect((await listProjects(e)).projects[0].poster).toBe('EARLY.mp4');
+  });
+
+  it('an empty project summarises without throwing', async () => {
+    const e = fakeEntity({ p1: { id: 'p1', updated_date: 'x', project: { tracks: [{ kind: 'video', clips: [] }] } } });
+    const r = await listProjects(e);
+    expect(r.projects[0]).toMatchObject({ clips: 0, duration: 0, poster: null });
   });
 });

@@ -85,12 +85,43 @@ export async function listProjects(entity, { limit = 20 } = {}) {
   }
 }
 
-const toSummary = (row) => ({
-  id: row.id,
-  name: row.project?.name || row.name || 'Untitled project',
-  updatedAt: row.updated_date || null,
-  ratio: row.project?.ratio || null,
-});
+/**
+ * What a card needs to be TELLABLE APART.
+ *
+ * A name and a date is not enough. Four projects called "Demo" with only a
+ * timestamp between them is a list you have to open one by one — which is the
+ * same as having no list.
+ *
+ * So the summary carries a poster frame, a duration and a clip count. All three
+ * are already in the row; none of it costs another request.
+ */
+function toSummary(row) {
+  const project = row.project || {};
+  const tracks = project.tracks || [];
+  const clips = tracks.reduce((n, t) => n + (t.clips?.length || 0), 0);
+
+  // The first video clip in timeline order — what the project OPENS on, which
+  // is what somebody pictures when they think of it.
+  let poster = null;
+  const video = tracks.find((t) => t.kind === 'video');
+  const first = [...(video?.clips || [])].sort((a, b) => a.start - b.start)[0];
+  if (first) poster = project.sources?.[first.sourceId]?.url || null;
+
+  // Duration is computed here rather than imported from timeline.js: this file
+  // is the API layer and has no business depending on the editor's internals.
+  const end = tracks.reduce((max, t) => t.clips.reduce(
+    (m, c) => Math.max(m, c.start + (c.out - c.in) / (c.speed || 1)), max), 0);
+
+  return {
+    id: row.id,
+    name: project.name || row.name || 'Untitled project',
+    updatedAt: row.updated_date || null,
+    ratio: project.ratio || null,
+    clips,
+    duration: Math.round(end * 10) / 10,
+    poster,
+  };
+}
 
 export async function fetchProject(entity, id) {
   try {
