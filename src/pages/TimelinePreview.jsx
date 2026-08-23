@@ -21,6 +21,7 @@ import {
 import { createHistory, commit, undo, redo, canUndo, canRedo } from '@/lib/timeline-history';
 import { useEditorShortcuts, SHORTCUTS } from '@/lib/useEditorShortcuts';
 import { useAutosave, loadProject, setAside, clearProject } from '@/lib/editor-autosave';
+import { exportPlan, estimateSeconds } from '@/lib/timeline-export';
 
 function demoProject() {
   __resetIds();
@@ -85,8 +86,39 @@ export default function TimelinePreview() {
   const [playhead, setPlayhead] = useState(6);
   const [playing, setPlaying] = useState(false);
 
+  const [exporting, setExporting] = useState(null);   // {stage} while running
+  const [result, setResult] = useState(null);         // {url, bytes, warnings}
+  const [exportError, setExportError] = useState(null);
+
   const project = history.present;
   const save = useAutosave(project);
+
+  // Recomputed as the timeline changes, so the warnings shown next to the
+  // button are always about the CURRENT edit rather than the one at mount.
+  const plan = exportPlan(project);
+
+  async function doExport() {
+    setExportError(null);
+    setResult(null);
+    setExporting({ stage: 'Starting' });
+    try {
+      // Imported here, not at the top: the ffmpeg core is 32 MB and pulling it
+      // into the page bundle would make every visitor pay for a feature most
+      // of them never press.
+      const { runExport } = await import('@/lib/edit-exec-browser');
+      const out = await runExport(project, { onStage: (stage) => setExporting({ stage }) });
+      setResult({
+        url: URL.createObjectURL(out.blob),
+        bytes: out.bytes,
+        warnings: out.warnings,
+        dimensions: out.dimensions,
+      });
+    } catch (err) {
+      setExportError(err?.message || String(err));
+    } finally {
+      setExporting(null);
+    }
+  }
   const change = (next, opts) => setHistory((h) => commit(h, next, opts));
   const duration = projectDuration(project);
   const seek = (t) => setPlayhead(Math.min(duration, Math.max(0, t)));
@@ -195,6 +227,61 @@ export default function TimelinePreview() {
             onScrub={setPlayhead}
           />
         </div>
+        {/* ── EXPORT ─────────────────────────────────────────────────────
+            The warnings are printed BEFORE the button, not after the render.
+            Finding out that the title card is missing from a file you have
+            already sent to a client is the failure this ordering prevents. */}
+        <div className="glass rounded-xl border border-border p-4 mb-4">
+          <div className="flex items-center gap-3 flex-wrap">
+            <button
+              onClick={doExport}
+              disabled={!plan.ok || Boolean(exporting)}
+              className="px-4 py-2 rounded bg-primary hover:bg-primary-hover text-white text-sm disabled:opacity-40"
+            >
+              {exporting ? `${exporting.stage}…` : 'Export MP4'}
+            </button>
+            <span className="text-xs text-foreground-muted font-mono">
+              {plan.dimensions && `${plan.dimensions.width}×${plan.dimensions.height}`}
+              {' · '}{plan.duration.toFixed(1)}s
+              {' · '}{plan.inputs.length} source{plan.inputs.length === 1 ? '' : 's'}
+              {' · ~'}{estimateSeconds(plan.duration)}s to render
+            </span>
+            {exporting && (
+              <span className="text-xs text-foreground-secondary">
+                The engine is ~10 MB on first use, then cached.
+              </span>
+            )}
+          </div>
+
+          {plan.problems.length > 0 && (
+            <ul className="mt-3 text-xs text-primary space-y-1">
+              {plan.problems.map((p) => <li key={p}>⚠ {p}</li>)}
+            </ul>
+          )}
+          {plan.warnings.length > 0 && (
+            <ul className="mt-3 text-xs text-foreground-secondary space-y-1">
+              {plan.warnings.map((w) => <li key={w}>• Not included: {w}</li>)}
+            </ul>
+          )}
+          {exportError && (
+            <p className="mt-3 text-xs text-primary" data-testid="export-error">⚠ {exportError}</p>
+          )}
+          {result && (
+            <div className="mt-3 flex items-center gap-3 text-xs">
+              <video src={result.url} controls className="w-64 rounded border border-border" />
+              <div className="space-y-1">
+                <div className="text-foreground-secondary">
+                  {(result.bytes / 1024 / 1024).toFixed(1)} MB
+                  {result.dimensions && ` · ${result.dimensions.width}×${result.dimensions.height}`}
+                </div>
+                <a href={result.url} download="voxel-edit.mp4" className="underline text-primary">
+                  Download voxel-edit.mp4
+                </a>
+              </div>
+            </div>
+          )}
+        </div>
+
         <div className="mt-4 flex flex-wrap gap-x-5 gap-y-1 text-[11px] text-foreground-muted">
           {SHORTCUTS.map(([key, what]) => (
             <span key={key}>

@@ -34,6 +34,7 @@ import { FFmpeg } from '@ffmpeg/ffmpeg';
 import { fetchFile, toBlobURL } from '@ffmpeg/util';
 
 import { argsFor, isLocal } from './edit-ffmpeg-args.js';
+import { exportPlan } from './timeline-export.js';
 import { validate, isMetered, OPERATIONS } from './edit-ops.js';
 
 /** Where copy-ffmpeg-core.mjs puts the binary. Same origin, so CSP 'self' covers it. */
@@ -242,4 +243,71 @@ export async function runPlan(ops = [], { input, sources = {}, onProgress, onSte
   }
 
   return { blob: current, notes };
+}
+
+/**
+ * Render a whole timeline to one MP4.
+ *
+ * Different in kind from runOperation: that runs one filter over one file,
+ * this runs a single filter_complex graph over every source at once. It has to
+ * be one pass — rendering clip by clip and concatenating afterwards re-encodes
+ * every segment twice and doubles both the wait and the quality loss.
+ *
+ * The graph itself is built in timeline-export.js, which is pure and tested.
+ * What lives here is the part that needs a browser: fetching the sources into
+ * the virtual filesystem, reporting progress, and cleaning up after.
+ */
+export async function runExport(project, {
+  ratio, quality = 1080, mode = 'crop', onProgress, onStage,
+} = {}) {
+  const plan = exportPlan(project, { ratio, quality, mode, output: 'export.mp4' });
+
+  // Refuse BEFORE downloading 32 MB of runtime. Somebody with an empty
+  // timeline should not wait for a WebAssembly download to be told so.
+  if (!plan.ok) throw new Error(plan.problems.join(' '));
+
+  onStage?.('Loading the video engine');
+  const ffmpeg = await loadFFmpeg({ onProgress: undefined });
+
+  const written = new Set();
+  try {
+    for (const [i, input] of plan.inputs.entries()) {
+      onStage?.(`Reading clip ${i + 1} of ${plan.inputs.length}`);
+      let data;
+      try {
+        data = await fetchFile(input.url);
+      } catch (err) {
+        // A source url that has expired is the most likely failure in
+        // production, and "export failed" would send the customer looking at
+        // their edit rather than at the clip that went missing.
+        throw new Error(`Could not read the media for one of the clips (${input.url}): ${err?.message || err}`);
+      }
+      await ffmpeg.writeFile(input.file, data);
+      written.add(input.file);
+    }
+
+    onStage?.('Rendering');
+    const code = await ffmpeg.exec(plan.args);
+    if (code !== 0 && code !== undefined && code !== null) {
+      throw new Error(`ffmpeg exited with code ${code}. The log above says why.`);
+    }
+
+    const data = await ffmpeg.readFile('export.mp4');
+    if (!data || data.length === 0) throw new Error('The render produced an empty file.');
+
+    return {
+      blob: new Blob([data.buffer], { type: 'video/mp4' }),
+      bytes: data.length,
+      duration: plan.duration,
+      dimensions: plan.dimensions,
+      warnings: plan.warnings,
+    };
+  } finally {
+    // Same reason as runOperation: the virtual filesystem lives for the whole
+    // session, and a 40 MB source left behind is 40 MB the next export cannot
+    // use. onProgress is unhooked here too so a cancelled run stops reporting.
+    for (const f of written) await ffmpeg.deleteFile(f).catch(() => {});
+    await ffmpeg.deleteFile('export.mp4').catch(() => {});
+    onProgress?.(1);
+  }
 }
