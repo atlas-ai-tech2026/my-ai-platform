@@ -16,8 +16,10 @@ import Timeline from '@/components/edit/Timeline';
 import Viewer from '@/components/edit/Viewer';
 import {
   createProject, createClip, addClip, addTrack, addSource, __resetIds,
-  splitClip, removeClip, projectDuration,
+  splitClip, removeClip, projectDuration, clipEnd,
 } from '@/lib/timeline';
+import MediaLibrary from '@/components/edit/MediaLibrary';
+import { base44 } from '@/api/base44Client';
 import { createHistory, commit, undo, redo, canUndo, canRedo } from '@/lib/timeline-history';
 import { useEditorShortcuts, SHORTCUTS } from '@/lib/useEditorShortcuts';
 import { useAutosave, loadProject, setAside, clearProject } from '@/lib/editor-autosave';
@@ -96,6 +98,32 @@ export default function TimelinePreview() {
   // Recomputed as the timeline changes, so the warnings shown next to the
   // button are always about the CURRENT edit rather than the one at mount.
   const plan = exportPlan(project);
+
+  /**
+   * Put a real generation on the end of the video track.
+   *
+   * At the END, not at the playhead: appending is the one placement that can
+   * never overwrite or displace something already cut, and a library click
+   * should not be able to disturb an edit.
+   *
+   * `seconds` is measured by the library before it gets here, so `out` is
+   * always a real length rather than a default.
+   */
+  function addFromLibrary({ source, seconds }) {
+    const track = project.tracks.find((t) => t.kind === 'video');
+    const end = track.clips.reduce((max, c) => Math.max(max, clipEnd(c)), 0);
+
+    let next = addSource(project, source);
+    next = addClip(next, track.id, createClip({
+      kind: 'video',
+      sourceId: source.id,
+      name: (source.prompt || source.model || 'clip').slice(0, 40),
+      start: end,
+      in: 0,
+      out: seconds,
+    }));
+    change(next, {});
+  }
 
   async function doExport() {
     setExportError(null);
@@ -230,6 +258,19 @@ export default function TimelinePreview() {
             onScrub={setPlayhead}
           />
         </div>
+        {/* ── YOUR GENERATIONS ───────────────────────────────────────────
+            The thing that makes this Voxel's editor and not a generic one:
+            what lands on the timeline is not a file, it is a generation, and
+            it arrives carrying the prompt that made it. */}
+        <div className="glass rounded-xl border border-border p-4 mb-4">
+          <h2 className="text-sm font-medium text-white mb-1">Your generations</h2>
+          <p className="text-xs text-foreground-muted mb-3">
+            Click one to add it to the end of the video track. Each clip keeps the prompt,
+            the model and the camera settings that made it.
+          </p>
+          <MediaLibrary entity={base44.entities.GenerationHistory} onAdd={addFromLibrary} />
+        </div>
+
         {/* ── EXPORT ─────────────────────────────────────────────────────
             The warnings are printed BEFORE the button, not after the render.
             Finding out that the title card is missing from a file you have
