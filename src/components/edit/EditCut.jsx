@@ -93,7 +93,7 @@ import { useEditorShortcuts, SHORTCUTS } from '@/lib/useEditorShortcuts';
 import { useAutosave, loadProject, setAside, clearProject } from '@/lib/editor-autosave';
 import { exportPlan, estimateSeconds } from '@/lib/timeline-export';
 import { usePanelLayout, useIsWide } from '@/lib/usePanelLayout';
-import { useServerAutosave, listProjects, fetchProject, ENTITY as PROJECT_ENTITY } from '@/lib/project-store';
+import { useServerAutosave, listProjects, fetchProject, shouldSyncToAccount, ENTITY as PROJECT_ENTITY } from '@/lib/project-store';
 
 function demoProject() {
   __resetIds();
@@ -202,8 +202,10 @@ export default function EditCut({ demo = false }) {
   // The guard is `past.length === 0`: only take the server's copy if nothing
   // has been edited yet. A slow response arriving after somebody has started
   // cutting must never replace what they are doing.
+  const syncing = shouldSyncToAccount({ signedIn, demo });
+
   useEffect(() => {
-    if (!signedIn || demo) return undefined;
+    if (!syncing) return undefined;
     let cancelled = false;
     (async () => {
       const entity = base44.entities[PROJECT_ENTITY];
@@ -215,11 +217,11 @@ export default function EditCut({ demo = false }) {
       setOnServer({ id: list.projects[0].id, at: got.updatedAt });
     })();
     return () => { cancelled = true; };
-  }, [signedIn, demo]);
+  }, [syncing]);
 
   const cloud = useServerAutosave(project, {
     entity: base44.entities[PROJECT_ENTITY],
-    enabled: signedIn,
+    enabled: syncing,
     projectId: onServer.id,
     lastSeenAt: onServer.at,
   });
@@ -439,6 +441,7 @@ export default function EditCut({ demo = false }) {
           {cloud.status === 'saving' && '· syncing…'}
           {cloud.status === 'saved' && '· in your account'}
           {!signedIn && '· sign in to save to your account'}
+          {signedIn && demo && '· demo — not saved to your account'}
         </span>
 
         <div className="ml-auto flex items-center gap-2">

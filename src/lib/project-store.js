@@ -30,6 +30,21 @@ export const ENTITY = 'EditProject';
  *  nobody needs their project on another machine within one second. */
 export const SERVER_SAVE_DELAY = 4000;
 
+/**
+ * May this editor write to the customer's account?
+ *
+ * ── WHY THIS IS A NAMED RULE AND NOT AN INLINE && ──────────────────────────
+ * Because getting it half right is invisible. The demo route was guarded on
+ * LOAD and not on SAVE, so it never fetched a project — and therefore never
+ * adopted an id — and then saved a NEW one on every single page load. A
+ * timeline of racing cars the customer did not make, multiplying in their
+ * account, with a status line cheerfully reporting "in your account".
+ *
+ * Found by the owner reading that status line on the demo route. Two guards
+ * that must agree is one guard too many, so it is one function now.
+ */
+export const shouldSyncToAccount = ({ signedIn, demo }) => Boolean(signedIn) && !demo;
+
 const message = (err, fallback) => {
   const status = err?.status ?? null;
   if (status === 401 || status === 403) return 'Sign in to save this project to your account.';

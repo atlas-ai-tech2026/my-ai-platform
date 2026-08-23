@@ -252,3 +252,24 @@ describe('adopting the project the page found', () => {
     vi.useRealTimers();
   });
 });
+
+describe('the demo must never write to a customer’s account', () => {
+  it('refuses on the demo route even when signed in', async () => {
+    // The bug this pins: LOAD was guarded on demo and SAVE was not. So the
+    // demo never fetched a project, never adopted an id, and saved a NEW one
+    // on every page load — a timeline of racing cars the customer did not
+    // make, multiplying in their account.
+    const { shouldSyncToAccount } = await import('./project-store.js');
+    expect(shouldSyncToAccount({ signedIn: true, demo: true })).toBe(false);
+  });
+
+  it('syncs a real project for a signed-in customer', async () => {
+    const { shouldSyncToAccount } = await import('./project-store.js');
+    expect(shouldSyncToAccount({ signedIn: true, demo: false })).toBe(true);
+  });
+
+  it('never syncs while signed out', async () => {
+    const { shouldSyncToAccount } = await import('./project-store.js');
+    expect(shouldSyncToAccount({ signedIn: false, demo: false })).toBe(false);
+  });
+});
