@@ -74,6 +74,12 @@ export function useEditorShortcuts(handlers = {}, { enabled = true } = {}) {
       (e.shiftKey ? h.onRedo : h.onUndo)?.();
       return;
     }
+    // ⌘− and ⌘= zoom the TIMELINE, not the page. Same keys ChatCut uses, and
+    // the same ones every editor reaches for. preventDefault matters: without
+    // it the browser zooms the whole interface instead, which is jarring and
+    // hard to undo.
+    if (mod && (e.key === '-' || e.key === '_')) { e.preventDefault(); h.onZoomOut?.(); return; }
+    if (mod && (e.key === '=' || e.key === '+')) { e.preventDefault(); h.onZoomIn?.(); return; }
     if (mod) return;   // leave every other browser shortcut alone
 
     switch (e.key) {
@@ -123,6 +129,12 @@ export function useEditorShortcuts(handlers = {}, { enabled = true } = {}) {
       // Edit Mode (N), Blade Edit Mode (B). Premiere uses V and B for the
       // same two, so this is not one product's convention — it is the
       // convention. An editor's hand already knows these.
+      case 'z': case 'Z':
+        // ⇧Z fits the whole project on screen. Plain Z is left alone — it is
+        // undo's neighbour and too easy to hit by accident.
+        if (e.shiftKey) { e.preventDefault(); h.onZoomFit?.(); }
+        break;
+
       case 'v': case 'V':
         h.onTool?.('select');
         break;
@@ -192,6 +204,8 @@ export const SHORTCUTS = [
   ['C', 'Split at the playhead'],
   ['V · N · B', 'Select · trim · blade'],
   ['S', 'Snapping on / off'],
+  ['⌘− ⌘=', 'Zoom the timeline'],
+  ['⇧Z', 'Fit the whole project on screen'],
   ['`', 'Big picture — hide the side panels'],
   ['I · O', 'Mark in · mark out'],
   ['← →', 'One frame'],

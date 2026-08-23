@@ -17,7 +17,7 @@
 // Editors do not do that: a second is a fixed distance, and the timeline scrolls.
 // Zoom changes the distance deliberately; nothing else does.
 
-import React, { useCallback, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { Scissors, Lock, Unlock, Eye, EyeOff, Volume2, VolumeX, Magnet,
   MousePointer2, MoveHorizontal, Slice } from 'lucide-react';
 
@@ -42,7 +42,10 @@ import { snapTargets, snapStart, snapEdge } from '@/lib/timeline-snap';
 // every useful wide view into the first few pixels.
 const MIN_PPS = 1.5;
 const MAX_PPS = 240;
-const DEFAULT_ZOOM = 0.38;                     // ≈10 px/s — about a minute wide
+const DEFAULT_ZOOM = 0.38;
+/** One press of the zoom key. A tenth of the whole range is a noticeable
+ *  step without being a jump — the complaint that made zoom continuous. */
+const ZOOM_STEP = 0.1;                     // ≈10 px/s — about a minute wide
 const ppsFor = (t) => MIN_PPS * ((MAX_PPS / MIN_PPS) ** t);
 
 const TRACK_H = 56;
@@ -85,6 +88,8 @@ export default function Timeline({
   // that disagree.
   tool = 'select',
   onToolChange,
+  /** Imperative handle so the keyboard can drive zoom. */
+  controls,
 }) {
   const [zoom, setZoom] = useState(DEFAULT_ZOOM);
   const pps = ppsFor(zoom);
@@ -228,6 +233,33 @@ export default function Timeline({
       lane.scrollLeft = Math.max(0, playhead * ppsFor(next) - anchorPx);
     });
   };
+
+  /**
+   * ── ZOOM FROM THE KEYBOARD ─────────────────────────────────────────────
+   * Exposed to the page through a ref rather than by lifting `zoom` into it.
+   * Snapping and the tool ARE lifted, because the page renders controls for
+   * them; zoom is different — nothing outside this component needs to know
+   * the number, only to nudge it. Lifting it would move the playhead-anchor
+   * logic somewhere it does not belong.
+   *
+   * FIT TO VIEW is the one that earns its key. On a long project the whole
+   * edit is off-screen at working zoom, and the alternative to ⇧Z is dragging
+   * a scrollbar until you find your own footage.
+   */
+  useImperativeHandle(controls, () => ({
+    zoomIn: () => zoomTo(Math.min(1, zoom + ZOOM_STEP)),
+    zoomOut: () => zoomTo(Math.max(0, zoom - ZOOM_STEP)),
+    zoomToFit: () => {
+      const lane = laneRef.current;
+      if (!lane || duration <= 0) return;
+      // Solve for the zoom whose pixels-per-second makes the project exactly
+      // fill the lane, with a little air so the last frame is not flush.
+      const target = (lane.clientWidth * 0.94) / duration;
+      const t = Math.log(target / MIN_PPS) / Math.log(MAX_PPS / MIN_PPS);
+      setZoom(Math.max(0, Math.min(1, t)));
+      requestAnimationFrame(() => { lane.scrollLeft = 0; });
+    },
+  }), [zoom, duration, playhead, pps]);
 
   const splitAtPlayhead = () => {
     if (!selectedId) return;

@@ -156,6 +156,7 @@ export default function TimelinePreview() {
   const [regenerating, setRegenerating] = useState(false);
   const [libraryTab, setLibraryTab] = useState('voxel');
   const [tool, setTool] = useState('select');
+  const timelineControls = useRef(null);
   // Owned here, not inside Timeline: the S key lives in the shortcuts hook, and
   // a toggle the keyboard cannot reach is a button that works next to a
   // shortcut that silently does nothing.
@@ -316,6 +317,9 @@ export default function TimelinePreview() {
     onShuttle: (rate) => setPlaying(rate !== 0),
     onToggleSnap: () => setSnapping((v) => !v),
     onTool: setTool,
+    onZoomIn: () => timelineControls.current?.zoomIn(),
+    onZoomOut: () => timelineControls.current?.zoomOut(),
+    onZoomFit: () => timelineControls.current?.zoomToFit(),
     onFocusViewer: layout.focusViewer,
   });
 
@@ -684,6 +688,7 @@ export default function TimelinePreview() {
               onSnappingChange={setSnapping}
               tool={tool}
               onToolChange={setTool}
+              controls={timelineControls}
             />
             <div className="flex flex-wrap gap-x-4 gap-y-0.5 px-3 py-1.5 border-t border-border/60 text-[10px] text-foreground-muted">
               {SHORTCUTS.map(([key, what]) => (

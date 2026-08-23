@@ -28,7 +28,7 @@ beforeEach(() => {
   h = {
     onTogglePlay: vi.fn(), onShuttle: vi.fn(), onSplit: vi.fn(),
     onMarkIn: vi.fn(), onMarkOut: vi.fn(), onStep: vi.fn(),
-    onGoTo: vi.fn(), onDelete: vi.fn(), onUndo: vi.fn(), onRedo: vi.fn(), onToggleSnap: vi.fn(), onTool: vi.fn(), onFocusViewer: vi.fn(),
+    onGoTo: vi.fn(), onDelete: vi.fn(), onUndo: vi.fn(), onRedo: vi.fn(), onToggleSnap: vi.fn(), onTool: vi.fn(), onFocusViewer: vi.fn(), onZoomIn: vi.fn(), onZoomOut: vi.fn(), onZoomFit: vi.fn(),
   };
 });
 afterEach(cleanup);
@@ -212,5 +212,34 @@ describe('tool modes', () => {
     expect(doc).toMatch(/V/);
     expect(doc).toMatch(/N/);
     expect(doc).toMatch(/B/);
+  });
+});
+
+describe('zoom', () => {
+  it('Cmd+- and Cmd+= zoom the TIMELINE, and stop the browser zooming', () => {
+    // Without preventDefault the browser zooms the whole interface instead,
+    // which is jarring and awkward to undo.
+    render(<Harness handlers={h} />);
+    const out = fireEvent.keyDown(window, { key: '-', metaKey: true });
+    expect(h.onZoomOut).toHaveBeenCalled();
+    expect(out, 'the browser was allowed to zoom the page').toBe(false);
+    press('=', { metaKey: true });
+    expect(h.onZoomIn).toHaveBeenCalled();
+  });
+
+  it('Shift+Z fits the project, plain Z does NOT', () => {
+    // Plain Z is undo's neighbour and far too easy to hit by accident.
+    render(<Harness handlers={h} />);
+    press('z');
+    expect(h.onZoomFit).not.toHaveBeenCalled();
+    press('Z', { shiftKey: true });
+    expect(h.onZoomFit).toHaveBeenCalled();
+  });
+
+  it('Cmd+Z still undoes rather than zooming', () => {
+    render(<Harness handlers={h} />);
+    press('z', { metaKey: true });
+    expect(h.onUndo).toHaveBeenCalled();
+    expect(h.onZoomFit).not.toHaveBeenCalled();
   });
 });
