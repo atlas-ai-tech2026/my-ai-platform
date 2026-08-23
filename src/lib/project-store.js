@@ -60,6 +60,55 @@ export const shouldSyncToAccount = ({ signedIn, demo }) => Boolean(signedIn) && 
  * A project with only empty tracks counts as empty. Tracks arrive with the
  * document; clips are the part somebody chose.
  */
+/** Sort orders offered on the project browser. `recent` first because it is
+ *  right most of the time — the rest exist for when it is not. */
+export const SORTS = {
+  recent: { label: 'Recent', cmp: (a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')) },
+  name: { label: 'Name', cmp: (a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }) },
+  longest: { label: 'Longest', cmp: (a, b) => (b.duration || 0) - (a.duration || 0) },
+  clips: { label: 'Most clips', cmp: (a, b) => (b.clips || 0) - (a.clips || 0) },
+};
+
+/**
+ * Narrow the list. Pure, so the behaviour can be pinned without a browser.
+ *
+ * Search is case- and accent-insensitive and matches ANYWHERE in the name, not
+ * just the start — people remember a word from the middle far more often than
+ * the first letter.
+ */
+export function filterProjects(projects = [], { query = '', ratio = null, sort = 'recent' } = {}) {
+  const q = String(query).trim().toLowerCase();
+  const out = projects.filter((p) => {
+    if (ratio && p.ratio !== ratio) return false;
+    if (!q) return true;
+    return String(p.name || '').toLowerCase().includes(q);
+  });
+  const cmp = (SORTS[sort] || SORTS.recent).cmp;
+  return [...out].sort(cmp);
+}
+
+/**
+ * Which shapes are actually present, TALLEST FIRST.
+ *
+ * Offering a filter for a format the customer has never used is a control that
+ * can only ever return nothing, so the list is built from what they have.
+ *
+ * Ordered by aspect value rather than alphabetically, because a string sort on
+ * ratios is meaningless to a person — it puts "16:9" before "1:1". Tallest to
+ * widest is 9:16 · 4:5 · 1:1 · 16:9, which is both a real progression and the
+ * same order as the shape control in the editor. Computed rather than imported
+ * from the tool layer: this file is the API boundary and has no business
+ * depending on the editor's internals.
+ */
+export const ratiosPresent = (projects = []) => {
+  const value = (r) => {
+    const [w, h] = String(r).split(':').map(Number);
+    return h ? w / h : Number.MAX_SAFE_INTEGER;
+  };
+  return [...new Set(projects.map((p) => p.ratio).filter(Boolean))]
+    .sort((a, b) => value(a) - value(b));
+};
+
 export const hasContent = (project) =>
   Boolean(project?.tracks?.some((t) => (t.clips?.length || 0) > 0));
 
@@ -75,11 +124,26 @@ const message = (err, fallback) => {
   return err?.message || fallback;
 };
 
-/** Newest first. The editor only ever needs a handful. */
-export async function listProjects(entity, { limit = 20 } = {}) {
+/**
+ * Newest first.
+ *
+ * ── WHY THE LIMIT IS 100 AND WHY IT IS REPORTED ────────────────────────────
+ * It was 20, which was fine for a list you only scroll. It is NOT fine for a
+ * list you SEARCH: filtering a truncated set makes "no results" mean two
+ * completely different things — "you have no project called that" and "you
+ * have one, but it is older than the newest twenty and we never fetched it".
+ *
+ * The second is a lie the screen cannot see it is telling. So the limit is
+ * raised, and `capped` says when we hit it, so the UI can admit the list is
+ * not everything rather than implying it is.
+ *
+ * Beyond a few hundred this needs to move server-side. Saying so here is
+ * cheaper than discovering it from a customer who cannot find their work.
+ */
+export async function listProjects(entity, { limit = 100 } = {}) {
   try {
     const rows = await entity.list('-updated_date', limit, 0);
-    return { ok: true, projects: (rows || []).map(toSummary) };
+    return { ok: true, projects: (rows || []).map(toSummary), capped: (rows || []).length >= limit };
   } catch (err) {
     return { ok: false, reason: err?.status === 401 ? 'signed-out' : 'failed', message: message(err, 'Your projects could not be loaded.') };
   }

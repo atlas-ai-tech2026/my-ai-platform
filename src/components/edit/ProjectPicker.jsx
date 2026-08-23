@@ -23,7 +23,8 @@
 // stay hard to tell apart no matter how good the thumbnail is.
 
 import React, { useEffect, useRef, useState } from 'react';
-import { Plus, Film, Loader2, AlertCircle, Trash2, Pencil } from 'lucide-react';
+import { Plus, Film, Loader2, AlertCircle, Trash2, Pencil, Search, X } from 'lucide-react';
+import { filterProjects, ratiosPresent, SORTS } from '@/lib/project-store';
 
 /** "3 minutes ago" beats a timestamp for the question actually being asked,
  *  which is "is this the one I was just working on". */
@@ -47,8 +48,16 @@ const clock = (secs) => {
 };
 
 export default function ProjectPicker({
-  projects = [], loading, error, onOpen, onNew, onDelete, onRename, busyId = null,
+  projects = [], loading, error, capped = false, onOpen, onNew, onDelete, onRename, busyId = null,
 }) {
+  const [query, setQuery] = useState('');
+  const [ratio, setRatio] = useState(null);
+  const [sort, setSort] = useState('recent');
+
+  const shapes = ratiosPresent(projects);
+  const shown = filterProjects(projects, { query, ratio, sort });
+  const narrowed = shown.length !== projects.length;
+
   if (loading) {
     return (
       <div className="min-h-[60vh] flex items-center justify-center gap-2 text-sm text-foreground-muted">
@@ -67,9 +76,69 @@ export default function ProjectPicker({
           </span>
         )}
       </div>
-      <p className="text-sm text-foreground-secondary mb-6">
+      <p className="text-sm text-foreground-secondary mb-5">
         Pick up where you left off, or start something new.
       </p>
+
+      {/* ── FINDING ONE AMONG MANY ────────────────────────────────────────
+          Hidden below four projects, because a filter bar over a list you can
+          see in one glance is furniture. It appears when it starts to earn
+          its space. */}
+      {projects.length > 4 && (
+        <div className="flex flex-wrap items-center gap-2 mb-5">
+          <label className="relative flex-1 min-w-[12rem] max-w-sm">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-foreground-muted" />
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search by name"
+              aria-label="Search projects by name"
+              data-testid="project-search"
+              className="w-full rounded-lg border border-border bg-transparent pl-8 pr-8 py-1.5 text-xs text-white
+                placeholder:text-foreground-muted outline-none focus:border-primary"
+            />
+            {query && (
+              <button
+                type="button"
+                onClick={() => setQuery('')}
+                aria-label="Clear search"
+                data-testid="clear-search"
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-foreground-muted hover:text-white"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </label>
+
+          {/* Only the shapes they actually have. A filter for a format nobody
+              used is a control that can only ever return nothing. */}
+          {shapes.length > 1 && shapes.map((r) => (
+            <button
+              key={r}
+              type="button"
+              onClick={() => setRatio(ratio === r ? null : r)}
+              aria-pressed={ratio === r}
+              data-testid={`filter-${r}`}
+              className={`px-2 py-1 rounded-lg border text-[11px] font-mono transition-colors
+                ${ratio === r ? 'border-primary text-white bg-primary/15' : 'border-border text-foreground-muted hover:text-foreground-secondary'}`}
+            >
+              {r}
+            </button>
+          ))}
+
+          <select
+            value={sort}
+            onChange={(e) => setSort(e.target.value)}
+            aria-label="Sort projects"
+            data-testid="project-sort"
+            className="rounded-lg border border-border bg-transparent px-2 py-1.5 text-[11px] text-foreground-secondary outline-none focus:border-primary"
+          >
+            {Object.entries(SORTS).map(([id, { label }]) => (
+              <option key={id} value={id} className="bg-background">{label}</option>
+            ))}
+          </select>
+        </div>
+      )}
 
       {/* An error is NOT an empty list. "You have no projects" when the real
           answer is "we could not ask" sends somebody looking for work that is
@@ -101,7 +170,7 @@ export default function ProjectPicker({
           <span className="text-[11px] text-foreground-muted">An empty timeline</span>
         </button>
 
-        {projects.map((p) => (
+        {shown.map((p) => (
           <ProjectCard
             key={p.id}
             project={p}
@@ -116,6 +185,33 @@ export default function ProjectPicker({
       {!error && projects.length === 0 && (
         <p className="mt-6 text-xs text-foreground-muted">
           Your first project appears here once you put a clip on the timeline.
+        </p>
+      )}
+
+      {/* NO MATCHES is not NO PROJECTS. Saying the wrong one sends somebody
+          looking for work that is sitting right there behind a filter. */}
+      {!error && projects.length > 0 && shown.length === 0 && (
+        <p className="mt-6 text-xs text-foreground-muted" data-testid="no-matches">
+          Nothing matches that. <button
+            type="button"
+            onClick={() => { setQuery(''); setRatio(null); }}
+            className="underline"
+          >Clear the filters</button> to see all {projects.length}.
+        </p>
+      )}
+
+      {/* The list is not everything, and it says so rather than implying it.
+          Filtering a truncated set makes "not found" mean two different
+          things, and only one of them is true. */}
+      {capped && (
+        <p className="mt-6 text-[11px] text-foreground-muted" data-testid="capped-notice">
+          Showing your {projects.length} most recent projects. Older ones are not in this list yet.
+        </p>
+      )}
+
+      {narrowed && shown.length > 0 && (
+        <p className="mt-6 text-[11px] text-foreground-muted font-mono">
+          {shown.length} of {projects.length}
         </p>
       )}
     </div>

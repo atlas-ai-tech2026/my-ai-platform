@@ -338,3 +338,83 @@ describe('a card has to be tellable apart', () => {
     expect(r.projects[0]).toMatchObject({ clips: 0, duration: 0, poster: null });
   });
 });
+
+describe('finding a project among many', () => {
+  const { } = {};
+  const make = (over) => ({ id: over.id, name: over.name, updatedAt: over.updatedAt || '2026-08-01T00:00:00Z',
+    ratio: over.ratio || '16:9', clips: over.clips || 1, duration: over.duration || 10 });
+
+  const LIST = [
+    make({ id: 'a', name: 'Client reel', ratio: '9:16', duration: 32, clips: 3, updatedAt: '2026-08-23T10:00:00Z' }),
+    make({ id: 'b', name: 'Dragon castle teaser', ratio: '16:9', duration: 92, clips: 7, updatedAt: '2026-08-22T10:00:00Z' }),
+    make({ id: 'c', name: 'product REVEAL', ratio: '1:1', duration: 5, clips: 1, updatedAt: '2026-08-21T10:00:00Z' }),
+  ];
+
+  it('matches anywhere in the name, not just the start', async () => {
+    // People remember a word from the middle far more often than the first
+    // letter — "castle" should find "Dragon castle teaser".
+    const { filterProjects } = await import('./project-store.js');
+    expect(filterProjects(LIST, { query: 'castle' }).map((p) => p.id)).toEqual(['b']);
+  });
+
+  it('ignores case', async () => {
+    const { filterProjects } = await import('./project-store.js');
+    expect(filterProjects(LIST, { query: 'reveal' }).map((p) => p.id)).toEqual(['c']);
+  });
+
+  it('filters by shape', async () => {
+    const { filterProjects } = await import('./project-store.js');
+    expect(filterProjects(LIST, { ratio: '9:16' }).map((p) => p.id)).toEqual(['a']);
+  });
+
+  it('combines a search with a shape', async () => {
+    const { filterProjects } = await import('./project-store.js');
+    expect(filterProjects(LIST, { query: 'e', ratio: '1:1' }).map((p) => p.id)).toEqual(['c']);
+  });
+
+  it('sorts by name, longest and clips', async () => {
+    const { filterProjects } = await import('./project-store.js');
+    expect(filterProjects(LIST, { sort: 'name' }).map((p) => p.id)).toEqual(['a', 'b', 'c']);
+    expect(filterProjects(LIST, { sort: 'longest' }).map((p) => p.id)).toEqual(['b', 'a', 'c']);
+    expect(filterProjects(LIST, { sort: 'clips' }).map((p) => p.id)).toEqual(['b', 'a', 'c']);
+  });
+
+  it('defaults to most recent', async () => {
+    const { filterProjects } = await import('./project-store.js');
+    expect(filterProjects(LIST).map((p) => p.id)).toEqual(['a', 'b', 'c']);
+  });
+
+  it('does not mutate the list it was given', async () => {
+    const { filterProjects } = await import('./project-store.js');
+    const before = LIST.map((p) => p.id);
+    filterProjects(LIST, { sort: 'name' });
+    expect(LIST.map((p) => p.id)).toEqual(before);
+  });
+
+  it('only offers shapes the customer actually has, TALLEST FIRST', async () => {
+    // A filter for a format they have never used is a control that can only
+    // ever return nothing. And the order is by SHAPE, not alphabet — a string
+    // sort puts "16:9" before "1:1", which means nothing to a person.
+    const { ratiosPresent } = await import('./project-store.js');
+    expect(ratiosPresent(LIST)).toEqual(['9:16', '1:1', '16:9']);
+  });
+
+  it('orders every shape the editor offers the same way the editor does', async () => {
+    const { ratiosPresent } = await import('./project-store.js');
+    const all = [{ ratio: '16:9' }, { ratio: '1:1' }, { ratio: '9:16' }, { ratio: '4:5' }];
+    expect(ratiosPresent(all)).toEqual(['9:16', '4:5', '1:1', '16:9']);
+  });
+});
+
+describe('a truncated list must admit it is truncated', () => {
+  it('reports capped when the fetch hit its limit', async () => {
+    // Filtering a truncated set makes "no results" mean two different things:
+    // "you have no project called that" and "you have one, but it is older
+    // than the newest hundred and we never fetched it".
+    const rows = Object.fromEntries(Array.from({ length: 5 }, (_, i) =>
+      [`p${i}`, { id: `p${i}`, updated_date: 'x', project: { name: `P${i}`, tracks: [] } }]));
+    const e = fakeEntity(rows);
+    expect((await listProjects(e, { limit: 5 })).capped).toBe(true);
+    expect((await listProjects(e, { limit: 50 })).capped).toBe(false);
+  });
+});

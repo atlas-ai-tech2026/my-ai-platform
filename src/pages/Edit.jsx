@@ -27,7 +27,7 @@ import { base44 } from '@/api/base44Client';
 import EditWaitlist from '@/components/edit/EditWaitlist';
 import EditCut from '@/components/edit/EditCut';
 import ProjectPicker from '@/components/edit/ProjectPicker';
-import { listProjects, fetchProject, deleteProject, ENTITY } from '@/lib/project-store';
+import { listProjects, fetchProject, deleteProject, saveProject, ENTITY } from '@/lib/project-store';
 
 const Projects = base44.entities[ENTITY];
 
@@ -38,13 +38,15 @@ export default function Edit() {
   const [view, setView] = useState(null);
   const [projects, setProjects] = useState([]);
   const [error, setError] = useState(null);
+  const [capped, setCapped] = useState(false);
   const [opened, setOpened] = useState(null);   // { project, id, updatedAt }
 
   const refresh = useCallback(async () => {
-    const list = await listProjects(Projects, { limit: 20 });
+    const list = await listProjects(Projects);
     if (!list.ok) { setError(list.message); setProjects([]); return []; }
     setError(null);
     setProjects(list.projects);
+    setCapped(Boolean(list.capped));
     return list.projects;
   }, []);
 
@@ -71,6 +73,16 @@ export default function Edit() {
     setView('edit');
   }
 
+  async function rename(p, name) {
+    // Fetch first: the summary does not carry the timeline, and writing back
+    // only what the card knows would erase every clip in the project.
+    const got = await fetchProject(Projects, p.id);
+    if (!got.ok) { setError(got.message); return; }
+    const out = await saveProject(Projects, p.id, { ...got.project, name });
+    if (!out.ok) setError(out.message);
+    await refresh();
+  }
+
   async function remove(p) {
     // Named in the question. An unnamed confirmation is how somebody deletes
     // the wrong thing.
@@ -95,6 +107,8 @@ export default function Edit() {
       <ProjectPicker
         projects={projects}
         error={error}
+        capped={capped}
+        onRename={rename}
         onOpen={open}
         onNew={() => { setOpened(null); setView('edit'); }}
         onDelete={remove}
