@@ -132,10 +132,14 @@ export const SEED = [
     title: 'Return the supplier costs spreadsheet',
     why: 'Of 82 active models, 32 have no cost. Until then P&L margins are computed over partial data.',
     detail: '28 need a number only you can get. Sent 16 August.' },
-  { ref: '41', owner: 'owner', status: 'pending', priority: 9,
+  { ref: '41', owner: 'owner', status: 'done', priority: 9,
     title: 'Switch on Microsoft sign-in for production',
-    why: 'The code is live; the button stays hidden because the secret is absent.',
-    detail: 'Add the redirect URI in Azure, create a NEW client secret. Dev has the secret listed TWICE from being saved unencrypted once — delete both, add one encrypted.' },
+    why: 'The code was live since 2026-08-11; the button stayed hidden for eleven days because ONE environment variable was absent.',
+    detail: 'DONE 2026-08-23, confirmed by the owner signing in with a real Microsoft account on production. '
+      + 'THE TRAP THAT NEARLY COST A ROUND TRIP: dev and production SHARE one Azure app registration (e10ee86c-…) but need DIFFERENT redirect URIs — dev.voxel-ai.ai and voxel-ai.ai. Azure showed "1 web" redirect, and the one registered was dev’s. My first draft of the steps said "confirm the URI is listed"; the honest step was ADD IT. Without that the sign-in fails AADSTS50011 after everything else looks correct. '
+      + 'The existing Azure secret was left alone deliberately — it is dev’s, and deleting it would have broken dev sign-in. A second secret was created for production. '
+      + 'STILL OPEN, SEPARATELY: the app is multitenant ("All Microsoft account users") and Azure warns that end users cannot consent to an unverified publisher. Personal accounts and this tenant are fine; a customer signing in with a WORK account from their own company may hit "needs admin approval". That is publisher verification (an MPN ID) and it is not this task. '
+      + 'DEV CLEANUP: MICROSOFT_CLIENT_SECRET is listed TWICE on voxel-app-dev. Both are encrypted now, so the original "saved unencrypted" problem is gone — what remains is a duplicate key with nothing defining which one wins. Delete both, add one back. Needs a secret VALUE in hand, so do it while one is available.' },
   { ref: '42', owner: 'owner', status: 'pending', priority: 2,
     title: 'Four small security items from the July audit',
     why: 'Each is a decision waiting on you rather than a code change.',
