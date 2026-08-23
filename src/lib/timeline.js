@@ -138,6 +138,37 @@ const replaceTrack = (project, trackId, fn) => withTracks(
 /** Clips are kept sorted by start time so rendering never has to sort. */
 const sortClips = (clips) => [...clips].sort((a, b) => a.start - b.start || a.id.localeCompare(b.id));
 
+/**
+ * ── UNTOUCHED TRACKS MUST COME BACK AS THE SAME OBJECT ─────────────────────
+ * Every edit used to `.map()` across all tracks and spread each one, so moving
+ * a clip on track 1 produced a brand-new object for track 2 as well — even when
+ * track 2 was empty.
+ *
+ * That is invisible until undo exists. History keeps whole snapshots, and it
+ * can only afford to because unchanged parts are SHARED BY REFERENCE. Rebuild
+ * every track on every edit and a hundred steps of history costs a hundred full
+ * documents instead of a hundred pointers.
+ *
+ * Caught by the test that asserts it, on the first run — a present bug, not the
+ * future regression the test was written for.
+ *
+ * `fn` returns a new clips array. If nothing in it actually changed identity,
+ * the original track object is returned untouched.
+ */
+function mapClips(project, fn) {
+  let anyTrackChanged = false;
+  const tracks = project.tracks.map((track) => {
+    if (track.locked) return track;
+    const clips = fn(track);
+    const same = clips.length === track.clips.length
+      && clips.every((c, i) => c === track.clips[i]);
+    if (same) return track;
+    anyTrackChanged = true;
+    return { ...track, clips };
+  });
+  return anyTrackChanged ? { ...project, tracks } : project;
+}
+
 export function addClip(project, trackId, clip) {
   const track = findTrack(project, trackId);
   if (!track) throw new Error(`No such track: ${trackId}`);
@@ -149,19 +180,14 @@ export function addClip(project, trackId, clip) {
 }
 
 export function removeClip(project, clipId) {
-  return withTracks(project, project.tracks.map((t) => (
-    t.locked ? t : { ...t, clips: t.clips.filter((c) => c.id !== clipId) }
-  )));
+  return mapClips(project, (t) => t.clips.filter((c) => c.id !== clipId));
 }
 
 /** Move a clip along its track. Never negative — the timeline starts at zero. */
 export function moveClip(project, clipId, newStart) {
-  return withTracks(project, project.tracks.map((t) => (t.locked ? t : {
-    ...t,
-    clips: sortClips(t.clips.map((c) => (
-      c.id === clipId ? { ...c, start: round(Math.max(0, newStart)) } : c
-    ))),
-  })));
+  return mapClips(project, (t) => sortClips(t.clips.map((c) => (
+    c.id === clipId ? { ...c, start: round(Math.max(0, newStart)) } : c
+  ))));
 }
 
 /**
@@ -180,9 +206,7 @@ export function moveClip(project, clipId, newStart) {
 export const MIN_CLIP = 1 / 24;
 
 export function trimClip(project, clipId, edge, deltaSeconds) {
-  return withTracks(project, project.tracks.map((t) => (t.locked ? t : {
-    ...t,
-    clips: sortClips(t.clips.map((c) => {
+  return mapClips(project, (t) => sortClips(t.clips.map((c) => {
       if (c.id !== clipId) return c;
       if (edge === 'start') {
         const maxIn = c.out - MIN_CLIP * (c.speed || 1);
@@ -192,8 +216,7 @@ export function trimClip(project, clipId, edge, deltaSeconds) {
       }
       const minOut = c.in + MIN_CLIP * (c.speed || 1);
       return { ...c, out: round(Math.max(minOut, c.out + deltaSeconds)) };
-    })),
-  })));
+    })));
 }
 
 /**
@@ -230,10 +253,8 @@ export function splitClip(project, clipId, atSeconds) {
 
 /** Set any simple property on a clip: speed, volume, fades, name. */
 export function updateClip(project, clipId, patch) {
-  return withTracks(project, project.tracks.map((t) => (t.locked ? t : {
-    ...t,
-    clips: sortClips(t.clips.map((c) => (c.id === clipId ? { ...c, ...patch, id: c.id } : c))),
-  })));
+  return mapClips(project, (t) => sortClips(
+    t.clips.map((c) => (c.id === clipId ? { ...c, ...patch, id: c.id } : c))));
 }
 
 export function addTrack(project, kind, name) {
