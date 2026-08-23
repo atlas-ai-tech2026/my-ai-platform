@@ -21,6 +21,7 @@ import { estimateKieCredits, backfillKieEstimate, KIE_USD_PER_CREDIT,
 import { estimateFalCost, backfillFalEstimate } from './fal-pricing.js';
 import { publicReason } from './sanitize.js';
 import { AGENT_SYSTEM } from './edit-agent-prompt.js';
+import { formatProviderError, providerErrorParts, isProviderRefusal } from './provider-error.js';
 import { normalizeBulkEmails, generateBulkPassword } from './bulk-helpers.js';
 import { mayRedeem, capForInvites, splitInvites, REFUSAL } from './promo-audience.js';
 import { groupByExpiryDay, summarise, actionable, SOON_DAYS,
@@ -604,6 +605,17 @@ function requireFalKey(req, res, next) {
 // refunds through the EXISTING refund path — no new refund logic.
 const falSubscribe = (model, options, label) =>
   withProviderDeadline((signal) => fal.subscribe(model, { ...options, abortSignal: signal }), label);
+
+/**
+ * Log what the PROVIDER actually said, not just the HTTP reason phrase — see
+ * provider-error.js for why this exists and what it cost to learn.
+ * Returns the status so the caller can tell "the provider refused us" from a
+ * real bug on our side.
+ */
+function logProviderError(tag, error) {
+  for (const line of formatProviderError(tag, error)) console.error(line);
+  return providerErrorParts(error).status;
+}
 
 // A provider timeout is a 504, not a 500, and its message is already
 // user-safe. Returns true when it handled the response. The caller's
@@ -2983,8 +2995,13 @@ Keep the original intent. 50–90 words. One paragraph.`;
     }
     return res.json({ prompt: enhanced });
   } catch (e) {
-    console.error('[ENHANCE] ❌ LLM error:', e.message);
-    if (respondIfProviderTimeout(res, e)) return;
+    if (respondIfProviderTimeout(res, e)) { logProviderError('ENHANCE', e); return; }
+    const status = logProviderError('ENHANCE', e);
+    if (isProviderRefusal(status)) {
+      return res.status(502).json({
+        error: 'The prompt enhancer is unavailable — the AI provider refused the request. Your prompt is unchanged.',
+      });
+    }
     return res.status(500).json({ error: 'Enhancer failed: ' + publicError(e.message) });
   }
 });
@@ -3045,8 +3062,15 @@ app.post('/api/edit-agent', verifyJwt, requireNotBanned, enhanceLimiter, require
     // is the only place that can check it against the real project.
     return res.json({ raw: String(raw) });
   } catch (e) {
-    console.error('[EDIT-AGENT] ❌', e.message);
-    if (respondIfProviderTimeout(res, e)) return;
+    if (respondIfProviderTimeout(res, e)) { logProviderError('EDIT-AGENT', e); return; }
+    const status = logProviderError('EDIT-AGENT', e);
+    if (isProviderRefusal(status)) {
+      // NOT "try again" — nothing the customer does will change it, and the
+      // fix is on the account, not in the timeline. Their work is untouched.
+      return res.status(502).json({
+        error: 'The assistant is unavailable — the AI provider refused the request (check the FAL key and balance). Your timeline has not been changed.',
+      });
+    }
     return res.status(500).json({ error: 'The assistant failed: ' + publicError(e.message) });
   }
 });
