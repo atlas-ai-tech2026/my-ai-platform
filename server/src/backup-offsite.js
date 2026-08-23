@@ -33,7 +33,7 @@
 
 import crypto from 'node:crypto';
 import { S3Client, PutObjectCommand, ListObjectsV2Command,
-         DeleteObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
+         DeleteObjectCommand, GetObjectCommand, HeadObjectCommand } from '@aws-sdk/client-s3';
 
 // ---- encryption ----------------------------------------------------------
 
@@ -232,6 +232,42 @@ function offsiteClient(env = process.env) {
     responseChecksumValidation: 'WHEN_REQUIRED',
   });
   return cachedClient;
+}
+
+/**
+ * Does one specific object already exist offsite?
+ *
+ * ── WHY HEAD AND NOT A LISTING ─────────────────────────────────────────────
+ * This answers "has today's backup already been written?" and is called on
+ * every boot, so it has to be the cheapest and most reliable question
+ * available: ONE request for ONE key.
+ *
+ * Deliberately not `listOffsite('backups/').then(keys => keys.includes(k))`.
+ * Listing this bucket is the operation that has been intermittently failing
+ * (see the three blind SOP checks) — building the guard on it would mean that
+ * whenever listing is unwell, the guard fails open and the duplicate backups
+ * come straight back, on exactly the days something is already wrong.
+ *
+ * UNKNOWN IS NOT FALSE. A 404 means "not there" and is a real answer. Anything
+ * else — a timeout, a 500, no credentials — returns null, and the caller must
+ * treat null as "I do not know" rather than "go ahead". Guessing "no" here
+ * would take a broken connection and turn it into a duplicate backup; guessing
+ * "yes" would skip a real one.
+ */
+export async function offsiteObjectExists(key, env = process.env) {
+  if (!offsiteConfigured(env)) return null;
+  try {
+    await offsiteClient(env).send(new HeadObjectCommand({
+      Bucket: env.OFFSITE_S3_BUCKET.trim(),
+      Key: key,
+    }));
+    return true;
+  } catch (err) {
+    const status = err?.$metadata?.httpStatusCode;
+    if (status === 404 || err?.name === 'NotFound') return false;
+    console.error(`[offsite] could not check whether ${key} exists: ${err.message}`);
+    return null;
+  }
 }
 
 /** Upload an already-encrypted archive to the offsite bucket. */

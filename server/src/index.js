@@ -118,7 +118,7 @@ import { loginThrottleVerdict } from './login-throttle.js';
 // M3 (audit 2026-07-28): encrypted second backup destination.
 import {
   encryptBackup, offsiteConfigured, uploadOffsite, missingOffsiteVars, pruneOffsite, prunePrimary,
-  listOffsiteMedia, writeMediaObject, readMediaObject,
+  listOffsiteMedia, writeMediaObject, readMediaObject, offsiteObjectExists,
 } from './backup-offsite.js';
 // H7 (audit 2026-07-28): admin session in an httpOnly cookie + CSRF.
 import {
@@ -6739,8 +6739,101 @@ const autoBackupStatus = {
   offsite_skipped: false,
 };
 
+/**
+ * The archive key for a given UTC day — the same string runAutomatedBackup
+ * writes, so the guard below can ask about exactly the object it would create.
+ *
+ * UTC, not Kuwait: the stamp comes from toISOString(), so the backup "day"
+ * rolls at 03:00 local. Stated because a guard that computed the day
+ * differently from the writer would skip the wrong one for three hours a night.
+ */
+export function archiveKeyFor(day, encrypted) {
+  return `backups/voxel-auto-${day}.ndjson.gz${encrypted ? '.enc' : ''}`;
+}
+
+/**
+ * ── WHY A BACKUP MAY DECLINE TO RUN ────────────────────────────────────────
+ * runAutomatedBackup fires five minutes after EVERY BOOT. Production runs two
+ * instances, so a single deploy produced TWO backups, and eight deploys on
+ * 2026-08-21 produced SIXTEEN — 122.4 MB where 7.6 MB was needed.
+ *
+ * Every one of those copies was valid, which is why nothing complained. What it
+ * cost was a full table scan of production per run, on a 1 vCPU box also
+ * serving customers, with both instances scanning at once. It stayed invisible
+ * until bucket versioning was switched on and the duplicates stopped
+ * overwriting each other.
+ *
+ * TWO DIFFERENT RACES, TWO DIFFERENT ANSWERS:
+ *
+ *   ACROSS TIME (deploy at 09:00, another at 14:00) — the first run's archive
+ *   is already in the bucket, so asking "does today's key exist?" settles it.
+ *
+ *   AT THE SAME INSTANT (both instances booting from one deploy) — neither has
+ *   written anything yet, so both would see "no" and both would proceed. The
+ *   existence check alone takes 16 down to 2, not to 1. A Postgres advisory
+ *   lock decides which instance goes; the other returns immediately.
+ *
+ * THE BOOT RUN IS KEPT, NOT DELETED. On a fresh environment it is the only
+ * thing that produces a first backup — and it is what gave the owner a verified
+ * archive five minutes after rotating the passphrase on 2026-08-23. The problem
+ * was never that it runs on boot; it was that nothing asked whether it needed to.
+ *
+ * FAILING OPEN IS DELIBERATE. If the existence check cannot reach Backblaze it
+ * returns null, and null means "I do not know" — in which case the backup RUNS.
+ * A duplicate archive is waste; a skipped one is a missing day, and only one of
+ * those is recoverable.
+ */
+const BACKUP_LOCK_ID = 8_432_119; // arbitrary, stable, this job only
+
+async function claimTodaysBackup() {
+  const day = new Date().toISOString().slice(0, 10);
+  const key = archiveKeyFor(day, Boolean(process.env.BACKUP_ENCRYPTION_PASSPHRASE));
+
+  const already = await offsiteObjectExists(key).catch(() => null);
+  if (already === true) {
+    console.log(`[auto-backup] skipped — ${key} already exists offsite`);
+    return null;
+  }
+  if (already === null) {
+    console.warn('[auto-backup] could not confirm whether today’s archive exists — '
+      + 'running anyway. A duplicate is waste; a missing day is not recoverable.');
+  }
+
+  // A dedicated client: a session-level advisory lock belongs to its connection,
+  // so taking it on a pooled client and handing that connection back would leak
+  // the lock into whatever query ran next.
+  let client;
+  try {
+    client = await pool.connect();
+  } catch (e) {
+    console.warn(`[auto-backup] no database client for the lock (${e.message}) — running unguarded`);
+    return { key, release: async () => {} };
+  }
+  const { rows } = await client.query('SELECT pg_try_advisory_lock($1) AS got', [BACKUP_LOCK_ID]);
+  if (!rows[0]?.got) {
+    client.release();
+    console.log('[auto-backup] skipped — the other instance is already backing up');
+    return null;
+  }
+  return {
+    key,
+    release: async () => {
+      try { await client.query('SELECT pg_advisory_unlock($1)', [BACKUP_LOCK_ID]); } catch {}
+      client.release();
+    },
+  };
+}
+
 async function runAutomatedBackup() {
   if (!dbReady() || !spacesReady()) return;
+
+  const claim = await claimTodaysBackup().catch((e) => {
+    // The guard must never be the reason a backup does not happen.
+    console.error(`[auto-backup] guard failed (${e.message}) — running anyway`);
+    return { key: null, release: async () => {} };
+  });
+  if (!claim) return;
+
   try {
     const gz = zlib.createGzip();
     const chunks = [];
@@ -6918,6 +7011,12 @@ async function runAutomatedBackup() {
   } catch (err) {
     autoBackupStatus.last_error = err.message;
     console.error('[auto-backup] FAILED:', err.message);
+  } finally {
+    // Released whether the backup succeeded, failed, or threw. A session-level
+    // advisory lock survives its own function; left held, the OTHER instance
+    // would skip every run until this process restarted — turning a fix for too
+    // many backups into a cause of none.
+    await claim.release();
   }
 }
 
