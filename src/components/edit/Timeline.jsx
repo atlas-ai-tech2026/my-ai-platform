@@ -26,6 +26,7 @@ import {
   trackGaps, closeGap,
 } from '@/lib/timeline';
 import { snapTargets, snapStart, snapEdge } from '@/lib/timeline-snap';
+import Tip from './Tip';
 
 // ── ZOOM IS CONTINUOUS AND LOGARITHMIC ────────────────────────────────────
 // It was seven fixed steps — 2, 5, 10, 20, 40, 80, 160 pixels per second — so
@@ -280,26 +281,23 @@ export default function Timeline({
     <div className="select-none" data-testid="timeline">
       {/* ── toolbar ─────────────────────────────────────────────────── */}
       <div className="flex items-center gap-2 px-3 py-2 border-b border-border">
-        <button
+        <Tip label="Split at playhead (C)"><button
           onClick={splitAtPlayhead}
           disabled={!selectedId}
-          title="Split at playhead (C)"
           aria-label="Split at playhead"
           className="p-1.5 rounded hover:bg-background-elevated disabled:opacity-30"
         >
           <Scissors className="w-4 h-4" />
-        </button>
+        </button></Tip>
 
         {/* The three tools. Labels lifted verbatim from ChatCut's tooltips —
             an editor who has used one should not have to learn a new word for
             the same thing. */}
         <div className="flex items-center gap-0.5 mr-1" role="group" aria-label="Tool">
           {TOOLS.map(({ id, label, icon: Icon }) => (
-            <button
-              key={id}
+            <Tip key={id} label={label}><button
               type="button"
               onClick={() => onToolChange?.(id)}
-              title={label}
               aria-label={label}
               aria-pressed={tool === id}
               data-testid={`tool-${id}`}
@@ -307,22 +305,21 @@ export default function Timeline({
                 ${tool === id ? 'text-primary bg-primary/10' : 'text-foreground-muted'}`}
             >
               <Icon className="w-4 h-4" />
-            </button>
+            </button></Tip>
           ))}
         </div>
 
         {/* Named "Snapping (S)" after ChatCut's own tooltip — matching the
             wording an editor already knows costs nothing and saves explaining. */}
-        <button
+        <Tip label={`Snapping (S) — ${snapping ? 'on' : 'off'}`}><button
           onClick={() => onSnappingChange?.(!snapping)}
-          title={`Snapping (S) — ${snapping ? 'on' : 'off'}`}
           aria-label="Snapping"
           aria-pressed={snapping}
           data-testid="snap-toggle"
           className={`p-1.5 rounded hover:bg-background-elevated ${snapping ? 'text-primary' : 'text-foreground-muted'}`}
         >
           <Magnet className="w-4 h-4" />
-        </button>
+        </button></Tip>
 
         <span className="ml-auto font-mono text-xs text-foreground-muted tabular-nums">
           {fmtTime(playhead)} / {fmtTime(duration)}
@@ -347,9 +344,14 @@ export default function Timeline({
               className="flex items-center gap-1.5 px-2 border-b border-border text-xs"
             >
               <span className="flex-1 truncate text-foreground-secondary">{track.name}</span>
-              <TrackToggle on={!track.hidden} On={Eye} Off={EyeOff} label={`${track.name} visibility`} />
-              <TrackToggle on={!track.muted} On={Volume2} Off={VolumeX} label={`${track.name} sound`} />
-              <TrackToggle on={!track.locked} On={Unlock} Off={Lock} label={`${track.name} lock`} />
+              {/* Wording lifted from ChatCut: "Hide track", not "visibility".
+                  A label should say what the CLICK does, not name a property. */}
+              <TrackToggle on={!track.hidden} On={Eye} Off={EyeOff}
+                label={`${track.name} visibility`} tip={['Hide track', 'Show track']} />
+              <TrackToggle on={!track.muted} On={Volume2} Off={VolumeX}
+                label={`${track.name} sound`} tip={['Mute track', 'Unmute track']} />
+              <TrackToggle on={!track.locked} On={Unlock} Off={Lock}
+                label={`${track.name} lock`} tip={['Lock track', 'Unlock track']} />
             </div>
           ))}
         </div>
@@ -499,18 +501,20 @@ export default function Timeline({
   );
 }
 
-function TrackToggle({ on, On, Off, label }) {
+function TrackToggle({ on, On, Off, label, tip = [] }) {
   const [state, setState] = useState(on);
   const Icon = state ? On : Off;
   return (
-    <button
-      onClick={() => setState((v) => !v)}
-      aria-label={label}
-      aria-pressed={!state}
-      className="p-0.5 rounded hover:bg-background-elevated text-foreground-muted"
-    >
-      <Icon className="w-3 h-3" />
-    </button>
+    <Tip label={state ? tip[0] : tip[1]}>
+      <button
+        onClick={() => setState((v) => !v)}
+        aria-label={label}
+        aria-pressed={!state}
+        className="p-0.5 rounded hover:bg-background-elevated text-foreground-muted"
+      >
+        <Icon className="w-3 h-3" />
+      </button>
+    </Tip>
   );
 }
 

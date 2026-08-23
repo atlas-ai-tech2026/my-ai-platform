@@ -25,6 +25,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Play, Pause, AlertCircle } from 'lucide-react';
 
 import { activeAt, sourceTimeAt, sourceOf, projectDuration } from '@/lib/timeline';
+import Tip from './Tip';
 
 /** Past this, a seek is a jump rather than a nudge, and we set it directly. */
 const SEEK_TOLERANCE = 0.25;
@@ -155,13 +156,15 @@ export default function Viewer({ project, playhead = 0, onScrub, playing = false
       </div>
 
       <div className="flex items-center gap-3">
-        <button
-          onClick={() => onPlayingChange?.(!playing)}
-          aria-label={playing ? 'Pause' : 'Play'}
-          className="p-2 rounded-full bg-primary hover:bg-primary-hover text-white"
-        >
-          {playing ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
-        </button>
+        <Tip label={playing ? 'Pause (Space)' : 'Play (Space)'}>
+          <button
+            onClick={() => onPlayingChange?.(!playing)}
+            aria-label={playing ? 'Pause' : 'Play'}
+            className="p-2 rounded-full bg-primary hover:bg-primary-hover text-white"
+          >
+            {playing ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
+          </button>
+        </Tip>
 
         {/* The prompt that made this shot — the thing no upload-based editor
             has, shown because it is the reason this clip looks like it does. */}

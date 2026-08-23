@@ -117,6 +117,7 @@ export default function RegeneratePanel({ clip, source, onRegenerate, busy = fal
           type="button"
           onClick={go}
           disabled={busy || !prompt.trim()}
+          aria-label="Remake this shot"
           data-testid="regenerate-button"
           className="inline-flex items-center gap-1.5 rounded bg-primary px-3 py-1.5 text-xs text-white hover:bg-primary-hover disabled:opacity-40"
         >

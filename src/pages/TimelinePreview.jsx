@@ -71,6 +71,7 @@ import {
 import MediaLibrary from '@/components/edit/MediaLibrary';
 import RegeneratePanel from '@/components/edit/RegeneratePanel';
 import RatioPicker from '@/components/edit/RatioPicker';
+import Tip from '@/components/edit/Tip';
 import { base44 } from '@/api/base44Client';
 import { sourceOf, replaceClipSource, locateClip } from '@/lib/timeline';
 import { measureDuration } from '@/lib/media-library';
@@ -366,32 +367,32 @@ export default function TimelinePreview() {
         </span>
 
         <div className="ml-auto flex items-center gap-2">
-          <button
+          <Tip label="Undo (⌘Z)" side="bottom"><button
             onClick={() => setHistory(undo)}
             disabled={!canUndo(history)}
-            title="Undo (⌘Z)"
+            aria-label="Undo"
             className="p-1.5 rounded border border-border text-xs disabled:opacity-30"
           >
             <Undo2 className="w-3.5 h-3.5" />
-          </button>
-          <button
+          </button></Tip>
+          <Tip label="Redo (⇧⌘Z)" side="bottom"><button
             onClick={() => setHistory(redo)}
             disabled={!canRedo(history)}
-            title="Redo (⇧⌘Z)"
+            aria-label="Redo"
             className="p-1.5 rounded border border-border text-xs disabled:opacity-30"
           >
             <Redo2 className="w-3.5 h-3.5" />
-          </button>
+          </button></Tip>
 
-          <button
+          <Tip side="bottom" label={layout.focused ? 'Show the panels (`)' : 'Big picture — hide the panels (`)'}><button
             onClick={layout.focusViewer}
-            title={layout.focused ? 'Show the panels (`)' : 'Big picture — hide the panels (`)'}
+            aria-label="Big picture"
             aria-pressed={layout.focused}
             data-testid="focus-viewer"
             className={`p-1.5 rounded border border-border ${layout.focused ? 'text-primary' : ''}`}
           >
             {layout.focused ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
-          </button>
+          </button></Tip>
 
           <button
             onClick={doExport}
@@ -449,15 +450,15 @@ export default function TimelinePreview() {
           <>
           <PanelLabel
             action={
-              <button
+              <Tip label="Hide this shot"><button
                 type="button"
                 onClick={layout.toggleLeft}
-                title="Hide this shot"
+                aria-label="Hide this shot"
                 data-testid="collapse-left"
                 className="text-foreground-muted hover:text-white"
               >
                 <PanelLeftClose className="w-3.5 h-3.5" />
-              </button>
+              </button></Tip>
             }
           >
             This shot
@@ -560,15 +561,15 @@ export default function TimelinePreview() {
                     {t.label}
                   </button>
                 ))}
-                <button
+                <Tip label="Hide your generations"><button
                   type="button"
                   onClick={layout.toggleMiddle}
-                  title="Hide your generations"
+                  aria-label="Hide your generations"
                   data-testid="collapse-middle"
                   className="ml-auto px-3 text-foreground-muted hover:text-white"
                 >
                   <PanelLeftClose className="w-3.5 h-3.5" />
-                </button>
+                </button></Tip>
               </div>
 
               <div className="flex-1 min-h-0 overflow-y-auto p-3">

@@ -20,6 +20,7 @@
 import React from 'react';
 import { Crop, Maximize } from 'lucide-react';
 
+import Tip from './Tip';
 import { RATIOS } from '@/lib/edit-ops';
 import { dimensionsFor } from '@/lib/edit-ffmpeg-args';
 
@@ -36,15 +37,15 @@ export default function RatioPicker({ ratio = '16:9', mode = 'crop', quality = 1
           const dim = dimensionsFor(id, quality);
           const active = id === ratio;
           return (
+            // The tip says what the shape is FOR, plus the pixels. "9:16"
+            // alone means nothing to somebody who just wants it on Instagram.
+            <Tip key={id} label={`${spec.label}${dim ? ` — ${dim.width}×${dim.height}` : ''}`}>
             <button
-              key={id}
               type="button"
               onClick={() => onChange?.({ ratio: id, mode })}
               aria-pressed={active}
+              aria-label={`${id} — ${spec.label}`}
               data-testid={`ratio-${id}`}
-              // The label is what it is FOR, not just the numbers. "9:16" means
-              // nothing to somebody who just wants it on Instagram.
-              title={`${spec.label}${dim ? ` — ${dim.width}×${dim.height}` : ''}`}
               className={`px-2 py-1 rounded text-[11px] font-mono border transition-colors
                 ${active
                   ? 'border-primary text-white bg-primary/15'
@@ -52,19 +53,20 @@ export default function RatioPicker({ ratio = '16:9', mode = 'crop', quality = 1
             >
               {id}
             </button>
+            </Tip>
           );
         })}
       </div>
 
       <div className="flex items-center gap-1" role="group" aria-label="How to fit">
         {MODES.map(({ id, label, icon: Icon, hint }) => (
+          <Tip key={id} label={hint}>
           <button
-            key={id}
             type="button"
             onClick={() => onChange?.({ ratio, mode: id })}
             aria-pressed={id === mode}
+            aria-label={label}
             data-testid={`mode-${id}`}
-            title={hint}
             className={`inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] border transition-colors
               ${id === mode
                 ? 'border-primary text-white bg-primary/15'
@@ -72,6 +74,7 @@ export default function RatioPicker({ ratio = '16:9', mode = 'crop', quality = 1
           >
             <Icon className="w-3 h-3" /> {label}
           </button>
+          </Tip>
         ))}
       </div>
 
