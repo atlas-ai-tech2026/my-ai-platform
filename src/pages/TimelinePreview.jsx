@@ -19,7 +19,17 @@ import {
   splitClip, removeClip, projectDuration, clipEnd,
 } from '@/lib/timeline';
 import MediaLibrary from '@/components/edit/MediaLibrary';
+import RegeneratePanel from '@/components/edit/RegeneratePanel';
 import { base44 } from '@/api/base44Client';
+import { sourceOf, replaceClipSource, locateClip } from '@/lib/timeline';
+import { measureDuration } from '@/lib/media-library';
+
+/** The generate endpoints take a bearer token directly — they are raw fetches
+ *  rather than the axios client, exactly as Video.jsx does it. */
+function authJsonHeaders() {
+  const token = localStorage.getItem('voxel_token');
+  return { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) };
+}
 import { createHistory, commit, undo, redo, canUndo, canRedo } from '@/lib/timeline-history';
 import { useEditorShortcuts, SHORTCUTS } from '@/lib/useEditorShortcuts';
 import { useAutosave, loadProject, setAside, clearProject } from '@/lib/editor-autosave';
@@ -91,6 +101,7 @@ export default function TimelinePreview() {
   const [exporting, setExporting] = useState(null);   // {stage} while running
   const [result, setResult] = useState(null);         // {url, bytes, warnings}
   const [exportError, setExportError] = useState(null);
+  const [regenerating, setRegenerating] = useState(false);
 
   const project = history.present;
   const save = useAutosave(project);
@@ -123,6 +134,82 @@ export default function TimelinePreview() {
       out: seconds,
     }));
     change(next, {});
+  }
+
+  /**
+   * Remake the selected shot and drop it back into the same hole.
+   *
+   * Lives at the page level on purpose: this is the ONE operation in the
+   * editor that spends credits, and the call, the polling and the history
+   * record belong together in one visible place rather than inside a panel.
+   *
+   * The new video becomes a NEW source. The original stays in the document, so
+   * undo puts the first take straight back and a split clip's sibling is
+   * untouched — see replaceClipSource.
+   */
+  async function regenerateSelected({ prompt, seconds }) {
+    const found = locateClip(project, selected);
+    const src = found && sourceOf(project, found.clip);
+    if (!src) throw new Error('That clip is no longer on the timeline.');
+
+    setRegenerating(true);
+    try {
+      const res = await fetch('/api/generate-video', {
+        method: 'POST',
+        headers: authJsonHeaders(),
+        body: JSON.stringify({
+          model: src.model, prompt, duration: seconds,
+          aspect_ratio: src.ratio || project.ratio,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.job_id) {
+        // The server's own words — "Not enough credits" is actionable and
+        // "Generation failed" is not.
+        throw new Error(data.error || `The request was refused (${res.status}).`);
+      }
+
+      const url = await pollForVideo(data.job_id, data.model_id);
+
+      // Measure the real length rather than trusting what we asked for: a
+      // model asked for 5s often returns 4.8, and that difference is exactly
+      // what makes the clip point past the end of its own file.
+      const actual = await measureDuration(url);
+
+      const newSource = {
+        ...src,
+        id: `gen:${data.job_id}`,
+        url,
+        prompt,
+        generation_id: data.job_id,
+        regenerated_from: src.id,
+      };
+      const { project: next, note } = replaceClipSource(project, selected, newSource, actual);
+      change(next, {});
+      return { note };
+    } finally {
+      setRegenerating(false);
+    }
+  }
+
+  /** Poll until the provider finishes. Bounded, because a job that never
+   *  resolves must become a message rather than a spinner forever. */
+  async function pollForVideo(jobId, modelId, { everyMs = 5000, maxMinutes = 10 } = {}) {
+    const deadline = Date.now() + maxMinutes * 60_000;
+    while (Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, everyMs));
+      const res = await fetch('/api/video-status', {
+        method: 'POST', headers: authJsonHeaders(),
+        body: JSON.stringify({ job_id: jobId, model_id: modelId }),
+      });
+      const d = await res.json();
+      const status = String(d.status || '').toUpperCase();
+      if (status === 'COMPLETED' && d.video_url) return d.video_url;
+      if (status === 'FAILED' || status === 'ERROR') {
+        throw new Error(d.error || 'The model could not make that shot.');
+      }
+    }
+    throw new Error(`It is still running after ${maxMinutes} minutes. It may still finish — check your Video history.`);
   }
 
   async function doExport() {
@@ -269,6 +356,26 @@ export default function TimelinePreview() {
             the model and the camera settings that made it.
           </p>
           <MediaLibrary entity={base44.entities.GenerationHistory} onAdd={addFromLibrary} />
+        </div>
+
+        {/* ── REMAKE A SHOT ──────────────────────────────────────────────
+            The one thing an upload-based editor can never do, because their
+            user arrived with a file and no history. */}
+        <div className="glass rounded-xl border border-border p-4 mb-4">
+          <h2 className="text-sm font-medium text-white mb-1">Remake this shot</h2>
+          <p className="text-xs text-foreground-muted mb-3">
+            Change the words and generate a new take in the same place. Everything cut
+            around it stays put — and the original is one undo away.
+          </p>
+          <RegeneratePanel
+            clip={locateClip(project, selected)?.clip || null}
+            source={(() => {
+              const f = locateClip(project, selected);
+              return f ? sourceOf(project, f.clip) : null;
+            })()}
+            onRegenerate={regenerateSelected}
+            busy={regenerating}
+          />
         </div>
 
         {/* ── EXPORT ─────────────────────────────────────────────────────

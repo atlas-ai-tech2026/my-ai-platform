@@ -337,6 +337,69 @@ export function updateClip(project, clipId, patch) {
     t.clips.map((c) => (c.id === clipId ? { ...c, ...patch, id: c.id } : c))));
 }
 
+/**
+ * Point one clip at a NEW source — the operation behind "regenerate this shot".
+ *
+ * ── WHY A NEW SOURCE AND NOT AN OVERWRITE ──────────────────────────────────
+ * Sources are shared. Split a clip in six and all six reference one source, so
+ * rewriting that source's url would silently remake five other shots the
+ * customer never touched. It also makes undo impossible: the original would be
+ * gone from the document, not just unreferenced.
+ *
+ * ── THE PART THAT IS EASY TO GET WRONG ─────────────────────────────────────
+ * The remade shot is rarely the same LENGTH. A model asked for five seconds
+ * may return 4.8. If in/out are carried across untouched they now point past
+ * the end of the new file, and ffmpeg's trim happily accepts a range that does
+ * not exist — the export comes back with black on the end, or the concat
+ * lengths stop matching what the timeline showed.
+ *
+ * So the window is clamped to what the new source actually contains, and when
+ * that changes anything a NOTE is returned. It has to be returned rather than
+ * logged: the customer chose to remake one shot, and the edit around it just
+ * moved. Being told is the difference between a tool and a surprise.
+ *
+ * The clip keeps its id, its position and its track. Only the material under
+ * it changes.
+ */
+export function replaceClipSource(project, clipId, source, newDuration) {
+  const found = locateClip(project, clipId);
+  if (!found) return { project, note: null };
+  if (!source?.id) return { project, note: null };
+
+  const { clip } = found;
+  const withSource = addSource(project, source);
+
+  const available = Number(newDuration);
+  const hasLength = Number.isFinite(available) && available > 0;
+
+  let nextIn = clip.in;
+  let nextOut = clip.out;
+  let note = null;
+
+  if (hasLength) {
+    // The in point can also fall off the end — a clip trimmed to start at 4s
+    // pointed at a 3-second remake has nothing left at all.
+    nextIn = Math.min(clip.in, Math.max(0, available - MIN_CLIP));
+    nextOut = Math.min(clip.out, available);
+    if (nextOut - nextIn < MIN_CLIP) {
+      nextIn = 0;
+      nextOut = Math.min(available, Math.max(MIN_CLIP, clip.out - clip.in));
+    }
+
+    const was = round((clip.out - clip.in) / (clip.speed || 1));
+    const now = round((nextOut - nextIn) / (clip.speed || 1));
+    if (Math.abs(was - now) > 0.001) {
+      note = `The new shot is ${available.toFixed(1)}s, so this clip is now ${now.toFixed(1)}s instead of ${was.toFixed(1)}s.`;
+    }
+  }
+
+  return {
+    project: mapClips(withSource, (t) => sortClips(t.clips.map((c) => (
+      c.id === clipId ? { ...c, sourceId: source.id, in: nextIn, out: nextOut } : c)))),
+    note,
+  };
+}
+
 export function addTrack(project, kind, name) {
   if (!TRACK_KINDS.includes(kind)) throw new Error(`Unknown track kind: ${kind}`);
   const n = project.tracks.filter((t) => t.kind === kind).length + 1;

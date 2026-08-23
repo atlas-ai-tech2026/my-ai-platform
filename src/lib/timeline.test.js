@@ -14,7 +14,7 @@ import {
   createProject, createClip, addClip, removeClip, moveClip, trimClip, splitClip,
   updateClip, addTrack, locateClip, activeAt, sourceTimeAt,
   clipDuration, clipEnd, projectDuration, MIN_CLIP, TRACK_KINDS, __resetIds,
-  trackGaps, closeGap,
+  trackGaps, closeGap, addSource, replaceClipSource,
 } from './timeline.js';
 
 beforeEach(__resetIds);
@@ -321,5 +321,89 @@ describe('gaps — the black silence nobody is told about', () => {
     p = addClip(p, v, createClip({ kind: 'video', sourceId: 'b', start: 20, in: 0, out: 5 }));
     const locked = { ...p, tracks: p.tracks.map((t) => ({ ...t, locked: true })) };
     expect(closeGap(locked, v, 5)).toBe(locked);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+describe('replaceClipSource — remaking one shot in place', () => {
+  const build = () => {
+    __resetIds();
+    let p = createProject({ name: 'R' });
+    p = addSource(p, { id: 'old', url: 'old.mp4', prompt: 'a car at noon', model_id: 'm1' });
+    const v = p.tracks[0].id;
+    p = addClip(p, v, createClip({ kind: 'video', sourceId: 'old', name: 'shot', start: 3, in: 1, out: 6 }));
+    return { p, clipId: p.tracks[0].clips[0].id };
+  };
+  const fresh = { id: 'new', url: 'new.mp4', prompt: 'a car at night', model_id: 'm1' };
+
+  it('keeps the clip where it is and only changes the material under it', () => {
+    const { p, clipId } = build();
+    const { project } = replaceClipSource(p, clipId, fresh, 10);
+    const c = project.tracks[0].clips[0];
+    expect(c.id, 'the clip was replaced rather than repointed').toBe(clipId);
+    expect(c.start).toBe(3);
+    expect(c.sourceId).toBe('new');
+    expect(c.in).toBe(1);
+    expect(c.out).toBe(6);
+  });
+
+  it('KEEPS the old source, because other clips may still use it', () => {
+    // Splitting a clip six ways leaves six clips on one source. Overwriting it
+    // would silently remake five shots nobody touched — and undo could not
+    // bring the original back, because it would be gone from the document.
+    const { p, clipId } = build();
+    const { project } = replaceClipSource(p, clipId, fresh, 10);
+    expect(project.sources.old, 'the original source was destroyed').toBeTruthy();
+    expect(project.sources.new).toBeTruthy();
+  });
+
+  it('a split clip keeps its sibling on the ORIGINAL shot', () => {
+    const { p, clipId } = build();
+    const split = splitClip(p, clipId, 5);
+    const [first, second] = split.tracks[0].clips;
+    const { project } = replaceClipSource(split, first.id, fresh, 10);
+    expect(project.tracks[0].clips[0].sourceId).toBe('new');
+    expect(project.tracks[0].clips[1].sourceId, 'remaking one half remade both').toBe('old');
+    expect(second.sourceId).toBe('old');
+  });
+
+  it('CLAMPS the window when the remade shot is shorter, and says so', () => {
+    // A model asked for 5s may return 4.8. Carried across untouched, in/out
+    // point past the end of the new file — ffmpeg accepts the range and the
+    // export comes back with black on the end.
+    const { p, clipId } = build();          // in 1 → out 6, so 5s of material
+    const { project, note } = replaceClipSource(p, clipId, fresh, 4);
+    const c = project.tracks[0].clips[0];
+    expect(c.out).toBeLessThanOrEqual(4);
+    expect(note, 'the edit changed length and nobody was told').toBeTruthy();
+    expect(note).toMatch(/4\.0s/);
+  });
+
+  it('says NOTHING when the length is unchanged', () => {
+    const { p, clipId } = build();
+    expect(replaceClipSource(p, clipId, fresh, 10).note).toBe(null);
+  });
+
+  it('recovers when even the IN point falls off the end', () => {
+    // A clip trimmed to start at 1s, pointed at a 0.5s remake, has nothing
+    // left. It must still be a valid clip rather than an inverted range.
+    const { p, clipId } = build();
+    const { project } = replaceClipSource(p, clipId, fresh, 0.5);
+    const c = project.tracks[0].clips[0];
+    expect(c.out).toBeGreaterThan(c.in);
+    expect(c.in).toBeGreaterThanOrEqual(0);
+    expect(c.out).toBeLessThanOrEqual(0.5);
+  });
+
+  it('leaves the window alone when the new length is unknown', () => {
+    const { p, clipId } = build();
+    const { project, note } = replaceClipSource(p, clipId, fresh, null);
+    expect(project.tracks[0].clips[0].out).toBe(6);
+    expect(note).toBe(null);
+  });
+
+  it('an unknown clip changes nothing', () => {
+    const { p } = build();
+    expect(replaceClipSource(p, 'nope', fresh, 5).project).toBe(p);
   });
 });
