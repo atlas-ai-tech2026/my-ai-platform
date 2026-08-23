@@ -53,6 +53,46 @@ export const newId = (prefix = 'c') => `${prefix}${(seq += 1).toString(36)}`;
 /** Reset between tests so ids are predictable. Never called in the app. */
 export const __resetIds = () => { seq = 0; };
 
+/**
+ * Move the counter PAST every id already in a document. Call this immediately
+ * after loading a saved project, before anything can add to it.
+ *
+ * ── WHY THIS EXISTS, AND WHY IT IS NOT OPTIONAL ────────────────────────────
+ * `seq` lives in this module, so it restarts at 0 on every page load. Restore
+ * a project containing c1 c2 c3, add one clip, and that clip is ALSO c1.
+ *
+ * Nothing throws. The timeline looks right. But removeClip('c1') now deletes
+ * whichever the array reaches first, splitClip patches one and leaves the
+ * other, and locateClip answers about the wrong clip. The damage arrives
+ * minutes later, on a second session, looking like the editor randomly ate
+ * somebody's work — and it is unreportable, because the person cannot say
+ * what they did to cause it.
+ *
+ * Autosave is what makes it reachable at all: without persistence, ids only
+ * ever have to be unique within one tab's lifetime, which they are. This is
+ * the bug that ships WITH the feature that was supposed to protect the work.
+ *
+ * Only track and clip ids are scanned. Source keys are caller-supplied
+ * ('racing', a generation id) and are not from this counter.
+ */
+export function seedIdsFrom(project) {
+  let max = seq;
+  const consider = (id) => {
+    if (typeof id !== 'string' || id.length < 2) return;
+    const rest = id.slice(1);
+    const n = Number.parseInt(rest, 36);
+    // Round-trip so a hand-written id like "tXX-2" cannot push the counter to
+    // an absurd number on the strength of a partial parse.
+    if (Number.isFinite(n) && n.toString(36) === rest && n > max) max = n;
+  };
+  for (const track of project?.tracks || []) {
+    consider(track.id);
+    for (const clip of track.clips || []) consider(clip.id);
+  }
+  seq = max;
+  return seq;
+}
+
 const round = (n) => Math.round(n * 1000) / 1000;
 
 /**

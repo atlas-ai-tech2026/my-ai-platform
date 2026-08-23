@@ -10,7 +10,7 @@
 // pages.config.js and has no ROUTE_META entry, so nothing links to it and no
 // crawler will find it.
 
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 
 import Timeline from '@/components/edit/Timeline';
 import Viewer from '@/components/edit/Viewer';
@@ -20,6 +20,7 @@ import {
 } from '@/lib/timeline';
 import { createHistory, commit, undo, redo, canUndo, canRedo } from '@/lib/timeline-history';
 import { useEditorShortcuts, SHORTCUTS } from '@/lib/useEditorShortcuts';
+import { useAutosave, loadProject, setAside, clearProject } from '@/lib/editor-autosave';
 
 function demoProject() {
   __resetIds();
@@ -46,13 +47,46 @@ function demoProject() {
   return p;
 }
 
+/**
+ * What to open with. Runs once, before anything can write.
+ *
+ * The order matters: an unreadable save is moved ASIDE here, in the same
+ * breath as deciding to start fresh. Leave it in place and the new project's
+ * first autosave — 800ms later — writes over the only copy of the damaged one.
+ */
+function boot() {
+  const out = loadProject();
+  if (out.ok) {
+    return { project: out.project, savedAt: out.savedAt, notice: null };
+  }
+  if (out.reason === 'corrupt' || out.reason === 'future-schema') {
+    const where = setAside(out.raw);
+    return {
+      project: demoProject(),
+      savedAt: null,
+      notice: where ? `${out.message} (kept at ${where})` : out.message,
+    };
+  }
+  // 'empty' or 'no-storage' — nothing to restore. A no-storage browser is
+  // reported by the autosave status below, not here.
+  return { project: demoProject(), savedAt: null, notice: null };
+}
+
+const clockOf = (ms) => new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
 export default function TimelinePreview() {
-  const [history, setHistory] = useState(() => createHistory(demoProject()));
+  const opened = useRef(null);
+  if (opened.current === null) opened.current = boot();
+
+  const [history, setHistory] = useState(() => createHistory(opened.current.project));
+  const [notice, setNotice] = useState(opened.current.notice);
+  const [restored, setRestored] = useState(Boolean(opened.current.savedAt));
   const [selected, setSelected] = useState(null);
   const [playhead, setPlayhead] = useState(6);
   const [playing, setPlaying] = useState(false);
 
   const project = history.present;
+  const save = useAutosave(project);
   const change = (next, opts) => setHistory((h) => commit(h, next, opts));
   const duration = projectDuration(project);
   const seek = (t) => setPlayhead(Math.min(duration, Math.max(0, t)));
@@ -97,7 +131,49 @@ export default function TimelinePreview() {
           <span className="self-center text-xs text-foreground-muted font-mono">
             {history.past.length} undo · {history.future.length} redo
           </span>
+
+          {/* ── THE SAVE STATUS ──────────────────────────────────────────
+              Not decoration. A browser that blocks storage, or one whose
+              quota is full, silently saves NOTHING — and the only way
+              anybody finds out is here, in time to export instead. */}
+          <span
+            data-testid="save-status"
+            className={`self-center ml-auto text-xs ${save.status === 'error' ? 'text-primary' : 'text-foreground-muted'}`}
+          >
+            {save.status === 'error' && `⚠ ${save.error}`}
+            {save.status === 'saving' && 'Saving…'}
+            {save.status === 'saved' && `Saved ${clockOf(save.at)}`}
+            {save.status === 'idle' && 'Not saved yet'}
+          </span>
         </div>
+
+        {/* An unreadable or newer-than-us save. Said out loud, with where it
+            went, because the alternative is a project silently replaced by an
+            empty one. */}
+        {notice && (
+          <div className="mb-4 rounded-lg border border-primary/40 bg-primary/10 px-3 py-2 text-xs text-foreground-secondary">
+            {notice}
+            <button onClick={() => setNotice(null)} className="ml-3 underline">Dismiss</button>
+          </div>
+        )}
+
+        {restored && (
+          <div className="mb-4 flex items-center gap-3 rounded-lg border border-border px-3 py-2 text-xs text-foreground-secondary">
+            <span>Restored the project you left open.</span>
+            <button
+              onClick={() => {
+                clearProject();
+                setHistory(createHistory(demoProject()));
+                setSelected(null);
+                setRestored(false);
+              }}
+              className="underline"
+            >
+              Start fresh instead
+            </button>
+            <button onClick={() => setRestored(false)} className="ml-auto underline">Dismiss</button>
+          </div>
+        )}
 
         <div className="max-w-3xl mb-4">
           <Viewer
