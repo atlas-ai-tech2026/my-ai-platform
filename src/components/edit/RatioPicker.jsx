@@ -28,7 +28,7 @@ const MODES = [
   { id: 'pad', label: 'Fit', icon: Maximize, hint: 'Keeps everything — adds black bars' },
 ];
 
-export default function RatioPicker({ ratio = '16:9', mode = 'crop', quality = 1080, onChange }) {
+export default function RatioPicker({ ratio = '16:9', mode = 'crop', quality = 1080, onChange, compact = false }) {
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
       <div className="flex items-center gap-1" role="group" aria-label="Video shape">
@@ -75,13 +75,17 @@ export default function RatioPicker({ ratio = '16:9', mode = 'crop', quality = 1
         ))}
       </div>
 
-      <span className="text-[10px] text-foreground-muted">
-        {RATIOS[ratio]?.label}
-        {(() => {
-          const d = dimensionsFor(ratio, quality);
-          return d ? ` · ${d.width}×${d.height}` : '';
-        })()}
-      </span>
+      {/* Dropped in the panel header, where space is the scarce thing. The
+          information is not lost — it is on every button's tooltip. */}
+      {!compact && (
+        <span className="text-[10px] text-foreground-muted">
+          {RATIOS[ratio]?.label}
+          {(() => {
+            const d = dimensionsFor(ratio, quality);
+            return d ? ` · ${d.width}×${d.height}` : '';
+          })()}
+        </span>
+      )}
     </div>
   );
 }

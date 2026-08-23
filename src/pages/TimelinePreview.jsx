@@ -581,7 +581,26 @@ export default function TimelinePreview() {
             </section>
 
             <section className="flex-1 min-w-0 flex flex-col min-h-0">
-              <PanelLabel>Viewer</PanelLabel>
+              {/* ── THE SHAPE CONTROL LIVES IN THE HEADER ──────────────────
+                  It was under the picture, which reads well and hides badly:
+                  on a large screen the video grows to fill the panel and
+                  pushes the control below the visible area. The owner could
+                  not find it at all.
+                  A panel header never scrolls. Panel-level settings belong in
+                  it — and ChatCut reaches the same conclusion, putting Aspect
+                  Ratio in the always-visible timeline toolbar. */}
+              <PanelLabel
+                action={
+                  <RatioPicker
+                    compact
+                    ratio={project.ratio}
+                    mode={project.resizeMode || 'crop'}
+                    onChange={({ ratio, mode }) => change(setProjectRatio(project, ratio, mode), {})}
+                  />
+                }
+              >
+                Viewer
+              </PanelLabel>
               <div className="flex-1 min-h-0 overflow-y-auto p-4">
                 <div className="max-w-3xl mx-auto">
                   <Viewer
@@ -591,16 +610,6 @@ export default function TimelinePreview() {
                     playing={playing}
                     onPlayingChange={setPlaying}
                   />
-
-                  {/* Directly under the picture, because the cropping it
-                      causes is visible right above it. */}
-                  <div className="mt-3">
-                    <RatioPicker
-                      ratio={project.ratio}
-                      mode={project.resizeMode || 'crop'}
-                      onChange={({ ratio, mode }) => change(setProjectRatio(project, ratio, mode), {})}
-                    />
-                  </div>
 
                   {/* Export detail stays under the viewer; the BUTTON is in the
                       top bar where it is always reachable. */}
