@@ -43,6 +43,22 @@ const CORE_BASE = '/ffmpeg';
 let instance = null;
 let loading = null;
 
+// ── WHY PROGRESS GOES THROUGH A MUTABLE SLOT ───────────────────────────────
+// ffmpeg.on('progress') can only be registered on a FFmpeg object, and that
+// object is created once and cached for the whole session. Registering the
+// caller's callback inside loadFFmpeg therefore only ever works for whoever
+// happens to trigger the very first load: every later export gets the cached
+// instance, skips the registration entirely, and reports nothing.
+//
+// That failure is invisible in a single run and invisible in a test that only
+// exports once. The progress bar simply never moves on the second export, and
+// a bar that does not move is indistinguishable from a hung render.
+//
+// So the handler is registered ONCE against this slot, and each run swaps the
+// slot for the duration of its own work.
+let progressSink = null;
+const setProgressSink = (fn) => { progressSink = fn || null; };
+
 /**
  * Load ffmpeg once per session, and only when it is actually needed.
  *
@@ -68,14 +84,15 @@ export async function loadFFmpeg({ onProgress } = {}) {
       }
     });
 
-    if (onProgress) {
-      ffmpeg.on('progress', ({ progress }) => {
-        // ffmpeg reports > 1 and occasionally negative values near the end of
-        // a stream. Clamped, because a progress bar that jumps to 340% reads
-        // as broken software.
-        onProgress(Math.min(1, Math.max(0, progress || 0)));
-      });
-    }
+    // Registered unconditionally, exactly once, and forwarded to whichever run
+    // currently owns the slot. See the note on progressSink above.
+    ffmpeg.on('progress', ({ progress }) => {
+      // ffmpeg reports > 1 and occasionally negative values near the end of a
+      // stream. Clamped, because a progress bar that jumps to 340% reads as
+      // broken software.
+      progressSink?.(Math.min(1, Math.max(0, progress || 0)));
+    });
+    if (onProgress) setProgressSink(onProgress);
 
     // ── WHY load() IS RACED AGAINST A CLOCK ──────────────────────────────
     // ffmpeg.load() can NEVER RESOLVE AND NEVER REJECT. It happened here on
@@ -283,10 +300,14 @@ export async function runExport(project, {
   if (!plan.ok) throw new Error(plan.problems.join(' '));
 
   onStage?.('Loading the video engine');
-  const ffmpeg = await loadFFmpeg({ onProgress: undefined });
+  const ffmpeg = await loadFFmpeg();
 
   const written = new Set();
   try {
+    // Claim the progress slot for this run only. Set AFTER load so the 32 MB
+    // download does not report itself as render progress — two different waits
+    // sharing one bar is how a progress bar starts lying.
+    setProgressSink(onProgress);
     for (const [i, input] of plan.inputs.entries()) {
       onStage?.(`Reading clip ${i + 1} of ${plan.inputs.length}`);
       let data;
@@ -324,6 +345,7 @@ export async function runExport(project, {
     // use. onProgress is unhooked here too so a cancelled run stops reporting.
     for (const f of written) await ffmpeg.deleteFile(f).catch(() => {});
     await ffmpeg.deleteFile('export.mp4').catch(() => {});
-    onProgress?.(1);
+    // Release the slot, or a failed run keeps driving a bar that is gone.
+    setProgressSink(null);
   }
 }

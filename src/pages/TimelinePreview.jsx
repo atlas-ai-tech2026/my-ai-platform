@@ -106,7 +106,10 @@ export default function TimelinePreview() {
       // into the page bundle would make every visitor pay for a feature most
       // of them never press.
       const { runExport } = await import('@/lib/edit-exec-browser');
-      const out = await runExport(project, { onStage: (stage) => setExporting({ stage }) });
+      const out = await runExport(project, {
+        onStage: (stage) => setExporting((e) => ({ ...e, stage })),
+        onProgress: (p) => setExporting((e) => ({ ...e, progress: p })),
+      });
       setResult({
         url: URL.createObjectURL(out.blob),
         bytes: out.bytes,
@@ -238,8 +241,21 @@ export default function TimelinePreview() {
               disabled={!plan.ok || Boolean(exporting)}
               className="px-4 py-2 rounded bg-primary hover:bg-primary-hover text-white text-sm disabled:opacity-40"
             >
-              {exporting ? `${exporting.stage}…` : 'Export MP4'}
+              {exporting
+                ? `${exporting.stage}${exporting.progress ? ` ${Math.round(exporting.progress * 100)}%` : ''}…`
+                : 'Export MP4'}
             </button>
+
+            {/* A render is a minute of nothing happening. A bar that MOVES is
+                the difference between waiting and assuming it has hung. */}
+            {exporting && (
+              <div className="h-1.5 w-40 rounded-full bg-border overflow-hidden">
+                <div
+                  className="h-full bg-primary transition-[width] duration-200"
+                  style={{ width: `${Math.round((exporting.progress || 0) * 100)}%` }}
+                />
+              </div>
+            )}
             <span className="text-xs text-foreground-muted font-mono">
               {plan.dimensions && `${plan.dimensions.width}×${plan.dimensions.height}`}
               {' · '}{plan.duration.toFixed(1)}s
