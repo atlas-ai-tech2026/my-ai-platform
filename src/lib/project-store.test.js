@@ -273,3 +273,24 @@ describe('the demo must never write to a customer’s account', () => {
     expect(shouldSyncToAccount({ signedIn: false, demo: false })).toBe(false);
   });
 });
+
+describe('an empty timeline is not a project', () => {
+  it('will not save a document whose tracks are all empty', async () => {
+    // Otherwise opening the editor CREATES something: check the page five
+    // times and own five empty projects.
+    const { hasContent } = await import('./project-store.js');
+    expect(hasContent({ tracks: [{ id: 't1', clips: [] }, { id: 't2', clips: [] }] })).toBe(false);
+  });
+
+  it('counts a single clip as content', async () => {
+    const { hasContent } = await import('./project-store.js');
+    expect(hasContent({ tracks: [{ id: 't1', clips: [] }, { id: 't2', clips: [{ id: 'c1' }] }] })).toBe(true);
+  });
+
+  it('treats nothing at all as empty rather than throwing', async () => {
+    const { hasContent } = await import('./project-store.js');
+    for (const bad of [null, undefined, {}, { tracks: null }]) {
+      expect(hasContent(bad), `${JSON.stringify(bad)} threw or counted`).toBe(false);
+    }
+  });
+});

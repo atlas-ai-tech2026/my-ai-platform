@@ -45,6 +45,24 @@ export const SERVER_SAVE_DELAY = 4000;
  */
 export const shouldSyncToAccount = ({ signedIn, demo }) => Boolean(signedIn) && !demo;
 
+/**
+ * Is there anything here worth saving?
+ *
+ * ── AN EMPTY TIMELINE IS NOT A PROJECT ─────────────────────────────────────
+ * Without this rule, opening the editor CREATES something. Look at the page
+ * five times to check a detail and you own five empty projects — the same
+ * clutter the demo route was producing, wearing different clothes.
+ *
+ * It is also what makes "open to an empty editor" safe as a design at all:
+ * the customer decides when a project exists by putting something on the
+ * timeline, not by navigating to a URL.
+ *
+ * A project with only empty tracks counts as empty. Tracks arrive with the
+ * document; clips are the part somebody chose.
+ */
+export const hasContent = (project) =>
+  Boolean(project?.tracks?.some((t) => (t.clips?.length || 0) > 0));
+
 const message = (err, fallback) => {
   const status = err?.status ?? null;
   if (status === 401 || status === 403) return 'Sign in to save this project to your account.';

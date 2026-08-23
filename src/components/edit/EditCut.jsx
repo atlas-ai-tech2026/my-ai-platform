@@ -17,7 +17,7 @@
 // empty screen by a long way.
 
 import React, { useEffect, useRef, useState } from 'react';
-import { Undo2, Redo2, Download, Sparkles, PanelLeftClose, PanelLeftOpen, Maximize2, Minimize2 } from 'lucide-react';
+import { Undo2, Redo2, Download, Sparkles, PanelLeftClose, PanelLeftOpen, Maximize2, Minimize2, FolderOpen } from 'lucide-react';
 
 /**
  * The library column's tabs.
@@ -93,7 +93,7 @@ import { useEditorShortcuts, SHORTCUTS } from '@/lib/useEditorShortcuts';
 import { useAutosave, loadProject, setAside, clearProject } from '@/lib/editor-autosave';
 import { exportPlan, estimateSeconds } from '@/lib/timeline-export';
 import { usePanelLayout, useIsWide } from '@/lib/usePanelLayout';
-import { useServerAutosave, listProjects, fetchProject, shouldSyncToAccount, ENTITY as PROJECT_ENTITY } from '@/lib/project-store';
+import { useServerAutosave, listProjects, fetchProject, shouldSyncToAccount, hasContent, ENTITY as PROJECT_ENTITY } from '@/lib/project-store';
 
 function demoProject() {
   __resetIds();
@@ -153,9 +153,15 @@ function emptyProject() {
 
 const clockOf = (ms) => new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
-export default function EditCut({ demo = false }) {
+export default function EditCut({ demo = false, startWith = null, onLeave = null }) {
   const opened = useRef(null);
-  if (opened.current === null) opened.current = boot(demo);
+  if (opened.current === null) {
+    // A project the page CHOSE beats anything found here. boot() only decides
+    // when nobody handed us one — a new project, or the demo route.
+    opened.current = startWith?.project
+      ? { project: startWith.project, savedAt: null, notice: null }
+      : boot(demo);
+  }
 
   const [history, setHistory] = useState(() => createHistory(opened.current.project));
   const [notice, setNotice] = useState(opened.current.notice);
@@ -192,7 +198,7 @@ export default function EditCut({ demo = false }) {
   const signedIn = typeof window !== 'undefined' && Boolean(localStorage.getItem('voxel_token'));
   // Which project on the server this session is editing. Empty until we have
   // asked; the autosave hook adopts it when it lands.
-  const [onServer, setOnServer] = useState({ id: null, at: null });
+  const [onServer, setOnServer] = useState({ id: startWith?.id || null, at: startWith?.updatedAt || null });
 
   // ── FIND THE PROJECT BEFORE MAKING ONE ─────────────────────────────────
   // Without this every page load creates a new row — reload five times, get
@@ -202,10 +208,14 @@ export default function EditCut({ demo = false }) {
   // The guard is `past.length === 0`: only take the server's copy if nothing
   // has been edited yet. A slow response arriving after somebody has started
   // cutting must never replace what they are doing.
-  const syncing = shouldSyncToAccount({ signedIn, demo });
+  // Nothing is created until there is something to save. Opening the editor
+  // must not, by itself, put a project in somebody's account.
+  const syncing = shouldSyncToAccount({ signedIn, demo }) && hasContent(project);
 
   useEffect(() => {
-    if (!syncing) return undefined;
+    // The page already chose one. Looking for "the most recent" now would be
+    // the guess this whole screen exists to remove.
+    if (!syncing || startWith) return undefined;
     let cancelled = false;
     (async () => {
       const entity = base44.entities[PROJECT_ENTITY];
@@ -217,7 +227,7 @@ export default function EditCut({ demo = false }) {
       setOnServer({ id: list.projects[0].id, at: got.updatedAt });
     })();
     return () => { cancelled = true; };
-  }, [syncing]);
+  }, [syncing, startWith]);
 
   const cloud = useServerAutosave(project, {
     entity: base44.entities[PROJECT_ENTITY],
@@ -445,6 +455,17 @@ export default function EditCut({ demo = false }) {
         </span>
 
         <div className="ml-auto flex items-center gap-2">
+          {onLeave && (
+            <Tip label="All projects" side="bottom"><button
+              onClick={onLeave}
+              aria-label="All projects"
+              data-testid="all-projects"
+              className="p-1.5 rounded border border-border text-foreground-muted hover:text-white"
+            >
+              <FolderOpen className="w-3.5 h-3.5" />
+            </button></Tip>
+          )}
+
           <Tip label="Undo (⌘Z)" side="bottom"><button
             onClick={() => setHistory(undo)}
             disabled={!canUndo(history)}
