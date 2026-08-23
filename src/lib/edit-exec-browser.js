@@ -93,24 +93,40 @@ export async function loadFFmpeg({ onProgress } = {}) {
     let timer;
     await Promise.race([
       (async () => {
-        // ── WHY BLOB URLs AND NOT THE PATHS DIRECTLY ───────────────────
-        // Handing ffmpeg the plain path made the Vite dev server intercept
-        // it: ffmpeg-core.js is fetched as a module, so Vite appended
-        // `?import` and tried to transform a 112 KB UMD emscripten bundle
-        // into an ES module. It failed with "Failed to fetch dynamically
-        // imported module" — a file that HEAD-requests 200 with the right
-        // byte count, and still cannot be loaded.
+        // ── BLOB URLs IN DEV, PLAIN PATHS IN PRODUCTION ────────────────
+        // These two environments fail in OPPOSITE directions, which is why
+        // this needs a branch rather than one answer.
         //
-        // toBlobURL fetches the bytes itself and hands over a blob: URL, so
-        // nothing in the pipeline gets a chance to rewrite it. This is also
-        // what ffmpeg.wasm's own documentation does, for the same reason.
+        // THE VITE DEV SERVER breaks the plain path. ffmpeg-core.js is
+        // fetched as a module, so Vite appends `?import` and tries to
+        // transform a 112 KB emscripten bundle. It fails with "Failed to
+        // fetch dynamically imported module" — for a file that HEAD-requests
+        // 200 with the right byte count. toBlobURL fetches the bytes itself
+        // and hands over a blob: URL that nothing gets to rewrite. This is
+        // what ffmpeg.wasm's own docs do, and it is dev-only advice.
         //
-        // The bytes still come from OUR origin — the fetch below is the
-        // same-origin request 'self' already permits. No CDN is involved.
-        const [coreURL, wasmURL] = await Promise.all([
-          toBlobURL(`${CORE_BASE}/ffmpeg-core.js`, 'text/javascript'),
-          toBlobURL(`${CORE_BASE}/ffmpeg-core.wasm`, 'application/wasm'),
-        ]);
+        // PRODUCTION breaks the BLOB. The built app is served by Express
+        // under a real Content-Security-Policy, and script-src is
+        // 'self' 'wasm-unsafe-eval' — no blob:. The worker's import() of a
+        // blob: URL is refused, with the SAME "Failed to fetch dynamically
+        // imported module" message, so the dev fix looks like the dev bug.
+        //
+        // Found 2026-08-23 by exporting on dev.voxel-ai.ai rather than on
+        // localhost. It passed every test and worked perfectly against the
+        // Vite dev server, because the dev server sends no CSP at all.
+        //
+        // The tempting fix is `blob:` in script-src. It is refused here:
+        // blob: in script-src is a standard way to turn a small injection
+        // into arbitrary script execution, and we would be widening the
+        // policy for the whole site to avoid a branch in one file.
+        //
+        // Both paths are same-origin either way. No CDN is involved.
+        const [coreURL, wasmURL] = import.meta.env?.DEV
+          ? await Promise.all([
+            toBlobURL(`${CORE_BASE}/ffmpeg-core.js`, 'text/javascript'),
+            toBlobURL(`${CORE_BASE}/ffmpeg-core.wasm`, 'application/wasm'),
+          ])
+          : [`${CORE_BASE}/ffmpeg-core.js`, `${CORE_BASE}/ffmpeg-core.wasm`];
         return ffmpeg.load({ coreURL, wasmURL });
       })(),
       new Promise((_, reject) => {
