@@ -267,9 +267,32 @@ export function atempoChain(speed) {
   return parts.join(',');
 }
 
-/** A rough seconds estimate, so the UI can say something truer than "a while".
- *  ffmpeg.wasm runs single-threaded at roughly a quarter of real time on a
- *  laptop for 1080p x264 — deliberately pessimistic, because an export that
- *  beats its estimate is a good surprise and the reverse is not. */
-export const estimateSeconds = (duration, quality = 1080) =>
-  Math.max(5, Math.ceil(duration * (quality >= 1080 ? 4 : 2)));
+/**
+ * How long the render will take, so the UI can say something truer than
+ * "a while".
+ *
+ * ── THESE NUMBERS ARE MEASURED, NOT ESTIMATED ──────────────────────────────
+ * The first version of this function guessed 4x real time and called itself
+ * "deliberately pessimistic". It was optimistic by half.
+ *
+ * MEASURED 2026-08-23 on dev.voxel-ai.ai: a 30-second 1080p timeline, two
+ * sources, one audio bed mixed under it, rendered in 244 seconds. That is
+ * 8.1x real time — so a one-minute video is about eight minutes of waiting.
+ *
+ * ffmpeg.wasm is single-threaded by necessity here: the multi-threaded build
+ * needs SharedArrayBuffer, which needs COOP/COEP, which would break the
+ * customer's own media served from Spaces.
+ *
+ * 720p is scaled by pixel count (1280x720 is 44% of 1920x1080) with a little
+ * headroom, because x264 does not scale perfectly linearly.
+ *
+ * WHAT THIS NUMBER IS FOR, beyond a label: at 8x, a workshop attendee cannot
+ * export a two-minute piece in a session. That is the evidence for moving the
+ * render server-side, and it is why it is written down rather than rounded.
+ */
+export const RENDER_RATIO = { 1080: 8.1, 720: 4, 480: 2 };
+
+export function estimateSeconds(duration, quality = 1080) {
+  const ratio = RENDER_RATIO[quality] ?? RENDER_RATIO[1080];
+  return Math.max(5, Math.ceil(duration * ratio));
+}

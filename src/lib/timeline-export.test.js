@@ -278,8 +278,16 @@ describe('the output itself', () => {
     expect(exportPlan(project()).filter).toContain(`aresample=${SAMPLE_RATE}`);
   });
 
-  it('estimates pessimistically — beating the estimate is the good surprise', () => {
-    expect(estimateSeconds(30, 1080)).toBe(120);
+  it('estimates from a MEASURED ratio, not a guess', () => {
+    // The measurement: a 30s 1080p timeline with an audio bed took 244s on
+    // dev.voxel-ai.ai on 2026-08-23. The first version of this function
+    // guessed 120s and described itself as pessimistic.
+    expect(estimateSeconds(30, 1080)).toBe(243);
+    expect(estimateSeconds(30, 1080)).toBeGreaterThan(200);
     expect(estimateSeconds(0)).toBeGreaterThanOrEqual(5);
+  });
+
+  it('a lower resolution is genuinely faster, and says so', () => {
+    expect(estimateSeconds(30, 720)).toBeLessThan(estimateSeconds(30, 1080));
   });
 });
