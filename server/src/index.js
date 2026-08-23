@@ -6558,6 +6558,11 @@ const ROUTE_META = {
   // "Kling O1 and omni editing tools", which /edit has never had — this is the
   // description search engines index, so it was the site advertising a feature
   // that did not exist (task #30's problem, in the one place nobody looks).
+  // TEMPORARY, with a ROUTE_META entry ON PURPOSE. Leaving it out is what this
+  // very list warns about: an unlisted route renders perfectly inside the SPA
+  // and answers HTTP 404 to every real request — so the page built for the
+  // owner to LOOK at could not be opened. noindex so it is never surfaced.
+  'timelinepreview': { title: 'Timeline preview — VOXEL', desc: 'Internal preview of the Voxel Edit Cut timeline. Not a public page.', noindex: true },
   'edit': { title: 'Free Video Editor — VOXEL.AI', desc: 'Trim your AI-generated videos, resize them for Reels, posts and YouTube, and add captions — free, with no credits used.' },
   'apps': { title: 'AI Apps & Tools — VOXEL.AI', desc: 'Face swap, relight, upscale, skin enhancer and more one-click AI apps on VOXEL.AI.' },
   'templates': { title: 'AI Templates — VOXEL.AI', desc: 'Start from proven AI generation templates for images and video on VOXEL.AI.' },
