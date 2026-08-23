@@ -18,12 +18,13 @@
 // Zoom changes the distance deliberately; nothing else does.
 
 import React, { useCallback, useMemo, useRef, useState } from 'react';
-import { Scissors, Lock, Unlock, Eye, EyeOff, Volume2, VolumeX } from 'lucide-react';
+import { Scissors, Lock, Unlock, Eye, EyeOff, Volume2, VolumeX, Magnet } from 'lucide-react';
 
 import {
   clipDuration, projectDuration, moveClip, trimClip, splitClip, locateClip,
   trackGaps, closeGap,
 } from '@/lib/timeline';
+import { snapTargets, snapStart, snapEdge } from '@/lib/timeline-snap';
 
 // ── ZOOM IS CONTINUOUS AND LOGARITHMIC ────────────────────────────────────
 // It was seven fixed steps — 2, 5, 10, 20, 40, 80, 160 pixels per second — so
@@ -64,6 +65,11 @@ export default function Timeline({
   onSelect,
   playhead = 0,
   onScrub,
+  // Snapping is OWNED BY THE PAGE, not by this component. It has to be: the S
+  // key lives in the editor's keyboard hook, and a toggle the keyboard cannot
+  // reach is a button that works and a shortcut that silently does nothing.
+  snapping = true,
+  onSnappingChange,
 }) {
   const [zoom, setZoom] = useState(DEFAULT_ZOOM);
   const pps = ppsFor(zoom);
@@ -82,6 +88,15 @@ export default function Timeline({
   // no reason for it to be state.
   const dragRef = useRef(null);
   const laneRef = useRef(null);
+
+  // ── SNAPPING ─────────────────────────────────────────────────────────────
+  // On by default because an editor without it produces gaps too small to see;
+  // toggleable because one that ALWAYS snaps makes a deliberate two-frame
+  // offset impossible. S toggles it, matching every NLE.
+  // Where the snap landed, purely so a line can be drawn there. Without the
+  // line, a clip jumping the last few pixels reads as the drag being imprecise
+  // rather than as the editor helping.
+  const [snapAt, setSnapAt] = useState(null);
 
   const duration = projectDuration(project);
   // Always show more room than the content needs. A timeline that ends exactly
@@ -127,20 +142,39 @@ export default function Timeline({
     // per edge, or two separate gestures would merge into one.
     const coalesce = `${drag.mode}:${drag.id}`;
 
+    // Targets are recomputed per move rather than cached on drag start. It
+    // looks wasteful and is not: the set is tiny, and caching it means a clip
+    // added or split mid-gesture is invisible to snapping until you let go.
+    const targets = snapTargets(project, { excludeId: drag.id, playhead });
+
     if (drag.mode === 'move') {
-      onChange(moveClip(project, drag.id, drag.originStart + delta), { coalesce });
+      const want = drag.originStart + delta;
+      const snap = snapStart(want, clipDuration(found.clip), targets, pps, { enabled: snapping });
+      setSnapAt(snap.snappedTo);
+      onChange(moveClip(project, drag.id, snap.start), { coalesce });
       return;
     }
     // trimClip takes a DELTA from where the edge is now, so the drag origin is
     // re-applied each time rather than accumulated — otherwise a slow drag
     // travels further than the pointer.
     const current = found.clip;
-    const target = drag.mode === 'trimStart' ? drag.originIn + delta : drag.originOut + delta;
+    let target = drag.mode === 'trimStart' ? drag.originIn + delta : drag.originOut + delta;
+
+    // Trimming snaps on the TIMELINE position of the edge, not on the source
+    // offset — those differ by the clip's start, and snapping the wrong one
+    // makes the edge stick to numbers that mean nothing on screen.
+    const edgeOnTimeline = drag.mode === 'trimStart'
+      ? current.start + (target - current.in)
+      : current.start + (target - current.in);
+    const snap = snapEdge(edgeOnTimeline, targets, pps, { enabled: snapping });
+    setSnapAt(snap.snappedTo);
+    if (snap.snappedTo !== null) target += snap.time - edgeOnTimeline;
+
     const step = drag.mode === 'trimStart' ? target - current.in : target - current.out;
     onChange(trimClip(project, drag.id, drag.mode === 'trimStart' ? 'start' : 'end', step), { coalesce });
   };
 
-  const endDrag = () => { dragRef.current = null; };
+  const endDrag = () => { dragRef.current = null; setSnapAt(null); };
 
   /**
    * Zoom KEEPING THE PLAYHEAD WHERE IT IS.
@@ -188,6 +222,19 @@ export default function Timeline({
           className="p-1.5 rounded hover:bg-background-elevated disabled:opacity-30"
         >
           <Scissors className="w-4 h-4" />
+        </button>
+
+        {/* Named "Snapping (S)" after ChatCut's own tooltip — matching the
+            wording an editor already knows costs nothing and saves explaining. */}
+        <button
+          onClick={() => onSnappingChange?.(!snapping)}
+          title={`Snapping (S) — ${snapping ? 'on' : 'off'}`}
+          aria-label="Snapping"
+          aria-pressed={snapping}
+          data-testid="snap-toggle"
+          className={`p-1.5 rounded hover:bg-background-elevated ${snapping ? 'text-primary' : 'text-foreground-muted'}`}
+        >
+          <Magnet className="w-4 h-4" />
         </button>
 
         <span className="ml-auto font-mono text-xs text-foreground-muted tabular-nums">
@@ -344,6 +391,20 @@ export default function Timeline({
             >
               <span className="absolute -top-0.5 -left-1 w-2 h-2 rotate-45 bg-primary" />
             </div>
+
+            {/* ── THE SNAP LINE ────────────────────────────────────────
+                Shown only DURING a snap, and it is not decoration. Without
+                it, a clip covering the last few pixels on its own reads as
+                the drag being imprecise. With it, the same movement reads as
+                the editor catching the edge for you — same behaviour, opposite
+                impression. */}
+            {snapAt !== null && (
+              <div
+                style={{ left: snapAt * pps }}
+                className="absolute top-0 bottom-0 w-px bg-amber-400 pointer-events-none z-20"
+                data-testid="snap-line"
+              />
+            )}
           </div>
         </div>
       </div>

@@ -28,7 +28,7 @@ beforeEach(() => {
   h = {
     onTogglePlay: vi.fn(), onShuttle: vi.fn(), onSplit: vi.fn(),
     onMarkIn: vi.fn(), onMarkOut: vi.fn(), onStep: vi.fn(),
-    onGoTo: vi.fn(), onDelete: vi.fn(), onUndo: vi.fn(), onRedo: vi.fn(),
+    onGoTo: vi.fn(), onDelete: vi.fn(), onUndo: vi.fn(), onRedo: vi.fn(), onToggleSnap: vi.fn(),
   };
 });
 afterEach(cleanup);
@@ -168,5 +168,25 @@ describe('the help list cannot drift from the handler', () => {
     for (const key of ['space', 'j', 'k', 'l', 'c', 'i', 'o', 'home', 'end', 'delete']) {
       expect(documented, `${key} is implemented but undocumented`).toContain(key);
     }
+  });
+});
+
+describe('snapping', () => {
+  it('S toggles it', () => {
+    // Bound to S because that is what every NLE uses and what ChatCut's own
+    // tooltip says. Matching a binding an editor already has costs nothing.
+    render(<Harness handlers={h} />);
+    press('s');
+    expect(h.onToggleSnap).toHaveBeenCalledTimes(1);
+  });
+
+  it('S is ignored while typing, like every other key', () => {
+    render(<Harness handlers={h} />);
+    fireEvent.keyDown(screen.getByLabelText('clip name'), { key: 's' });
+    expect(h.onToggleSnap).not.toHaveBeenCalled();
+  });
+
+  it('is documented in the help list', () => {
+    expect(SHORTCUTS.map(([k]) => k).join(' ').toLowerCase()).toContain('s');
   });
 });

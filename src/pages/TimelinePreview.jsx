@@ -127,6 +127,10 @@ export default function TimelinePreview() {
   const [exportError, setExportError] = useState(null);
   const [regenerating, setRegenerating] = useState(false);
   const [libraryTab, setLibraryTab] = useState('voxel');
+  // Owned here, not inside Timeline: the S key lives in the shortcuts hook, and
+  // a toggle the keyboard cannot reach is a button that works next to a
+  // shortcut that silently does nothing.
+  const [snapping, setSnapping] = useState(true);
 
   const project = history.present;
   const save = useAutosave(project);
@@ -277,6 +281,7 @@ export default function TimelinePreview() {
     // Shuttle drives the same play flag for now; variable RATE arrives with
     // the export work, when playback stops being a requestAnimationFrame loop.
     onShuttle: (rate) => setPlaying(rate !== 0),
+    onToggleSnap: () => setSnapping((v) => !v),
   });
 
   // ── LAYOUT ─────────────────────────────────────────────────────────────
@@ -531,6 +536,8 @@ export default function TimelinePreview() {
               onSelect={setSelected}
               playhead={playhead}
               onScrub={setPlayhead}
+              snapping={snapping}
+              onSnappingChange={setSnapping}
             />
             <div className="flex flex-wrap gap-x-4 gap-y-0.5 px-3 py-1.5 border-t border-border/60 text-[10px] text-foreground-muted">
               {SHORTCUTS.map(([key, what]) => (

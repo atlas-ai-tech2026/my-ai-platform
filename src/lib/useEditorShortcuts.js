@@ -109,6 +109,12 @@ export function useEditorShortcuts(handlers = {}, { enabled = true } = {}) {
       case 'c': case 'C':
         h.onSplit?.();
         break;
+      case 's': case 'S':
+        // Snapping. Bound to S because that is what every NLE uses and what
+        // ChatCut's own tooltip says — matching a binding an editor already
+        // has in their hands costs nothing and saves teaching it.
+        h.onToggleSnap?.();
+        break;
       case 'i': case 'I':
         h.onMarkIn?.();
         break;
@@ -160,6 +166,7 @@ export const SHORTCUTS = [
   ['Space', 'Play / pause'],
   ['J · K · L', 'Shuttle back · stop · forward (press again to speed up)'],
   ['C', 'Split at the playhead'],
+  ['S', 'Snapping on / off'],
   ['I · O', 'Mark in · mark out'],
   ['← →', 'One frame'],
   ['⇧ ← →', 'One second'],
