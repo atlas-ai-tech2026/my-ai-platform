@@ -7,7 +7,7 @@
 // where the search starts in the wrong place.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 import Timeline from './Timeline';
@@ -97,5 +97,32 @@ describe('selection', () => {
 
     await user.pointer({ target: document.querySelector(`[data-clip="${clipId}"]`), keys: '[MouseLeft>]' });
     expect(onSelect).toHaveBeenCalledWith(clipId);
+  });
+});
+
+describe('zoom', () => {
+  it('is CONTINUOUS, not a handful of steps', () => {
+    // It was seven fixed levels — 2, 5, 10, 20, 40, 80, 160 px/s — so every
+    // notch nearly doubled the scale and the view jumped. The owner felt it
+    // immediately next to the clip drag, which is continuous: "it's moving,
+    // it's not smooth."
+    const { project } = seed();
+    render(<Timeline project={project} onChange={vi.fn()} />);
+    const slider = screen.getByLabelText(/zoom/i);
+    expect(Number(slider.step), 'a coarse step is what made it jump').toBeLessThanOrEqual(0.01);
+    expect(Number(slider.max)).toBe(1);
+  });
+
+  it('scales clips by the zoom, so a second is a fixed distance', () => {
+    const { project, clipId } = seed();
+    render(<Timeline project={project} onChange={vi.fn()} />);
+    const el = () => document.querySelector(`[data-clip="${clipId}"]`);
+    const before = parseFloat(el().style.width);
+
+    const slider = screen.getByLabelText(/zoom/i);
+    fireEvent.change(slider, { target: { value: '0.9' } });
+
+    expect(parseFloat(el().style.width), 'zooming in must widen the clip')
+      .toBeGreaterThan(before);
   });
 });

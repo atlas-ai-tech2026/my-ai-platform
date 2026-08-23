@@ -24,9 +24,23 @@ import {
   clipDuration, projectDuration, moveClip, trimClip, splitClip, locateClip,
 } from '@/lib/timeline';
 
-/** Zoom levels in pixels per second. The default shows about a minute. */
-const ZOOMS = [2, 5, 10, 20, 40, 80, 160];
-const DEFAULT_ZOOM = 2;
+// ── ZOOM IS CONTINUOUS AND LOGARITHMIC ────────────────────────────────────
+// It was seven fixed steps — 2, 5, 10, 20, 40, 80, 160 pixels per second — so
+// every notch nearly doubled or tripled the scale and the view JUMPED between
+// wildly different framings. The owner's words, dragging it: "it's moving, it's
+// not smooth... I need it to become smooth, like when I'm moving the videos."
+//
+// He is right, and the comparison is the point: dragging a clip is continuous,
+// so the zoom feeling stepped next to it reads as the same control being worse.
+//
+// LOGARITHMIC, not linear. Doubling the zoom should take the same slider travel
+// whether you are at 3 px/s or 100 — perception of scale is multiplicative, so
+// a linear slider spends most of its length in the zoomed-in half and crushes
+// every useful wide view into the first few pixels.
+const MIN_PPS = 1.5;
+const MAX_PPS = 240;
+const DEFAULT_ZOOM = 0.38;                     // ≈10 px/s — about a minute wide
+const ppsFor = (t) => MIN_PPS * ((MAX_PPS / MIN_PPS) ** t);
 
 const TRACK_H = 56;
 const RULER_H = 28;
@@ -50,8 +64,8 @@ export default function Timeline({
   playhead = 0,
   onScrub,
 }) {
-  const [zoomIndex, setZoomIndex] = useState(DEFAULT_ZOOM);
-  const pps = ZOOMS[zoomIndex];
+  const [zoom, setZoom] = useState(DEFAULT_ZOOM);
+  const pps = ppsFor(zoom);
   // ── DRAG STATE IS A REF, NOT useState ───────────────────────────────────
   // React 18 batches updates. On a fast drag, pointerdown/pointermove/pointerup
   // can land in one task — so the setDrag() from pointerdown has not committed
@@ -127,6 +141,25 @@ export default function Timeline({
 
   const endDrag = () => { dragRef.current = null; };
 
+  /**
+   * Zoom KEEPING THE PLAYHEAD WHERE IT IS.
+   *
+   * Zooming around x=0 is the other half of "not smooth": the moment you zoom
+   * in, whatever you were looking at flies off to the right and you have to
+   * chase it with the scrollbar. Anchoring on the playhead means the frame you
+   * are working on stays under the cursor and only the scale changes.
+   */
+  const zoomTo = (next) => {
+    const lane = laneRef.current;
+    const anchorPx = playhead * pps - (lane?.scrollLeft || 0);
+    setZoom(next);
+    if (!lane) return;
+    // After React paints at the new scale, put the playhead back where it was.
+    requestAnimationFrame(() => {
+      lane.scrollLeft = Math.max(0, playhead * ppsFor(next) - anchorPx);
+    });
+  };
+
   const splitAtPlayhead = () => {
     if (!selectedId) return;
     onChange(splitClip(project, selectedId, playhead), {});
@@ -161,10 +194,10 @@ export default function Timeline({
         </span>
 
         <input
-          type="range" min={0} max={ZOOMS.length - 1} value={zoomIndex}
+          type="range" min={0} max={1} step={0.001} value={zoom}
           aria-label="Zoom"
-          onChange={(e) => setZoomIndex(Number(e.target.value))}
-          className="w-24 accent-primary"
+          onChange={(e) => zoomTo(Number(e.target.value))}
+          className="w-28 accent-primary"
         />
       </div>
 
