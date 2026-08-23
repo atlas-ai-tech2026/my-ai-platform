@@ -25,7 +25,7 @@
 
 import crypto from 'node:crypto';
 import { S3Client, PutObjectCommand, ListObjectsV2Command, DeleteObjectCommand,
-         GetObjectCommand, GetBucketVersioningCommand,
+         GetObjectCommand, GetBucketVersioningCommand, HeadObjectCommand,
          PutBucketVersioningCommand } from '@aws-sdk/client-s3';
 
 const ENDPOINT = (process.env.SPACES_ENDPOINT || '').trim();
@@ -89,6 +89,38 @@ export async function downloadPrivate(key) {
   if (!configured) throw new Error('Spaces not configured');
   const out = await client.send(new GetObjectCommand({ Bucket: BUCKET, Key: key }));
   return Buffer.from(await out.Body.transformToByteArray());
+}
+
+/**
+ * Does one specific object already exist in the PRIMARY bucket?
+ *
+ * ── WHY THIS EXISTS ────────────────────────────────────────────────────────
+ * The daily-backup guard asks "has today's archive already been written?".
+ * Its first version asked that of the OFFSITE bucket only — which is correct
+ * on production and useless everywhere else. Dev has no offsite bucket by
+ * design (#51, so dev cannot spend production's Backblaze allowance), so the
+ * check returned "not configured", the guard failed open, and dev backed up on
+ * EVERY BOOT. Dev deploys far more often than production, so the environment
+ * with the least valuable data was doing the most backing up.
+ *
+ * A guard that only works in one environment is not a guard. This is the other
+ * half: ask the destination this environment actually writes to.
+ *
+ * Same contract as offsiteObjectExists: true / false / null, where **null means
+ * "I could not find out"** and the caller must run the backup anyway. A
+ * duplicate archive is waste; a skipped day cannot be recovered.
+ */
+export async function primaryObjectExists(key) {
+  if (!configured) return null;
+  try {
+    await client.send(new HeadObjectCommand({ Bucket: BUCKET, Key: key }));
+    return true;
+  } catch (err) {
+    const status = err?.$metadata?.httpStatusCode;
+    if (status === 404 || err?.name === 'NotFound') return false;
+    console.error(`[storage] could not check whether ${key} exists: ${err.message}`);
+    return null;
+  }
 }
 
 export async function listKeys(prefix) {
