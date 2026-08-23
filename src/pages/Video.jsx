@@ -1,5 +1,6 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { base44 } from '@/api/base44Client';
+import { useHistoryFeed, useOnVisible } from '@/lib/history-feed';
 import VideoLeftPanel from '@/components/video/VideoLeftPanel';
 const History_ = base44.entities.GenerationHistory;
 import VideoRightArea from '@/components/video/VideoRightArea';
@@ -38,7 +39,6 @@ export default function Video() {
   // all three generate handlers (generate / motion-control / edit-video).
   const generatingRef = useRef(false);
   const [count, setCount] = useState(1);
-  const [videos, setVideos] = useState([]);
   const [model, setModel] = useState(DEFAULT_MODEL);
   const [duration, setDuration] = useState('5s');
   const [resolution, setResolution] = useState('1080p');
@@ -92,12 +92,9 @@ export default function Video() {
   // Load history whenever auth resolves to a logged-in user. Keyed on
   // user.id so logging out then back in always re-fetches that user's
   // server-side history instead of showing stale/empty results.
-  useEffect(() => {
-    if (isLoadingAuth) return;
-    if (!isAuthenticated) { setVideos([]); return; }
-    let cancelled = false;
+  const signedIn = !isLoadingAuth && isAuthenticated;
 
-    const mapRecord = (r) => ({
+  const mapRecord = useCallback((r) => ({
       id: r.id, prompt: r.prompt, model: r.model,
       duration: r.duration, aspectRatio: r.ratio,
       result_url: r.result_url, status: r.status || 'completed',
@@ -113,40 +110,67 @@ export default function Video() {
       quality: r.quality,
       scene_control: r.scene_control,
       created_date: r.created_date,
-    });
+  }), []);
 
-    // Page through the FULL video history (offset pagination) so nothing is
-    // capped — the first page paints immediately, later pages append.
+  // ── LOADING THE LIBRARY ──────────────────────────────────────────────────
+  // This used to LOOP until it had every row — 200 at a time, sequentially,
+  // on every page load. A customer with 3,000 videos waited on fifteen round
+  // trips before their library was usable. Now: one page, then more on scroll.
+  const videoFeed = useHistoryFeed({
+    fetchPage: useCallback(
+      (limit, offset) => History_.filter({ type: 'video' }, '-created_date', limit, offset),
+      [],
+    ),
+    map: mapRecord,
+    enabled: signedIn,
+    resetKey: user?.id,
+  });
+
+  const videos = videoFeed.items;
+  const setVideos = videoFeed.setItems;
+  const moreRef = useRef(null);
+  useOnVisible(moreRef, videoFeed.loadMore, videoFeed.hasMore && !videoFeed.loadingMore);
+
+  // ── STILL-RENDERING VIDEOS GET THEIR OWN QUERY ───────────────────────────
+  // Polling used to be started for whatever pending rows happened to be in a
+  // page as it arrived — which worked only because every page was fetched.
+  // A pending video is nearly always among the newest rows, so page one would
+  // "usually" catch it. Usually is the bug: generate another sixty while one
+  // is still rendering and it falls off page one, nothing ever polls it, and
+  // it sits on "pending" forever with the credits already spent.
+  //
+  // Asking for the pending ones directly is both correct at any depth and
+  // cheaper than the loop it replaces.
+  useEffect(() => {
+    if (!signedIn) return;
+    let cancelled = false;
     (async () => {
-      const PAGE = 200;
-      let offset = 0;
-      let first = true;
-      for (let page = 0; page < 1000 && !cancelled; page++) {
-        let records;
-        try {
-          records = await History_.filter({ type: 'video' }, '-created_date', PAGE, offset);
-        } catch {
-          break;
-        }
-        if (cancelled) return;
-        const mapped = records.map(mapRecord);
-        setVideos(prev => first ? mapped : [...prev, ...mapped]);
-        first = false;
-        mapped.filter(v => v.status === 'pending' && v.job_id && v.model_id)
-          .forEach(v => pollVideo(v.id, v.job_id, v.model_id));
-        offset += records.length;
-        if (records.length < PAGE) break;
+      let rows;
+      try {
+        rows = await History_.filter({ type: 'video', status: 'pending' }, '-created_date', 100, 0);
+      } catch {
+        return;   // the grid still loads; polling picks up on the next visit
       }
+      if (cancelled) return;
+      rows.map(mapRecord)
+        .filter(v => v.job_id && v.model_id)
+        .forEach(v => pollVideo(v.id, v.job_id, v.model_id));
     })();
-
     return () => { cancelled = true; };
-  }, [isLoadingAuth, isAuthenticated, user?.id]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [signedIn, user?.id, mapRecord]);
 
   useEffect(() => {
     return () => Object.values(pollingRef.current).forEach(clearInterval);
   }, []);
 
   const pollVideo = (recordId, jobId, modelId) => {
+    // Already watching this one. Without this a second call overwrites the
+    // stored interval id and the FIRST interval runs forever — never cleared,
+    // never cleaned up on unmount, doubling status requests for that video.
+    // Two callers can now reach the same record: the pending sweep below and
+    // handleGenerate.
+    if (pollingRef.current[recordId]) return;
     let retries = 0;
     let errorCount = 0;
     const MAX_RETRIES = 200;    // ~10 min at 3s intervals
@@ -808,6 +832,8 @@ export default function Video() {
       <div style={{ position: 'relative', zIndex: 2, flex: 1, height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         <VideoRightArea
           videos={videos} isGenerating={isGenerating}
+          hasMore={videoFeed.hasMore} loadingMore={videoFeed.loadingMore}
+          onLoadMore={videoFeed.loadMore} moreRef={moreRef} loadError={videoFeed.error}
           durationMs={3000} aspectRatio={isSeedance2 ? seedanceAspect : aspectRatio}
           onRecreate={(t) => setPrompt(t.prompt)}
           onVideoClick={(v) => setSelectedVideo(v)}

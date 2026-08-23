@@ -83,7 +83,8 @@ const RATIO_MAP = {
   '21:9': '21/9',
 };
 
-export default function VideoRightArea({ videos = [], isGenerating = false, durationMs = 3000, aspectRatio = 'Auto', onVideoClick, modelName = 'Kling 3.0' }) {
+export default function VideoRightArea({ videos = [], isGenerating = false, durationMs = 3000, aspectRatio = 'Auto', onVideoClick, modelName = 'Kling 3.0',
+  hasMore = false, loadingMore = false, onLoadMore, moreRef, loadError = null }) {
   const ratio = RATIO_MAP[aspectRatio] || '16/9';
   const [activeTab, setActiveTab] = useState('creations');
 
@@ -244,6 +245,36 @@ export default function VideoRightArea({ videos = [], isGenerating = false, dura
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* ── MORE OF THE LIBRARY ──────────────────────────────────────────
+          The grid no longer downloads every video before it paints. A
+          failure says so and leaves the loaded rows alone rather than
+          blanking the grid, which would read as the work being gone. */}
+      {loadError && (
+        <p style={{ padding: '10px 0', fontSize: 12, color: '#F87171' }} data-testid="video-feed-error">
+          {loadError}{' '}
+          <button type="button" onClick={onLoadMore}
+            style={{ color: '#F87171', textDecoration: 'underline', background: 'none', border: 0, cursor: 'pointer' }}>
+            Try again
+          </button>
+        </p>
+      )}
+      {hasMore && (
+        <div ref={moreRef} style={{ display: 'flex', justifyContent: 'center', padding: '14px 0 20px' }}>
+          <button
+            type="button"
+            onClick={onLoadMore}
+            disabled={loadingMore}
+            data-testid="video-load-more"
+            style={{
+              fontSize: 12, color: 'rgba(255,255,255,0.7)', padding: '8px 18px', borderRadius: 8,
+              background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)',
+              fontFamily: font, cursor: loadingMore ? 'default' : 'pointer',
+            }}>
+            {loadingMore ? 'Loading…' : 'Load more'}
+          </button>
         </div>
       )}
     </div>
