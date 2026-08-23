@@ -123,11 +123,6 @@ export const SEED = [
     title: 'Answer the legal document questions',
     why: 'Three B2B documents are drafted and NOTHING is published. Without the entity, the Terms name no party.',
     detail: 'Plus 8 smaller answers: under-18 workshops, payment terms, liability floor, per-attendee reporting, credits at expiry, dispute windows, backup provider, five Kuwait-specific questions for a lawyer.' },
-  { ref: '31', owner: 'owner', status: 'blocked', priority: 7,
-    blocked_by: 'Naming the 2–3 editing behaviours that matter',
-    title: 'Project A — conversational video editing',
-    why: 'Not ten features. The two or three things that make an attendee say "this is better than what I had".',
-    detail: 'Recommendation: ORCHESTRATE models, do not build a renderer. /api/edit-video-omni already works, is deployed and charged for, and nothing on the site surfaces it. A renderer is a second product, months, against a funded competitor.' },
   { ref: '40', owner: 'owner', status: 'pending', priority: 6,
     title: 'Return the supplier costs spreadsheet',
     why: 'Of 82 active models, 32 have no cost. Until then P&L margins are computed over partial data.',
@@ -151,6 +146,17 @@ export const SEED = [
     detail: 'Standing rule: I ask before ANY 2FA change reaches production.' },
 
   // ── MINE, outstanding, priority order ────────────────────────────────────
+  { ref: '31', owner: 'claude', status: 'in_progress', priority: 1,
+    title: 'Voxel Edit Cut — the video editor under /edit',
+    why: 'Every generated clip currently leaves the platform to be edited somewhere else. This is the piece that keeps the work — and the credits — here.',
+    detail: 'NO LONGER BLOCKED. It was parked on "name the 2–3 behaviours that matter"; the owner answered on 2026-08-22 with the ChatCut screenshots and a written spec, and said it is the whole scope. '
+      + 'MY EARLIER RECOMMENDATION WAS OVERRULED, DELIBERATELY. This card used to read "orchestrate models, do not build a renderer". The owner reviewed a small single-clip editor I had built and rejected it — "this is what I need for edit, not the one which you created". Recorded here because the trade is real and theirs: a renderer is the bigger build, and it is the one that makes the product. '
+      + 'STAGE 1 IS BUILT AND ON DEV at /timelinepreview (a scratch route, deliberately noindex — the real /edit workspace replaces it). 2,650 tests green. What works, verified in a real browser rather than only in tests: '
+      + 'a multi-track timeline with drag, edge-trim, continuous playhead-anchored zoom and visible gaps · undo/redo · a viewer showing real video at the playhead with the PROMPT that made the shot · the editor keyboard (J/K/L shuttle, C split, I/O, frame and second stepping, Delete, Cmd+Z) · autosave that survives a reload · export to MP4. '
+      + 'THE EXPORT WAS PROVED BY RENDERING, NOT BY READING THE ARGUMENTS: a cut with a 4-second hole then 8 seconds of footage came out at exactly 12.0s, 1920x1080, black through the hole (measured brightness 0) and picture after it (117). '
+      + 'TWO BUGS WORTH REMEMBERING. Autosave CREATED one: clip ids come from a counter that restarts at zero on every page load, so a restored project would eventually hand a new clip an id that already existed — and since delete is a filter, one delete removed TWO clips. Not on the first clip either, so it would have survived every demo. And the ffmpeg concat needs every segment to agree on frame rate, sample aspect ratio, pixel format AND to have an audio stream; one silent clip takes the whole export down. '
+      + 'NOT BUILT YET: the real /edit page (still shows the waitlist) · bringing your own generations in from history · text and captions rendering (export NAMES them as missing rather than dropping them quietly) · the agent chat, which is the ChatCut idea itself · projects stored server-side rather than in one browser · regenerate-a-shot-in-place, which the schema already carries the prompt for. '
+      + 'PRICING IS ALREADY DECIDED IN CODE (edit-ops.js): local edits — cut, join, resize, watermark, music — cost NOTHING, because no model is called. Only model-backed operations meter.' },
   { ref: '29', owner: 'claude', status: 'done', priority: 40,
     title: 'Record which model each video used, then show honest timings',
     why: 'The column existed and 3,046 rows were ALL NULL, so "which model is fastest" had no answer — the question your clients actually asked.',
