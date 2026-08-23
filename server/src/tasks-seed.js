@@ -146,6 +146,17 @@ export const SEED = [
     detail: 'Standing rule: I ask before ANY 2FA change reaches production.' },
 
   // ── MINE, outstanding, priority order ────────────────────────────────────
+  { ref: '75', owner: 'claude', status: 'pending', priority: 2,
+    title: 'History is slow for customers with a lot of generations — the page asks for ALL of it',
+    why: 'Owner reported 2026-08-23: a customer with many images or videos waits a long time for their library every time they sign in. It gets worse for the BEST customers — the ones who generate most — and it is the first thing an attendee sees in a workshop.',
+    detail: 'DIAGNOSED, NOT GUESSED. Checked the schema and the client on 2026-08-23. '
+      + 'IT IS NOT A MISSING INDEX. entities already has entities_user_name_created_idx on (user_id, name, created_date DESC) and a gin index on data. That was the first suspicion and it is wrong. '
+      + '── THE ACTUAL CAUSE ── Image.jsx (line ~332) and Video.jsx (line ~121) both run a LOOP that pages through the ENTIRE history, 200 rows at a time, sequentially, on every single page load: `for (page = 0; page < 1000; page++) { await History_.filter(...) }`. It stops only when a page comes back short. '
+      + 'For a customer with 3,000 generations that is FIFTEEN sequential round trips before the library is complete. The comment above it says "so nothing is capped" — the intent was completeness and the cost is the wait. '
+      + '── AND FOUR THINGS THAT COMPOUND IT ── (1) Sequential: each page waits for the one before, so latency multiplies rather than overlaps. (2) OFFSET pagination degrades with depth — OFFSET 2800 makes Postgres walk and discard 2,800 rows before returning the next 200, so each page is slower than the last. (3) SELECT * returns the whole JSONB per row — prompt, model, camera, lens, focal length, f-stop, reference urls — when the grid needs about six fields. (4) setVideos(prev => [...prev, ...mapped]) re-renders a GROWING grid fifteen times. '
+      + '── THE FIX, IN VALUE ORDER ── (1) STOP FETCHING EVERYTHING. One page on load, more on scroll or a button. One round trip instead of fifteen; this alone is most of the win. (2) KEYSET pagination instead of OFFSET: `WHERE created_date < $last ORDER BY created_date DESC LIMIT n` uses the existing index directly and stays flat at any depth. (3) Return only the fields the grid draws. (4) Append without re-rendering the whole grid. '
+      + '── ONE THING TO CONFIRM BEFORE ASSUMING IT IS FIXED ── the filter route combines `user_id = $1 AND name = $2 AND data @> $3::jsonb` with ORDER BY created_date. Postgres can use the btree OR the gin index, not both well, so the type filter may be forcing a sort over every matching row. Run EXPLAIN ANALYZE on the real production query before and after — I have NOT done that, and the fix above is worth doing either way. '
+      + '── WHY THIS IS NOT DONE YET ── It changes the two pages customers use most, in workshops, and the standing priority is no bugs. It is a deliberate change with real-browser proof on dev first, not something to squeeze in. Roughly half a day.' },
   { ref: '74', owner: 'claude', status: 'pending', priority: 20,
     title: 'First-time guided tour — show a new customer the place, once',
     why: 'Owner’s request 2026-08-23. A new customer lands on a site with Image, Video, Audio, Studio, Voxel Node and Edit and no idea which one they want. In a WORKSHOP this matters twice over: one instructor cannot hand-hold twenty attendees at once, and the tour is the instructor scaling.',
