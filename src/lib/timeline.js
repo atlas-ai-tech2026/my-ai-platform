@@ -509,3 +509,31 @@ export function sourceTimeAt(clip, timelineSeconds) {
   const offset = timelineSeconds - clip.start;
   return round(clip.in + offset * (clip.speed || 1));
 }
+
+/**
+ * Set the shape of the finished video.
+ *
+ * ── WHY THIS LIVES ON THE PROJECT AND NOT ON THE EXPORT DIALOG ─────────────
+ * "Make it for Reels" is not an export setting, it is a decision about what
+ * you are making — it changes how you frame every shot from that moment on.
+ * Put it in the export dialog and you find out your subject's head is cropped
+ * off at the moment you are trying to leave.
+ *
+ * On the project, it is autosaved, it is what the viewer draws, and the
+ * cropping is visible while there is still time to do something about it.
+ *
+ * `mode` is the other half and it is a real choice, not a default to hide:
+ * CROP fills the frame and loses the edges; PAD keeps everything and adds
+ * black bars. Crop is right more often — a landscape shot padded into 9:16 is
+ * mostly black — but "keep all of it" has to stay reachable.
+ */
+export function setProjectRatio(project, ratio, mode) {
+  if (!project) return project;
+  const next = { ...project };
+  if (ratio) next.ratio = ratio;
+  if (mode) next.resizeMode = mode;
+  // Same object when nothing changed, so history does not record a step for a
+  // click that chose what was already chosen.
+  if (next.ratio === project.ratio && next.resizeMode === project.resizeMode) return project;
+  return next;
+}

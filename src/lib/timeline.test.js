@@ -14,7 +14,7 @@ import {
   createProject, createClip, addClip, removeClip, moveClip, trimClip, splitClip,
   updateClip, addTrack, locateClip, activeAt, sourceTimeAt,
   clipDuration, clipEnd, projectDuration, MIN_CLIP, TRACK_KINDS, __resetIds,
-  trackGaps, closeGap, addSource, replaceClipSource,
+  trackGaps, closeGap, addSource, replaceClipSource, setProjectRatio,
 } from './timeline.js';
 
 beforeEach(__resetIds);
@@ -405,5 +405,39 @@ describe('replaceClipSource — remaking one shot in place', () => {
   it('an unknown clip changes nothing', () => {
     const { p } = build();
     expect(replaceClipSource(p, 'nope', fresh, 5).project).toBe(p);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+describe('setProjectRatio', () => {
+  it('changes the shape', () => {
+    __resetIds();
+    const p = createProject({ ratio: '16:9' });
+    expect(setProjectRatio(p, '9:16').ratio).toBe('9:16');
+  });
+
+  it('changes crop/pad independently of the shape', () => {
+    __resetIds();
+    const p = setProjectRatio(createProject({}), null, 'pad');
+    expect(p.resizeMode).toBe('pad');
+    expect(p.ratio, 'setting the mode moved the shape').toBe('16:9');
+  });
+
+  it('returns the SAME object when nothing changed', () => {
+    // Or clicking the ratio you already have records an undo step for nothing,
+    // and the undo stack fills with clicks that did not do anything.
+    __resetIds();
+    const p = createProject({ ratio: '16:9' });
+    expect(setProjectRatio(p, '16:9')).toBe(p);
+  });
+
+  it('leaves the clips completely alone', () => {
+    // Reshaping happens at EXPORT. Changing the ratio must never rewrite the
+    // edit — you can switch to Reels and back without losing your cuts.
+    __resetIds();
+    let p = createProject({});
+    p = addClip(p, p.tracks[0].id, createClip({ kind: 'video', sourceId: 's', start: 0, in: 0, out: 5 }));
+    const after = setProjectRatio(p, '9:16');
+    expect(after.tracks).toBe(p.tracks);
   });
 });

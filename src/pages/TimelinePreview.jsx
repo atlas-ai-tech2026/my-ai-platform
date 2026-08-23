@@ -66,10 +66,11 @@ import Timeline from '@/components/edit/Timeline';
 import Viewer from '@/components/edit/Viewer';
 import {
   createProject, createClip, addClip, addTrack, addSource, __resetIds,
-  splitClip, removeClip, projectDuration, clipEnd,
+  splitClip, removeClip, projectDuration, clipEnd, setProjectRatio,
 } from '@/lib/timeline';
 import MediaLibrary from '@/components/edit/MediaLibrary';
 import RegeneratePanel from '@/components/edit/RegeneratePanel';
+import RatioPicker from '@/components/edit/RatioPicker';
 import { base44 } from '@/api/base44Client';
 import { sourceOf, replaceClipSource, locateClip } from '@/lib/timeline';
 import { measureDuration } from '@/lib/media-library';
@@ -166,7 +167,7 @@ export default function TimelinePreview() {
 
   // Recomputed as the timeline changes, so the warnings shown next to the
   // button are always about the CURRENT edit rather than the one at mount.
-  const plan = exportPlan(project);
+  const plan = exportPlan(project, { ratio: project.ratio, mode: project.resizeMode || 'crop' });
 
   /**
    * Put a real generation on the end of the video track.
@@ -280,6 +281,8 @@ export default function TimelinePreview() {
       // of them never press.
       const { runExport } = await import('@/lib/edit-exec-browser');
       const out = await runExport(project, {
+        ratio: project.ratio,
+        mode: project.resizeMode || 'crop',
         onStage: (stage) => setExporting((e) => ({ ...e, stage })),
         onProgress: (p) => setExporting((e) => ({ ...e, progress: p })),
       });
@@ -588,6 +591,16 @@ export default function TimelinePreview() {
                     playing={playing}
                     onPlayingChange={setPlaying}
                   />
+
+                  {/* Directly under the picture, because the cropping it
+                      causes is visible right above it. */}
+                  <div className="mt-3">
+                    <RatioPicker
+                      ratio={project.ratio}
+                      mode={project.resizeMode || 'crop'}
+                      onChange={({ ratio, mode }) => change(setProjectRatio(project, ratio, mode), {})}
+                    />
+                  </div>
 
                   {/* Export detail stays under the viewer; the BUTTON is in the
                       top bar where it is always reachable. */}

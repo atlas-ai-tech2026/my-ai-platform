@@ -30,6 +30,17 @@ import { activeAt, sourceTimeAt, sourceOf, projectDuration } from '@/lib/timelin
 const SEEK_TOLERANCE = 0.25;
 
 export default function Viewer({ project, playhead = 0, onScrub, playing = false, onPlayingChange }) {
+  // ── THE VIEWER DRAWS THE SHAPE YOU ARE MAKING ──────────────────────────
+  // Not always 16:9. Choosing "Reels" and still seeing a landscape frame
+  // means choosing blind — you find out what the crop did to your subject
+  // after the export, which is the one moment it is too late.
+  //
+  // object-fit mirrors the export exactly: `crop` fills and loses the edges
+  // (cover), `pad` fits and adds bars (contain). Same decision, same result,
+  // shown while there is still time to change it.
+  const ratio = project?.ratio || '16:9';
+  const mode = project?.resizeMode || 'crop';
+  const fit = mode === 'pad' ? 'object-contain' : 'object-cover';
   const videoRef = useRef(null);
   const rafRef = useRef(0);
   const lastTickRef = useRef(0);
@@ -90,14 +101,18 @@ export default function Viewer({ project, playhead = 0, onScrub, playing = false
 
   return (
     <div className="flex flex-col gap-2">
-      <div className="relative bg-black rounded-lg overflow-hidden aspect-video flex items-center justify-center">
+      <div
+        style={{ aspectRatio: ratio.replace(':', ' / ') }}
+        data-testid="viewer-frame"
+        className="relative bg-black rounded-lg overflow-hidden flex items-center justify-center mx-auto max-h-full"
+      >
         <video
           ref={videoRef}
           muted
           playsInline
           preload="auto"
           onError={() => setProblem('This clip could not be loaded.')}
-          className={`w-full h-full object-contain ${picture ? '' : 'hidden'}`}
+          className={`w-full h-full ${fit} ${picture ? '' : 'hidden'}`}
         />
 
         {/* Nothing at this moment is a REAL state, not an error. The timeline
