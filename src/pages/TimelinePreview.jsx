@@ -31,29 +31,29 @@ const LIBRARY_TABS = [
 /** A quiet uppercase panel header. Small and grey on purpose: a panel label
  *  should tell you where you are without competing with the work inside it. */
 /**
- * ── WHY THE PANELS SNAP INSTEAD OF SLIDING ─────────────────────────────────
- * The owner asked for the smooth 150ms feel of the control-panel banner, and
- * that is not what this does. It is deliberate, and the reason is worth
- * keeping.
+ * The collapse animation. 220ms, matching the control-panel banner the owner
+ * asked this to feel like.
  *
- * A width transition on these panels DOES NOT COMPLETE. The inline width
- * changed to 36px and the COMPUTED width stayed at 340px — so the panel
- * content swapped to a rail while the panel itself stayed wide. Nothing threw.
- * The DOM looked completely correct.
+ * ── A CORRECTION WORTH KEEPING, BECAUSE I GOT THIS WRONG ───────────────────
+ * I first shipped this with NO animation and wrote a long note explaining that
+ * width transitions "do not complete here" — the inline width changed to 36px
+ * while the computed width stayed at 340px, so the panel content swapped to a
+ * rail and the panel stayed wide. I blamed a global `transition: all`.
  *
- * The cause is visible in the computed style: `transition-property: all`,
- * inherited from a global rule in the app's CSS. Transitioning `all` across a
- * layout property is exactly the case that misbehaves, and an explicit inline
- * `transition: width 150ms` did not rescue it either.
+ * There is no such global rule, and the transition was never broken. I was
+ * measuring in a HIDDEN browser tab. A hidden document does not run CSS
+ * transitions at all — getAnimations() returns nothing and requestAnimationFrame
+ * never fires — so the computed value sits at the start value forever. Remove
+ * the transition and the change applies instantly even when hidden, which is
+ * exactly what I saw and exactly why I drew the wrong conclusion.
  *
- * Found by setting `transition: none` by hand in the console and watching the
- * width snap to 36px immediately — then measuring: 780px → 1368px of viewer.
+ * Confirmed by reading document.visibilityState: "hidden".
  *
- * A collapse that WORKS instantly beats one that animates and leaves the panel
- * wide. VS Code and Figma both snap their panels. If the animation is wanted
- * later, the global `transition: all` is the thing to fix first — and that is a
- * site-wide change, not an editor one.
+ * THE RULE THIS EARNS: an automated browser check can prove a value changed.
+ * It cannot prove something ANIMATED, because animation needs a visible tab.
+ * Timing and motion are verified by a person watching, or not at all.
  */
+const PANEL_EASE = 'width 220ms cubic-bezier(0.4, 0, 0.2, 1)';
 
 const PanelLabel = ({ children, action = null }) => (
   <div className="shrink-0 flex items-center gap-2 px-3 py-2 border-b border-border text-[10px] font-medium uppercase tracking-wider text-foreground-muted">
@@ -419,7 +419,7 @@ export default function TimelinePreview() {
             a rail while the column stayed wide. Width is a plain length and
             animates reliably. Found by reading inline vs computed side by side. */}
         <aside
-          style={wide ? { width: layout.left ? 340 : 36 } : undefined}
+          style={wide ? { width: layout.left ? 340 : 36, transition: PANEL_EASE } : undefined}
           className="shrink-0 min-w-0 flex flex-col min-h-0 overflow-hidden border-b lg:border-b-0 lg:border-r border-border"
         >
           {/* ── COLLAPSED: A RAIL, NOT NOTHING ────────────────────────────
@@ -518,7 +518,7 @@ export default function TimelinePreview() {
                 does not have to be rearranged later, and so nobody wonders
                 whether uploads were forgotten. */}
             <section
-              style={wide ? { width: layout.middle ? 320 : 36 } : undefined}
+              style={wide ? { width: layout.middle ? 320 : 36, transition: PANEL_EASE } : undefined}
               className="shrink-0 min-w-0 flex flex-col min-h-0 overflow-hidden border-b md:border-b-0 md:border-r border-border"
             >
               {!layout.middle ? (
