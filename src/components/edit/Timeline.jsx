@@ -29,6 +29,7 @@ import {
 } from '@/lib/timeline';
 import { snapTargets, snapStart, snapEdge } from '@/lib/timeline-snap';
 import Tip from './Tip';
+import RecordMenu from './RecordMenu';
 
 // ── ZOOM IS CONTINUOUS AND LOGARITHMIC ────────────────────────────────────
 // It was seven fixed steps — 2, 5, 10, 20, 40, 80, 160 pixels per second — so
@@ -117,6 +118,11 @@ export default function Timeline({
   // that disagree.
   tool = 'select',
   onToolChange,
+  // ── RECORDING ──────────────────────────────────────────────────────────
+  // Handed in for the same reason every other mutation is: the page owns the
+  // project, so a take lands in ONE undo step alongside everything else.
+  onRecorded,
+  onRecordError,
   /** Imperative handle so the keyboard can drive zoom. */
   controls,
   // ── TRACK MANAGEMENT ───────────────────────────────────────────────────
@@ -398,6 +404,12 @@ export default function Timeline({
             <Rows3 className="w-3.5 h-3.5" />
           </button>
         </Tip>
+
+        {/* Record. Sits with the other authoring tools rather than by the
+            transport, because it CREATES a clip — it is not playback. */}
+        {onRecorded && (
+          <RecordMenu onRecorded={onRecorded} onError={onRecordError} />
+        )}
 
         <span className="ml-auto font-mono text-xs text-foreground-muted tabular-nums">
           {fmtTime(playhead)} / {fmtTime(duration)}

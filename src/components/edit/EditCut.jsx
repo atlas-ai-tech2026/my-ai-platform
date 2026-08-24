@@ -80,7 +80,9 @@ import RatioPicker from '@/components/edit/RatioPicker';
 import Tip from '@/components/edit/Tip';
 import { base44 } from '@/api/base44Client';
 import { sourceOf, replaceClipSource, locateClip } from '@/lib/timeline';
+import { toast } from 'sonner';
 import { measureDuration } from '@/lib/media-library';
+import { trackKindFor, extensionFor, recordingStartAt, recordingName } from '@/lib/recording';
 
 /** The generate endpoints take a bearer token directly — they are raw fetches
  *  rather than the axios client, exactly as Video.jsx does it. */
@@ -275,6 +277,71 @@ export default function EditCut({ demo = false, startWith = null, onLeave = null
       sourceId: source.id,
       name: (source.prompt || source.model || 'clip').slice(0, 40),
       start: end,
+      in: 0,
+      out: seconds,
+    }));
+    change(next, {});
+  }
+
+  /**
+   * A finished recording becomes a clip.
+   *
+   * ── IT IS UPLOADED FIRST, AND THAT IS THE WHOLE POINT ────────────────────
+   * A blob: URL dies with the page. This editor autosaves and reloads, so a
+   * recording kept as a blob would be a clip that silently loses its media the
+   * first time anyone refreshes — the same shape as history vanishing when FAL
+   * urls expired, and just as hard to notice until it matters.
+   *
+   * /api/upload stores it in Spaces and returns a durable https url. It is
+   * slower than pointing at the blob, and it is the difference between a
+   * recording you still have tomorrow and one you do not.
+   */
+  async function addRecording({ blob, mimeType, mode }) {
+    const kind = trackKindFor(mode);            // voiceover → audio, else video
+    const token = localStorage.getItem('voxel_token');
+
+    const form = new FormData();
+    form.append('file', blob, `recording.${extensionFor(mimeType)}`);
+
+    const resp = await fetch('/api/upload', {
+      method: 'POST',
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      body: form,
+    });
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok || !data?.url) {
+      // Named, not generic. The recording is still in memory at this point but
+      // the customer cannot act on "upload failed" — they can act on "too
+      // large" or on being signed out.
+      throw new Error(data?.error || `The recording could not be saved (${resp.status}).`);
+    }
+
+    // Duration from the FILE, not from a stopwatch. MediaRecorder timing and
+    // wall-clock elapsed disagree by enough to leave a gap or an overlap.
+    let seconds = 0;
+    try { seconds = await measureDuration(data.url); } catch { seconds = 0; }
+    if (!Number.isFinite(seconds) || seconds <= 0) seconds = 1;
+
+    let working = project;
+    let track = working.tracks.find((t) => t.kind === kind && !t.locked);
+    if (!track) {
+      working = addTrack(working, kind);
+      track = working.tracks[working.tracks.length - 1];
+    }
+    const taken = working.tracks
+      .flatMap((t) => t.clips)
+      .filter((c) => c.name?.startsWith(recordingName(mode))).length;
+
+    const id = `rec-${Date.now()}`;
+    let next = addSource(working, { id, url: data.url, kind, recorded: true });
+    next = addClip(next, track.id, createClip({
+      kind,
+      sourceId: id,
+      name: recordingName(mode, taken + 1),
+      // At the PLAYHEAD: someone recording a voiceover is talking over a
+      // particular moment, and a take that lands anywhere else needs dragging
+      // before it is any use.
+      start: recordingStartAt(playhead),
       in: 0,
       out: seconds,
     }));
@@ -835,6 +902,8 @@ export default function EditCut({ demo = false, startWith = null, onLeave = null
               onToolChange={setTool}
               onAddTrack={addLayer}
               onRemoveTrack={removeLayer}
+              onRecorded={addRecording}
+              onRecordError={(m) => toast.error(m)}
               controls={timelineControls}
             />
             <div className="flex flex-wrap gap-x-4 gap-y-0.5 px-3 py-1.5 border-t border-border/60 text-[10px] text-foreground-muted">
