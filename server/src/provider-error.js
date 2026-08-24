@@ -26,7 +26,12 @@
  * that this never makes a bad situation harder to read.
  */
 export function providerErrorParts(error) {
-  const status = error?.status ?? error?.response?.status ?? null;
+  // `httpStatus` is what kie.js and llm.js set — and leaving it out meant
+  // EVERY kie failure in the app logged its status as "???", including the
+  // one that sent me looking at the account when the real problem was a URL.
+  // Worse than the log: isProviderRefusal() never saw a kie 401/403, so an
+  // account problem came back as a generic 500 inviting endless retries.
+  const status = error?.status ?? error?.httpStatus ?? error?.response?.status ?? null;
   const body = error?.body ?? error?.response?.data ?? null;
   return { status, message: error?.message || 'unknown error', body };
 }

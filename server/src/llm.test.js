@@ -137,13 +137,37 @@ describe('when it goes wrong, say something actionable', () => {
 });
 
 describe('what it sends', () => {
-  it('puts the system prompt in a system MESSAGE, not glued to the user turn', async () => {
+  it('puts the MODEL IN THE PATH — the mistake that cost the first attempt', async () => {
+    // Calling the generic /api/v1/chat/completions does not 404. It exists,
+    // and answers "This feature is currently not supported", which reads like
+    // an account or plan problem and sends you to the wrong place entirely.
+    configureLlm({ kieKey: 'k', model: 'gemini-3-7-flash' });
+    const f = vi.fn().mockResolvedValue(okResponse(chat('ok')));
+    await llmText({ prompt: 'hi', fetchImpl: f });
+    expect(f.mock.calls[0][0]).toBe('https://api.kie.ai/gemini-3-7-flash/v1/chat/completions');
+  });
+
+  it('never sends the model in the BODY — the path already carries it', async () => {
+    const f = vi.fn().mockResolvedValue(okResponse(chat('ok')));
+    await llmText({ prompt: 'hi', fetchImpl: f });
+    expect(JSON.parse(f.mock.calls[0][1].body).model).toBeUndefined();
+  });
+
+  it('sends stream:false — a streamed reply is SSE and resp.json() would throw', async () => {
+    // kie's own documented example passes stream:true. Inheriting that would
+    // fail as "invalid JSON" rather than as "you asked for a stream", which
+    // is a much worse thing to have to debug.
+    const f = vi.fn().mockResolvedValue(okResponse(chat('ok')));
+    await llmText({ prompt: 'hi', fetchImpl: f });
+    expect(JSON.parse(f.mock.calls[0][1].body).stream).toBe(false);
+  });
+
+  it('sends content as an ARRAY of typed parts, per the documented shape', async () => {
     const f = vi.fn().mockResolvedValue(okResponse(chat('ok')));
     await llmText({ system: 'you are a robot', prompt: 'hello', fetchImpl: f });
-    const body = JSON.parse(f.mock.calls[0][1].body);
-    expect(body.messages).toEqual([
-      { role: 'system', content: 'you are a robot' },
-      { role: 'user', content: 'hello' },
+    expect(JSON.parse(f.mock.calls[0][1].body).messages).toEqual([
+      { role: 'system', content: [{ type: 'text', text: 'you are a robot' }] },
+      { role: 'user', content: [{ type: 'text', text: 'hello' }] },
     ]);
   });
 
@@ -151,6 +175,13 @@ describe('what it sends', () => {
     const f = vi.fn().mockResolvedValue(okResponse(chat('ok')));
     await llmText({ prompt: 'hello', fetchImpl: f });
     expect(JSON.parse(f.mock.calls[0][1].body).messages).toHaveLength(1);
+  });
+
+  it('escapes the model so a stray slug cannot rewrite the path', async () => {
+    configureLlm({ kieKey: 'k', model: '../../admin' });
+    const f = vi.fn().mockResolvedValue(okResponse(chat('ok')));
+    await llmText({ prompt: 'hi', fetchImpl: f });
+    expect(f.mock.calls[0][0]).not.toContain('../');
   });
 
   it('authenticates with the kie key as a Bearer token', async () => {

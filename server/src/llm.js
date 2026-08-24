@@ -37,7 +37,22 @@
 // error instead of failing as a mystery. One real call on dev settles it.
 
 const KIE_BASE = 'https://api.kie.ai';
-const KIE_CHAT_PATH = '/api/v1/chat/completions';
+
+/**
+ * kie puts the MODEL IN THE PATH, not in the body: /gemini-3-pro/v1/chat/completions
+ *
+ * This is the thing that broke the first attempt, and it is worth writing down
+ * because the failure looked like something else entirely. I called the
+ * generic /api/v1/chat/completions, which EXISTS — so it did not 404 — and
+ * answered "This feature is currently not supported". That reads like a plan
+ * or entitlement problem, and I would have gone asking about the account.
+ *
+ * It also means my probe was worthless: every path under this prefix returns
+ * kie's 401 envelope, INCLUDING a model slug I invented. Auth is checked
+ * before routing here, so "it 401s, therefore it exists" — which held on the
+ * /api/v1/ paths — is false on this one. The docs are the authority.
+ */
+const kieChatPath = (model) => `/${encodeURIComponent(model)}/v1/chat/completions`;
 
 /** kie's newest cost-efficient chat model. Overridable with LLM_MODEL — see
  *  the note above about slugs versus API ids. */
@@ -169,18 +184,26 @@ export async function llmText({ system, prompt, tag = 'LLM', timeoutMs = 45_000,
     return extractText(result);
   }
 
-  // ── kie: OpenAI-compatible chat ───────────────────────────────────────
+  // ── kie: OpenAI-compatible chat, model in the PATH ────────────────────
   const doFetch = fetchImpl || fetch;
+
+  // Content is an ARRAY of typed parts, per kie's documented example — not
+  // the bare string the plain OpenAI API accepts.
+  const part = (text) => [{ type: 'text', text }];
   const messages = [];
-  if (system) messages.push({ role: 'system', content: system });
-  messages.push({ role: 'user', content: String(prompt).trim() });
+  if (system) messages.push({ role: 'system', content: part(system) });
+  messages.push({ role: 'user', content: part(String(prompt).trim()) });
 
   let resp;
   try {
-    resp = await doFetch(KIE_BASE + KIE_CHAT_PATH, {
+    resp = await doFetch(KIE_BASE + kieChatPath(model), {
       method: 'POST',
       headers: { Authorization: `Bearer ${cfg.kieKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model, messages }),
+      // stream:false is NOT optional. kie's own example passes stream:true,
+      // and a streamed reply is server-sent events — resp.json() would throw
+      // on it and the whole thing would fail as "invalid JSON" rather than as
+      // "you asked for a stream".
+      body: JSON.stringify({ messages, stream: false }),
       signal: AbortSignal.timeout(timeoutMs),
     });
   } catch (e) {

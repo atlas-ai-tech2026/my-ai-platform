@@ -92,3 +92,34 @@ describe('what actually reaches the log', () => {
     expect(formatProviderError('X', e)[1]).toMatch(/provider said: Forbidden: no access/);
   });
 });
+
+describe('kie sets httpStatus, not status', () => {
+  // Found 2026-08-24 from a real log line: `[EDIT-AGENT] ❌ ??? This feature
+  // is currently not supported`. The ??? is the status this module could not
+  // find, because kie.js and llm.js both name the field `httpStatus` and this
+  // file only looked for `status`.
+  //
+  // The log was the smaller half. isProviderRefusal() reads the same value —
+  // so a kie 401 or 403 was never recognised as an account problem and came
+  // back to the customer as a generic 500 that invites retrying forever.
+  it('reads httpStatus so a kie failure is not logged as "???"', () => {
+    const e = Object.assign(new Error('This feature is currently not supported'), { httpStatus: 404 });
+    expect(providerErrorParts(e).status).toBe(404);
+  });
+
+  it('a kie 401 now counts as a provider REFUSAL', () => {
+    const e = Object.assign(new Error('Unauthorized'), { httpStatus: 401 });
+    expect(isProviderRefusal(providerErrorParts(e).status)).toBe(true);
+  });
+
+  it('still prefers `status` when both are present', () => {
+    // fal-style errors carry `status`; nothing about this change may move them.
+    const e = Object.assign(new Error('x'), { status: 403, httpStatus: 500 });
+    expect(providerErrorParts(e).status).toBe(403);
+  });
+
+  it('the log line now carries the status through', () => {
+    const e = Object.assign(new Error('This feature is currently not supported'), { httpStatus: 404 });
+    expect(formatProviderError('EDIT-AGENT', e)[0]).toContain('404');
+  });
+});
