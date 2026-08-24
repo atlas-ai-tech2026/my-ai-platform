@@ -282,3 +282,57 @@ describe('finding one among hundreds', () => {
     expect(modelsPresent()).toEqual([]);
   });
 });
+
+describe('a RECORDING declares no length', () => {
+  // The bug behind "the recording, it's cutting" — 2026-08-25.
+  //
+  // MediaRecorder writes WebM as a stream, so the header carries no Duration
+  // element and the browser reports Infinity. measureDuration correctly
+  // refused Infinity, the caller fell back to a constant 1, and every take
+  // arrived on the timeline as a ONE SECOND clip however long you had talked.
+  //
+  // Seeking absurdly far forces the browser to scan to the last cluster, and
+  // only then is duration real.
+  const fakeVideo = (duration, afterSeek) => {
+    const el = {
+      preload: '', muted: false, duration, _src: '',
+      set src(v) { el._src = v; setTimeout(() => el.onloadedmetadata?.(), 0); },
+      get src() { return el._src; },
+      set currentTime(_v) {
+        el.duration = afterSeek;
+        setTimeout(() => el.onseeked?.(), 0);
+      },
+    };
+    return el;
+  };
+
+  it('reads the real length after the probe seek', async () => {
+    const el = fakeVideo(Infinity, 42.5);
+    await expect(measureDuration('blob:x', { createVideo: () => el, probeUnsized: true }))
+      .resolves.toBe(42.5);
+  });
+
+  it('does NOT probe unless asked — every other caller is a finished file', async () => {
+    // An extra seek on each library item would be waste, and the existing
+    // contract (null for an unmeasurable stream) has to keep holding.
+    const el = fakeVideo(Infinity, 42.5);
+    await expect(measureDuration('blob:x', { createVideo: () => el }))
+      .resolves.toBeNull();
+  });
+
+  it('still answers null when even the probe cannot tell', async () => {
+    // Then the caller uses how long the take actually ran — never a constant.
+    const el = fakeVideo(Infinity, Infinity);
+    await expect(measureDuration('blob:x', { createVideo: () => el, probeUnsized: true }))
+      .resolves.toBeNull();
+  });
+
+  it('does not probe a file that already declares a length', async () => {
+    let seeked = false;
+    const el = fakeVideo(12, 99);
+    Object.defineProperty(el, 'currentTime', { set() { seeked = true; } });
+    await expect(measureDuration('blob:x', { createVideo: () => el, probeUnsized: true }))
+      .resolves.toBe(12);
+    expect(seeked).toBe(false);
+  });
+});

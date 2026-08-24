@@ -296,7 +296,7 @@ export default function EditCut({ demo = false, startWith = null, onLeave = null
    * slower than pointing at the blob, and it is the difference between a
    * recording you still have tomorrow and one you do not.
    */
-  async function addRecording({ blob, mimeType, mode }) {
+  async function addRecording({ blob, mimeType, mode, ranForSeconds = 0 }) {
     const kind = trackKindFor(mode);            // voiceover → audio, else video
     const token = localStorage.getItem('voxel_token');
 
@@ -316,11 +316,24 @@ export default function EditCut({ demo = false, startWith = null, onLeave = null
       throw new Error(data?.error || `The recording could not be saved (${resp.status}).`);
     }
 
-    // Duration from the FILE, not from a stopwatch. MediaRecorder timing and
-    // wall-clock elapsed disagree by enough to leave a gap or an overlap.
+    // ── HOW LONG IS IT? ─────────────────────────────────────────────────
+    // From the FILE first: MediaRecorder's own timing and wall-clock drift
+    // apart by enough to leave a gap or an overlap at a cut.
+    //
+    // probeUnsized because a recording declares NO duration — WebM written as
+    // a stream has no Duration in its header and the browser says Infinity
+    // until something forces it to scan to the end.
+    //
+    // And if that still fails, fall back to HOW LONG THE TAKE ACTUALLY RAN,
+    // never to a constant. The first version fell back to 1 second, so every
+    // recording arrived as a one-second clip no matter how long you spoke —
+    // which is what "it's cutting" was.
     let seconds = 0;
-    try { seconds = await measureDuration(data.url); } catch { seconds = 0; }
-    if (!Number.isFinite(seconds) || seconds <= 0) seconds = 1;
+    try { seconds = await measureDuration(data.url, { probeUnsized: true }); } catch { seconds = 0; }
+    if (!Number.isFinite(seconds) || seconds <= 0) seconds = ranForSeconds;
+    if (!Number.isFinite(seconds) || seconds <= 0) {
+      throw new Error('The recording saved, but its length could not be read. Nothing was added to the timeline.');
+    }
 
     let working = project;
     let track = working.tracks.find((t) => t.kind === kind && !t.locked);

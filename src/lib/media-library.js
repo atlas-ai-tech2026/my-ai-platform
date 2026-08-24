@@ -108,7 +108,7 @@ export function toSource(record) {
  * timeout is the difference between "could not read this clip" and a card that
  * spins forever.
  */
-export function measureDuration(url, { createVideo, timeoutMs = 15000 } = {}) {
+export function measureDuration(url, { createVideo, timeoutMs = 15000, probeUnsized = false } = {}) {
   const make = createVideo || (() => document.createElement('video'));
   return new Promise((resolve) => {
     let settled = false;
@@ -119,9 +119,37 @@ export function measureDuration(url, { createVideo, timeoutMs = 15000 } = {}) {
     el.muted = true;
     el.onloadedmetadata = () => {
       const d = Number(el.duration);
-      // Infinity is a real answer from a stream with no declared length, and
-      // it must not become an out point.
-      done(Number.isFinite(d) && d > 0 ? d : null);
+      if (Number.isFinite(d) && d > 0) return done(d);
+
+      // ── A RECORDING HAS NO DECLARED LENGTH ──────────────────────────────
+      // MediaRecorder writes WebM as a stream, so the header has no Duration
+      // element and the browser reports Infinity — forever, unless you make it
+      // look. Seeking far past the end forces it to scan to the last cluster,
+      // and THEN duration is real.
+      //
+      // This is opt-in because every other caller here is a finished file that
+      // declares its length, and an extra seek on each of those is waste.
+      //
+      // Why it matters: Infinity was correctly refused, and the caller fell
+      // back to a placeholder. Every recording became a one-second clip
+      // regardless of how long you had talked — "it's cutting".
+      if (!probeUnsized) return done(null);
+
+      el.onseeked = () => {
+        el.onseeked = null;
+        const after = Number(el.duration);
+        done(Number.isFinite(after) && after > 0 ? after : null);
+      };
+      el.ontimeupdate = () => {
+        const after = Number(el.duration);
+        if (Number.isFinite(after) && after > 0) { el.ontimeupdate = null; done(after); }
+      };
+      try {
+        // Deliberately absurd. Browsers clamp to the real end rather than
+        // throw, and the clamp is exactly the answer being asked for.
+        el.currentTime = 1e101;
+      } catch { done(null); }
+      return undefined;
     };
     el.onerror = () => done(null);
     setTimeout(() => done(null), timeoutMs);

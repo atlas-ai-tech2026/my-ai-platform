@@ -48,6 +48,7 @@ export default function RecordMenu({ onRecorded, onError, disabled = false }) {
   const recorderRef = useRef(null);
   const chunksRef = useRef([]);
   const cancelledRef = useRef(false);
+  const startedAtRef = useRef(0);
   const rootRef = useRef(null);
 
   // ── device list ───────────────────────────────────────────────────────
@@ -167,7 +168,10 @@ export default function RecordMenu({ onRecorded, onError, disabled = false }) {
         if (!blob.size) return fail('Nothing was recorded — the take was empty.');
         setBusy(true);
         try {
-          await onRecorded?.({ blob, mimeType: upload, mode: modeId });
+          const ranForSeconds = startedAtRef.current
+            ? (Date.now() - startedAtRef.current) / 1000
+            : 0;
+          await onRecorded?.({ blob, mimeType: upload, mode: modeId, ranForSeconds });
         } catch (e) {
           return fail(e?.message || 'The recording could not be saved.');
         } finally {
@@ -176,6 +180,10 @@ export default function RecordMenu({ onRecorded, onError, disabled = false }) {
         return undefined;
       };
       recorder.start(1000);        // a chunk a second, so a crash loses ≤1s
+      // How long the take actually ran. A WebM from MediaRecorder declares no
+      // duration, so if reading it back fails this wall-clock is the only
+      // honest length available — and it beats a placeholder by a mile.
+      startedAtRef.current = Date.now();
       recorderRef.current = recorder;
       setElapsed(0);
       setRecording({ mode: modeId });
