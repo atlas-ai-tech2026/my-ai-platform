@@ -146,6 +146,40 @@ export const SEED = [
     detail: 'Standing rule: I ask before ANY 2FA change reaches production.' },
 
   // ── MINE, outstanding, priority order ────────────────────────────────────
+  { ref: '76', owner: 'claude', status: 'blocked', priority: 1,
+    blocked_by: 'A working text model. FAL is no longer funded/used and our KIE wrapper has no text endpoint — so the agent has nothing to call. Cheapest unblock is credit on FAL for any-llm alone (a fraction of a cent per instruction); the alternative is finding a KIE text model and adding a family for it.',
+    title: 'Edit Cut — the agent is wired to FAL, and we do not use FAL any more',
+    why: 'Owner tested the chat agent on dev 2026-08-23 and it failed every time. Root cause is not a bug in the agent: /api/edit-agent calls fal-ai/any-llm, and the owner confirmed the same day that Voxel runs on KIE now, not FAL. The FAL key is still set on both apps, so everything LOOKS configured — fal_configured reports true — and then every call comes back 403 Forbidden.',
+    detail: 'VERIFIED 2026-08-23, not guessed. Dev logs show [EDIT-AGENT] ❌ Forbidden twice. Ruled out from FAL\'s own public OpenAPI: google/gemini-flash-1.5 IS still a valid any-llm model, and the input shape (prompt required, model and system_prompt accepted) is correct. So the request is well-formed and the refusal is about the KEY or the ACCOUNT — consistent with FAL no longer being funded or used. '
+      + '── THE SAME BUG HITS A LIVE FEATURE ── /api/enhance-prompt (the red bolt on Image and Video) makes the IDENTICAL call to the same model. It should be failing the same way on production right now. NOT CONFIRMED — nobody has pressed it since. One click settles it, and if it does fail this is bigger than Edit Cut. '
+      + '── WHAT IS NOT SIMPLE ABOUT THE FIX ── our kie.js has NO text/LLM endpoint; it only wraps image and video families (/api/v1/chat/credit is a balance check, not a chat model). Whether KIE sells a text model at all is UNCHECKED — my query against their public playground catalogue came back empty, which proves nothing either way. So the options are: (a) find a KIE text model and add a family for it, (b) put credit back on FAL just for any-llm, which is cheap — gemini-flash costs a fraction of a cent per instruction, or (c) call a text model directly from a third provider. '
+      + 'ALREADY DONE while diagnosing: both routes now log the provider status AND body instead of the bare word "Forbidden", and 401/403 returns a 502 saying the provider refused us rather than a 500 that invites endless retrying (provider-error.js, 11 tests). The next failure will say why. '
+      + 'UNTIL THIS IS RESOLVED the agent is dead code on dev — the panel, the command layer and all 41 of its tests are fine, and nothing can reach a model.' },
+
+  { ref: '77', owner: 'claude', status: 'pending', priority: 2,
+    title: 'Edit Cut — the parity backlog, read from the ChatCut screenshots',
+    why: 'The owner asked for the same functionality as ChatCut and re-sent the screenshots so it could be done properly. The full control-by-control comparison now lives in docs/EDIT-CUT-PARITY.md, in the repo, because the first attempt failed when the conversation was compacted and the images were gone.',
+    detail: 'READ THE DOC, not this card — docs/EDIT-CUT-PARITY.md is the source of truth and carries every tooltip verbatim. Ranked shortlist: '
+      + '(1) DELETE TRACK — confirmed in ChatCut\'s track header; we have no way to remove a layer at all. '
+      + '(2) ADD TRACK — ChatCut has NO + button (their tracks appear when media is dropped; their toolbar + is "Create new timeline"). Ours needs one anyway because our tracks are not created implicitly, so a customer is stuck with Video 1 + Audio 1 forever. Ship it even though ChatCut lacks it. '
+      + '(3) EXTRA VIDEO LAYERS WARN ON EXPORT — non-negotiable, see #78. '
+      + '(4) ⭐ GENERATION AUTO-ALLOW — ChatCut\'s agent settings decide whether the agent may spend money WITHOUT ASKING, and their defaults are exactly right: the free local thing ON, both paid generators OFF. edit-ops.js already separates free local edits from metered model calls, so the wiring exists. I would not ship the agent to production without it. '
+      + '(5) LIBRARY TOOLBAR — search, sort, filter. The library is the reason to use Voxel\'s editor rather than anyone else\'s, and today you cannot find anything in it. '
+      + '(6) RECORD voiceover / camera / screen — highest-value missing feature for teaching; sources are already generic so it is additive. '
+      + '(7) MULTIPLE VIDEO LAYERS COMPOSITE — makes (2) honest. '
+      + 'Then: bins · captions render · Versions (⌘S) · drag-and-drop onto the viewer · preset cards LAST and NOT copied from theirs — ours should be workshop shapes ("turn my generations into a 30-second reel"), not "Talking Head Editing". '
+      + 'SKIP, owner-rejected or their commercial furniture: Desktop App · Upgrade/plans/promo banner · Skin · Invite friend. '
+      + 'ChatCut\'s "Agent Plugin" (copy an install prompt for Claude Code / Codex) is our task #32 — a competitor shipped it.' },
+
+  { ref: '78', owner: 'claude', status: 'pending', priority: 1,
+    title: 'Edit Cut — a second video layer would VANISH from the export, silently',
+    why: 'Found 2026-08-23 while answering the owner\'s question about adding layers. It is the reason the + button could not just be shipped on its own.',
+    detail: 'timeline-export.js line ~95: `project.tracks.find(t => t.kind === video && !t.hidden)` — the FIRST video track and no other. '
+      + 'AUDIO IS NOT THE SAME: the audio path LOOPS over every audio track and mixes them, so multiple music/voice layers already export correctly today. The asymmetry is easy to assume away. '
+      + 'And there is NO warning: the "not in this export" loop only covers kinds that are never rendered (text, image, captions), so an extra VIDEO track is dropped in total silence. Somebody could build a two-layer edit, export, and find half their work missing with nothing having said a word. '
+      + 'ORDER OF WORK: warn loudly FIRST (cheap, honest, ships with the + button), then composite properly — upper layer over lower, z-order, transparency and time-gating. The compositing must be proved by RENDERING A FILE and measuring it, exactly as the first export was proved (a 4-second hole came out at 12.0s with brightness 0 through the gap), not by reading the ffmpeg arguments. '
+      + 'OPEN QUESTION for the owner, it changes the filter: two video layers meaning picture-in-picture (a logo or small video on top), or a stack you cut between (B-roll over A-roll)?' },
+
   { ref: '75', owner: 'claude', status: 'in_progress', priority: 2,
     title: 'History is slow for customers with a lot of generations — MAIN FIX ON DEV, needs your eyes',
     why: 'Owner reported 2026-08-23: a customer with many images or videos waits a long time for their library every time they sign in. It gets worse for the BEST customers — the ones who generate most — and it is the first thing an attendee sees in a workshop.',
