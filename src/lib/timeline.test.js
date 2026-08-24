@@ -15,6 +15,7 @@ import {
   updateClip, addTrack, locateClip, activeAt, sourceTimeAt,
   clipDuration, clipEnd, projectDuration, MIN_CLIP, TRACK_KINDS, __resetIds,
   trackGaps, closeGap, addSource, replaceClipSource, setProjectRatio,
+  removeTrack, whyKeepTrack,
 } from './timeline.js';
 
 beforeEach(__resetIds);
@@ -439,5 +440,69 @@ describe('setProjectRatio', () => {
     p = addClip(p, p.tracks[0].id, createClip({ kind: 'video', sourceId: 's', start: 0, in: 0, out: 5 }));
     const after = setProjectRatio(p, '9:16');
     expect(after.tracks).toBe(p.tracks);
+  });
+});
+
+// ─── REMOVING A TRACK ────────────────────────────────────────────────────────
+// Added 2026-08-23. There was no way to remove a layer at all — `addTrack`
+// existed and was called from exactly one place (building the demo), and
+// `removeTrack` did not exist. The owner found both gaps by looking at the
+// screen and asking where the button was.
+
+describe('removing a track', () => {
+  const twoTracks = () => { __resetIds(); return createProject({ name: 'T' }); };
+
+  it('removes the track and everything on it', () => {
+    let p = twoTracks();
+    p = addTrack(p, 'text');
+    const textId = p.tracks[2].id;
+    const after = removeTrack(p, textId);
+
+    expect(after.tracks).toHaveLength(2);
+    expect(after.tracks.find((t) => t.id === textId)).toBeUndefined();
+  });
+
+  it('REFUSES a locked track — a lock that only stops trimming is not a lock', () => {
+    let p = twoTracks();
+    p = addTrack(p, 'text');
+    const id = p.tracks[2].id;
+    p = { ...p, tracks: p.tracks.map((t) => (t.id === id ? { ...t, locked: true } : t)) };
+
+    expect(removeTrack(p, id).tracks).toHaveLength(3);
+    expect(whyKeepTrack(p, id)).toMatch(/locked/i);
+  });
+
+  it('REFUSES the last track — a project with none is a dead end', () => {
+    // No tracks means the library has nothing to add to and there is no way
+    // back, reachable in one click.
+    let p = twoTracks();
+    p = removeTrack(p, p.tracks[1].id);
+    expect(p.tracks).toHaveLength(1);
+
+    const last = p.tracks[0].id;
+    expect(removeTrack(p, last).tracks, 'it deleted the last track').toHaveLength(1);
+    expect(whyKeepTrack(p, last)).toMatch(/last track/i);
+  });
+
+  it('leaves the project alone when the track is not there', () => {
+    const p = twoTracks();
+    expect(removeTrack(p, 'nope')).toBe(p);
+  });
+
+  it('whyKeepTrack says null when it CAN go', () => {
+    let p = twoTracks();
+    p = addTrack(p, 'audio');
+    expect(whyKeepTrack(p, p.tracks[2].id)).toBe(null);
+  });
+
+  it('does not disturb the other tracks or their clips', () => {
+    let p = twoTracks();
+    p = addSource(p, { id: 's1', url: 'https://x/a.mp4' });
+    p = addClip(p, p.tracks[0].id, createClip({ kind: 'video', sourceId: 's1', start: 0, in: 0, out: 5 }));
+    p = addTrack(p, 'text');
+
+    const after = removeTrack(p, p.tracks[2].id);
+    expect(after.tracks[0].clips).toHaveLength(1);
+    expect(after.tracks[1].kind).toBe('audio');
   });
 });

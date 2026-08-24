@@ -409,6 +409,72 @@ export function addTrack(project, kind, name) {
   }]);
 }
 
+/**
+ * Hide / mute / lock a track.
+ *
+ * ── WHY THIS DID NOT EXIST UNTIL NOW, WHICH IS THE INTERESTING PART ────────
+ * The three buttons in the track header have been on screen since the first
+ * version. They were `useState(on)` inside the button component: clicking one
+ * flipped ITS OWN state, drew the other icon, and told nobody. Nothing in the
+ * project ever changed.
+ *
+ * So a hidden track still exported. A muted track was still mixed into the
+ * file. And a locked track was fully editable — which also meant the agent's
+ * careful "that track is locked, unlock it first" refusal could never once
+ * fire, because no code path could set the flag.
+ *
+ * The export has always READ these flags correctly (`!t.hidden`, `track.muted`)
+ * and was waiting for values that never arrived. Three controls that looked
+ * like they worked, found only by asking what wrote the field.
+ */
+export const TRACK_FLAGS = ['hidden', 'muted', 'locked'];
+
+export function setTrackFlag(project, trackId, flag, value) {
+  if (!TRACK_FLAGS.includes(flag)) throw new Error(`Not a track flag: ${flag}`);
+  const track = findTrack(project, trackId);
+  if (!track) return project;
+  // Locking is the one flag you may always change — otherwise a locked track
+  // could never be unlocked, which is a trap rather than a safeguard.
+  if (track.locked && flag !== 'locked') return project;
+  if (track[flag] === Boolean(value)) return project;   // no history step for a no-op
+  return replaceTrack(project, trackId, (t) => ({ ...t, [flag]: Boolean(value) }));
+}
+
+/**
+ * Remove a track and everything on it.
+ *
+ * ── THE TWO REFUSALS, AND WHY THEY ARE NOT FUSSINESS ───────────────────────
+ * LOCKED: the lock exists precisely so a track cannot be changed by accident.
+ * A lock that stops you trimming a clip but lets you delete the whole track is
+ * not a lock.
+ *
+ * THE LAST TRACK: a project with no tracks has nowhere to put a clip. The
+ * library would have nothing to add to and the timeline would render an empty
+ * frame with no way back — a dead end reachable in one click.
+ *
+ * Both return the project UNCHANGED rather than throwing, matching every other
+ * operation here. That silence is safe for a button the UI can disable, and
+ * unsafe for the agent — which is why edit-agent.js checks these conditions
+ * itself and refuses out loud.
+ */
+export function removeTrack(project, trackId) {
+  const track = findTrack(project, trackId);
+  if (!track || track.locked) return project;
+  if (project.tracks.length <= 1) return project;
+  return withTracks(project, project.tracks.filter((t) => t.id !== trackId));
+}
+
+/** Can this track be removed, and if not, why? `null` means yes. Shared by the
+ *  UI (to disable the button and say why on hover) and by the agent (to refuse
+ *  with a sentence) so the two can never disagree about the rule. */
+export function whyKeepTrack(project, trackId) {
+  const track = findTrack(project, trackId);
+  if (!track) return 'That track is not here.';
+  if (track.locked) return `“${track.name}” is locked — unlock it first.`;
+  if (project.tracks.length <= 1) return 'This is the last track — a project needs somewhere to put a clip.';
+  return null;
+}
+
 /** Find a clip and the track holding it, without the caller looping twice. */
 export function locateClip(project, clipId) {
   for (const track of project.tracks) {

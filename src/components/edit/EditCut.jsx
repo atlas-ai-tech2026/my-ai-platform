@@ -72,7 +72,7 @@ import Timeline from '@/components/edit/Timeline';
 import Viewer from '@/components/edit/Viewer';
 import {
   createProject, createClip, addClip, addTrack, addSource, __resetIds,
-  splitClip, removeClip, projectDuration, clipEnd, setProjectRatio,
+  splitClip, removeClip, projectDuration, clipEnd, setProjectRatio, removeTrack,
 } from '@/lib/timeline';
 import MediaLibrary from '@/components/edit/MediaLibrary';
 import RegeneratePanel from '@/components/edit/RegeneratePanel';
@@ -252,10 +252,24 @@ export default function EditCut({ demo = false, startWith = null, onLeave = null
    * always a real length rather than a default.
    */
   function addFromLibrary({ source, seconds }) {
-    const track = project.tracks.find((t) => t.kind === 'video');
+    // ── WHY THIS IS NOT JUST find() ANY MORE ─────────────────────────────
+    // It was `project.tracks.find(t => t.kind === 'video')` followed straight
+    // by `track.clips`, which throws a TypeError the moment there is no video
+    // track — a dead editor from clicking a thumbnail. Unreachable before,
+    // because nothing could remove a track. Reachable the second delete-track
+    // shipped, which is exactly the kind of latent crash a new feature wakes up.
+    //
+    // Locked tracks are skipped too: addClip returns the project untouched on
+    // a locked track, so the clip would silently not appear.
+    let working = project;
+    let track = working.tracks.find((t) => t.kind === 'video' && !t.locked);
+    if (!track) {
+      working = addTrack(working, 'video');
+      track = working.tracks[working.tracks.length - 1];
+    }
     const end = track.clips.reduce((max, c) => Math.max(max, clipEnd(c)), 0);
 
-    let next = addSource(project, source);
+    let next = addSource(working, source);
     next = addClip(next, track.id, createClip({
       kind: 'video',
       sourceId: source.id,
@@ -266,6 +280,27 @@ export default function EditCut({ demo = false, startWith = null, onLeave = null
     }));
     change(next, {});
   }
+
+  /** Add a layer. One undo step, and the new track is empty so there is
+   *  nothing to select afterwards. */
+  const addLayer = (kind) => change(addTrack(project, kind), {});
+
+  /**
+   * Delete a layer, asking first when there is work on it.
+   *
+   * Undo would bring it back, but "it is undoable" is a poor reason to skip
+   * asking — somebody who deletes twelve clips and does not immediately notice
+   * has to find the right point in the history to get back to.
+   */
+  const removeLayer = (track) => {
+    const n = track.clips?.length || 0;
+    if (n > 0 && !window.confirm(
+      `Delete “${track.name}” and its ${n} clip${n === 1 ? '' : 's'}?`)) return;
+    change(removeTrack(project, track.id), {});
+    // The selected clip may have been ON that track — pointing at a clip that
+    // no longer exists leaves the shot panel describing a ghost.
+    if (selected && !locateClip(removeTrack(project, track.id), selected)) setSelected(null);
+  };
 
   /**
    * Remake the selected shot and drop it back into the same hole.
@@ -798,6 +833,8 @@ export default function EditCut({ demo = false, startWith = null, onLeave = null
               onSnappingChange={setSnapping}
               tool={tool}
               onToolChange={setTool}
+              onAddTrack={addLayer}
+              onRemoveTrack={removeLayer}
               controls={timelineControls}
             />
             <div className="flex flex-wrap gap-x-4 gap-y-0.5 px-3 py-1.5 border-t border-border/60 text-[10px] text-foreground-muted">

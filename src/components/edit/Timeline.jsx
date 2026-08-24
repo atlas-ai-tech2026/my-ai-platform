@@ -19,11 +19,10 @@
 
 import React, { useCallback, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { Scissors, Lock, Unlock, Eye, EyeOff, Volume2, VolumeX, Magnet,
-  MousePointer2, MoveHorizontal, Slice } from 'lucide-react';
+  MousePointer2, MoveHorizontal, Slice, Trash2, Plus } from 'lucide-react';
 
 import {
-  clipDuration, projectDuration, moveClip, trimClip, splitClip, locateClip,
-  trackGaps, closeGap,
+  clipDuration, projectDuration, moveClip, trimClip, splitClip, locateClip, trackGaps, closeGap, setTrackFlag, whyKeepTrack,
 } from '@/lib/timeline';
 import { snapTargets, snapStart, snapEdge } from '@/lib/timeline-snap';
 import Tip from './Tip';
@@ -57,6 +56,18 @@ const EDGE_PX = 8;
 
 /** Labels are ChatCut's, verbatim. Keys match Premiere for two of the three,
  *  so this is the convention rather than one product's habit. */
+/**
+ * What the + row offers. Short codes because the column is 160px wide and
+ * "Captions" does not fit — the tooltip carries the full name.
+ */
+const ADDABLE = [
+  { kind: 'video',    short: 'V',  label: 'Add a video layer' },
+  { kind: 'audio',    short: 'A',  label: 'Add an audio layer (music or voice)' },
+  { kind: 'text',     short: 'T',  label: 'Add a text layer' },
+  { kind: 'image',    short: 'IMG', label: 'Add an image layer' },
+  { kind: 'captions', short: 'CC', label: 'Add a captions layer' },
+];
+
 const TOOLS = [
   { id: 'select', label: 'Selection Mode (V)', icon: MousePointer2 },
   { id: 'trim', label: 'Trim Edit Mode (N)', icon: MoveHorizontal },
@@ -91,6 +102,11 @@ export default function Timeline({
   onToolChange,
   /** Imperative handle so the keyboard can drive zoom. */
   controls,
+  // ── TRACK MANAGEMENT ───────────────────────────────────────────────────
+  // Handed in rather than done here, because every mutation in this editor
+  // goes through the page so it lands in ONE undo step.
+  onRemoveTrack,
+  onAddTrack,
 }) {
   const [zoom, setZoom] = useState(DEFAULT_ZOOM);
   const pps = ppsFor(zoom);
@@ -347,13 +363,69 @@ export default function Timeline({
               {/* Wording lifted from ChatCut: "Hide track", not "visibility".
                   A label should say what the CLICK does, not name a property. */}
               <TrackToggle on={!track.hidden} On={Eye} Off={EyeOff}
-                label={`${track.name} visibility`} tip={['Hide track', 'Show track']} />
+                label={`${track.name} visibility`} tip={['Hide track', 'Show track']}
+                disabled={track.locked}
+                onToggle={(visible) => onChange?.(setTrackFlag(project, track.id, 'hidden', !visible), {})} />
               <TrackToggle on={!track.muted} On={Volume2} Off={VolumeX}
-                label={`${track.name} sound`} tip={['Mute track', 'Unmute track']} />
+                label={`${track.name} sound`} tip={['Mute track', 'Unmute track']}
+                disabled={track.locked}
+                onToggle={(audible) => onChange?.(setTrackFlag(project, track.id, 'muted', !audible), {})} />
               <TrackToggle on={!track.locked} On={Unlock} Off={Lock}
-                label={`${track.name} lock`} tip={['Lock track', 'Unlock track']} />
+                label={`${track.name} lock`} tip={['Lock track', 'Unlock track']}
+                onToggle={(unlocked) => onChange?.(setTrackFlag(project, track.id, 'locked', !unlocked), {})} />
+
+              {/* DELETE TRACK — ChatCut's third track-header control, and the
+                  one we were missing entirely. Disabled rather than hidden
+                  when it cannot go, with the reason on hover: a control that
+                  vanishes teaches nothing about why. */}
+              {onRemoveTrack && (() => {
+                const why = whyKeepTrack(project, track.id);
+                return (
+                  <Tip label={why || 'Delete track'}>
+                    <button
+                      type="button"
+                      onClick={() => onRemoveTrack(track)}
+                      disabled={Boolean(why)}
+                      aria-label={`Delete ${track.name}`}
+                      data-testid={`delete-track-${track.id}`}
+                      className="p-0.5 rounded hover:bg-background-elevated text-foreground-muted
+                                 hover:text-primary disabled:opacity-30 disabled:hover:text-foreground-muted"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </button>
+                  </Tip>
+                );
+              })()}
             </div>
           ))}
+
+          {/* ── ADD A LAYER ────────────────────────────────────────────────
+              ChatCut has NO button for this — their tracks appear when media
+              is dropped, and their toolbar + is "Create new timeline", which
+              is a different thing entirely.
+              Ours needs one anyway: our tracks are not created implicitly, so
+              without this a customer is stuck with Video 1 and Audio 1 for the
+              life of the project. The owner found that by looking for it. */}
+          {onAddTrack && (
+            <div className="flex items-center gap-1 px-2 py-1.5 border-b border-border">
+              <span className="text-[10px] uppercase tracking-wider text-foreground-muted mr-auto">Add</span>
+              {ADDABLE.map(({ kind, label, short }) => (
+                <Tip key={kind} label={label}>
+                  <button
+                    type="button"
+                    onClick={() => onAddTrack(kind)}
+                    aria-label={label}
+                    data-testid={`add-track-${kind}`}
+                    className="px-1 py-0.5 rounded text-[10px] font-mono text-foreground-muted
+                               hover:text-white hover:bg-background-elevated"
+                  >
+                    {short}
+                  </button>
+                </Tip>
+              ))}
+              <Plus className="w-3 h-3 text-foreground-muted" aria-hidden="true" />
+            </div>
+          )}
         </div>
 
         {/* ── lanes ─────────────────────────────────────────────────── */}
@@ -501,16 +573,23 @@ export default function Timeline({
   );
 }
 
-function TrackToggle({ on, On, Off, label, tip = [] }) {
-  const [state, setState] = useState(on);
-  const Icon = state ? On : Off;
+/**
+ * CONTROLLED. It used to hold `useState(on)` and tell nobody — the icon
+ * flipped and the project never changed, so hidden tracks exported, muted
+ * tracks were mixed in, and a locked track could not actually be locked.
+ * The state lives in the project now; this only draws it and reports clicks.
+ */
+function TrackToggle({ on, On, Off, label, tip = [], onToggle, disabled = false }) {
+  const Icon = on ? On : Off;
   return (
-    <Tip label={state ? tip[0] : tip[1]}>
+    <Tip label={on ? tip[0] : tip[1]}>
       <button
-        onClick={() => setState((v) => !v)}
+        type="button"
+        onClick={() => onToggle?.(!on)}
+        disabled={disabled}
         aria-label={label}
-        aria-pressed={!state}
-        className="p-0.5 rounded hover:bg-background-elevated text-foreground-muted"
+        aria-pressed={!on}
+        className="p-0.5 rounded hover:bg-background-elevated text-foreground-muted disabled:opacity-30"
       >
         <Icon className="w-3 h-3" />
       </button>

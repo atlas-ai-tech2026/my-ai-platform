@@ -291,3 +291,52 @@ describe('the output itself', () => {
     expect(estimateSeconds(30, 720)).toBeLessThan(estimateSeconds(30, 1080));
   });
 });
+
+// ─── EXTRA VIDEO LAYERS ──────────────────────────────────────────────────────
+// Found 2026-08-23, answering the owner's question about adding layers.
+// exportPlan picks the video track with find(), not filter() — the FIRST one
+// and no other — while the audio path loops and mixes every audio track. The
+// asymmetry is invisible and the failure was total silence.
+
+describe('a second video layer is not in the file, and must say so', () => {
+  const twoVideoLayers = () => {
+    __resetIds();
+    let p = createProject({ name: 'T' });
+    p = addSource(p, { id: 's1', url: 'https://x/a.mp4' });
+    p = addClip(p, p.tracks[0].id, createClip({ kind: 'video', sourceId: 's1', start: 0, in: 0, out: 5 }));
+    p = addTrack(p, 'video');                       // Video 2
+    p = addClip(p, p.tracks[2].id, createClip({ kind: 'video', sourceId: 's1', start: 0, in: 0, out: 5 }));
+    return p;
+  };
+
+  it('WARNS that the upper layer is not rendered', () => {
+    // Before this it vanished with nothing said at all — somebody could build
+    // a two-layer edit, export, and find half their work gone.
+    const plan = exportPlan(twoVideoLayers(), { ratio: '16:9' });
+    const warned = plan.warnings.some((w) => /NOT in this export/.test(w) && /Video 2/.test(w));
+    expect(warned, `warnings were: ${JSON.stringify(plan.warnings)}`).toBe(true);
+  });
+
+  it('still exports the first layer rather than refusing', () => {
+    const plan = exportPlan(twoVideoLayers(), { ratio: '16:9' });
+    expect(plan.ok, `problems: ${JSON.stringify(plan.problems)}`).toBe(true);
+  });
+
+  it('says nothing when the extra layer is EMPTY', () => {
+    // An empty second track is not lost work, and a warning about it is noise
+    // that teaches people to ignore warnings.
+    __resetIds();
+    let p = createProject({ name: 'T' });
+    p = addSource(p, { id: 's1', url: 'https://x/a.mp4' });
+    p = addClip(p, p.tracks[0].id, createClip({ kind: 'video', sourceId: 's1', start: 0, in: 0, out: 5 }));
+    p = addTrack(p, 'video');
+
+    const plan = exportPlan(p, { ratio: '16:9' });
+    expect(plan.warnings.some((w) => /NOT in this export/.test(w))).toBe(false);
+  });
+
+  it('one clip reads "is", not "are"', () => {
+    const plan = exportPlan(twoVideoLayers(), { ratio: '16:9' });
+    expect(plan.warnings.find((w) => /Video 2/.test(w))).toMatch(/1 clip on “Video 2” is NOT/);
+  });
+});

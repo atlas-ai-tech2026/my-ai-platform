@@ -100,6 +100,29 @@ export function exportPlan(project, { ratio, quality = 1080, mode = 'crop', outp
   }
   if (total <= 0) problems.push('The project is empty.');
 
+  // ── EXTRA VIDEO LAYERS ARE NOT IN THE FILE, AND MUST SAY SO ────────────
+  // `videoTrack` above is a find(), not a filter: the FIRST video track and no
+  // other. Audio is not like this — the audio path loops over every audio
+  // track and mixes them — so the two are asymmetric in a way that is very
+  // easy to assume away.
+  //
+  // The warning loop below only covers kinds that are NEVER rendered (text,
+  // image, captions), so before this a second video track was dropped in total
+  // silence: somebody could build a two-layer edit, export, and find half
+  // their work missing with nothing having said a word.
+  //
+  // Compositing them properly is the real fix (task #78). Until then this at
+  // least refuses to lie about it.
+  const videoTracks = (project?.tracks || []).filter((t) => t.kind === 'video' && !t.hidden);
+  for (const extra of videoTracks.slice(1)) {
+    const n = extra.clips?.length || 0;
+    if (n > 0) {
+      warnings.push(
+        `${n} clip${n === 1 ? '' : 's'} on “${extra.name}” ${n === 1 ? 'is' : 'are'} NOT in this export — only the first video layer is rendered today.`,
+      );
+    }
+  }
+
   // ── SAY WHAT IS NOT IN THE FILE ────────────────────────────────────────
   for (const track of project?.tracks || []) {
     if (RENDERED.has(track.kind)) continue;
