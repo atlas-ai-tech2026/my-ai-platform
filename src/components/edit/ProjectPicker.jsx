@@ -25,6 +25,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Plus, Film, Loader2, AlertCircle, Trash2, Pencil, Search, X } from 'lucide-react';
 import { filterProjects, ratiosPresent, SORTS } from '@/lib/project-store';
+import Tip from './Tip';
 
 /** "3 minutes ago" beats a timestamp for the question actually being asked,
  *  which is "is this the one I was just working on". */
@@ -98,7 +99,7 @@ export default function ProjectPicker({
                 placeholder:text-foreground-muted outline-none focus:border-primary"
             />
             {query && (
-              <button
+              <Tip label="Clear the search"><button
                 type="button"
                 onClick={() => setQuery('')}
                 aria-label="Clear search"
@@ -106,15 +107,14 @@ export default function ProjectPicker({
                 className="absolute right-2 top-1/2 -translate-y-1/2 text-foreground-muted hover:text-white"
               >
                 <X className="w-3.5 h-3.5" />
-              </button>
+              </button></Tip>
             )}
           </label>
 
           {/* Only the shapes they actually have. A filter for a format nobody
               used is a control that can only ever return nothing. */}
           {shapes.length > 1 && shapes.map((r) => (
-            <button
-              key={r}
+            <Tip key={r} label={ratio === r ? `Stop filtering by ${r}` : `Show only ${r} projects`}><button
               type="button"
               onClick={() => setRatio(ratio === r ? null : r)}
               aria-pressed={ratio === r}
@@ -123,7 +123,7 @@ export default function ProjectPicker({
                 ${ratio === r ? 'border-primary text-white bg-primary/15' : 'border-border text-foreground-muted hover:text-foreground-secondary'}`}
             >
               {r}
-            </button>
+            </button></Tip>
           ))}
 
           <select
@@ -152,7 +152,7 @@ export default function ProjectPicker({
       <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         {/* New project is a CARD in the grid, the same size as the rest — it is
             the most common reason to be on this screen, not a footnote. */}
-        <button
+        <Tip label="Start a new project with an empty timeline"><button
           type="button"
           onClick={onNew}
           data-testid="new-project"
@@ -168,7 +168,7 @@ export default function ProjectPicker({
           </span>
           <span className="text-sm text-white">New project</span>
           <span className="text-[11px] text-foreground-muted">An empty timeline</span>
-        </button>
+        </button></Tip>
 
         {shown.map((p) => (
           <ProjectCard
@@ -192,11 +192,11 @@ export default function ProjectPicker({
           looking for work that is sitting right there behind a filter. */}
       {!error && projects.length > 0 && shown.length === 0 && (
         <p className="mt-6 text-xs text-foreground-muted" data-testid="no-matches">
-          Nothing matches that. <button
+          Nothing matches that. <Tip label="Show every project again"><button
             type="button"
             onClick={() => { setQuery(''); setRatio(null); }}
             className="underline"
-          >Clear the filters</button> to see all {projects.length}.
+          >Clear the filters</button></Tip> to see all {projects.length}.
         </p>
       )}
 
@@ -236,7 +236,7 @@ function ProjectCard({ project: p, busy, onOpen, onDelete, onRename }) {
 
   return (
     <div className="group relative rounded-xl border border-border hover:border-primary/60 overflow-hidden transition-colors">
-      <button
+      <Tip label="Open this project"><button
         type="button"
         onClick={() => !editing && onOpen?.(p.id)}
         disabled={busy}
@@ -284,13 +284,13 @@ function ProjectCard({ project: p, busy, onOpen, onDelete, onRename }) {
               .filter(Boolean).join(' · ')}
           </span>
         </div>
-      </button>
+      </button></Tip>
 
       {/* Held out of the button so a rename or a delete cannot open the project
           on the way past. */}
       <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
         {onRename && (
-          <button
+          <Tip label="Rename this project"><button
             type="button"
             onClick={() => { setDraft(p.name); setEditing(true); }}
             aria-label={`Rename ${p.name}`}
@@ -298,10 +298,10 @@ function ProjectCard({ project: p, busy, onOpen, onDelete, onRename }) {
             className="rounded-md bg-black/70 p-1.5 text-foreground-secondary hover:text-white backdrop-blur"
           >
             <Pencil className="w-3 h-3" />
-          </button>
+          </button></Tip>
         )}
         {onDelete && (
-          <button
+          <Tip label="Delete this project"><button
             type="button"
             onClick={() => onDelete(p)}
             aria-label={`Delete ${p.name}`}
@@ -309,7 +309,7 @@ function ProjectCard({ project: p, busy, onOpen, onDelete, onRename }) {
             className="rounded-md bg-black/70 p-1.5 text-foreground-secondary hover:text-primary backdrop-blur"
           >
             <Trash2 className="w-3 h-3" />
-          </button>
+          </button></Tip>
         )}
       </div>
 

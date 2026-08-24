@@ -27,6 +27,7 @@
 // belongs in one place at the page level, where the polling and the history
 // record already live, not spread into a panel.
 
+import Tip from './Tip';
 import React, { useEffect, useState } from 'react';
 import { Loader2, Sparkles, AlertCircle, RotateCcw } from 'lucide-react';
 
@@ -113,7 +114,7 @@ export default function RegeneratePanel({ clip, source, onRegenerate, busy = fal
       )}
 
       <div className="flex items-center gap-2 flex-wrap">
-        <button
+        <Tip label="Generates a new shot from this prompt — this spends credits"><button
           type="button"
           onClick={go}
           disabled={busy || !prompt.trim()}
@@ -125,7 +126,7 @@ export default function RegeneratePanel({ clip, source, onRegenerate, busy = fal
           {busy ? 'Remaking…' : 'Remake this shot'}
           {/* Rule 1: the price is ON the button. */}
           {credits !== null && <span className="opacity-80">· {credits} credits</span>}
-        </button>
+        </button></Tip>
 
         {credits === null && (
           <span className="text-[10px] text-foreground-muted">

@@ -385,3 +385,41 @@ describe('layers are composited, not dropped', () => {
     expect(plan.warnings.some((w) => /hidden/.test(w))).toBe(true);
   });
 });
+
+describe('an empty layer decides nothing', () => {
+  // FOUND BY LOOKING AT THE SCREEN. Adding an empty "Video 2" underneath a
+  // full one made the whole export refuse with "there is nothing on the video
+  // track to export" — the empty track had become the base. Every unit test
+  // passed, because none of them had an empty layer in the project.
+
+  it('exports fine with an EMPTY video layer below a full one', () => {
+    __resetIds();
+    let p = createProject({ name: 'T' });
+    p = addSource(p, { id: 's', url: 'https://x/a.mp4' });
+    p = addClip(p, p.tracks[0].id, createClip({ kind: 'video', sourceId: 's', start: 0, in: 0, out: 5 }));
+    p = addTrack(p, 'video');                       // empty Video 2
+
+    const plan = exportPlan(p, { ratio: '16:9' });
+    expect(plan.ok, JSON.stringify(plan.problems)).toBe(true);
+    expect(plan.problems).toEqual([]);
+  });
+
+  it('an empty layer does not become a pointless black overlay', () => {
+    __resetIds();
+    let p = createProject({ name: 'T' });
+    p = addSource(p, { id: 's', url: 'https://x/a.mp4' });
+    p = addTrack(p, 'video');                       // empty Video 2, ABOVE
+    p = addClip(p, p.tracks.find((t) => t.name === 'Video 1').id,
+      createClip({ kind: 'video', sourceId: 's', start: 0, in: 0, out: 5 }));
+
+    expect(exportPlan(p, { ratio: '16:9' }).filter).not.toMatch(/overlay=/);
+  });
+
+  it('still refuses when there is genuinely no video anywhere', () => {
+    __resetIds();
+    const p = createProject({ name: 'T' });
+    const plan = exportPlan(p, { ratio: '16:9' });
+    expect(plan.ok).toBe(false);
+    expect(plan.problems.join(' ')).toMatch(/nothing on the video track/);
+  });
+});

@@ -23,6 +23,7 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { Sparkles, CornerDownLeft, AlertCircle, Check, Loader2 } from 'lucide-react';
+import Tip from './Tip';
 import { base44 } from '@/api/base44Client';
 import { summarise, parseAgentReply, applyCommands } from '@/lib/edit-agent';
 
@@ -114,8 +115,7 @@ export default function AgentChat({ project, onApply, disabled = false, disabled
             </p>
             <div className="flex flex-wrap gap-1.5">
               {EXAMPLES.map((e) => (
-                <button
-                  key={e}
+                <Tip key={e} label="Send this as an instruction"><button
                   type="button"
                   onClick={() => send(e)}
                   disabled={disabled}
@@ -125,7 +125,7 @@ export default function AgentChat({ project, onApply, disabled = false, disabled
                     hover:border-primary hover:text-white disabled:opacity-40"
                 >
                   {e}
-                </button>
+                </button></Tip>
               ))}
             </div>
             <p className="pt-1 leading-relaxed">
@@ -206,7 +206,7 @@ export default function AgentChat({ project, onApply, disabled = false, disabled
               className="flex-1 min-w-0 resize-none rounded-lg border border-border bg-transparent px-2.5 py-2
                 text-[11px] text-white placeholder:text-foreground-muted outline-none focus:border-primary"
             />
-            <button
+            <Tip label="Send (Enter)"><button
               type="button"
               onClick={() => send(text)}
               disabled={busy || !text.trim()}
@@ -215,7 +215,7 @@ export default function AgentChat({ project, onApply, disabled = false, disabled
               className="shrink-0 rounded-lg bg-primary p-2 text-white disabled:opacity-40"
             >
               {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CornerDownLeft className="w-3.5 h-3.5" />}
-            </button>
+            </button></Tip>
           </div>
         )}
       </div>

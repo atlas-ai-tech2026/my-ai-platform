@@ -68,10 +68,21 @@ describe('the tooltip itself', () => {
   });
 });
 
-describe('no icon-only button ships unlabelled', () => {
-  // The guard. Adding tooltips by hand is exactly how the NEXT button goes out
-  // without one — this reads the source and refuses that.
-  const FILES = ['Timeline.jsx', 'Viewer.jsx', 'RatioPicker.jsx', 'MediaLibrary.jsx', 'RegeneratePanel.jsx', 'AgentChat.jsx'];
+describe('every control says what it does ON HOVER', () => {
+  // ── THIS GUARD USED TO BE TOO LENIENT, AND THE OWNER FOUND THE HOLE ─────
+  // It accepted `aria-label=` as proof a control was labelled. It is not:
+  // aria-label is read by a screen reader and shows NOTHING on hover. Sixteen
+  // controls passed this test while giving a mouse user no description at all
+  // — the Send button, the search clear, rename, delete, and more.
+  //
+  // The owner's words: "All the icons inside this page must, when I put the
+  // mouse on it, give me the description. Not all of them there is a
+  // description."
+  //
+  // A VISIBLE tooltip means <Tip label=…> or a title attribute. Nothing else
+  // counts, and aria-label is now additional rather than sufficient.
+  const FILES = ['Timeline.jsx', 'Viewer.jsx', 'RatioPicker.jsx', 'MediaLibrary.jsx',
+    'RegeneratePanel.jsx', 'AgentChat.jsx', 'ProjectPicker.jsx', 'EditCut.jsx'];
 
   for (const file of FILES) {
     it(`${file} labels every button`, () => {
@@ -88,16 +99,17 @@ describe('no icon-only button ships unlabelled', () => {
       // it answers is only "did anyone label this button", which is enough.
       for (const m of src.matchAll(/<button\b/g)) {
         const line = src.slice(0, m.index).split('\n').length;
-        const window_ = src.slice(m.index, m.index + 320);
-        const before = src.slice(Math.max(0, m.index - 300), m.index);
+        const window_ = src.slice(m.index, m.index + 400);
+        const before = src.slice(Math.max(0, m.index - 350), m.index);
 
-        const labelled = /aria-label=|title=/.test(window_);
-        const wrapped = /<Tip\b[\s\S]{0,200}?label=/.test(before);
+        // aria-label deliberately NOT accepted — it shows nothing on hover.
+        const hasTitle = /title=/.test(window_);
+        const wrapped = /<Tip\b[\s\S]{0,300}?label=/.test(before);
 
-        if (!labelled && !wrapped) bare.push(`${file}:${line}`);
+        if (!hasTitle && !wrapped) bare.push(`${file}:${line}`);
       }
 
-      expect(bare, `icon-only button with no label at ${bare.join(', ')}`).toEqual([]);
+      expect(bare, `no tooltip on hover at ${bare.join(', ')}`).toEqual([]);
     });
   }
 });

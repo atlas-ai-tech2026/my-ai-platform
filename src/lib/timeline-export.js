@@ -101,7 +101,15 @@ export function exportPlan(project, { ratio, quality = 1080, mode = 'crop', outp
   // while the audio path looped over every audio track and mixed them. The two
   // were asymmetric, invisibly: a second video layer was dropped from the file
   // in total silence.
-  const videoTracks = (project?.tracks || []).filter((t) => t.kind === 'video' && !t.hidden);
+  //
+  // ── AND WHY THE BASE IS THE LOWEST TRACK **WITH CLIPS** ────────────────
+  // Found by looking at the screen, not by a test. Adding an empty "Video 2"
+  // below a full one made the export refuse with "there is nothing on the
+  // video track" — because the empty track had become the base. An empty
+  // layer is not a black layer somebody asked for, it is a layer they have
+  // not filled yet, and it must not decide anything.
+  const videoTracks = (project?.tracks || []).filter(
+    (t) => t.kind === 'video' && !t.hidden && (t.clips?.length || 0) > 0);
   const upperTracks = videoTracks.slice(0, -1);          // top-most first
   const videoTrack = videoTracks[videoTracks.length - 1] || null;
 

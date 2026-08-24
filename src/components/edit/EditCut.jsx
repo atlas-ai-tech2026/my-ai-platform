@@ -529,7 +529,7 @@ export default function EditCut({ demo = false, startWith = null, onLeave = null
             {layout.focused ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
           </button></Tip>
 
-          <button
+          <Tip label={plan.ok ? `Render an MP4 · ${Math.round(plan.duration)}s · ${plan.dimensions?.width}×${plan.dimensions?.height}` : 'Nothing to export yet'} side="bottom"><button
             onClick={doExport}
             disabled={!plan.ok || Boolean(exporting)}
             className="ml-1 inline-flex items-center gap-2 rounded bg-primary px-3 py-1.5 text-xs text-white hover:bg-primary-hover disabled:opacity-40"
@@ -538,7 +538,7 @@ export default function EditCut({ demo = false, startWith = null, onLeave = null
             {exporting
               ? `${exporting.stage}${exporting.progress ? ` ${Math.round(exporting.progress * 100)}%` : ''}…`
               : 'Export'}
-          </button>
+          </button></Tip>
         </div>
       </header>
 
@@ -616,13 +616,13 @@ export default function EditCut({ demo = false, startWith = null, onLeave = null
             {notice && (
               <div className="mt-3 rounded-lg border border-primary/40 bg-primary/10 px-3 py-2 text-[11px] text-foreground-secondary">
                 {notice}
-                <button onClick={() => setNotice(null)} className="ml-2 underline">Dismiss</button>
+                <Tip label="Hide this message"><button onClick={() => setNotice(null)} className="ml-2 underline">Dismiss</button></Tip>
               </div>
             )}
             {restored && (
               <div className="mt-3 rounded-lg border border-border px-3 py-2 text-[11px] text-foreground-secondary">
                 Restored the project you left open.
-                <button
+                <Tip label="Discard the restored project and start empty"><button
                   onClick={() => {
                     clearProject();
                     setHistory(createHistory(demo ? demoProject() : emptyProject()));
@@ -632,8 +632,8 @@ export default function EditCut({ demo = false, startWith = null, onLeave = null
                   className="ml-2 underline"
                 >
                   Start fresh
-                </button>
-                <button onClick={() => setRestored(false)} className="ml-2 underline">Dismiss</button>
+                </button></Tip>
+                <Tip label="Keep the restored project and hide this"><button onClick={() => setRestored(false)} className="ml-2 underline">Dismiss</button></Tip>
               </div>
             )}
           </div>
