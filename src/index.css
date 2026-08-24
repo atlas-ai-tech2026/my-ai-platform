@@ -310,6 +310,33 @@ body {
   display: none;
 }
 
+/* ── THE PROMPT BAR'S CONTROL ROW ──────────────────────────────────────────
+   Model chip · Negative prompt · Style · Cinema · GENERATE.
+
+   On a wide screen these fit on one line and nowrap is right. On a phone they
+   do not, and the row was `nowrap` + `overflow-x: auto` + `hide-scrollbar` —
+   so it scrolled sideways with NO SCROLLBAR TO SEE. Measured at 390px:
+   GENERATE sat 456px off the right edge. The primary action of the product
+   was off-screen with nothing on screen suggesting you could swipe to it.
+
+   Found 2026-08-23 by measuring every control's position against the viewport,
+   after the owner sent a phone screenshot with GENERATE sliced off.
+
+   Below 640px the row WRAPS instead. Generate moves to its own line, which is
+   where a primary action belongs on a phone anyway. */
+.prompt-control-row {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+}
+
+@media (max-width: 640px) {
+  .prompt-control-row {
+    flex-wrap: wrap;
+    overflow-x: visible;
+    row-gap: 8px;
+  }
+}
+
 /* Progress bar */
 .progress-bar {
   position: fixed;

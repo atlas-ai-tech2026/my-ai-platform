@@ -938,16 +938,18 @@ export default function ImagePromptBar({
           )}
         </div>
 
-        {/* ── Chips Row — single line, compact gap so chip cluster +
-            Generate fit inside the 900 px bar without overflow or
-            horizontal scroll. ── */}
+        {/* ── Chips Row ────────────────────────────────────────────────
+            One line on a wide screen; WRAPS below 640px. It used to be
+            nowrap + overflow-x:auto + hide-scrollbar, sized for the 900px
+            bar — which on a 390px phone put GENERATE 456px off the right
+            edge, reachable only by swiping a row with no visible scrollbar.
+            flexWrap and overflowX now live in .prompt-control-row so a media
+            query can reach them; an inline style cannot carry one. ── */}
         <div style={{
           padding: '6px 14px 14px 14px',
           display: 'flex', alignItems: 'center', gap: 5,
-          flexWrap: 'nowrap',
-          overflowX: 'auto',
         }}
-          className="hide-scrollbar"
+          className="hide-scrollbar prompt-control-row"
         >
           {/* Model chip — V_PromptBar_UltraGlass active recipe:
               radius 999, padding 10/18 (slightly bigger than inactive
