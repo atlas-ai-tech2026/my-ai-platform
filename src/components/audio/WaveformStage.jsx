@@ -134,8 +134,13 @@ export default function WaveformStage({
         </div>
       </div>
 
-      {/* Transport */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+      {/* Transport.
+          flexWrap because this row has a hard floor — roughly 142px of
+          buttons, two 80px time readouts, the scrubber and the meter — and on
+          a phone it only has ~298px to sit in. Without wrapping it pushed the
+          whole panel to 418px and an ancestor's overflow-x:hidden ate the
+          right-hand end, taking the duration readout with it. */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <TransportGhost icon={<SkipBack style={{ width: 13, height: 13 }} />} onClick={onSkipStart} label="Skip to start" />
           <button
@@ -170,7 +175,10 @@ export default function WaveformStage({
           <TransportGhost icon={<SkipForward style={{ width: 13, height: 13 }} />} onClick={onSkipEnd} label="Skip to end" />
         </div>
 
-        <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 10 }}>
+        {/* minWidth 200 is what makes the wrap happen at the right moment:
+            below it the scrubber takes its own line instead of being crushed
+            to a few pixels between the two readouts. */}
+        <div style={{ flex: 1, minWidth: 200, display: 'flex', alignItems: 'center', gap: 10 }}>
           <span style={{
             fontFamily: '"JetBrains Mono", monospace',
             fontSize: 12, color: '#FFF', fontWeight: 600,

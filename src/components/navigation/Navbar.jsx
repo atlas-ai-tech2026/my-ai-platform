@@ -413,7 +413,7 @@ export default function Navbar() {
           </Link>
 
           {/* Desktop Navigation */}
-          <div className="hidden lg:flex items-center gap-1">
+          <div className="hidden xl:flex items-center gap-1">
             {/* Primary Nav */}
             {primaryNavItems.map((item) => (
               <Link
@@ -462,7 +462,7 @@ export default function Navbar() {
           </div>
 
           {/* Auth Buttons + Credit */}
-          <div className="hidden lg:flex items-center gap-3">
+          <div className="hidden xl:flex items-center gap-3">
             {isAuthenticated ? (
               <>
                 <AccountMenu user={user} onLogout={logout} />
@@ -482,7 +482,7 @@ export default function Navbar() {
 
           {/* Mobile Menu Button */}
           <button
-            className="lg:hidden p-2 text-foreground-secondary hover:text-white"
+            className="xl:hidden p-2 text-foreground-secondary hover:text-white"
             aria-label={mobileOpen ? 'Close menu' : 'Open menu'}
             onClick={() => setMobileOpen(!mobileOpen)}
           >
@@ -493,7 +493,7 @@ export default function Navbar() {
 
       {/* Mobile Menu */}
       {mobileOpen && (
-        <div className="lg:hidden border-t border-border">
+        <div className="xl:hidden border-t border-border">
           <div className="px-4 py-4 space-y-1 bg-background-secondary">
             {primaryNavItems.map((item) => (
               <Link
