@@ -35,7 +35,7 @@ import {
   splitClip, removeClip, trimClip, moveClip, updateClip,
   closeGap, addTrack, setProjectRatio,
   locateClip, clipDuration, clipEnd, projectDuration, trackGaps,
-  MIN_CLIP, TRACK_KINDS,
+  MIN_CLIP, TRACK_KINDS, whyNoMoreTracks,
 } from './timeline';
 import { RATIOS, RESIZE_MODES } from './edit-ops';
 
@@ -270,12 +270,11 @@ export const COMMANDS = {
   },
 
   addTrack: {
-    describe: (c) => `Add a ${c.kind} track`,
-    check(project, c) {
-      if (!TRACK_KINDS.includes(c.kind)) return `${c.kind} is not a kind of track.`;
-      if ((project.tracks?.length || 0) >= 12) return 'That is already a lot of tracks.';
-      return null;
-    },
+    describe: (c) => `Add a ${c.kind} layer`,
+    // The SAME rule the + row uses — three of a kind, checked by the one
+    // function, so the agent and the button can never disagree about the
+    // limit or word it differently.
+    check: (project, c) => whyNoMoreTracks(project, c.kind),
     run: (project, c) => addTrack(project, c.kind, c.name),
   },
 };

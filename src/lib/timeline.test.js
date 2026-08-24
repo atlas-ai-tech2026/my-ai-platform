@@ -16,6 +16,7 @@ import {
   clipDuration, clipEnd, projectDuration, MIN_CLIP, TRACK_KINDS, __resetIds,
   trackGaps, closeGap, addSource, replaceClipSource, setProjectRatio,
   removeTrack, whyKeepTrack, renameTrack, moveTrack, canMoveTrack,
+  MAX_TRACKS_PER_KIND, countKind, whyNoMoreTracks,
 } from './timeline.js';
 
 beforeEach(__resetIds);
@@ -182,7 +183,9 @@ describe('what plays at a moment', () => {
     const v1 = p.tracks[0].id;
     const a1 = p.tracks[1].id;
     p = addTrack(p, 'video');
-    const v2 = p.tracks[2].id;
+    // BY NAME, not by index: a new layer is inserted beside its own kind now,
+    // so tracks[2] is the audio track and this quietly built an invalid project.
+    const v2 = p.tracks.find((t) => t.name === 'Video 2').id;
 
     p = addClip(p, v1, createClip({ kind: 'video', sourceId: 'top', start: 0, out: 10 }));
     p = addClip(p, v2, createClip({ kind: 'video', sourceId: 'under', start: 0, out: 10 }));
@@ -589,12 +592,87 @@ describe('moving a layer up and down', () => {
     // exportPlan renders the first video track. So this is not cosmetic:
     // promoting a layer is how you choose what ends up in the export.
     let p = p0();
-    p = addTrack(p, 'video');                             // Video 2, at the bottom
-    const v2 = p.tracks[2].id;
+    p = addTrack(p, 'video');                  // Video 2 — now lands directly under Video 1
+    const v2 = p.tracks.find((t) => t.name === 'Video 2').id;
     expect(p.tracks.filter((t) => t.kind === 'video')[0].name).toBe('Video 1');
 
-    p = moveTrack(p, v2, -1);
-    p = moveTrack(p, v2, -1);
+    p = moveTrack(p, v2, -1);                  // one step is enough now
     expect(p.tracks.filter((t) => t.kind === 'video')[0].name).toBe('Video 2');
+  });
+});
+
+// ─── WHERE A NEW LAYER GOES, AND HOW MANY ────────────────────────────────────
+// Both from the owner, 2026-08-23, after using the + row: a new video landed
+// at the very bottom under the text track instead of beside Video 1, and they
+// asked for a ceiling of three per kind.
+
+describe('a new layer joins its own kind', () => {
+  // "when I click new video, it will become under this — the same timeline of
+  // video. Don't add it on the last one."
+  const base = () => { __resetIds(); let p = createProject({ name: 'T' }); return addTrack(p, 'text'); };
+
+  it('inserts a video DIRECTLY BELOW the existing video, not at the bottom', () => {
+    const p = base();                                  // Video 1, Audio 1, Text 1
+    expect(addTrack(p, 'video').tracks.map((t) => t.name))
+      .toEqual(['Video 1', 'Video 2', 'Audio 1', 'Text 1']);
+  });
+
+  it('does the same for audio', () => {
+    const p = base();
+    expect(addTrack(p, 'audio').tracks.map((t) => t.name))
+      .toEqual(['Video 1', 'Audio 1', 'Audio 2', 'Text 1']);
+  });
+
+  it('goes to the end when it is the FIRST of its kind', () => {
+    const p = base();
+    expect(addTrack(p, 'image').tracks.map((t) => t.name))
+      .toEqual(['Video 1', 'Audio 1', 'Text 1', 'Image 1']);
+  });
+
+  it('follows the kind even after the layers have been reordered', () => {
+    // The insert point is found by looking, not remembered from creation.
+    let p = base();
+    p = moveTrack(p, p.tracks[0].id, 1);               // Audio 1, Video 1, Text 1
+    expect(addTrack(p, 'video').tracks.map((t) => t.name))
+      .toEqual(['Audio 1', 'Video 1', 'Video 2', 'Text 1']);
+  });
+});
+
+describe('three of a kind is the limit', () => {
+  it('refuses a fourth, and says why', () => {
+    __resetIds();
+    let p = createProject({ name: 'T' });               // Video 1
+    p = addTrack(p, 'video');
+    p = addTrack(p, 'video');                           // 3 video now
+    expect(countKind(p, 'video')).toBe(MAX_TRACKS_PER_KIND);
+
+    const refused = addTrack(p, 'video');
+    expect(refused, 'a fourth was added').toBe(p);
+    expect(whyNoMoreTracks(p, 'video')).toMatch(/limit/i);
+  });
+
+  it('counts each kind SEPARATELY — three video does not block audio', () => {
+    __resetIds();
+    let p = createProject({ name: 'T' });
+    p = addTrack(p, 'video');
+    p = addTrack(p, 'video');
+    expect(whyNoMoreTracks(p, 'video')).toBeTruthy();
+    expect(whyNoMoreTracks(p, 'audio')).toBe(null);
+    expect(countKind(addTrack(p, 'audio'), 'audio')).toBe(2);
+  });
+
+  it('deleting one frees a slot again', () => {
+    __resetIds();
+    let p = createProject({ name: 'T' });
+    p = addTrack(p, 'video');
+    p = addTrack(p, 'video');
+    const third = p.tracks.filter((t) => t.kind === 'video')[2].id;
+    p = removeTrack(p, third);
+    expect(whyNoMoreTracks(p, 'video')).toBe(null);
+  });
+
+  it('names an unknown kind rather than shrugging', () => {
+    __resetIds();
+    expect(whyNoMoreTracks(createProject({ name: 'T' }), 'hologram')).toMatch(/not a kind/);
   });
 });

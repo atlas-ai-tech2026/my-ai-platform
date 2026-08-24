@@ -400,13 +400,71 @@ export function replaceClipSource(project, clipId, source, newDuration) {
   };
 }
 
+/**
+ * How many layers of one kind anyone may have.
+ *
+ * ── THE REASON IS NOT SERVER LOAD ──────────────────────────────────────────
+ * The owner asked for this cap on 2026-08-23, describing it as keeping load
+ * off the server. It is the right call for the wrong reason, and the reason
+ * matters because it decides whether a bigger server would justify raising it.
+ * It would not:
+ *
+ *   · the project is a few KB of JSON. Ten empty tracks cost nothing anywhere.
+ *   · the EXPORT runs in the browser, in ffmpeg.wasm. Layers cost the
+ *     customer's laptop, not our droplet.
+ *   · compositing N video layers is superlinear in filter complexity and
+ *     render time — three is a ceiling somebody's machine can actually finish.
+ *   · the timeline panel is capped at 45% of the window. Fifteen tracks is
+ *     not a timeline, it is a list.
+ *   · and in a workshop, ten layers is a person freezing rather than editing.
+ *
+ * So: keep the cap, and do not raise it because the server got bigger.
+ */
+export const MAX_TRACKS_PER_KIND = 3;
+
+export const countKind = (project, kind) =>
+  (project?.tracks || []).filter((t) => t.kind === kind).length;
+
+/** Why another one cannot be added, or null. Shared by the UI (to disable the
+ *  button with a reason on hover) and the agent (to refuse out loud) so the
+ *  two can never disagree about the rule. */
+export function whyNoMoreTracks(project, kind) {
+  if (!TRACK_KINDS.includes(kind)) return `${kind} is not a kind of layer.`;
+  if (countKind(project, kind) >= MAX_TRACKS_PER_KIND) {
+    return `${MAX_TRACKS_PER_KIND} ${kind} layers is the limit — more than that will not finish exporting on a laptop.`;
+  }
+  return null;
+}
+
+/**
+ * Add a layer, NEXT TO ITS OWN KIND rather than at the bottom.
+ *
+ * The owner's words: "when I click new video, it will become under this — the
+ * same timeline of video. Don't add it on the last one." They are right, and
+ * it is how every editor groups: all the video together, all the audio
+ * together. Appending to the end put Video 2 underneath Text 1, which reads as
+ * the editor not understanding what you asked for.
+ *
+ * Inserted directly AFTER the last track of the same kind, so the new layer
+ * sits below its siblings and above whatever follows. With no sibling it goes
+ * to the end, which is the only sensible place for the first of something.
+ */
 export function addTrack(project, kind, name) {
   if (!TRACK_KINDS.includes(kind)) throw new Error(`Unknown track kind: ${kind}`);
-  const n = project.tracks.filter((t) => t.kind === kind).length + 1;
-  return withTracks(project, [...project.tracks, {
+  if (whyNoMoreTracks(project, kind)) return project;   // caller checks and says why
+
+  const n = countKind(project, kind) + 1;
+  const track = {
     id: newId('t'), kind, name: name || `${kind[0].toUpperCase()}${kind.slice(1)} ${n}`,
     clips: [], muted: false, hidden: false, locked: false,
-  }]);
+  };
+
+  let last = -1;
+  project.tracks.forEach((t, i) => { if (t.kind === kind) last = i; });
+
+  const tracks = [...project.tracks];
+  tracks.splice(last === -1 ? tracks.length : last + 1, 0, track);
+  return withTracks(project, tracks);
 }
 
 /**

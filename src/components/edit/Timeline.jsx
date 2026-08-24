@@ -23,7 +23,7 @@ import { Scissors, Lock, Unlock, Eye, EyeOff, Volume2, VolumeX, Magnet,
 
 import {
   clipDuration, projectDuration, moveClip, trimClip, splitClip, locateClip, trackGaps, closeGap, setTrackFlag, whyKeepTrack,
-  renameTrack, moveTrack, canMoveTrack,
+  renameTrack, moveTrack, canMoveTrack, whyNoMoreTracks,
 } from '@/lib/timeline';
 import { snapTargets, snapStart, snapEdge } from '@/lib/timeline-snap';
 import Tip from './Tip';
@@ -373,20 +373,28 @@ export default function Timeline({
           {onAddTrack && (
             <div className="flex items-center gap-1 px-2 py-1.5 border-b border-border">
               <span className="text-[10px] uppercase tracking-wider text-foreground-muted mr-auto">Add</span>
-              {ADDABLE.map(({ kind, label, short }) => (
-                <Tip key={kind} label={label}>
-                  <button
-                    type="button"
-                    onClick={() => onAddTrack(kind)}
-                    aria-label={label}
-                    data-testid={`add-track-${kind}`}
-                    className="px-1 py-0.5 rounded text-[10px] font-mono text-foreground-muted
-                               hover:text-white hover:bg-background-elevated"
-                  >
-                    {short}
-                  </button>
-                </Tip>
-              ))}
+              {ADDABLE.map(({ kind, label, short }) => {
+                // Disabled with the REASON on hover, never hidden: a control
+                // that disappears at the limit teaches nothing about why, and
+                // the limit is a deliberate decision worth explaining.
+                const full = whyNoMoreTracks(project, kind);
+                return (
+                  <Tip key={kind} label={full || label}>
+                    <button
+                      type="button"
+                      onClick={() => onAddTrack(kind)}
+                      disabled={Boolean(full)}
+                      aria-label={full || label}
+                      data-testid={`add-track-${kind}`}
+                      className="px-1 py-0.5 rounded text-[10px] font-mono text-foreground-muted
+                                 hover:text-white hover:bg-background-elevated disabled:opacity-25
+                                 disabled:hover:text-foreground-muted disabled:hover:bg-transparent"
+                    >
+                      {short}
+                    </button>
+                  </Tip>
+                );
+              })}
               <Plus className="w-3 h-3 text-foreground-muted" aria-hidden="true" />
             </div>
           )}

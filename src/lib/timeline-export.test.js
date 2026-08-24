@@ -304,8 +304,9 @@ describe('a second video layer is not in the file, and must say so', () => {
     let p = createProject({ name: 'T' });
     p = addSource(p, { id: 's1', url: 'https://x/a.mp4' });
     p = addClip(p, p.tracks[0].id, createClip({ kind: 'video', sourceId: 's1', start: 0, in: 0, out: 5 }));
-    p = addTrack(p, 'video');                       // Video 2
-    p = addClip(p, p.tracks[2].id, createClip({ kind: 'video', sourceId: 's1', start: 0, in: 0, out: 5 }));
+    p = addTrack(p, 'video');                       // Video 2 — inserted beside Video 1, not at the end
+    const v2 = p.tracks.find((t) => t.name === 'Video 2').id;
+    p = addClip(p, v2, createClip({ kind: 'video', sourceId: 's1', start: 0, in: 0, out: 5 }));
     return p;
   };
 
