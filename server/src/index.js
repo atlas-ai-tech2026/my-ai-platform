@@ -16,6 +16,7 @@ import { pool, isReady as dbReady, migrate, ADMIN_EMAIL } from './db.js';
 import { persistOrFallback, persistBuffer, isReady as spacesReady, uploadPrivate, listKeys, deleteKey,
          listAllMedia, readObject, primaryObjectExists } from './storage.js';
 import { configureKie, kieCreateTask, kieGetTask, kiePollUntilDone, kieUploadBuffer, kieGetCredits } from './kie.js';
+import { configureLlm, llmText, llmConfig } from './llm.js';
 import { estimateKieCredits, backfillKieEstimate, KIE_USD_PER_CREDIT,
          KIE_CALIBRATION, kieBilledUsdPerCredit } from './kie-pricing.js';
 import { estimateFalCost, backfillFalEstimate } from './fal-pricing.js';
@@ -633,6 +634,41 @@ function respondIfProviderTimeout(res, error) {
 // itself (dotenv runs after imports are hoisted).
 const KIE_KEY = (process.env.KIE_KEY || '').trim();
 configureKie(KIE_KEY);
+
+// ─── TEXT LLM CONFIG (#76) ─────────────────────────────────────────
+// The prompt Enhance buttons and the Edit Cut agent both need a text model.
+// Both used to call fal-ai/any-llm directly, copy-pasted, and FAL now answers
+// 403 — so both were dead for the same reason and only one got reported.
+//
+// Now they share llm.js, which defaults to kie (already paid for, already
+// keyed, 27 chat models) and keeps FAL reachable via LLM_PROVIDER=fal so a
+// revived key still works. LLM_MODEL overrides the model without a deploy.
+configureLlm({
+  kieKey: KIE_KEY,
+  falKey: FAL_KEY,
+  falSubscribe,
+  provider: (process.env.LLM_PROVIDER || '').trim() || null,
+  model: (process.env.LLM_MODEL || '').trim() || null,
+});
+{
+  const { provider, model, ready, why } = llmConfig();
+  if (ready) console.log(`[voxel-api] text LLM: ${provider} · ${model}`);
+  else console.error(`[voxel-api] text LLM UNAVAILABLE — ${why}. Enhance and the Edit Cut agent will refuse.`);
+}
+
+/** Gate for the two text-LLM routes. Was requireFalKey, which asked the wrong
+ *  question: it checked FAL specifically, so it would wave a request through
+ *  to a provider that had been swapped out from under it. */
+function requireLlm(req, res, next) {
+  const { ready, why } = llmConfig();
+  if (!ready) {
+    console.error(`[voxel-api] LLM route refused: ${why}`);
+    return res.status(503).json({
+      error: 'The AI assistant is not configured. Please contact support.',
+    });
+  }
+  next();
+}
 if (!KIE_KEY) {
   console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
   console.error('[FATAL-CONFIG] KIE_KEY is not set.');
@@ -2954,7 +2990,7 @@ app.post('/api/llm', verifyJwt, requireNotBanned, enhanceLimiter, async (req, re
 // red bolt button in the Image and Video prompt areas.
 // H2 (audit 2026-07-28): was unauthenticated — every call spends money on
 // a provider LLM. Now JWT + not-banned + a conservative per-user limit.
-app.post('/api/enhance-prompt', verifyJwt, requireNotBanned, enhanceLimiter, requireFalKey, async (req, res) => {
+app.post('/api/enhance-prompt', verifyJwt, requireNotBanned, enhanceLimiter, requireLlm, async (req, res) => {
   const { prompt, type } = req.body || {};
   if (!prompt || typeof prompt !== 'string' || !prompt.trim()) {
     return res.status(400).json({ error: 'prompt required' });
@@ -2972,28 +3008,10 @@ Add visual details: subject, setting, lighting, lens, framing, mood, color, text
 Keep the original intent. 50–90 words. One paragraph.`;
 
   try {
-    const result = await falSubscribe('fal-ai/any-llm', {
-      input: {
-        model: 'google/gemini-flash-1.5',
-        prompt: prompt.trim(),
-        system_prompt: system,
-      },
-      logs: false,
-    }, 'FAL-ENHANCE');
-    // any-llm returns the text under .output (sometimes nested in .data)
-    const raw =
-      result?.data?.output ??
-      result?.output ??
-      result?.data?.text ??
-      result?.text ??
-      '';
-    const enhanced = String(raw).trim();
-    if (!enhanced) {
-      console.error('[ENHANCE] empty LLM response. Raw:', JSON.stringify(result, null, 2));
-      return res.status(502).json({
-        error: 'Enhancer returned no output. Try again or rephrase your prompt.',
-      });
-    }
+    // Provider choice and reply-shape handling both live in llm.js now. This
+    // route had its own copy of the extraction, which is how it came to be
+    // broken in exactly the same way as the agent without anyone noticing.
+    const enhanced = await llmText({ system, prompt: prompt.trim(), tag: 'ENHANCE' });
     return res.json({ prompt: enhanced });
   } catch (e) {
     if (respondIfProviderTimeout(res, e)) { logProviderError('ENHANCE', e); return; }
@@ -3025,7 +3043,7 @@ Keep the original intent. 50–90 words. One paragraph.`;
 // not left to discipline — src/lib/edit-agent-contract.test.js fails if they
 // drift, because a command the model is never told about looks to a customer
 // exactly like the feature quietly not working.
-app.post('/api/edit-agent', verifyJwt, requireNotBanned, enhanceLimiter, requireFalKey, async (req, res) => {
+app.post('/api/edit-agent', verifyJwt, requireNotBanned, enhanceLimiter, requireLlm, async (req, res) => {
   const { instruction, timeline } = req.body || {};
   if (!instruction || typeof instruction !== 'string' || !instruction.trim()) {
     return res.status(400).json({ error: 'Say what you want changed.' });
@@ -3042,26 +3060,14 @@ app.post('/api/edit-agent', verifyJwt, requireNotBanned, enhanceLimiter, require
   }
 
   try {
-    const result = await falSubscribe('fal-ai/any-llm', {
-      input: {
-        model: 'google/gemini-flash-1.5',
-        system_prompt: AGENT_SYSTEM,
-        prompt: `TIMELINE:\n${summary}\n\nINSTRUCTION:\n${instruction.trim()}`,
-      },
-      logs: false,
-    }, 'FAL-EDIT-AGENT');
-
-    const raw =
-      result?.data?.output ?? result?.output ??
-      result?.data?.text ?? result?.text ?? '';
-
-    if (!String(raw).trim()) {
-      console.error('[EDIT-AGENT] empty LLM response');
-      return res.status(502).json({ error: 'The assistant did not answer. Try again.' });
-    }
+    const raw = await llmText({
+      system: AGENT_SYSTEM,
+      prompt: `TIMELINE:\n${summary}\n\nINSTRUCTION:\n${instruction.trim()}`,
+      tag: 'EDIT-AGENT',
+    });
     // Returned as TEXT on purpose. The browser parses it, because the browser
     // is the only place that can check it against the real project.
-    return res.json({ raw: String(raw) });
+    return res.json({ raw });
   } catch (e) {
     if (respondIfProviderTimeout(res, e)) { logProviderError('EDIT-AGENT', e); return; }
     const status = logProviderError('EDIT-AGENT', e);
@@ -3069,7 +3075,7 @@ app.post('/api/edit-agent', verifyJwt, requireNotBanned, enhanceLimiter, require
       // NOT "try again" — nothing the customer does will change it, and the
       // fix is on the account, not in the timeline. Their work is untouched.
       return res.status(502).json({
-        error: 'The assistant is unavailable — the AI provider refused the request (check the FAL key and balance). Your timeline has not been changed.',
+        error: 'The assistant is unavailable — the AI provider refused the request. Your timeline has not been changed.',
       });
     }
     return res.status(500).json({ error: 'The assistant failed: ' + publicError(e.message) });
