@@ -20,6 +20,7 @@ import { estimateKieCredits, backfillKieEstimate, KIE_USD_PER_CREDIT,
          KIE_CALIBRATION, kieBilledUsdPerCredit } from './kie-pricing.js';
 import { estimateFalCost, backfillFalEstimate } from './fal-pricing.js';
 import { publicReason } from './sanitize.js';
+import { deepHealth } from './health-deep.js';
 import { AGENT_SYSTEM } from './edit-agent-prompt.js';
 import { formatProviderError, providerErrorParts, isProviderRefusal } from './provider-error.js';
 import { normalizeBulkEmails, generateBulkPassword } from './bulk-helpers.js';
@@ -6610,6 +6611,13 @@ app.get('/api/pricing', (req, res) => {
 // those don't change the frontend bundle hash).
 const SERVER_STARTED_AT = new Date().toISOString();
 
+// ── LIVENESS ──────────────────────────────────────────────────────
+// DigitalOcean's health_check calls this every 10 seconds and restarts the
+// container after six failures. It answers ONE question — has this process
+// wedged — and it must never touch a dependency: a database that is merely
+// SLOW would start killing healthy containers and turn a degradation into an
+// outage. `db_configured` means a pool was CONSTRUCTED, nothing more. For
+// "does the database actually answer", see /api/ready below.
 app.get('/api/health', (req, res) => {
   res.json({
     status: 'ok',
@@ -6618,6 +6626,45 @@ app.get('/api/health', (req, res) => {
     kie_configured: !!KIE_KEY,
     db_configured: dbReady(),
     auth_configured: !!JWT_SECRET,
+  });
+});
+
+// ── READINESS ─────────────────────────────────────────────────────
+// "Is the site actually working", for an EXTERNAL monitor — the only kind
+// that can tell you anything when the whole app is down, because a check
+// running inside a dead app runs not at all.
+//
+// Answers 503 when the database does not reply. That status code is the
+// entire point: an uptime monitor reads the code, and a body saying
+// {"ok":false} with a 200 on it is a check that never fires — worse than no
+// check, because it actively reassures.
+//
+// UNAUTHENTICATED on purpose, so a monitor can call it without holding a
+// credential. It therefore says as little as possible: coarse per-dependency
+// state, never a connection string. Rate limited because it is the one open
+// endpoint that touches the database.
+const readyLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 60,                       // a monitor needs one every 2 minutes
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { ok: false, error: 'Too many readiness checks.' },
+});
+
+app.get('/api/ready', readyLimiter, async (req, res) => {
+  const result = await deepHealth({
+    pool: dbReady() ? pool : null,
+    storageReady: spacesReady(),
+  });
+  if (!result.ok) {
+    // Full detail to the LOG, where it is safe and where somebody debugging
+    // will look. The response stays coarse.
+    console.error('[ready] NOT READY:', JSON.stringify(result.checks));
+  }
+  res.status(result.status).json({
+    ok: result.ok,
+    started_at: SERVER_STARTED_AT,
+    checks: result.checks,
   });
 });
 
