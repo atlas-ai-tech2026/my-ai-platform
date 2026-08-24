@@ -25,6 +25,7 @@ import { Scissors, Lock, Unlock, Eye, EyeOff, Volume2, VolumeX, Magnet,
 import {
   clipDuration, projectDuration, moveClip, trimClip, splitClip, locateClip, trackGaps, closeGap, setTrackFlag, whyKeepTrack,
   renameTrack, moveTrack, canMoveTrack, whyNoMoreTracks,
+  setTrackHeight, clearTrackHeight,
 } from '@/lib/timeline';
 import { snapTargets, snapStart, snapEdge } from '@/lib/timeline-snap';
 import Tip from './Tip';
@@ -137,6 +138,10 @@ export default function Timeline({
     } catch { return 'normal'; }          // private mode, or storage disabled
   });
   const TRACK_H = TRACK_HEIGHTS[rowSize];
+  /** A track's own height if it has been dragged, otherwise the global size.
+   *  ONE function, used by both the header and the lane — two separate
+   *  expressions would drift and the rows would stop lining up. */
+  const heightOf = (track) => track.height ?? TRACK_H;
   const cycleRowSize = () => {
     const next = HEIGHT_ORDER[(HEIGHT_ORDER.indexOf(rowSize) + 1) % HEIGHT_ORDER.length];
     setRowSize(next);
@@ -377,11 +382,11 @@ export default function Timeline({
 
         {/* Row height. Cycles compact → normal → tall, and the tooltip names
             what the NEXT click does, matching every other control here. */}
-        <Tip label={`Row height: ${rowSize} — click for ${HEIGHT_ORDER[(HEIGHT_ORDER.indexOf(rowSize) + 1) % HEIGHT_ORDER.length]}`}>
+        <Tip label={`All layers: ${rowSize} — click for ${HEIGHT_ORDER[(HEIGHT_ORDER.indexOf(rowSize) + 1) % HEIGHT_ORDER.length]}. Drag a layer's bottom edge to size it on its own.`}>
           <button
             type="button"
             onClick={cycleRowSize}
-            aria-label={`Row height: ${rowSize}`}
+            aria-label={`Height for all layers: ${rowSize}`}
             data-testid="row-height"
             className="p-1.5 rounded hover:bg-background-elevated text-foreground-muted hover:text-white"
           >
@@ -412,7 +417,9 @@ export default function Timeline({
               track={track}
               onChange={onChange}
               onRemoveTrack={onRemoveTrack}
-              height={TRACK_H}
+              height={heightOf(track)}
+              onResize={(px) => onChange?.(setTrackHeight(project, track.id, px), { coalesce: `row:${track.id}` })}
+              onResetHeight={() => onChange?.(clearTrackHeight(project, track.id), {})}
             />
           ))}
           {/* ── ADD A LAYER ────────────────────────────────────────────────
@@ -487,7 +494,7 @@ export default function Timeline({
             {project.tracks.map((track) => (
               <div
                 key={track.id}
-                style={{ height: TRACK_H }}
+                style={{ height: heightOf(track) }}
                 className={`relative border-b border-border ${track.locked ? 'opacity-60' : ''}`}
                 onPointerDown={() => onSelect?.(null)}
               >
@@ -637,10 +644,14 @@ export default function Timeline({
  * asked for renaming after looking straight at "Video 1" and seeing nothing
  * that suggested it could change.
  */
-function TrackHeader({ project, track, onChange, onRemoveTrack, height }) {
+function TrackHeader({ project, track, onChange, onRemoveTrack, height, onResize, onResetHeight }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(track.name);
   const input = useRef(null);
+  // A ref, not state: it updates synchronously, and a fast drag can land
+  // pointerdown and pointermove in the same React batch — the same trap that
+  // made clip dragging fail on quick gestures.
+  const resizeRef = useRef(null);
 
   useEffect(() => { if (editing) input.current?.select(); }, [editing]);
 
@@ -659,9 +670,43 @@ function TrackHeader({ project, track, onChange, onRemoveTrack, height }) {
   return (
     <div
       style={{ height }}
-      className="flex flex-col justify-center gap-1 px-2 border-b border-border text-xs overflow-hidden"
+      className="relative flex flex-col justify-center gap-1 px-2 border-b border-border text-xs overflow-hidden"
       data-testid={`track-header-${track.id}`}
     >
+      {/* ── RESIZE THIS LAYER ────────────────────────────────────────────
+          Drag the bottom edge. Six pixels tall, not one: the owner has
+          already been caught out once by a one-pixel target they could not
+          grab, and the same mistake twice is not a mistake, it is a habit.
+          Double-click puts it back to following the global size.
+
+          Per LAYER, deliberately. The one being worked on wants to be tall
+          enough to see and the others want to be out of the way — a single
+          size for all of them cannot do both, which is why every editor
+          resizes tracks individually. */}
+      {onResize && (
+        <div
+          onPointerDown={(e) => {
+            e.preventDefault();
+            e.currentTarget.setPointerCapture?.(e.pointerId);
+            resizeRef.current = { startY: e.clientY, startH: height };
+          }}
+          onPointerMove={(e) => {
+            const r = resizeRef.current;
+            if (r) onResize(r.startH + (e.clientY - r.startY));
+          }}
+          onPointerUp={(e) => {
+            e.currentTarget.releasePointerCapture?.(e.pointerId);
+            resizeRef.current = null;
+          }}
+          onPointerCancel={() => { resizeRef.current = null; }}
+          onDoubleClick={onResetHeight}
+          title="Drag to resize this layer · double-click to reset"
+          aria-label={`Resize ${track.name}`}
+          data-testid={`resize-${track.id}`}
+          className="absolute left-0 right-0 -bottom-0.5 h-1.5 cursor-ns-resize z-10
+                     hover:bg-primary/50 active:bg-primary"
+        />
+      )}
       {/* Row 1 — where it sits, and what it is called */}
       <div className="flex items-center gap-0.5">
         <Tip label="Move layer up"><button

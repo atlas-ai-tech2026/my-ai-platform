@@ -468,6 +468,45 @@ export function addTrack(project, kind, name) {
 }
 
 /**
+ * How tall one layer is drawn, in pixels.
+ *
+ * ── PER-LAYER, NOT ONE SETTING FOR ALL ─────────────────────────────────────
+ * I built this as a single control that resized every row together, and the
+ * owner came straight back: "to control the height of each layer separately
+ * to become a little bit small and large, I cannot until now." They are right
+ * and I had read their first request too loosely.
+ *
+ * It is also the more useful shape: the layer being worked on wants to be
+ * tall enough to see, and the three you are not touching want to be out of
+ * the way. One global size cannot do both, which is the whole reason every
+ * editor resizes tracks individually.
+ *
+ * Stored ON THE TRACK, so it travels with the project, autosaves, and is
+ * still there tomorrow. Optional — a track without one falls back to whatever
+ * the global size is set to, so nothing has to be migrated.
+ */
+export const MIN_TRACK_H = 28;
+export const MAX_TRACK_H = 160;
+
+export function setTrackHeight(project, trackId, px) {
+  const track = findTrack(project, trackId);
+  if (!track) return project;
+  const clamped = Math.round(Math.min(MAX_TRACK_H, Math.max(MIN_TRACK_H, Number(px) || 0)));
+  if (track.height === clamped) return project;
+  return replaceTrack(project, trackId, (t) => ({ ...t, height: clamped }));
+}
+
+/** Back to following the global size. */
+export function clearTrackHeight(project, trackId) {
+  const track = findTrack(project, trackId);
+  if (!track || track.height === undefined) return project;
+  return replaceTrack(project, trackId, (t) => {
+    const { height, ...rest } = t;   // eslint-disable-line no-unused-vars
+    return rest;
+  });
+}
+
+/**
  * Rename a track.
  *
  * A LOCKED track can still be renamed, deliberately. The lock protects what is

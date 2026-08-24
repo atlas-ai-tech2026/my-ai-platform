@@ -17,6 +17,7 @@ import {
   trackGaps, closeGap, addSource, replaceClipSource, setProjectRatio,
   removeTrack, whyKeepTrack, renameTrack, moveTrack, canMoveTrack,
   MAX_TRACKS_PER_KIND, countKind, whyNoMoreTracks,
+  setTrackHeight, clearTrackHeight, MIN_TRACK_H, MAX_TRACK_H,
 } from './timeline.js';
 
 beforeEach(__resetIds);
@@ -674,5 +675,66 @@ describe('three of a kind is the limit', () => {
   it('names an unknown kind rather than shrugging', () => {
     __resetIds();
     expect(whyNoMoreTracks(createProject({ name: 'T' }), 'hologram')).toMatch(/not a kind/);
+  });
+});
+
+// ─── PER-LAYER HEIGHT ────────────────────────────────────────────────────────
+// I first built this as ONE control that resized every row together. The owner
+// came straight back: "to control the height of each layer separately... I
+// cannot until now." They were right — the layer being worked on wants to be
+// tall and the rest want to be out of the way, and one global size cannot do
+// both.
+
+describe('sizing one layer without touching the others', () => {
+  const p0 = () => { __resetIds(); return createProject({ name: 'T' }); };
+
+  it('sets a height on ONE track only', () => {
+    const p = p0();
+    const after = setTrackHeight(p, p.tracks[0].id, 90);
+    expect(after.tracks[0].height).toBe(90);
+    expect(after.tracks[1].height, 'it resized a track nobody touched').toBeUndefined();
+  });
+
+  it('clamps rather than letting a drag produce a useless row', () => {
+    // A 4px track cannot show a clip label; a 900px one hides every other
+    // layer, which is the problem this was meant to solve.
+    const p = p0();
+    expect(setTrackHeight(p, p.tracks[0].id, -50).tracks[0].height).toBe(MIN_TRACK_H);
+    expect(setTrackHeight(p, p.tracks[0].id, 9999).tracks[0].height).toBe(MAX_TRACK_H);
+  });
+
+  it('rounds, because a drag produces fractions', () => {
+    const p = p0();
+    expect(setTrackHeight(p, p.tracks[0].id, 61.7).tracks[0].height).toBe(62);
+  });
+
+  it('survives rubbish without setting NaN as a height', () => {
+    const p = p0();
+    expect(setTrackHeight(p, p.tracks[0].id, undefined).tracks[0].height).toBe(MIN_TRACK_H);
+  });
+
+  it('returns the SAME project when the height did not change', () => {
+    // Otherwise every pointermove in a drag adds an undo step.
+    let p = setTrackHeight(p0(), p0().tracks[0].id, 90);
+    p = setTrackHeight(p, p.tracks[0].id, 90);
+    expect(setTrackHeight(p, p.tracks[0].id, 90)).toBe(p);
+  });
+
+  it('clearing puts it back to following the global size', () => {
+    let p = setTrackHeight(p0(), p0().tracks[0].id, 120);
+    expect(p.tracks[0].height).toBe(120);
+    p = clearTrackHeight(p, p.tracks[0].id);
+    expect('height' in p.tracks[0], 'the key should be gone, not set to undefined').toBe(false);
+  });
+
+  it('clearing a track that never had one changes nothing', () => {
+    const p = p0();
+    expect(clearTrackHeight(p, p.tracks[0].id)).toBe(p);
+  });
+
+  it('the height travels with the track when it is reordered', () => {
+    let p = setTrackHeight(p0(), p0().tracks[0].id, 100);
+    p = moveTrack(p, p.tracks[0].id, 1);
+    expect(p.tracks[1].height).toBe(100);
   });
 });

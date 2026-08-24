@@ -164,7 +164,11 @@ it", and they wanted to fit every layer on screen without scrolling. The
 playhead was a 1px line with `pointer-events: none` — there was NOTHING to
 grab, and the only way to move it was clicking the ruler to jump. It now has a
 20×16px chevron grip that drags. Row height cycles compact/normal/tall (38 /
-56 / 78px) and is remembered.
+56 / 78px) and is remembered. **Corrected same day:** that global control was
+not what was asked for — each layer is resized SEPARATELY by dragging its
+bottom edge (6px target, double-click resets). The height is stored on the
+track, so it travels with the project. The global button remains as the
+default for layers that have not been dragged.
 
 ### ✅ 2026-08-23 — rename + reorder layers shipped
 Owner's request after using the layers: double-click a track name to rename it,
