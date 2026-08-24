@@ -403,3 +403,31 @@ body {
     margin-right: 12px;
   }
 }
+
+
+/* ── THE CAMERA SHEET'S FOUR COLUMNS ───────────────────────────────────────
+   Cameras · Lenses · Focal · F-Stop, side by side. Fine on a laptop.
+
+   On a 390px phone the four columns measured 128 / 67 / 52 / 58 pixels —
+   a fifty-two pixel column for choosing a focal length. The owner reported it
+   from their own phone as the focal length being unreachable, and on a
+   narrower or zoomed screen the fourth column is pushed off the edge
+   entirely.
+
+   Below 640px it becomes 2×2. Each cell then gets about 165px, which is
+   enough to read a label and hit it. Stacking all four vertically was the
+   other option and would make the sheet roughly 1200px tall inside a prompt
+   bar that is already tall — trading one unusable shape for another. */
+.camera-columns {
+  display: grid;
+  grid-template-columns: 1.1fr 1.1fr 0.85fr 0.95fr;
+  height: 300px;
+}
+
+@media (max-width: 640px) {
+  .camera-columns {
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: 1fr 1fr;
+    height: 420px;
+  }
+}

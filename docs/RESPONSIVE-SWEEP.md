@@ -17,7 +17,7 @@ Last swept: 2026-08-23 · widths 390 (phone) — 768/1024/1440 still to do
 | **GENERATE 456px off the right edge** | chip row was `nowrap` + `overflow-x:auto` + `hide-scrollbar`, sized for the 900px bar | ✅ wraps below 640px |
 | Cinema / Style / Negative Prompt off screen | 336 / 241 / 168px | ✅ same fix |
 | Support bubble covered GENERATE | `elementsFromPoint` returned the bubble across the button's right half | ✅ moved |
-| Camera Settings sheet: FOCAL column cut off | owner's phone screenshot — 14mm/18mm sliced, no scroll | ⬜ `CameraSelector.jsx` |
+| Camera Settings sheet: FOCAL column unusable | four columns measured **128 / 67 / 52 / 58px** at 390px — a 52px column for choosing a focal length | ✅ 2×2 below 640px; every cell now **158px** |
 
 ## /Video — phone (390px)
 
