@@ -92,36 +92,25 @@ export function exportPlan(project, { ratio, quality = 1080, mode = 'crop', outp
   }
   const reshape = reshapeFilter(targetRatio, { mode, quality });
 
-  const videoTrack = project?.tracks?.find((t) => t.kind === 'video' && !t.hidden);
+  // ── THE LAYER STACK ────────────────────────────────────────────────────
+  // Bottom of the list is the BASE; everything above is overlaid onto it, so
+  // the track at the top of the timeline is the one you see. That matches
+  // what the UI draws and what every editor means by "above".
+  //
+  // Until 2026-08-23 this was a find() — the first video track and no other —
+  // while the audio path looped over every audio track and mixed them. The two
+  // were asymmetric, invisibly: a second video layer was dropped from the file
+  // in total silence.
+  const videoTracks = (project?.tracks || []).filter((t) => t.kind === 'video' && !t.hidden);
+  const upperTracks = videoTracks.slice(0, -1);          // top-most first
+  const videoTrack = videoTracks[videoTracks.length - 1] || null;
+
   const total = projectDuration(project);
 
   if (!videoTrack || videoTrack.clips.length === 0) {
     problems.push('There is nothing on the video track to export.');
   }
   if (total <= 0) problems.push('The project is empty.');
-
-  // ── EXTRA VIDEO LAYERS ARE NOT IN THE FILE, AND MUST SAY SO ────────────
-  // `videoTrack` above is a find(), not a filter: the FIRST video track and no
-  // other. Audio is not like this — the audio path loops over every audio
-  // track and mixes them — so the two are asymmetric in a way that is very
-  // easy to assume away.
-  //
-  // The warning loop below only covers kinds that are NEVER rendered (text,
-  // image, captions), so before this a second video track was dropped in total
-  // silence: somebody could build a two-layer edit, export, and find half
-  // their work missing with nothing having said a word.
-  //
-  // Compositing them properly is the real fix (task #78). Until then this at
-  // least refuses to lie about it.
-  const videoTracks = (project?.tracks || []).filter((t) => t.kind === 'video' && !t.hidden);
-  for (const extra of videoTracks.slice(1)) {
-    const n = extra.clips?.length || 0;
-    if (n > 0) {
-      warnings.push(
-        `${n} clip${n === 1 ? '' : 's'} on “${extra.name}” ${n === 1 ? 'is' : 'are'} NOT in this export — only the first video layer is rendered today.`,
-      );
-    }
-  }
 
   // ── SAY WHAT IS NOT IN THE FILE ────────────────────────────────────────
   for (const track of project?.tracks || []) {
@@ -237,6 +226,65 @@ export function exportPlan(project, { ratio, quality = 1080, mode = 'crop', outp
   let audioOut = 'aout';
   if (n > 0) {
     chains.push(`${concatLabels.join('')}concat=n=${n}:v=1:a=1[vout][aout]`);
+  }
+
+  // ── UPPER VIDEO LAYERS, OVERLAID ONTO THE BASE ─────────────────────────
+  // Each clip is placed individually and gated to its own window with
+  // `enable`, rather than building each upper track into a full-length
+  // stream first.
+  //
+  // WHY, because the obvious way is worse: a full-length upper track needs its
+  // GAPS to be transparent so the layer underneath shows through, which means
+  // an alpha pixel format all the way through the graph, and concat then has
+  // to agree about alpha on every segment — a fourth way for the concat to
+  // refuse, on top of the three already documented at the top of this file.
+  // Gating per clip needs no alpha at all: outside its window the overlay
+  // simply is not applied and the base is what you see.
+  //
+  // `eof_action=pass` keeps the base running once a short overlay has ended.
+  // Without it the output stops at the end of the topmost clip, which on a
+  // 3-second logo over a 60-second edit is a 3-second file.
+  if (n > 0) {
+    let overlayNo = 0;
+    // Reversed: the layer CLOSEST to the base is applied first, so the top of
+    // the list finishes on top.
+    for (const track of [...upperTracks].reverse()) {
+      for (const clip of [...(track.clips || [])].sort((a, b) => a.start - b.start)) {
+        const found = useSource(clip);
+        if (!found) continue;
+        const speed = clip.speed || 1;
+        const label = `ov${overlayNo}`;
+        const out = `ovo${overlayNo}`;
+        const start = round(clip.start);
+        const end = round(clipEnd(clip));
+
+        chains.push(
+          `[${found.index}:v]trim=start=${clip.in}:end=${clip.out},setpts=PTS-STARTPTS`
+          + `${speed !== 1 ? `,setpts=PTS/${speed}` : ''},${reshape},fps=${FPS},setsar=1,format=yuv420p,`
+          + `setpts=PTS+${start}/TB[${label}]`,
+        );
+        chains.push(
+          `[${videoOut}][${label}]overlay=eof_action=pass:enable='between(t,${start},${end})'[${out}]`,
+        );
+        videoOut = out;
+        overlayNo += 1;
+
+        // The upper layer's SOUND is mixed in like a music bed rather than
+        // being dropped. A B-roll shot laid over a cut usually carries the
+        // audio somebody wants, and silently discarding it is the same class
+        // of bug as silently discarding the picture was.
+        if (found.src.hasAudio !== false && !track.muted) {
+          const mLabel = `um${overlayNo}`;
+          const delayMs = Math.round(clip.start * 1000);
+          chains.push(
+            `[${found.index}:a]atrim=start=${clip.in}:end=${clip.out},asetpts=PTS-STARTPTS,`
+            + `aresample=${SAMPLE_RATE}${speed !== 1 ? `,${atempoChain(speed)}` : ''}`
+            + `${delayMs > 0 ? `,adelay=${delayMs}|${delayMs}` : ''}[${mLabel}]`,
+          );
+          musicLabels.push(mLabel);
+        }
+      }
+    }
   }
   if (musicLabels.length > 0 && n > 0) {
     const mixIn = ['[aout]', ...musicLabels.map((l) => `[${l}]`)].join('');

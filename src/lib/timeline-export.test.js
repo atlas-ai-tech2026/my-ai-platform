@@ -298,46 +298,90 @@ describe('the output itself', () => {
 // and no other — while the audio path loops and mixes every audio track. The
 // asymmetry is invisible and the failure was total silence.
 
-describe('a second video layer is not in the file, and must say so', () => {
-  const twoVideoLayers = () => {
+describe('layers are composited, not dropped', () => {
+  // Until 2026-08-23 exportPlan picked the video track with find() — the first
+  // and no other — while audio looped over every track and mixed them. A second
+  // video layer vanished from the file in TOTAL silence.
+  const stack = () => {
     __resetIds();
-    let p = createProject({ name: 'T' });
-    p = addSource(p, { id: 's1', url: 'https://x/a.mp4' });
-    p = addClip(p, p.tracks[0].id, createClip({ kind: 'video', sourceId: 's1', start: 0, in: 0, out: 5 }));
-    p = addTrack(p, 'video');                       // Video 2 — inserted beside Video 1, not at the end
+    let p = createProject({ name: 'T' });                 // Video 1, Audio 1
+    p = addSource(p, { id: 'base', url: 'https://x/a.mp4' });
+    p = addSource(p, { id: 'top', url: 'https://x/b.mp4' });
+    p = addTrack(p, 'video');                             // Video 2, below Video 1
+    const v1 = p.tracks.find((t) => t.name === 'Video 1').id;
     const v2 = p.tracks.find((t) => t.name === 'Video 2').id;
-    p = addClip(p, v2, createClip({ kind: 'video', sourceId: 's1', start: 0, in: 0, out: 5 }));
+    // Video 2 is the BOTTOM of the stack and carries the long shot.
+    p = addClip(p, v2, createClip({ kind: 'video', sourceId: 'base', start: 0, in: 0, out: 20 }));
+    // Video 1 sits on top with a short insert from 5s to 8s.
+    p = addClip(p, v1, createClip({ kind: 'video', sourceId: 'top', start: 5, in: 0, out: 3 }));
     return p;
   };
 
-  it('WARNS that the upper layer is not rendered', () => {
-    // Before this it vanished with nothing said at all — somebody could build
-    // a two-layer edit, export, and find half their work gone.
-    const plan = exportPlan(twoVideoLayers(), { ratio: '16:9' });
-    const warned = plan.warnings.some((w) => /NOT in this export/.test(w) && /Video 2/.test(w));
-    expect(warned, `warnings were: ${JSON.stringify(plan.warnings)}`).toBe(true);
+  it('the BOTTOM track is the base and the top one is overlaid', () => {
+    const plan = exportPlan(stack(), { ratio: '16:9' });
+    expect(plan.ok, JSON.stringify(plan.problems)).toBe(true);
+    expect(plan.filter).toMatch(/overlay=/);
   });
 
-  it('still exports the first layer rather than refusing', () => {
-    const plan = exportPlan(twoVideoLayers(), { ratio: '16:9' });
-    expect(plan.ok, `problems: ${JSON.stringify(plan.problems)}`).toBe(true);
+  it('gates the overlay to its own window, so the base shows either side', () => {
+    // This is what makes transparent gaps unnecessary: outside the window the
+    // overlay is simply not applied.
+    const plan = exportPlan(stack(), { ratio: '16:9' });
+    expect(plan.filter).toMatch(/enable='between\(t,5,8\)'/);
   });
 
-  it('says nothing when the extra layer is EMPTY', () => {
-    // An empty second track is not lost work, and a warning about it is noise
-    // that teaches people to ignore warnings.
-    __resetIds();
-    let p = createProject({ name: 'T' });
-    p = addSource(p, { id: 's1', url: 'https://x/a.mp4' });
-    p = addClip(p, p.tracks[0].id, createClip({ kind: 'video', sourceId: 's1', start: 0, in: 0, out: 5 }));
-    p = addTrack(p, 'video');
+  it("keeps the base running after a short overlay ends", () => {
+    // Without eof_action=pass the output stops at the end of the topmost clip
+    // — a 3-second logo over a 60-second edit gives a 3-second file.
+    expect(exportPlan(stack(), { ratio: '16:9' }).filter).toMatch(/eof_action=pass/);
+  });
 
-    const plan = exportPlan(p, { ratio: '16:9' });
+  it('shifts the overlay to its place on the timeline', () => {
+    expect(exportPlan(stack(), { ratio: '16:9' }).filter).toMatch(/setpts=PTS\+5\/TB/);
+  });
+
+  it('mixes the upper layer SOUND in rather than discarding it', () => {
+    // B-roll laid over a cut usually carries audio somebody wants. Dropping it
+    // is the same class of bug as dropping the picture was.
+    const plan = exportPlan(stack(), { ratio: '16:9' });
+    expect(plan.filter).toMatch(/amix=/);
+    expect(plan.filter).toMatch(/adelay=5000\|5000/);
+  });
+
+  it('NO LONGER warns that the layer is missing, because it is not', () => {
+    const plan = exportPlan(stack(), { ratio: '16:9' });
     expect(plan.warnings.some((w) => /NOT in this export/.test(w))).toBe(false);
   });
 
-  it('one clip reads "is", not "are"', () => {
-    const plan = exportPlan(twoVideoLayers(), { ratio: '16:9' });
-    expect(plan.warnings.find((w) => /Video 2/.test(w))).toMatch(/1 clip on “Video 2” is NOT/);
+  it('applies the lowest overlay FIRST so the top of the list ends on top', () => {
+    __resetIds();
+    let p = createProject({ name: 'T' });
+    p = addSource(p, { id: 's', url: 'https://x/a.mp4' });
+    p = addTrack(p, 'video'); p = addTrack(p, 'video');    // three video layers
+    const [t1, t2, t3] = p.tracks.filter((t) => t.kind === 'video');
+    p = addClip(p, t3.id, createClip({ kind: 'video', sourceId: 's', start: 0, in: 0, out: 20 }));
+    p = addClip(p, t2.id, createClip({ kind: 'video', sourceId: 's', start: 1, in: 0, out: 2 }));
+    p = addClip(p, t1.id, createClip({ kind: 'video', sourceId: 's', start: 9, in: 0, out: 2 }));
+
+    const f = exportPlan(p, { ratio: '16:9' }).filter;
+    // The middle layer (start 1s) is composited before the top one (start 9s).
+    expect(f.indexOf("between(t,1,")).toBeLessThan(f.indexOf("between(t,9,"));
+  });
+
+  it('a SINGLE video track produces no overlay at all', () => {
+    // The common case must not pay for the feature.
+    __resetIds();
+    let p = createProject({ name: 'T' });
+    p = addSource(p, { id: 's', url: 'https://x/a.mp4' });
+    p = addClip(p, p.tracks[0].id, createClip({ kind: 'video', sourceId: 's', start: 0, in: 0, out: 5 }));
+    expect(exportPlan(p, { ratio: '16:9' }).filter).not.toMatch(/overlay=/);
+  });
+
+  it('a HIDDEN upper layer is left out and says so', () => {
+    let p = stack();
+    p = { ...p, tracks: p.tracks.map((t) => (t.name === 'Video 1' ? { ...t, hidden: true } : t)) };
+    const plan = exportPlan(p, { ratio: '16:9' });
+    expect(plan.filter).not.toMatch(/overlay=/);
+    expect(plan.warnings.some((w) => /hidden/.test(w))).toBe(true);
   });
 });

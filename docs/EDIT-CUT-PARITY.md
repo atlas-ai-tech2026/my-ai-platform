@@ -105,7 +105,7 @@ See the recommendation in §10.
 
 | Icon | ChatCut tooltip | Ours | Status |
 |---|---|---|---|
-| `+` | **`Create new timeline`** | — | ⬜ **structural, see §10** |
+| `+` | **`Create new timeline`** | — | ⛔ **owner decided NO, 2026-08-23** — a second timeline belongs to a different PROJECT; three layers per kind covers the need inside one |
 | arrow | `Selection Mode (V)` | same, key V | ✅ |
 | ⧉ | `Trim Edit Mode (N)` | same, key N | ✅ |
 | ▤ | `Blade Edit Mode (B)` | same, key B | ✅ |
@@ -239,7 +239,7 @@ Worth knowing a competitor shipped it.
 | 4 | ⭐ **Generation Auto-Allow** | The agent can spend the customer's credits. `edit-ops.js` already separates free local edits from metered model calls, so the wiring exists. Copy ChatCut's defaults exactly: free ON, paid OFF. **This is the one I would not ship the agent to production without.** |
 | 5 | **Library toolbar** — Search / Sort / Filter | The library is the reason to use Voxel's editor over anyone else's, and right now you cannot find anything in it. |
 | 6 | **Record: Voiceover / Camera / Screen** | Highest-value missing feature for teaching. Sources are already generic, so it is additive. |
-| 7 | **Multiple video layers composite** (Phase 2) | Makes #2 honest. |
+| 7 | ~~**Multiple video layers composite**~~ | ✅ DONE 2026-08-23 — PROVED BY RENDERING: at 3s the output matched the top layer (distance 2 vs 36); at 5s, after it ended, it matched the base (distance 1 vs 85). |
 
 ### Do after
 | # | Module | Why |
@@ -255,8 +255,9 @@ Worth knowing a competitor shipped it.
 all either owner-rejected or ChatCut's own commercial furniture.
 
 ### Already on the board
-`Agent Plugin` = task **#32** (MCP server) · `Create new timeline` = the
-**structural decision** still open.
+`Agent Plugin` = task **#32** (MCP server). `Create new timeline` — **decided
+NO on 2026-08-23**, so the structural question that blocked server-side work
+is closed.
 
 ---
 
