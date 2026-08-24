@@ -100,9 +100,9 @@ describe('when it goes wrong, say something actionable', () => {
   it('names the MODEL when the answer is empty', async () => {
     // The one thing I could not verify without a live key is the model-id
     // string. If it is wrong, this is the error that says so.
-    configureLlm({ kieKey: 'k', model: 'gemini-3-7-flash' });
+    configureLlm({ kieKey: 'k', model: 'gemini-2.5-flash' });
     const f = vi.fn().mockResolvedValue(okResponse({ choices: [] }));
-    await expect(llmText({ prompt: 'hi', fetchImpl: f })).rejects.toThrow(/gemini-3-7-flash/);
+    await expect(llmText({ prompt: 'hi', fetchImpl: f })).rejects.toThrow(/gemini-2\.5-flash/);
   });
 
   it('a timeout is a 504, not a 500 — it is not the customer\'s fault', async () => {
@@ -141,10 +141,23 @@ describe('what it sends', () => {
     // Calling the generic /api/v1/chat/completions does not 404. It exists,
     // and answers "This feature is currently not supported", which reads like
     // an account or plan problem and sends you to the wrong place entirely.
-    configureLlm({ kieKey: 'k', model: 'gemini-3-7-flash' });
+    configureLlm({ kieKey: 'k', model: 'gemini-2.5-flash' });
     const f = vi.fn().mockResolvedValue(okResponse(chat('ok')));
     await llmText({ prompt: 'hi', fetchImpl: f });
-    expect(f.mock.calls[0][0]).toBe('https://api.kie.ai/gemini-3-7-flash/v1/chat/completions');
+    expect(f.mock.calls[0][0]).toBe('https://api.kie.ai/gemini-2.5-flash/v1/chat/completions');
+  });
+
+  it('defaults to a model kie documents as OpenAI-COMPATIBLE', async () => {
+    // The trap: kie ships chat models in two protocols and the catalogue does
+    // not say which is which. gemini-3-7-flash is newer, and is the NATIVE
+    // Google shape (…:streamGenerateContent) — it would fail here however
+    // right the path was. Only "(openai)" models belong in this default.
+    configureLlm({ kieKey: 'k' });
+    const f = vi.fn().mockResolvedValue(okResponse(chat('ok')));
+    await llmText({ prompt: 'hi', fetchImpl: f });
+    expect(f.mock.calls[0][0]).toMatch(/\/v1\/chat\/completions$/);
+    expect(f.mock.calls[0][0], 'gemini-3-7-flash is NOT OpenAI-compatible on kie')
+      .not.toContain('gemini-3-7-flash');
   });
 
   it('never sends the model in the BODY — the path already carries it', async () => {

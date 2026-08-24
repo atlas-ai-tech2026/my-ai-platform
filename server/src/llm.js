@@ -54,9 +54,27 @@ const KIE_BASE = 'https://api.kie.ai';
  */
 const kieChatPath = (model) => `/${encodeURIComponent(model)}/v1/chat/completions`;
 
-/** kie's newest cost-efficient chat model. Overridable with LLM_MODEL — see
- *  the note above about slugs versus API ids. */
-const DEFAULT_MODEL = 'gemini-3-7-flash';
+/**
+ * ⚠️ NOT EVERY kie CHAT MODEL SPEAKS THIS PROTOCOL. They ship models in two
+ * flavours and the catalogue does not distinguish them:
+ *
+ *   OpenAI-compatible   /gemini-2.5-flash/v1/chat/completions      ← this module
+ *   native vendor       /gemini/v1/models/gemini-3-7-flash:streamGenerateContent
+ *
+ * gemini-3-7-flash — the newest flash, and my first default purely because it
+ * was newest — is the SECOND kind. It would have failed here no matter how
+ * right the path shape was. Their docs mark the compatible ones "(openai)".
+ *
+ * So: before changing LLM_MODEL, open docs.kie.ai/market/<vendor>/<model> and
+ * check the endpoint really ends in /v1/chat/completions. The slug in the
+ * catalogue tells you the model exists, NOT how to call it.
+ *
+ * gemini-2.5-flash is documented OpenAI-compatible, cheap, and fast enough for
+ * turning one sentence into a few JSON commands. Note the DOTS — newer slugs
+ * use dashes (gemini-3-pro) and older ones dots, and it is not cosmetic, it is
+ * the URL. Overridable with LLM_MODEL.
+ */
+const DEFAULT_MODEL = 'gemini-2.5-flash';
 
 let cfg = { kieKey: null, falKey: null, falSubscribe: null, provider: null, model: null };
 
