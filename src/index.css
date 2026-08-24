@@ -366,3 +366,40 @@ body {
 .waveform-bar:nth-child(6) { animation-delay: 0.5s; }
 .waveform-bar:nth-child(7) { animation-delay: 0.6s; }
 .waveform-bar:nth-child(8) { animation-delay: 0.7s; }
+
+/* ── THE VIDEO / AUDIO SPLIT ───────────────────────────────────────────────
+   A 380px control panel beside a results area. On a laptop that is right; on
+   a 390px phone the panel is 380px + 20px of margin and carries
+   flex-shrink: 0, so it takes the whole screen, the results column collapses
+   to ZERO width, and everything in it — the Creations/Collections tabs, the
+   grid — spills off the right edge unreachable.
+
+   Measured 2026-08-23 at 390px: the Creations tab sat 158px past the edge and
+   Collections 258px, with the results container reporting width 0 at x=400.
+
+   Below 900px the two stack and the page scrolls vertically instead. The
+   breakpoint is 900 rather than 640 because 380 + 20 + a usable results
+   column needs more room than a tablet in portrait has. */
+.split-row {
+  display: flex;
+}
+
+.split-panel {
+  width: 380px;
+  flex-shrink: 0;
+}
+
+@media (max-width: 900px) {
+  .split-row {
+    flex-direction: column;
+    overflow-y: auto;
+    overflow-x: hidden;
+  }
+
+  .split-panel {
+    width: auto;
+    flex-shrink: 1;
+    margin-left: 12px;
+    margin-right: 12px;
+  }
+}
