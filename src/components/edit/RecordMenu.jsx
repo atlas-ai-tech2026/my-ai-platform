@@ -27,7 +27,7 @@ import { Mic, ChevronDown, Square, Video, Monitor, Check, Loader2 } from 'lucide
 import Tip from './Tip';
 import {
   RECORD_MODES, modeById, pickMimeType, captureErrorMessage,
-  normaliseDevices, readSettings, writeSettings, stopStream,
+  normaliseDevices, readSettings, writeSettings, stopStream, baseMimeType,
   COUNTDOWN_SECONDS,
 } from '@/lib/recording';
 
@@ -157,13 +157,17 @@ export default function RecordMenu({ onRecorded, onError, disabled = false }) {
       recorder.onstop = async () => {
         stopStream(streamRef.current);
         streamRef.current = null;
-        const blob = new Blob(chunksRef.current, { type: mimeType || 'video/webm' });
+        // The BASE type, not the recorder's. `video/webm;codecs=vp9,opus`
+        // carries a comma the multipart parser cannot read, and the upload
+        // arrives as text/plain and is refused. See baseMimeType.
+        const upload = baseMimeType(mimeType) || (mode.media === 'audio' ? 'audio/webm' : 'video/webm');
+        const blob = new Blob(chunksRef.current, { type: upload });
         chunksRef.current = [];
         setRecording(null);
         if (!blob.size) return fail('Nothing was recorded — the take was empty.');
         setBusy(true);
         try {
-          await onRecorded?.({ blob, mimeType: mimeType || 'video/webm', mode: modeId });
+          await onRecorded?.({ blob, mimeType: upload, mode: modeId });
         } catch (e) {
           return fail(e?.message || 'The recording could not be saved.');
         } finally {

@@ -34,6 +34,8 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { SCHEMA_VERSION, seedIdsFrom } from './timeline.js';
+import { migrateAudio } from './timeline.js';
+
 
 export const AUTOSAVE_KEY = 'voxel-edit-cut:project';
 
@@ -130,7 +132,12 @@ export function loadProject({ key = AUTOSAVE_KEY, storage = defaultStorage() } =
   // the wrong clip minutes later. See seedIdsFrom.
   seedIdsFrom(payload.project);
 
-  return { ok: true, project: payload.project, savedAt: payload.savedAt || null };
+  // Restore, then bring the audio field forward. Before 2026-08-25 every clip
+  // was born volume:0 in a unit nothing read; now 0 means silent, so a
+  // restored project would come back mute. See migrateAudio.
+  const project = migrateAudio(payload.project);
+
+  return { ok: true, project, savedAt: payload.savedAt || null };
 }
 
 /**

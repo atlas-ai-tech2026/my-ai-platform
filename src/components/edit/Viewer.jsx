@@ -47,9 +47,35 @@ export default function Viewer({ project, playhead = 0, onScrub, playing = false
   const lastTickRef = useRef(0);
   const [problem, setProblem] = useState(null);
 
-  const { picture } = activeAt(project, playhead);
+  const { picture, audio } = activeAt(project, playhead);
   const source = picture ? sourceOf(project, picture.clip) : null;
   const duration = projectDuration(project);
+
+  // ── SOUND ────────────────────────────────────────────────────────────────
+  // Found 2026-08-25, and it was never a recording bug. The owner recorded a
+  // voiceover, it uploaded, it appeared on the timeline — and pressing play
+  // produced silence. So did the demo project's music bed, and so had every
+  // audio clip since this editor existed: `activeAt` has always returned the
+  // audio playing at each moment, and the viewer only ever read `picture`.
+  //
+  // Nobody noticed because until you can RECORD, every clip you can put on an
+  // audio track came from somewhere you had already heard it.
+  //
+  // One <audio> per audio TRACK, not per clip — same reasoning as the single
+  // <video>: a element per clip preloads the whole project. Tracks are capped
+  // at three per kind, so this is at most three elements.
+  //
+  // Video clips are excluded here on purpose. activeAt lists them as audio
+  // too (a video carries its own sound), but that sound comes out of the
+  // <video> element already — playing it twice is an echo, slightly out of
+  // step with itself.
+  const audioClips = audio.filter((a) => a.clip.kind === 'audio');
+  const audioTracks = (project?.tracks || []).filter((t) => t.kind === 'audio');
+  const audioRefs = useRef(new Map());
+  // play() is async. Callbacks that fire later (loadedmetadata) need to know
+  // whether we are STILL playing, not whether we were when they were attached.
+  const playingRef = useRef(playing);
+  playingRef.current = playing;
 
   // ── keep the element on the right frame ──────────────────────────────────
   useEffect(() => {
@@ -61,6 +87,10 @@ export default function Viewer({ project, playhead = 0, onScrub, playing = false
       el.src = source.url;
       setProblem(null);
     }
+    // Muting a video TRACK never muted it here — activeAt drops muted tracks
+    // from its audio list, but the picture keeps playing its own sound
+    // regardless. Found while wiring the audio tracks up.
+    el.muted = Boolean(picture.track?.muted);
     const want = sourceTimeAt(picture.clip, playhead);
     // Only seek on a real difference. Writing currentTime every frame during
     // playback fights the element's own clock and produces a stutter that
@@ -68,7 +98,74 @@ export default function Viewer({ project, playhead = 0, onScrub, playing = false
     if (Math.abs(el.currentTime - want) > SEEK_TOLERANCE) {
       try { el.currentTime = want; } catch { /* not seekable yet */ }
     }
-  }, [source?.url, picture?.clip, playhead]);
+  }, [source?.url, picture?.clip, picture?.track?.muted, playhead]);
+
+  // ── keep every audio track on the right moment ───────────────────────────
+  // Runs on every render, because the playhead moves every frame. It sets
+  // source, volume and position — and calls play() ONLY when it has just
+  // attached a new source, never on a frame where nothing changed.
+  //
+  // The first version called play() unconditionally here, which during
+  // playback meant once per animation frame. Overlapping play() promises abort
+  // one another, and the element ends up paused with a stale currentTime while
+  // the picture keeps moving — audio that works when you poke it by hand and
+  // not when the app drives it, which is a miserable thing to debug.
+  useEffect(() => {
+    for (const [trackId, el] of audioRefs.current) {
+      if (!el) continue;
+      const entry = audioClips.find((a) => a.track.id === trackId);
+      const url = entry ? sourceOf(project, entry.clip)?.url : null;
+
+      // Nothing on this track at this moment — or the track is muted, which
+      // activeAt has already handled by leaving it out.
+      if (!entry || !url) { try { el.pause(); } catch { /* not started */ } continue; }
+
+      const isNewSource = el.dataset.src !== url;
+      if (isNewSource) {
+        el.dataset.src = url;
+        el.src = url;
+        // A seek issued now is DISCARDED — the element has no metadata yet, so
+        // it does not know it is seekable and quietly keeps currentTime at 0.
+        // The clip then plays from its own beginning while the picture is
+        // somewhere else, which sounds like drift and is actually a lost seek.
+        el.addEventListener('loadedmetadata', function applyPending() {
+          const at = Number(el.dataset.pendingSeek);
+          if (Number.isFinite(at)) { try { el.currentTime = at; } catch { /* still not seekable */ } }
+          // A clip that starts mid-playback has to start ITSELF: the play/pause
+          // effect only fires when `playing` changes, and it did not.
+          if (playingRef.current) el.play?.().catch(() => {});
+        }, { once: true });
+      }
+
+      // A clip volume of 0 is a real mute — the agent's setVolume writes it —
+      // so it must be read as a value, not falsy-defaulted back to 1.
+      const vol = typeof entry.clip.volume === 'number' ? entry.clip.volume : 1;
+      el.volume = Math.max(0, Math.min(1, vol));
+
+      const want = sourceTimeAt(entry.clip, playhead);
+      // Recorded so the loadedmetadata handler above can apply it once the
+      // element is actually seekable.
+      el.dataset.pendingSeek = String(want);
+      if (el.readyState >= 1 && Math.abs(el.currentTime - want) > SEEK_TOLERANCE) {
+        try { el.currentTime = want; } catch { /* not seekable yet */ }
+      }
+      // NO play() here. This effect runs once per animation frame, and play()
+      // is asynchronous: on the next frame the element is still `paused` because
+      // the first request has not resolved yet, so a `paused` check requests it
+      // again, and again. Overlapping play() promises abort one another and the
+      // element settles PAUSED — playing fine when poked by hand, silent when
+      // the app drives it. Starting and stopping is the effect below.
+    }
+  });
+
+  // ── start and stop the audio, on the TRANSITION only ────────────────────
+  useEffect(() => {
+    for (const el of audioRefs.current.values()) {
+      if (!el?.dataset.src) continue;
+      if (playing) el.play?.().catch(() => { /* autoplay policy */ });
+      else { try { el.pause(); } catch { /* not started */ } }
+    }
+  }, [playing]);
 
   // ── playback advances the PLAYHEAD, not the element ──────────────────────
   // The timeline is the clock. Letting the <video> drive would mean the
@@ -79,6 +176,9 @@ export default function Viewer({ project, playhead = 0, onScrub, playing = false
     if (!playing) {
       cancelAnimationFrame(rafRef.current);
       el?.pause();
+      // The audio tracks stop too. Missing this leaves a voiceover running
+      // over a frozen picture, which reads as the video having broken.
+      for (const a of audioRefs.current.values()) { try { a?.pause(); } catch { /* not started */ } }
       return undefined;
     }
     el?.play?.().catch(() => { /* autoplay policy — the frame still shows */ });
@@ -120,6 +220,21 @@ export default function Viewer({ project, playhead = 0, onScrub, playing = false
         data-testid="viewer-frame"
         className="relative bg-black rounded-lg overflow-hidden flex items-center justify-center h-full max-h-full max-w-full"
       >
+        {/* One per audio track. Hidden — they are speakers, not pictures —
+            but real elements, because a Web Audio graph would be a second
+            clock to keep in step with the timeline for no visible gain. */}
+        {audioTracks.map((t) => (
+          <audio
+            key={t.id}
+            data-testid={`viewer-audio-${t.id}`}
+            preload="auto"
+            ref={(el) => {
+              if (el) audioRefs.current.set(t.id, el);
+              else audioRefs.current.delete(t.id);
+            }}
+          />
+        ))}
+
         <video
           ref={videoRef}
           muted

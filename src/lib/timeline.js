@@ -106,6 +106,10 @@ const round = (n) => Math.round(n * 1000) / 1000;
 export function createProject({ name = 'Untitled project', ratio = '16:9' } = {}) {
   return {
     schema: SCHEMA_VERSION,
+    // Stamped at birth so migrateAudio is a no-op for anything made today —
+    // a round trip through autosave has to return what it was given, and a
+    // migration that fires on current data is one that never stops firing.
+    audioSchema: AUDIO_SCHEMA,
     name,
     ratio,
     // ── SOURCES, KEPT ONCE AND REFERENCED BY MANY CLIPS ────────────────────
@@ -155,7 +159,12 @@ export function createClip({ kind = 'video', sourceId, start = 0, in: inPoint = 
     in: round(Math.max(0, inPoint)),
     out: round(out),
     speed: 1,
-    volume: 0,      // dB, 0 = unchanged
+    // LINEAR GAIN, 1 = unchanged. It used to be `0` with the comment "dB, 0 =
+    // unchanged", which was a unit nobody else in this codebase used: the
+    // agent's setVolume validates 0–2 and describes it as a percentage, the
+    // export multiplies by it, and HTMLMediaElement.volume is 0–1. Three
+    // consumers, one convention, and the default was in a fourth.
+    volume: 1,
     fadeIn: 0,
     fadeOut: 0,
   };
@@ -166,6 +175,29 @@ export function createClip({ kind = 'video', sourceId, start = 0, in: inPoint = 
  * has no prompt, and that is a fact about it, not a gap to be filled with a
  * placeholder that later reads as real.
  */
+/** Projects saved before 2026-08-25 carry `volume: 0` on every clip — the old
+ *  default, in a unit nothing read. Left alone it now means SILENT, so every
+ *  restored project would come back mute the moment the viewer started
+ *  honouring the field.
+ *
+ *  A stored 0 cannot have been a deliberate mute: nothing read the value and
+ *  no control ever set it, so 0 always means "never touched". Mapping it to 1
+ *  is safe in a way it will NOT be tomorrow, which is why the project is
+ *  stamped — after this, a 0 really is a mute and must be left alone. */
+export const AUDIO_SCHEMA = 2;
+
+export function migrateAudio(project) {
+  if (!project?.tracks || project.audioSchema >= AUDIO_SCHEMA) return project;
+  return {
+    ...project,
+    audioSchema: AUDIO_SCHEMA,
+    tracks: project.tracks.map((t) => ({
+      ...t,
+      clips: (t.clips || []).map((c) => (c.volume === 0 || c.volume == null ? { ...c, volume: 1 } : c)),
+    })),
+  };
+}
+
 export function addSource(project, source) {
   if (!source?.id || !source?.url) throw new Error('A source needs an id and a url.');
   return { ...project, sources: { ...project.sources, [source.id]: { ...source } } };

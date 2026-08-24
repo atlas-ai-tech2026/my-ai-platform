@@ -18,6 +18,8 @@ import {
   removeTrack, whyKeepTrack, renameTrack, moveTrack, canMoveTrack,
   MAX_TRACKS_PER_KIND, countKind, whyNoMoreTracks,
   setTrackHeight, clearTrackHeight, MIN_TRACK_H, MAX_TRACK_H,
+  migrateAudio,
+  AUDIO_SCHEMA,
 } from './timeline.js';
 
 beforeEach(__resetIds);
@@ -736,5 +738,55 @@ describe('sizing one layer without touching the others', () => {
     let p = setTrackHeight(p0(), p0().tracks[0].id, 100);
     p = moveTrack(p, p.tracks[0].id, 1);
     expect(p.tracks[1].height).toBe(100);
+  });
+});
+
+describe('clip volume is a LINEAR GAIN, and old projects must not come back mute', () => {
+  // Found 2026-08-25 while making the viewer actually play audio. Three
+  // consumers already treated volume as a linear multiplier — the agent's
+  // setVolume validates 0–2 and reports a percentage, the export multiplies by
+  // it, HTMLMediaElement.volume is 0–1 — and createClip defaulted it to 0 with
+  // the comment "dB, 0 = unchanged". A fourth unit, in the one place that set
+  // the value.
+  //
+  // It was harmless only because NOTHING READ IT. The moment the viewer did,
+  // every clip in the product was silent.
+  it('a new clip is at full volume, not zero', () => {
+    expect(createClip({ kind: 'audio', sourceId: 's', out: 5 }).volume).toBe(1);
+  });
+
+  it('a project made today is already stamped, so migration is a no-op', () => {
+    const p = createProject({});
+    expect(p.audioSchema).toBe(AUDIO_SCHEMA);
+    expect(migrateAudio(p)).toBe(p);
+  });
+
+  it('brings a pre-2026-08-25 project up to full volume', () => {
+    // A stored 0 cannot have been a deliberate mute — nothing read the field
+    // and no control ever set it — so 0 always meant "never touched".
+    const old = { tracks: [{ id: 't1', kind: 'audio', clips: [
+      { id: 'c1', volume: 0 }, { id: 'c2' },
+    ] }] };
+    const next = migrateAudio(old);
+    expect(next.tracks[0].clips.map((c) => c.volume)).toEqual([1, 1]);
+    expect(next.audioSchema).toBe(AUDIO_SCHEMA);
+  });
+
+  it('AFTER the stamp, a zero is a real mute and is left alone', () => {
+    // The window in which 0 can be reinterpreted closes the moment a project
+    // is stamped. Otherwise "mute the music" would be undone on next load.
+    const stamped = { audioSchema: AUDIO_SCHEMA, tracks: [{ id: 't1', kind: 'audio', clips: [{ id: 'c1', volume: 0 }] }] };
+    expect(migrateAudio(stamped).tracks[0].clips[0].volume).toBe(0);
+  });
+
+  it('leaves a deliberate partial volume alone', () => {
+    const old = { tracks: [{ id: 't1', kind: 'audio', clips: [{ id: 'c1', volume: 0.4 }] }] };
+    expect(migrateAudio(old).tracks[0].clips[0].volume).toBe(0.4);
+  });
+
+  it('survives junk', () => {
+    expect(migrateAudio(null)).toBeNull();
+    expect(migrateAudio({})).toEqual({});
+    expect(() => migrateAudio({ tracks: [{ id: 't', kind: 'audio' }] })).not.toThrow();
   });
 });

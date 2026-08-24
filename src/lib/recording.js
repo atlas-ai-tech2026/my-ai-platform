@@ -119,6 +119,32 @@ export function pickMimeType(media, isSupported) {
   return null;
 }
 
+/**
+ * The container WITHOUT its codec parameters: `video/webm;codecs=vp9,opus`
+ * becomes `video/webm`.
+ *
+ * ── THIS IS NOT TIDINESS, IT IS THE CAMERA BUG ─────────────────────────────
+ * Recording a camera on dev was rejected by the server with "Unsupported file
+ * type: text/plain", which made no sense for a file named recording.webm — and
+ * a voiceover recorded seconds earlier had uploaded fine.
+ *
+ * The difference is one character. A blob's type becomes the Content-Type of
+ * its multipart part, and video's best container is
+ *
+ *     video/webm;codecs=vp9,opus        ← a COMMA inside the parameter
+ *
+ * An unquoted comma is not valid in a Content-Type parameter, so the parser on
+ * the other end gives up on the whole header and falls back to its default,
+ * text/plain. Audio's container is `audio/webm;codecs=opus` — no comma, parses
+ * cleanly, uploads fine. That is the entire reason one worked and one did not.
+ *
+ * The codecs matter to MediaRecorder and to nobody afterwards: storage only
+ * needs to know it is a WebM.
+ */
+export function baseMimeType(mimeType) {
+  return String(mimeType || '').split(';')[0].trim();
+}
+
 /** The file extension that goes with a container, for the upload filename. */
 export function extensionFor(mimeType) {
   if (!mimeType) return 'webm';

@@ -219,7 +219,11 @@ export function exportPlan(project, { ratio, quality = 1080, mode = 'crop', outp
       if (!found) continue;
       const label = `m${musicLabels.length}`;
       const delayMs = Math.round(clip.start * 1000);
-      const gain = clip.gain ?? 1;
+      // `clip.gain` is read here and set by NOTHING. clip.volume is what the
+      // agent's setVolume writes, so "mute the music" produced a command, a
+      // confirmation, and an export at full volume. volume wins; gain is kept
+      // so anything that did set it keeps working.
+      const gain = clip.volume ?? clip.gain ?? 1;
       chains.push(
         `[${found.index}:a]atrim=start=${clip.in}:end=${clip.out},asetpts=PTS-STARTPTS,`
         + `aresample=${SAMPLE_RATE}${gain !== 1 ? `,volume=${gain}` : ''}`

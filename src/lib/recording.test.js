@@ -12,7 +12,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import {
   RECORD_MODES, modeById, trackKindFor, pickMimeType, MIME_CANDIDATES,
-  extensionFor, captureErrorMessage, normaliseDevices, recordingStartAt,
+  extensionFor, captureErrorMessage, normaliseDevices, recordingStartAt, baseMimeType,
   recordingName, readSettings, writeSettings, DEFAULT_SETTINGS, stopStream,
   COUNTDOWN_SECONDS,
 } from './recording.js';
@@ -264,5 +264,49 @@ describe('letting go of the device', () => {
     expect(() => stopStream(null)).not.toThrow();
     expect(() => stopStream({})).not.toThrow();
     expect(() => stopStream({ getTracks: () => { throw new Error('gone'); } })).not.toThrow();
+  });
+});
+
+describe('the container type that gets uploaded', () => {
+  // The camera bug, 2026-08-25. A blob's type becomes the Content-Type of its
+  // multipart part. Video's best container is `video/webm;codecs=vp9,opus` —
+  // and an UNQUOTED COMMA is not valid in a Content-Type parameter, so the
+  // parser on the far side abandons the header and defaults to text/plain.
+  // The server then refuses it as "Unsupported file type: text/plain" for a
+  // file plainly named recording.webm.
+  //
+  // A voiceover uploaded seconds earlier worked, because `audio/webm;codecs=opus`
+  // has no comma. One character, and only one of the two modes broken.
+  it('strips the codecs, comma and all', () => {
+    expect(baseMimeType('video/webm;codecs=vp9,opus')).toBe('video/webm');
+    expect(baseMimeType('audio/webm;codecs=opus')).toBe('audio/webm');
+  });
+
+  it('leaves a plain type alone', () => {
+    expect(baseMimeType('video/mp4')).toBe('video/mp4');
+  });
+
+  it('never returns something with a comma or a semicolon in it', () => {
+    for (const list of Object.values(MIME_CANDIDATES)) {
+      for (const t of list) {
+        expect(baseMimeType(t)).not.toMatch(/[;,]/);
+      }
+    }
+  });
+
+  it('returns empty for nothing, so the caller can pick a default', () => {
+    expect(baseMimeType('')).toBe('');
+    expect(baseMimeType(null)).toBe('');
+    expect(baseMimeType(undefined)).toBe('');
+  });
+
+  it('every stripped candidate is a type the upload guard allows', () => {
+    // The server's allow-list is exact strings — video/webm, audio/webm,
+    // video/mp4, audio/mp4, audio/ogg. A candidate that strips to anything
+    // else would be refused at the last step, after the take was made.
+    const ALLOWED = ['video/webm', 'video/mp4', 'audio/webm', 'audio/mp4', 'audio/ogg'];
+    for (const list of Object.values(MIME_CANDIDATES)) {
+      for (const t of list) expect(ALLOWED).toContain(baseMimeType(t));
+    }
   });
 });
