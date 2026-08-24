@@ -142,12 +142,25 @@ ChatCut's single track `V1` carries **exactly three** controls:
 
 | Icon | Tooltip | Ours | Status |
 |---|---|---|---|
-| eye | `Hide track` | `Hide track` / `Show track` | ✅ |
-| speaker | `Mute track` | `Mute track` / `Unmute track` | ✅ |
-| **trash** | **`Delete track`** | — | ⬜ **CONFIRMED GAP** |
+| eye | `Hide track` | `Hide track` / `Show track` | ✅ **now actually writes** |
+| speaker | `Mute track` | `Mute track` / `Unmute track` | ✅ **now actually writes** |
+| **trash** | **`Delete track`** | `Delete track` | ✅ 2026-08-23 |
 
 **We also have a lock toggle that ChatCut does not.** Keep it — it is what
 makes "the agent refused to cut a locked track" meaningful.
+
+### ⚠️ 2026-08-23 — ALL THREE TOGGLES WERE DECORATION
+`TrackToggle` held `useState(on)` and called nothing. The icon flipped and the
+project never changed, so a hidden track still exported, a muted track was
+still mixed in, and a locked track was fully editable — meaning the agent's
+"that track is locked" refusal could never once have fired. The export had
+always read the flags correctly and was waiting for values that never arrived.
+Found by asking what WROTE the field, not by clicking the button.
+Fixed: `setTrackFlag()` in timeline.js, toggles are controlled.
+
+### ✅ 2026-08-23 — add / delete layer shipped
+`V / A / T / IMG / CC` row under the track headers, plus per-track delete that
+refuses a locked or last track and asks before removing work.
 
 ### ⚠️ THE FINDING THE OWNER WILL WANT
 **ChatCut has NO "add track" button.** The `+` in the timeline toolbar is
@@ -197,9 +210,9 @@ Worth knowing a competitor shipped it.
 ### Do now — Phase 1 (already started)
 | # | Module | Why |
 |---|---|---|
-| 1 | **Delete track** | Confirmed in ChatCut. Ours has no way to remove a layer at all. |
-| 2 | **Add track (+)** | ChatCut has none, but ours needs one: our tracks are NOT created implicitly, so without it a customer is stuck with Video 1 + Audio 1 forever. **Ship it even though ChatCut lacks it.** |
-| 3 | **Extra video layers warn on export** | Today they would vanish from the file silently. Non-negotiable. |
+| 1 | ~~**Delete track**~~ | ✅ DONE 2026-08-23 |
+| 2 | ~~**Add track (+)**~~ | ✅ DONE 2026-08-23 |
+| 3 | ~~**Extra video layers warn on export**~~ | ✅ DONE 2026-08-23 — they warn by name. Compositing is still #78. |
 
 ### Do next — highest value per hour
 | # | Module | Why |
