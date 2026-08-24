@@ -86,12 +86,12 @@ See the recommendation in §10.
 | ChatCut | Ours | Status |
 |---|---|---|
 | Tabs `MY ASSETS` / `LIBRARY` / `TRANSCRIPT` | `From Voxel` / `Uploads` / `Transcript` | ✅ three tabs reserved |
-| `Search` box | — | ⬜ |
+| `Search` box | searches the PROMPT and model | ✅ 2026-08-23 |
 | `Upload` | — | ⬜ |
 | `New Bin` | — | ⬜ |
 | `Switch to list view` | grid only | ⬜ |
-| `Sort media` | — | ⬜ |
-| `Filter media` | — | ⬜ |
+| `Sort media` | newest / oldest / longest / by model | ✅ 2026-08-23 |
+| `Filter media` | by model chip + Ready only | ✅ 2026-08-23 |
 | Empty state `This bin is empty` | empty state present | ✅ |
 
 ## 4. Viewer
@@ -237,7 +237,7 @@ Worth knowing a competitor shipped it.
 | # | Module | Why |
 |---|---|---|
 | 4 | ⭐ **Generation Auto-Allow** | The agent can spend the customer's credits. `edit-ops.js` already separates free local edits from metered model calls, so the wiring exists. Copy ChatCut's defaults exactly: free ON, paid OFF. **This is the one I would not ship the agent to production without.** |
-| 5 | **Library toolbar** — Search / Sort / Filter | The library is the reason to use Voxel's editor over anyone else's, and right now you cannot find anything in it. |
+| 5 | ~~**Library toolbar**~~ | ✅ DONE 2026-08-23 — search, sort, model filter, Ready only. Appears from 6 generations. |
 | 6 | **Record: Voiceover / Camera / Screen** | Highest-value missing feature for teaching. Sources are already generic, so it is additive. |
 | 7 | ~~**Multiple video layers composite**~~ | ✅ DONE 2026-08-23 — PROVED BY RENDERING: at 3s the output matched the top layer (distance 2 vs 36); at 5s, after it ended, it matched the base (distance 1 vs 85). |
 

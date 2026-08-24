@@ -12,8 +12,7 @@
 
 import { describe, it, expect } from 'vitest';
 import {
-  usability, kindOf, durationOf, toSource, labelFor, orderForLibrary, measureDuration,
-  canRegenerate, regenerationRequest,
+  usability, kindOf, durationOf, toSource, labelFor, orderForLibrary, measureDuration, canRegenerate, regenerationRequest, filterLibrary, modelsPresent, LIBRARY_SORTS,
 } from './media-library.js';
 
 const record = (over = {}) => ({
@@ -207,5 +206,79 @@ describe('the library list', () => {
   it('labels a card with the prompt, truncated', () => {
     expect(labelFor(record(), 20)).toHaveLength(20);
     expect(labelFor(record({ prompt: '' }))).toBe('Seedance 2.5');
+  });
+});
+
+// ─── SEARCHING THE LIBRARY ───────────────────────────────────────────────────
+// The library is the differentiator — the customer's own generations, carrying
+// the prompt that made them. Until 2026-08-23 the only way through it was
+// scrolling, which stops working somewhere around the fiftieth video.
+
+const rec = (over = {}) => ({
+  id: 'r1', type: 'video', status: 'completed', result_url: 'https://s/v.mp4',
+  prompt: 'a dragon over a castle', model: 'Kling 3.0', duration: 5,
+  created_date: '2026-08-20T00:00:00Z', ...over,
+});
+
+describe('finding one among hundreds', () => {
+  const lib = () => [
+    rec({ id: 'a', prompt: 'a dragon over a castle', model: 'Kling 3.0', duration: 5,  created_date: '2026-08-20T00:00:00Z' }),
+    rec({ id: 'b', prompt: 'a race car at golden hour', model: 'Seedance 2.5', duration: 12, created_date: '2026-08-22T00:00:00Z' }),
+    rec({ id: 'c', prompt: 'a quiet street at dawn',   model: 'Kling 3.0', duration: 8,  created_date: '2026-08-21T00:00:00Z' }),
+  ];
+
+  it('searches the PROMPT, which is how anybody remembers a shot', () => {
+    // "the castle one" — not "the third Kling from Tuesday".
+    expect(filterLibrary(lib(), { query: 'castle' }).map((r) => r.id)).toEqual(['a']);
+  });
+
+  it('searches the model too', () => {
+    expect(filterLibrary(lib(), { query: 'seedance' }).map((r) => r.id)).toEqual(['b']);
+  });
+
+  it('ignores case and surrounding space', () => {
+    expect(filterLibrary(lib(), { query: '  DRAGON ' }).map((r) => r.id)).toEqual(['a']);
+  });
+
+  it('filters by model', () => {
+    expect(filterLibrary(lib(), { model: 'Kling 3.0' }).map((r) => r.id).sort()).toEqual(['a', 'c']);
+  });
+
+  it('sorts newest first by default', () => {
+    expect(filterLibrary(lib()).map((r) => r.id)).toEqual(['b', 'c', 'a']);
+  });
+
+  it('sorts oldest and longest', () => {
+    expect(filterLibrary(lib(), { sort: 'oldest' }).map((r) => r.id)).toEqual(['a', 'c', 'b']);
+    expect(filterLibrary(lib(), { sort: 'longest' }).map((r) => r.id)).toEqual(['b', 'c', 'a']);
+  });
+
+  it('does NOT reorder the array it was given', () => {
+    // Mutating it would reorder the records held in state, and the next render
+    // would disagree with this one.
+    const src = lib();
+    const before = src.map((r) => r.id);
+    filterLibrary(src, { sort: 'longest' });
+    expect(src.map((r) => r.id)).toEqual(before);
+  });
+
+  it('keeps a FAILED generation visible unless you ask otherwise', () => {
+    // The customer remembers making it. A list that silently omits it reads as
+    // lost work, not as a known state.
+    const withFailed = [...lib(), rec({ id: 'x', status: 'failed', result_url: null })];
+    expect(filterLibrary(withFailed).map((r) => r.id)).toContain('x');
+    expect(filterLibrary(withFailed, { readyOnly: true }).map((r) => r.id)).not.toContain('x');
+  });
+
+  it('offers only the models that are actually there', () => {
+    // A chip that can only ever return nothing is a wasted click.
+    expect(modelsPresent(lib())).toEqual(['Kling 3.0', 'Seedance 2.5']);
+  });
+
+  it('survives an empty library and rubbish input', () => {
+    expect(filterLibrary([])).toEqual([]);
+    expect(filterLibrary(undefined)).toEqual([]);
+    expect(filterLibrary(lib(), { sort: 'nonsense' })).toHaveLength(3);
+    expect(modelsPresent()).toEqual([]);
   });
 });

@@ -177,3 +177,53 @@ export function regenerationRequest(source, { prompt, duration } = {}) {
     fstop: source.fstop || undefined,
   };
 }
+
+// ─── FINDING ONE AMONG HUNDREDS ──────────────────────────────────────────────
+// The library is the reason to use Voxel's editor rather than anyone else's —
+// the customer's own generations, already there, carrying the prompt that made
+// them. And until now the only way through it was scrolling.
+//
+// Kept here rather than in the component, and PURE, for the same reason
+// filterProjects is: this is the logic that decides what somebody can find,
+// and it should be testable without rendering anything.
+
+/** How the library can be ordered. `label` is what the dropdown shows. */
+export const LIBRARY_SORTS = {
+  newest:  { label: 'Newest first',  fn: (a, b) => date(b) - date(a) },
+  oldest:  { label: 'Oldest first',  fn: (a, b) => date(a) - date(b) },
+  longest: { label: 'Longest first', fn: (a, b) => (durationOf(b) ?? 0) - (durationOf(a) ?? 0) },
+  model:   { label: 'By model',      fn: (a, b) => String(a?.model || '').localeCompare(String(b?.model || '')) },
+};
+
+const date = (r) => new Date(r?.created_date || 0).getTime() || 0;
+
+/** Every model present, so the filter only ever offers something that exists.
+ *  A chip that can only return nothing is a control that wastes a click. */
+export function modelsPresent(records = []) {
+  return [...new Set(records.map((r) => r?.model).filter(Boolean))].sort();
+}
+
+/**
+ * Search, filter and sort in one pass.
+ *
+ * The search looks at the PROMPT as well as the model, because that is how
+ * anybody actually remembers a shot — "the castle one", not "the third Kling
+ * from Tuesday". It is the field no upload-based editor has.
+ *
+ * `readyOnly` hides the ones that cannot be used. OFF by default, deliberately:
+ * a failed generation stays visible with its reason, because the customer
+ * remembers making it and a list that silently omits it reads as lost work.
+ */
+export function filterLibrary(records = [], { query = '', model = null, sort = 'newest', readyOnly = false } = {}) {
+  const q = String(query).trim().toLowerCase();
+  const out = records.filter((r) => {
+    if (model && r?.model !== model) return false;
+    if (readyOnly && !usability(r).ok) return false;
+    if (!q) return true;
+    return `${r?.prompt || ''} ${r?.model || ''}`.toLowerCase().includes(q);
+  });
+  const spec = LIBRARY_SORTS[sort] || LIBRARY_SORTS.newest;
+  // Sorted on a COPY — mutating the caller's array would reorder the records
+  // held in state and make the next render disagree with this one.
+  return [...out].sort(spec.fn);
+}
