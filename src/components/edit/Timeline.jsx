@@ -701,7 +701,13 @@ function TrackHeader({ project, track, onChange, onRemoveTrack, height, onResize
   return (
     <div
       style={{ height }}
-      className="relative flex flex-col justify-center gap-1 px-2 border-b border-border text-xs overflow-hidden"
+      // NOT overflow-hidden. It was, so that a compact row could not spill
+      // its two lines of controls — and it clipped the row's own resize
+      // handle, which sits at the bottom edge. The owner found it straight
+      // away: "I cannot flip to resize all of them."
+      // The children truncate individually instead, so nothing spills and
+      // the handle stays grabbable.
+      className="relative flex flex-col justify-center gap-1 px-2 border-b border-border text-xs"
       data-testid={`track-header-${track.id}`}
     >
       {/* ── RESIZE THIS LAYER ────────────────────────────────────────────
@@ -734,8 +740,8 @@ function TrackHeader({ project, track, onChange, onRemoveTrack, height, onResize
           title="Drag to resize this layer · double-click to reset"
           aria-label={`Resize ${track.name}`}
           data-testid={`resize-${track.id}`}
-          className="absolute left-0 right-0 -bottom-0.5 h-1.5 cursor-ns-resize z-10
-                     hover:bg-primary/50 active:bg-primary"
+          className="absolute left-0 right-0 bottom-0 h-2 cursor-ns-resize z-20
+                     hover:bg-primary/60 active:bg-primary"
         />
       )}
       {/* Row 1 — where it sits, and what it is called */}

@@ -31,11 +31,21 @@ import React from 'react';
  * @param {string} label  what the icon does — include the shortcut in it
  * @param {'top'|'bottom'} side  'bottom' for anything in the top bar, or the
  *                               tip is drawn off the top of the window
+ * @param {boolean} fill  the wrapper must FILL its slot rather than hug its
+ *   content. Needed wherever a Tip wraps something that is itself a layout
+ *   box — a grid cell, a card. Without it the wrapper is inline-flex and
+ *   shrink-to-fit, and the thing inside collapses to its own content width.
+ *
+ *   ── FOUND THE HARD WAY, 2026-08-23 ─────────────────────────────────────
+ *   Wrapping the "New project" tile in a Tip made it about a third of the
+ *   width of every other card, because the wrapper — not the card — became
+ *   the grid item. The owner spotted it in a screenshot within minutes.
+ *   Tooltips are for controls; when one has to wrap a BOX, it must be told.
  */
-export default function Tip({ label, side = 'top', children, className = '' }) {
+export default function Tip({ label, side = 'top', children, className = '', fill = false }) {
   if (!label) return children;
   return (
-    <span className={`relative inline-flex group/tip ${className}`}>
+    <span className={`relative group/tip ${fill ? 'flex w-full h-full' : 'inline-flex'} ${className}`}>
       {children}
       <span
         role="tooltip"

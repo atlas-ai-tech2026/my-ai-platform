@@ -152,14 +152,14 @@ export default function ProjectPicker({
       <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         {/* New project is a CARD in the grid, the same size as the rest — it is
             the most common reason to be on this screen, not a footnote. */}
-        <Tip label="Start a new project with an empty timeline"><button
+        <Tip label="Start a new project with an empty timeline" fill><button
           type="button"
           onClick={onNew}
           data-testid="new-project"
           // h-full, NOT the poster's aspect ratio: a project card is a poster
           // PLUS a caption, so matching only the poster leaves this one short
           // and the row visibly ragged. Grid items stretch — let them.
-          className="group h-full min-h-[13rem] flex flex-col items-center justify-center gap-2 rounded-xl
+          className="group w-full h-full min-h-[13rem] flex flex-col items-center justify-center gap-2 rounded-xl
             border border-dashed border-border hover:border-primary hover:bg-primary/5
             transition-colors"
         >
@@ -236,7 +236,7 @@ function ProjectCard({ project: p, busy, onOpen, onDelete, onRename }) {
 
   return (
     <div className="group relative rounded-xl border border-border hover:border-primary/60 overflow-hidden transition-colors">
-      <Tip label="Open this project"><button
+      <Tip label="Open this project" fill><button
         type="button"
         onClick={() => !editing && onOpen?.(p.id)}
         disabled={busy}
