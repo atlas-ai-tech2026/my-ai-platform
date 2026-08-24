@@ -38,6 +38,7 @@ import {
   MIN_CLIP, TRACK_KINDS, whyNoMoreTracks,
 } from './timeline';
 import { RATIOS, RESIZE_MODES } from './edit-ops';
+import { allows, defaults as defaultPermissions } from './edit-permissions';
 
 /** A runaway guard. No sane instruction needs more edits than this, and a
  *  model that returns 400 commands has misunderstood rather than been
@@ -296,7 +297,17 @@ export const COMMAND_NAMES = Object.keys(COMMANDS);
  * list to show in the chat, so the customer can see what actually happened
  * rather than trusting that it did.
  */
-export function applyCommands(project, commands) {
+/**
+ * The edit-ops operation a command spends on, or null when it spends nothing.
+ *
+ * Every command in the vocabulary today is a local timeline edit and returns
+ * null. The field exists so that the FIRST metered command anybody adds is
+ * gated by construction rather than by whoever adds it remembering to ask.
+ * That ordering is the whole reason this was built before it was needed.
+ */
+export const costsOf = (command) => COMMANDS[command?.op]?.costs || null;
+
+export function applyCommands(project, commands, { permissions = defaultPermissions() } = {}) {
   if (!Array.isArray(commands) || commands.length === 0) {
     return { project, ok: false, applied: [], error: 'There was nothing to do.' };
   }
@@ -321,6 +332,19 @@ export function applyCommands(project, commands) {
         project, ok: false, applied: [],
         error: `I don't know how to "${c?.op ?? 'do that'}". Nothing was changed.`,
       };
+    }
+
+    // ── MAY IT SPEND? ────────────────────────────────────────────────────
+    // Checked BEFORE the command's own preconditions, deliberately: telling
+    // somebody their clip id was wrong, when the real answer is that the
+    // assistant is not allowed to spend money at all, sends them off fixing
+    // the wrong thing.
+    if (spec.costs) {
+      const permitted = allows(permissions, spec.costs);
+      if (!permitted.ok) {
+        const prefix = commands.length > 1 ? `Step ${i + 1} of ${commands.length}: ` : '';
+        return { project, ok: false, applied: [], error: `${prefix}${permitted.reason}` };
+      }
     }
 
     const why = spec.check(working, c);

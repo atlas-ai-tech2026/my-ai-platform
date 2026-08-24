@@ -15,12 +15,13 @@
 // Every one of those is a LIE told to the customer, not a crash. Crashes get
 // noticed.
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import {
   createProject, createClip, addClip, addSource, __resetIds, locateClip, clipDuration, projectDuration,
 } from './timeline';
 import {
   applyCommands, summarise, parseAgentReply, COMMAND_NAMES, RESPONSE_SCHEMA, MAX_COMMANDS,
+  COMMANDS, costsOf,
 } from './edit-agent';
 
 /** A project with two 10s shots back to back on the video track. */
@@ -300,5 +301,75 @@ describe('the schema and the vocabulary cannot drift apart', () => {
     // A command added to COMMANDS without a schema entry is one the model is
     // never told about — the feature looks quietly broken rather than missing.
     expect(RESPONSE_SCHEMA.properties.commands.items.properties.op.enum).toEqual(COMMAND_NAMES);
+  });
+});
+
+// ─── THE SPENDING GATE ───────────────────────────────────────────────────────
+// No command in the vocabulary is metered today — every one is a local
+// timeline edit. The gate exists so the FIRST metered command anybody adds is
+// refused by default rather than allowed by omission.
+//
+// Which means the only way to test it is to register one. COMMANDS is a plain
+// object and this adds a key, then removes it — testing the extension point
+// rather than pretending a fake feature exists.
+
+describe('the assistant cannot spend money by default', () => {
+  const SPEND = 'testGenerate';
+  beforeEach(() => {
+    COMMANDS[SPEND] = {
+      costs: 'generateMusic',                 // a real METERED op from edit-ops
+      describe: () => 'Make a track',
+      check: () => null,                      // nothing else could refuse it
+      run: (project) => ({ ...project, touched: true }),
+    };
+  });
+  afterEach(() => { delete COMMANDS[SPEND]; });
+
+  it('every command that exists TODAY spends nothing', () => {
+    // If this ever fails, somebody added a metered command — which is fine,
+    // and the gate below is why it is safe.
+    delete COMMANDS[SPEND];
+    for (const name of COMMAND_NAMES) {
+      expect(costsOf({ op: name }), `${name} now costs money`).toBe(null);
+    }
+  });
+
+  it('REFUSES a metered command with the default permissions', () => {
+    const { p } = fixture();
+    const r = applyCommands(p, [{ op: SPEND }]);
+
+    expect(r.ok).toBe(false);
+    expect(r.error).toMatch(/switched off for the assistant/);
+    expect(r.project, 'a refused command must not touch the project').toBe(p);
+  });
+
+  it('runs it once that category is switched on', () => {
+    const { p } = fixture();
+    const r = applyCommands(p, [{ op: SPEND }], {
+      permissions: { localEdits: true, audioGeneration: true },
+    });
+    expect(r.ok, r.error).toBe(true);
+    expect(r.project.touched).toBe(true);
+  });
+
+  it('checks permission BEFORE the command own preconditions', () => {
+    // Telling somebody their clip id was wrong, when the real answer is that
+    // the assistant may not spend at all, sends them fixing the wrong thing.
+    COMMANDS[SPEND].check = () => 'That clip is not here.';
+    const { p } = fixture();
+    expect(applyCommands(p, [{ op: SPEND }]).error).toMatch(/switched off/);
+  });
+
+  it('a free command in the SAME batch does not sneak the paid one through', () => {
+    const { p, a } = fixture();
+    const r = applyCommands(p, [{ op: 'setSpeed', clipId: a, speed: 2 }, { op: SPEND }]);
+    expect(r.ok).toBe(false);
+    expect(r.error).toMatch(/^Step 2 of 2/);
+    expect(r.project, 'the free edit was left behind').toBe(p);
+  });
+
+  it('free commands still work with money switched off', () => {
+    const { p, a } = fixture();
+    expect(applyCommands(p, [{ op: 'setSpeed', clipId: a, speed: 2 }]).ok).toBe(true);
   });
 });

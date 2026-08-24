@@ -73,7 +73,7 @@ the owner asked about — answered below.**
 |---|---|---|
 | `Thinking Mode` | toggle (off by default) | ⬜ |
 | `Motion Graphics Quality` | `Speed` · **`Balance`** · `Quality` | ⬜ |
-| `Generation Auto-Allow` | `Motion Graphics` **ON** (badge: `Global`) · `Video Generation` OFF · `Image Generation` OFF | ⬜ ⚠️ |
+| `Generation Auto-Allow` | `Motion Graphics` **ON** (badge: `Global`) · `Video Generation` OFF · `Image Generation` OFF | ✅ 2026-08-23 — ours is Editing ON · Video / Image / Music+Voice OFF |
 
 ⚠️ **Generation Auto-Allow is the most important control in these screenshots
 for Voxel**, and it is not a cosmetic setting. It decides whether the agent may
@@ -236,7 +236,7 @@ Worth knowing a competitor shipped it.
 ### Do next — highest value per hour
 | # | Module | Why |
 |---|---|---|
-| 4 | ⭐ **Generation Auto-Allow** | The agent can spend the customer's credits. `edit-ops.js` already separates free local edits from metered model calls, so the wiring exists. Copy ChatCut's defaults exactly: free ON, paid OFF. **This is the one I would not ship the agent to production without.** |
+| 4 | ~~⭐ **Generation Auto-Allow**~~ | ✅ DONE 2026-08-23 — free ON, every paid category OFF. Built BEFORE any metered agent command exists, so the first one added is refused by default rather than allowed by omission. |
 | 5 | ~~**Library toolbar**~~ | ✅ DONE 2026-08-23 — search, sort, model filter, Ready only. Appears from 6 generations. |
 | 6 | **Record: Voiceover / Camera / Screen** | Highest-value missing feature for teaching. Sources are already generic, so it is additive. |
 | 7 | ~~**Multiple video layers composite**~~ | ✅ DONE 2026-08-23 — PROVED BY RENDERING: at 3s the output matched the top layer (distance 2 vs 36); at 5s, after it ended, it matched the base (distance 1 vs 85). |

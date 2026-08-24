@@ -204,3 +204,69 @@ describe('when it cannot be used', () => {
     await waitFor(() => expect(base44.functions.invoke).toHaveBeenCalledTimes(1));
   });
 });
+
+// ─── THE SPENDING GATE, FROM THE PANEL ───────────────────────────────────────
+// The most consequential control in the editor: whether the assistant may
+// spend a customer's credits while they are looking somewhere else.
+
+describe('what the assistant is allowed to do', () => {
+  it('opens the settings and shows every category', async () => {
+    const { p } = fixture();
+    render(<AgentChat project={p} onApply={vi.fn()} />);
+    fireEvent.click(screen.getByTestId('agent-settings-open'));
+
+    expect(await screen.findByTestId('agent-settings')).toBeTruthy();
+    for (const id of ['localEdits', 'videoGeneration', 'imageGeneration', 'audioGeneration']) {
+      expect(screen.getByTestId(`perm-${id}`), id).toBeTruthy();
+    }
+  });
+
+  it('starts with free editing ON and everything that bills OFF', async () => {
+    const { p } = fixture();
+    render(<AgentChat project={p} onApply={vi.fn()} />);
+    fireEvent.click(screen.getByTestId('agent-settings-open'));
+
+    expect(screen.getByTestId('perm-input-localEdits').checked).toBe(true);
+    expect(screen.getByTestId('perm-input-videoGeneration').checked).toBe(false);
+    expect(screen.getByTestId('perm-input-imageGeneration').checked).toBe(false);
+    expect(screen.getByTestId('perm-input-audioGeneration').checked).toBe(false);
+  });
+
+  it('says nothing about spending until something that bills is switched ON', async () => {
+    // A permanent "careful, this costs money" banner is furniture within a
+    // day. It has to mean something when it appears.
+    const { p } = fixture();
+    render(<AgentChat project={p} onApply={vi.fn()} />);
+    fireEvent.click(screen.getByTestId('agent-settings-open'));
+    expect(screen.queryByTestId('spend-warning')).toBe(null);
+
+    fireEvent.click(screen.getByTestId('perm-input-videoGeneration'));
+    expect(await screen.findByTestId('spend-warning')).toBeTruthy();
+  });
+
+  it('remembers the choice', () => {
+    const { p } = fixture();
+    const first = render(<AgentChat project={p} onApply={vi.fn()} />);
+    fireEvent.click(screen.getByTestId('agent-settings-open'));
+    fireEvent.click(screen.getByTestId('perm-input-audioGeneration'));
+    first.unmount();
+
+    render(<AgentChat project={p} onApply={vi.fn()} />);
+    fireEvent.click(screen.getByTestId('agent-settings-open'));
+    expect(screen.getByTestId('perm-input-audioGeneration').checked).toBe(true);
+  });
+
+  it('hands the permissions to the executor rather than deciding here', async () => {
+    // The gate lives in one place. A second copy of the rule in the UI is a
+    // second place for it to be wrong.
+    const { p, clipId } = fixture();
+    answers({ reply: 'ok', commands: [{ op: 'setSpeed', clipId, speed: 2 }] });
+    const onApply = vi.fn();
+
+    render(<AgentChat project={p} onApply={onApply} />);
+    type('faster'); send();
+
+    // A FREE command still runs with money switched off — the default state.
+    await waitFor(() => expect(onApply).toHaveBeenCalled());
+  });
+});

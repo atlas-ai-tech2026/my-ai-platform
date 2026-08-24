@@ -82,7 +82,8 @@ describe('every control says what it does ON HOVER', () => {
   // A VISIBLE tooltip means <Tip label=…> or a title attribute. Nothing else
   // counts, and aria-label is now additional rather than sufficient.
   const FILES = ['Timeline.jsx', 'Viewer.jsx', 'RatioPicker.jsx', 'MediaLibrary.jsx',
-    'RegeneratePanel.jsx', 'AgentChat.jsx', 'ProjectPicker.jsx', 'EditCut.jsx'];
+    'RegeneratePanel.jsx', 'AgentChat.jsx', 'ProjectPicker.jsx', 'EditCut.jsx',
+    'AgentSettings.jsx'];
 
   for (const file of FILES) {
     it(`${file} labels every button`, () => {

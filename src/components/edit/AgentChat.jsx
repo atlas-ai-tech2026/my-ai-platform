@@ -26,6 +26,8 @@ import { Sparkles, CornerDownLeft, AlertCircle, Check, Loader2 } from 'lucide-re
 import Tip from './Tip';
 import { base44 } from '@/api/base44Client';
 import { summarise, parseAgentReply, applyCommands } from '@/lib/edit-agent';
+import { readPermissions, writePermissions } from '@/lib/edit-permissions';
+import AgentSettings from './AgentSettings';
 
 /** Openers, shown only on an empty conversation. Not a tutorial — three
  *  examples of the SHAPE of thing that works, which is faster to read than a
@@ -38,6 +40,14 @@ const EXAMPLES = [
 
 export default function AgentChat({ project, onApply, disabled = false, disabledReason = '' }) {
   const [messages, setMessages] = useState([]);
+  // Read in the initialiser, not an effect: a permission that flickers from
+  // the default to the saved value is a permission that was briefly wrong.
+  const [permissions, setPermissions] = useState(() =>
+    readPermissions(typeof localStorage === 'undefined' ? null : localStorage));
+
+  const changePermissions = (next) => {
+    setPermissions(writePermissions(typeof localStorage === 'undefined' ? null : localStorage, next));
+  };
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
   const endRef = useRef(null);
@@ -79,7 +89,7 @@ export default function AgentChat({ project, onApply, disabled = false, disabled
 
       // THE FIREWALL. Checked against the real project, not the summary the
       // model was shown, and applied all-or-nothing.
-      const result = applyCommands(project, commands);
+      const result = applyCommands(project, commands, { permissions });
       if (!result.ok) {
         say({ role: 'agent', text: reply, error: result.error });
         return;   // text deliberately kept, so it can be reworded and retried
@@ -183,6 +193,13 @@ export default function AgentChat({ project, onApply, disabled = false, disabled
           Bottom of the column, where ChatCut puts it and where a primary
           input belongs — always reachable without scrolling the transcript. */}
       <div className="border-t border-border p-2.5 shrink-0">
+        {/* Settings sit BESIDE the input, the way ChatCut puts theirs beside
+            "Agent": the decision about what it may do belongs next to where
+            you ask it to do things, not in a menu somewhere else. */}
+        <div className="mb-1.5 flex items-center gap-1">
+          <span className="text-[10px] uppercase tracking-wider text-foreground-muted">Assistant</span>
+          <span className="ml-auto"><AgentSettings permissions={permissions} onChange={changePermissions} /></span>
+        </div>
         {disabled ? (
           <p className="rounded-lg border border-border/60 px-3 py-2 text-[11px] text-foreground-muted">
             {disabledReason || 'Sign in to use the assistant.'}
