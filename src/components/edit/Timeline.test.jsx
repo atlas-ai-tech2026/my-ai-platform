@@ -108,7 +108,7 @@ describe('zoom', () => {
     // it's not smooth."
     const { project } = seed();
     render(<Timeline project={project} onChange={vi.fn()} />);
-    const slider = screen.getByLabelText(/zoom/i);
+    const slider = screen.getByLabelText('Zoom');   // exact: 'Zoom in'/'Zoom out' buttons also match /zoom/i
     expect(Number(slider.step), 'a coarse step is what made it jump').toBeLessThanOrEqual(0.01);
     expect(Number(slider.max)).toBe(1);
   });
@@ -119,7 +119,7 @@ describe('zoom', () => {
     const el = () => document.querySelector(`[data-clip="${clipId}"]`);
     const before = parseFloat(el().style.width);
 
-    const slider = screen.getByLabelText(/zoom/i);
+    const slider = screen.getByLabelText('Zoom');   // exact: 'Zoom in'/'Zoom out' buttons also match /zoom/i
     fireEvent.change(slider, { target: { value: '0.9' } });
 
     expect(parseFloat(el().style.width), 'zooming in must widen the clip')
@@ -141,7 +141,7 @@ describe('gaps are visible, not silent', () => {
     // and no part of the interface mentioned it.
     const { project } = withGap();
     render(<Timeline project={project} onChange={vi.fn()} />);
-    expect(screen.getByLabelText(/close 48s gap/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/close the 48s gap/i)).toBeInTheDocument();
   });
 
   it('closes it on click and pulls the next clip up exactly', () => {
@@ -149,7 +149,7 @@ describe('gaps are visible, not silent', () => {
     const onChange = vi.fn();
     render(<Timeline project={project} onChange={onChange} />);
 
-    screen.getByLabelText(/close 48s gap/i).click();
+    screen.getByLabelText(/close the 48s gap/i).click();
 
     const [next] = onChange.mock.calls[0];
     expect(next.tracks[0].clips[1].start, 'the second clip should meet the first').toBe(12);

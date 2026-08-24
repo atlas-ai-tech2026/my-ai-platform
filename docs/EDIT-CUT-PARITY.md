@@ -114,10 +114,10 @@ See the recommendation in §10.
 | 🎤 + ⌄ | `Record voiceover` | — | ⬜ |
 | ▶ | play | Space | ✅ |
 | `00:00.00 / 00:00.00` | timecode | ✅ |
-| zoom − | `Zoom out (⌘ -)` | same | ✅ |
+| zoom − | `Zoom out (⌘ -)` | button + key | ✅ 2026-08-23 |
 | slider | zoom slider | continuous zoom | ✅ |
-| zoom + | `Zoom in (⌘ =)` | same | ✅ |
-| ↔ | `Fit to view (⇧ Z)` | same | ✅ |
+| zoom + | `Zoom in (⌘ =)` | button + key | ✅ 2026-08-23 |
+| ↔ | `Fit to view (⇧ Z)` | button + key | ✅ 2026-08-23 |
 | ⧉ | `Aspect Ratio` | in viewer header | ✅ |
 | `CC OFF ⌄` | `Show captions` | — | ⬜ |
 | ⛶ | `Enter fullscreen (` `)` | same | ✅ |

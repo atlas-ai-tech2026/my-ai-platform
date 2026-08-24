@@ -20,7 +20,7 @@
 import React, { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { Scissors, Lock, Unlock, Eye, EyeOff, Volume2, VolumeX, Magnet,
   MousePointer2, MoveHorizontal, Slice, Trash2, Plus, ChevronUp, ChevronDown,
-  ChevronLeft, ChevronRight, Rows3 } from 'lucide-react';
+  ChevronLeft, ChevronRight, Rows3, Minus, Maximize2 } from 'lucide-react';
 
 import {
   clipDuration, projectDuration, moveClip, trimClip, splitClip, locateClip, trackGaps, closeGap, setTrackFlag, whyKeepTrack,
@@ -306,20 +306,25 @@ export default function Timeline({
    * edit is off-screen at working zoom, and the alternative to ⇧Z is dragging
    * a scrollbar until you find your own footage.
    */
+  /** Hoisted out of the imperative handle so the ⇧Z key and the toolbar
+   *  button call the SAME code. Two copies of this would drift, and the one
+   *  nobody uses would be the one that breaks. */
+  const fitToView = useCallback(() => {
+    const lane = laneRef.current;
+    if (!lane || duration <= 0) return;
+    // Solve for the zoom whose pixels-per-second makes the project exactly
+    // fill the lane, with a little air so the last frame is not flush.
+    const target = (lane.clientWidth * 0.94) / duration;
+    const t = Math.log(target / MIN_PPS) / Math.log(MAX_PPS / MIN_PPS);
+    setZoom(Math.max(0, Math.min(1, t)));
+    requestAnimationFrame(() => { lane.scrollLeft = 0; });
+  }, [duration]);
+
   useImperativeHandle(controls, () => ({
     zoomIn: () => zoomTo(Math.min(1, zoom + ZOOM_STEP)),
     zoomOut: () => zoomTo(Math.max(0, zoom - ZOOM_STEP)),
-    zoomToFit: () => {
-      const lane = laneRef.current;
-      if (!lane || duration <= 0) return;
-      // Solve for the zoom whose pixels-per-second makes the project exactly
-      // fill the lane, with a little air so the last frame is not flush.
-      const target = (lane.clientWidth * 0.94) / duration;
-      const t = Math.log(target / MIN_PPS) / Math.log(MAX_PPS / MIN_PPS);
-      setZoom(Math.max(0, Math.min(1, t)));
-      requestAnimationFrame(() => { lane.scrollLeft = 0; });
-    },
-  }), [zoom, duration, playhead, pps]);
+    zoomToFit: fitToView,
+  }), [zoom, duration, playhead, pps, fitToView]);
 
   const splitAtPlayhead = () => {
     if (!selectedId) return;
@@ -398,12 +403,38 @@ export default function Timeline({
           {fmtTime(playhead)} / {fmtTime(duration)}
         </span>
 
+        <Tip label="Zoom out (⌘ -)"><button
+          type="button"
+          onClick={() => zoomTo(Math.max(0, zoom - ZOOM_STEP))}
+          disabled={zoom <= 0}
+          aria-label="Zoom out"
+          data-testid="zoom-out"
+          className="p-1 rounded hover:bg-background-elevated text-foreground-muted hover:text-white disabled:opacity-30"
+        ><Minus className="w-3 h-3" /></button></Tip>
+
         <input
           type="range" min={0} max={1} step={0.001} value={zoom}
           aria-label="Zoom"
           onChange={(e) => zoomTo(Number(e.target.value))}
           className="w-28 accent-primary"
         />
+
+        <Tip label="Zoom in (⌘ =)"><button
+          type="button"
+          onClick={() => zoomTo(Math.min(1, zoom + ZOOM_STEP))}
+          disabled={zoom >= 1}
+          aria-label="Zoom in"
+          data-testid="zoom-in"
+          className="p-1 rounded hover:bg-background-elevated text-foreground-muted hover:text-white disabled:opacity-30"
+        ><Plus className="w-3 h-3" /></button></Tip>
+
+        <Tip label="Fit the whole project on screen (⇧Z)"><button
+          type="button"
+          onClick={fitToView}
+          aria-label="Fit to view"
+          data-testid="zoom-fit"
+          className="p-1 rounded hover:bg-background-elevated text-foreground-muted hover:text-white"
+        ><Maximize2 className="w-3 h-3" /></button></Tip>
       </div>
 
       <div className="flex" style={{ cursor: tool === 'blade' ? 'crosshair' : tool === 'trim' ? 'ew-resize' : 'default' }}>
@@ -512,7 +543,7 @@ export default function Timeline({
                     onPointerDown={(e) => e.stopPropagation()}
                     onClick={() => onChange(closeGap(project, track.id, gap.start), {})}
                     title={`${fmtGap(gap.duration)} of nothing — click to close it`}
-                    aria-label={`Close ${fmtGap(gap.duration)} gap`}
+                    aria-label={`Close the ${fmtGap(gap.duration)}`}
                     style={{
                       left: gap.start * pps,
                       width: Math.max(2, gap.duration * pps),
