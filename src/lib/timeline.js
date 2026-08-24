@@ -410,6 +410,56 @@ export function addTrack(project, kind, name) {
 }
 
 /**
+ * Rename a track.
+ *
+ * A LOCKED track can still be renamed, deliberately. The lock protects what is
+ * ON the track — the clips, the edits — and a label is not that. Being unable
+ * to fix a typo in a name because the layer is locked is a surprise with no
+ * safety behind it.
+ *
+ * An empty name is a mistake rather than an instruction: a track header with
+ * no label is worse than the default "Video 2", so it is refused and the old
+ * name stays.
+ */
+export function renameTrack(project, trackId, name) {
+  const clean = String(name ?? '').trim().slice(0, 40);
+  const track = findTrack(project, trackId);
+  if (!track || !clean || track.name === clean) return project;
+  return replaceTrack(project, trackId, (t) => ({ ...t, name: clean }));
+}
+
+/**
+ * Move a track up or down the stack. `delta` is -1 for up, +1 for down.
+ *
+ * ── THIS IS NOT COSMETIC, AND THAT IS THE POINT ────────────────────────────
+ * The order here IS the layer order. exportPlan renders the FIRST video track
+ * and warns about the rest, so moving a video layer to the top is how you
+ * choose which one ends up in the file. Reordering to taste and reordering the
+ * output are the same gesture — which is how an editor should work, but it
+ * means a drag can change the export, so the warning naming the layers that
+ * are left out has to keep up. It does: it reads the list in order.
+ *
+ * Top of the list is the top layer, matching what the timeline draws and what
+ * every NLE means by "above".
+ */
+export function moveTrack(project, trackId, delta) {
+  const from = project.tracks.findIndex((t) => t.id === trackId);
+  if (from < 0) return project;
+  const to = from + delta;
+  if (to < 0 || to >= project.tracks.length) return project;   // already an end
+  const tracks = [...project.tracks];
+  [tracks[from], tracks[to]] = [tracks[to], tracks[from]];
+  return withTracks(project, tracks);
+}
+
+/** Can this track move that way? Used to disable the button rather than let it
+ *  click and do nothing. */
+export const canMoveTrack = (project, trackId, delta) => {
+  const i = project.tracks.findIndex((t) => t.id === trackId);
+  return i >= 0 && i + delta >= 0 && i + delta < project.tracks.length;
+};
+
+/**
  * Hide / mute / lock a track.
  *
  * ── WHY THIS DID NOT EXIST UNTIL NOW, WHICH IS THE INTERESTING PART ────────

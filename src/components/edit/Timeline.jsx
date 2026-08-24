@@ -17,12 +17,13 @@
 // Editors do not do that: a second is a fixed distance, and the timeline scrolls.
 // Zoom changes the distance deliberately; nothing else does.
 
-import React, { useCallback, useImperativeHandle, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { Scissors, Lock, Unlock, Eye, EyeOff, Volume2, VolumeX, Magnet,
-  MousePointer2, MoveHorizontal, Slice, Trash2, Plus } from 'lucide-react';
+  MousePointer2, MoveHorizontal, Slice, Trash2, Plus, ChevronUp, ChevronDown } from 'lucide-react';
 
 import {
   clipDuration, projectDuration, moveClip, trimClip, splitClip, locateClip, trackGaps, closeGap, setTrackFlag, whyKeepTrack,
+  renameTrack, moveTrack, canMoveTrack,
 } from '@/lib/timeline';
 import { snapTargets, snapStart, snapEdge } from '@/lib/timeline-snap';
 import Tip from './Tip';
@@ -354,51 +355,14 @@ export default function Timeline({
         <div className="shrink-0 w-40 border-r border-border">
           <div style={{ height: RULER_H }} className="border-b border-border" />
           {project.tracks.map((track) => (
-            <div
+            <TrackHeader
               key={track.id}
-              style={{ height: TRACK_H }}
-              className="flex items-center gap-1.5 px-2 border-b border-border text-xs"
-            >
-              <span className="flex-1 truncate text-foreground-secondary">{track.name}</span>
-              {/* Wording lifted from ChatCut: "Hide track", not "visibility".
-                  A label should say what the CLICK does, not name a property. */}
-              <TrackToggle on={!track.hidden} On={Eye} Off={EyeOff}
-                label={`${track.name} visibility`} tip={['Hide track', 'Show track']}
-                disabled={track.locked}
-                onToggle={(visible) => onChange?.(setTrackFlag(project, track.id, 'hidden', !visible), {})} />
-              <TrackToggle on={!track.muted} On={Volume2} Off={VolumeX}
-                label={`${track.name} sound`} tip={['Mute track', 'Unmute track']}
-                disabled={track.locked}
-                onToggle={(audible) => onChange?.(setTrackFlag(project, track.id, 'muted', !audible), {})} />
-              <TrackToggle on={!track.locked} On={Unlock} Off={Lock}
-                label={`${track.name} lock`} tip={['Lock track', 'Unlock track']}
-                onToggle={(unlocked) => onChange?.(setTrackFlag(project, track.id, 'locked', !unlocked), {})} />
-
-              {/* DELETE TRACK — ChatCut's third track-header control, and the
-                  one we were missing entirely. Disabled rather than hidden
-                  when it cannot go, with the reason on hover: a control that
-                  vanishes teaches nothing about why. */}
-              {onRemoveTrack && (() => {
-                const why = whyKeepTrack(project, track.id);
-                return (
-                  <Tip label={why || 'Delete track'}>
-                    <button
-                      type="button"
-                      onClick={() => onRemoveTrack(track)}
-                      disabled={Boolean(why)}
-                      aria-label={`Delete ${track.name}`}
-                      data-testid={`delete-track-${track.id}`}
-                      className="p-0.5 rounded hover:bg-background-elevated text-foreground-muted
-                                 hover:text-primary disabled:opacity-30 disabled:hover:text-foreground-muted"
-                    >
-                      <Trash2 className="w-3 h-3" />
-                    </button>
-                  </Tip>
-                );
-              })()}
-            </div>
+              project={project}
+              track={track}
+              onChange={onChange}
+              onRemoveTrack={onRemoveTrack}
+            />
           ))}
-
           {/* ── ADD A LAYER ────────────────────────────────────────────────
               ChatCut has NO button for this — their tracks appear when media
               is dropped, and their toolbar + is "Create new timeline", which
@@ -568,6 +532,129 @@ export default function Timeline({
             )}
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * One track's controls: its name, where it sits in the stack, and what it does.
+ *
+ * ── TWO ROWS, NOT ONE ──────────────────────────────────────────────────────
+ * Six controls and an editable name do not fit across 160px — the name was
+ * being squeezed to about four characters, which defeats the point of being
+ * able to name it. The track is 56px tall, so the second row was already there
+ * and unused.
+ *
+ * ── THE NAME IS A BUTTON, AND SAYS SO ON HOVER ─────────────────────────────
+ * Double-click-to-rename is the convention in every editor, and it is also
+ * completely invisible. The tooltip is what makes it findable — the owner
+ * asked for renaming after looking straight at "Video 1" and seeing nothing
+ * that suggested it could change.
+ */
+function TrackHeader({ project, track, onChange, onRemoveTrack }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(track.name);
+  const input = useRef(null);
+
+  useEffect(() => { if (editing) input.current?.select(); }, [editing]);
+
+  const commit = () => {
+    setEditing(false);
+    const next = draft.trim();
+    // An empty name is a mistake, not an instruction — put the old one back
+    // rather than leaving a track with no label.
+    if (!next || next === track.name) { setDraft(track.name); return; }
+    onChange?.(renameTrack(project, track.id, next), {});
+  };
+
+  const move = (delta) => onChange?.(moveTrack(project, track.id, delta), {});
+  const why = onRemoveTrack ? whyKeepTrack(project, track.id) : null;
+
+  return (
+    <div
+      style={{ height: TRACK_H }}
+      className="flex flex-col justify-center gap-1 px-2 border-b border-border text-xs"
+      data-testid={`track-header-${track.id}`}
+    >
+      {/* Row 1 — where it sits, and what it is called */}
+      <div className="flex items-center gap-0.5">
+        <Tip label="Move layer up"><button
+          type="button"
+          onClick={() => move(-1)}
+          disabled={!canMoveTrack(project, track.id, -1)}
+          aria-label={`Move ${track.name} up`}
+          data-testid={`up-${track.id}`}
+          className="p-0.5 rounded text-foreground-muted hover:text-white hover:bg-background-elevated disabled:opacity-25"
+        ><ChevronUp className="w-3 h-3" /></button></Tip>
+        <Tip label="Move layer down"><button
+          type="button"
+          onClick={() => move(1)}
+          disabled={!canMoveTrack(project, track.id, 1)}
+          aria-label={`Move ${track.name} down`}
+          data-testid={`down-${track.id}`}
+          className="p-0.5 rounded text-foreground-muted hover:text-white hover:bg-background-elevated disabled:opacity-25"
+        ><ChevronDown className="w-3 h-3" /></button></Tip>
+
+        {editing ? (
+          <input
+            ref={input}
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onBlur={commit}
+            onKeyDown={(e) => {
+              e.stopPropagation();   // C, V, B and Delete are editor shortcuts
+              if (e.key === 'Enter') commit();
+              if (e.key === 'Escape') { setDraft(track.name); setEditing(false); }
+            }}
+            aria-label={`Rename ${track.name}`}
+            data-testid={`rename-${track.id}`}
+            className="flex-1 min-w-0 bg-transparent border-b border-primary text-white outline-none px-0.5"
+          />
+        ) : (
+          <Tip label="Double-click to rename"><button
+            type="button"
+            onDoubleClick={() => { setDraft(track.name); setEditing(true); }}
+            aria-label={`Rename ${track.name}`}
+            data-testid={`name-${track.id}`}
+            className="flex-1 min-w-0 truncate text-left text-foreground-secondary hover:text-white px-0.5"
+          >{track.name}</button></Tip>
+        )}
+      </div>
+
+      {/* Row 2 — what it does */}
+      <div className="flex items-center gap-1">
+        {/* Wording lifted from ChatCut: "Hide track", not "visibility".
+            A label should say what the CLICK does, not name a property. */}
+        <TrackToggle on={!track.hidden} On={Eye} Off={EyeOff}
+          label={`${track.name} visibility`} tip={['Hide track', 'Show track']}
+          disabled={track.locked}
+          onToggle={(visible) => onChange?.(setTrackFlag(project, track.id, 'hidden', !visible), {})} />
+        <TrackToggle on={!track.muted} On={Volume2} Off={VolumeX}
+          label={`${track.name} sound`} tip={['Mute track', 'Unmute track']}
+          disabled={track.locked}
+          onToggle={(audible) => onChange?.(setTrackFlag(project, track.id, 'muted', !audible), {})} />
+        <TrackToggle on={!track.locked} On={Unlock} Off={Lock}
+          label={`${track.name} lock`} tip={['Lock track', 'Unlock track']}
+          onToggle={(unlocked) => onChange?.(setTrackFlag(project, track.id, 'locked', !unlocked), {})} />
+
+        {/* DELETE TRACK — ChatCut's third track-header control, and the one we
+            were missing entirely. Disabled rather than hidden when it cannot
+            go, with the reason on hover: a control that vanishes teaches
+            nothing about why. */}
+        {onRemoveTrack && (
+          <Tip label={why || 'Delete track'}><button
+            type="button"
+            onClick={() => onRemoveTrack(track)}
+            disabled={Boolean(why)}
+            aria-label={`Delete ${track.name}`}
+            data-testid={`delete-track-${track.id}`}
+            className="p-0.5 rounded text-foreground-muted hover:text-primary hover:bg-background-elevated
+                       disabled:opacity-25 disabled:hover:text-foreground-muted"
+          ><Trash2 className="w-3 h-3" /></button></Tip>
+        )}
+
+        <span className="ml-auto font-mono text-[9px] uppercase text-foreground-muted/60">{track.kind}</span>
       </div>
     </div>
   );

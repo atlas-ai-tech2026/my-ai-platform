@@ -158,6 +158,13 @@ always read the flags correctly and was waiting for values that never arrived.
 Found by asking what WROTE the field, not by clicking the button.
 Fixed: `setTrackFlag()` in timeline.js, toggles are controlled.
 
+### ✅ 2026-08-23 — rename + reorder layers shipped
+Owner's request after using the layers: double-click a track name to rename it,
+and ↑/↓ to move it in the stack. **Reordering is NOT cosmetic** — exportPlan
+renders the first video track, so promoting a video layer is how you choose
+which one ends up in the file. ChatCut's header has no reorder or rename at
+all; ours needs both because our tracks are explicit.
+
 ### ✅ 2026-08-23 — add / delete layer shipped
 `V / A / T / IMG / CC` row under the track headers, plus per-track delete that
 refuses a locked or last track and asks before removing work.

@@ -15,7 +15,7 @@ import {
   updateClip, addTrack, locateClip, activeAt, sourceTimeAt,
   clipDuration, clipEnd, projectDuration, MIN_CLIP, TRACK_KINDS, __resetIds,
   trackGaps, closeGap, addSource, replaceClipSource, setProjectRatio,
-  removeTrack, whyKeepTrack,
+  removeTrack, whyKeepTrack, renameTrack, moveTrack, canMoveTrack,
 } from './timeline.js';
 
 beforeEach(__resetIds);
@@ -504,5 +504,97 @@ describe('removing a track', () => {
     const after = removeTrack(p, p.tracks[2].id);
     expect(after.tracks[0].clips).toHaveLength(1);
     expect(after.tracks[1].kind).toBe('audio');
+  });
+});
+
+// ─── RENAMING AND REORDERING LAYERS ──────────────────────────────────────────
+// Both asked for by the owner on 2026-08-23, looking at four tracks called
+// "Video 1", "Audio 1", "Text 1", "Video 2" and wanting to say what they are
+// and which one sits on top.
+
+describe('renaming a layer', () => {
+  const p0 = () => { __resetIds(); return createProject({ name: 'T' }); };
+
+  it('renames it', () => {
+    const p = p0();
+    const after = renameTrack(p, p.tracks[0].id, 'B-roll');
+    expect(after.tracks[0].name).toBe('B-roll');
+  });
+
+  it('an EMPTY name is a mistake, not a rename', () => {
+    // A header with no label at all is worse than the default "Video 1".
+    const p = p0();
+    expect(renameTrack(p, p.tracks[0].id, '   ').tracks[0].name).toBe('Video 1');
+    expect(renameTrack(p, p.tracks[0].id, '')).toBe(p);
+  });
+
+  it('trims and caps the length so the column cannot be blown out', () => {
+    const p = p0();
+    expect(renameTrack(p, p.tracks[0].id, '  Hero shot  ').tracks[0].name).toBe('Hero shot');
+    expect(renameTrack(p, p.tracks[0].id, 'x'.repeat(200)).tracks[0].name).toHaveLength(40);
+  });
+
+  it('a LOCKED track can still be renamed — the lock protects the clips, not the label', () => {
+    let p = p0();
+    p = { ...p, tracks: p.tracks.map((t, i) => (i === 0 ? { ...t, locked: true } : t)) };
+    expect(renameTrack(p, p.tracks[0].id, 'Locked but named').tracks[0].name).toBe('Locked but named');
+  });
+
+  it('returns the SAME project when the name did not change', () => {
+    // Otherwise every click of the name adds an undo step for nothing.
+    const p = p0();
+    expect(renameTrack(p, p.tracks[0].id, 'Video 1')).toBe(p);
+  });
+});
+
+describe('moving a layer up and down', () => {
+  const p0 = () => { __resetIds(); return createProject({ name: 'T' }); };  // Video 1, Audio 1
+
+  it('swaps with the one above', () => {
+    const p = p0();
+    const after = moveTrack(p, p.tracks[1].id, -1);
+    expect(after.tracks.map((t) => t.name)).toEqual(['Audio 1', 'Video 1']);
+  });
+
+  it('swaps with the one below', () => {
+    const p = p0();
+    expect(moveTrack(p, p.tracks[0].id, 1).tracks.map((t) => t.name)).toEqual(['Audio 1', 'Video 1']);
+  });
+
+  it('does nothing at the ends rather than wrapping around', () => {
+    const p = p0();
+    expect(moveTrack(p, p.tracks[0].id, -1)).toBe(p);
+    expect(moveTrack(p, p.tracks[1].id, 1)).toBe(p);
+  });
+
+  it('canMoveTrack agrees with what move actually does', () => {
+    // The button is disabled from canMoveTrack. If the two disagreed, a
+    // button would be clickable and do nothing.
+    const p = p0();
+    expect(canMoveTrack(p, p.tracks[0].id, -1)).toBe(false);
+    expect(canMoveTrack(p, p.tracks[0].id, 1)).toBe(true);
+    expect(canMoveTrack(p, p.tracks[1].id, 1)).toBe(false);
+  });
+
+  it('carries the clips with the track', () => {
+    let p = p0();
+    p = addSource(p, { id: 's1', url: 'https://x/a.mp4' });
+    p = addClip(p, p.tracks[0].id, createClip({ kind: 'video', sourceId: 's1', start: 0, in: 0, out: 5 }));
+    const after = moveTrack(p, p.tracks[0].id, 1);
+    expect(after.tracks[1].name).toBe('Video 1');
+    expect(after.tracks[1].clips).toHaveLength(1);
+  });
+
+  it('ORDER DECIDES WHICH VIDEO LAYER EXPORTS — moving one up changes the file', () => {
+    // exportPlan renders the first video track. So this is not cosmetic:
+    // promoting a layer is how you choose what ends up in the export.
+    let p = p0();
+    p = addTrack(p, 'video');                             // Video 2, at the bottom
+    const v2 = p.tracks[2].id;
+    expect(p.tracks.filter((t) => t.kind === 'video')[0].name).toBe('Video 1');
+
+    p = moveTrack(p, v2, -1);
+    p = moveTrack(p, v2, -1);
+    expect(p.tracks.filter((t) => t.kind === 'video')[0].name).toBe('Video 2');
   });
 });
