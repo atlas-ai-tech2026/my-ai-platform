@@ -19,7 +19,8 @@
 
 import React, { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { Scissors, Lock, Unlock, Eye, EyeOff, Volume2, VolumeX, Magnet,
-  MousePointer2, MoveHorizontal, Slice, Trash2, Plus, ChevronUp, ChevronDown } from 'lucide-react';
+  MousePointer2, MoveHorizontal, Slice, Trash2, Plus, ChevronUp, ChevronDown,
+  ChevronLeft, ChevronRight, Rows3 } from 'lucide-react';
 
 import {
   clipDuration, projectDuration, moveClip, trimClip, splitClip, locateClip, trackGaps, closeGap, setTrackFlag, whyKeepTrack,
@@ -49,7 +50,21 @@ const DEFAULT_ZOOM = 0.38;
 const ZOOM_STEP = 0.1;                     // ≈10 px/s — about a minute wide
 const ppsFor = (t) => MIN_PPS * ((MAX_PPS / MIN_PPS) ** t);
 
-const TRACK_H = 56;
+/**
+ * Row heights.
+ *
+ * The owner's request, and the reasoning is theirs: "each layer, I need to
+ * control to make it a little bit small and large, to see all the layers on
+ * the same page. I don't need to move down and up." Scrolling to find a track
+ * is the failure — with the panel capped at 45% of the window, five tracks at
+ * 56px already needs scrolling, and the cap allows more than that.
+ *
+ * COMPACT still fits a clip label and the two header rows; anything shorter
+ * and the name becomes unreadable, which trades one problem for another.
+ */
+const TRACK_HEIGHTS = { compact: 38, normal: 56, tall: 78 };
+const HEIGHT_ORDER = ['compact', 'normal', 'tall'];
+const HEIGHT_KEY = 'voxel-edit-cut:row-height';
 const RULER_H = 28;
 /** Grab zone for an edge. Smaller and it is a fight; larger and you cannot
  *  select a short clip at all, because the whole thing becomes edge. */
@@ -111,6 +126,22 @@ export default function Timeline({
 }) {
   const [zoom, setZoom] = useState(DEFAULT_ZOOM);
   const pps = ppsFor(zoom);
+
+  // Remembered, because somebody who wants compact rows wants them next time
+  // too. Reading in the initialiser rather than an effect avoids a visible
+  // jump from the default to the stored value on every mount.
+  const [rowSize, setRowSize] = useState(() => {
+    try {
+      const saved = localStorage.getItem(HEIGHT_KEY);
+      return TRACK_HEIGHTS[saved] ? saved : 'normal';
+    } catch { return 'normal'; }          // private mode, or storage disabled
+  });
+  const TRACK_H = TRACK_HEIGHTS[rowSize];
+  const cycleRowSize = () => {
+    const next = HEIGHT_ORDER[(HEIGHT_ORDER.indexOf(rowSize) + 1) % HEIGHT_ORDER.length];
+    setRowSize(next);
+    try { localStorage.setItem(HEIGHT_KEY, next); } catch { /* not worth failing over */ }
+  };
   // ── DRAG STATE IS A REF, NOT useState ───────────────────────────────────
   // React 18 batches updates. On a fast drag, pointerdown/pointermove/pointerup
   // can land in one task — so the setDrag() from pointerdown has not committed
@@ -190,6 +221,12 @@ export default function Timeline({
   const onDragMove = (e) => {
     const drag = dragRef.current;
     if (!drag) return;
+
+    // ── SCRUBBING ─────────────────────────────────────────────────────────
+    // Handled first and separately: it moves the PLAYHEAD, not a clip, so
+    // none of the clip lookup, snapping or coalescing below applies to it.
+    if (drag.mode === 'scrub') { onScrub?.(xToTime(e.clientX)); return; }
+
     const delta = xToTime(e.clientX) - drag.originTime;
     const found = locateClip(project, drag.id);
     if (!found) return;
@@ -338,6 +375,20 @@ export default function Timeline({
           <Magnet className="w-4 h-4" />
         </button></Tip>
 
+        {/* Row height. Cycles compact → normal → tall, and the tooltip names
+            what the NEXT click does, matching every other control here. */}
+        <Tip label={`Row height: ${rowSize} — click for ${HEIGHT_ORDER[(HEIGHT_ORDER.indexOf(rowSize) + 1) % HEIGHT_ORDER.length]}`}>
+          <button
+            type="button"
+            onClick={cycleRowSize}
+            aria-label={`Row height: ${rowSize}`}
+            data-testid="row-height"
+            className="p-1.5 rounded hover:bg-background-elevated text-foreground-muted hover:text-white"
+          >
+            <Rows3 className="w-3.5 h-3.5" />
+          </button>
+        </Tip>
+
         <span className="ml-auto font-mono text-xs text-foreground-muted tabular-nums">
           {fmtTime(playhead)} / {fmtTime(duration)}
         </span>
@@ -361,6 +412,7 @@ export default function Timeline({
               track={track}
               onChange={onChange}
               onRemoveTrack={onRemoveTrack}
+              height={TRACK_H}
             />
           ))}
           {/* ── ADD A LAYER ────────────────────────────────────────────────
@@ -515,14 +567,39 @@ export default function Timeline({
               </div>
             ))}
 
-            {/* playhead, drawn over everything and ignoring the pointer so it
-                never blocks a click on the clip underneath */}
+            {/* ── PLAYHEAD ──────────────────────────────────────────────
+                The LINE ignores the pointer so it never blocks a click on the
+                clip underneath. The HEAD does not — it is the only grabbable
+                part, and before this there was none at all: the playhead was
+                a 1px line with pointer-events-none, so the only way to move it
+                was clicking the ruler to jump. The owner's words: "when I
+                catch it, you put the hand on it... I don't have enough
+                control to catch it."
+                16px wide with two chevrons, which says "drag me sideways"
+                without a label. */}
             <div
               style={{ left: playhead * pps }}
-              className="absolute top-0 bottom-0 w-px bg-primary pointer-events-none z-10"
+              className="absolute top-0 bottom-0 w-px bg-primary pointer-events-none z-20"
               data-testid="playhead"
             >
-              <span className="absolute -top-0.5 -left-1 w-2 h-2 rotate-45 bg-primary" />
+              <div
+                onPointerDown={(e) => {
+                  e.stopPropagation();
+                  e.currentTarget.setPointerCapture?.(e.pointerId);
+                  dragRef.current = { mode: 'scrub' };
+                }}
+                onPointerMove={onDragMove}
+                onPointerUp={endDrag}
+                onPointerCancel={endDrag}
+                aria-label="Drag the playhead"
+                data-testid="playhead-grip"
+                className="pointer-events-auto absolute -top-px -translate-x-1/2 flex items-center justify-center
+                           h-4 w-5 rounded-b bg-primary cursor-grab active:cursor-grabbing
+                           shadow-[0_1px_4px_rgba(0,0,0,0.5)]"
+              >
+                <ChevronLeft className="w-2.5 h-2.5 text-white -mr-1" />
+                <ChevronRight className="w-2.5 h-2.5 text-white -ml-1" />
+              </div>
             </div>
 
             {/* ── THE SNAP LINE ────────────────────────────────────────
@@ -560,7 +637,7 @@ export default function Timeline({
  * asked for renaming after looking straight at "Video 1" and seeing nothing
  * that suggested it could change.
  */
-function TrackHeader({ project, track, onChange, onRemoveTrack }) {
+function TrackHeader({ project, track, onChange, onRemoveTrack, height }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(track.name);
   const input = useRef(null);
@@ -581,8 +658,8 @@ function TrackHeader({ project, track, onChange, onRemoveTrack }) {
 
   return (
     <div
-      style={{ height: TRACK_H }}
-      className="flex flex-col justify-center gap-1 px-2 border-b border-border text-xs"
+      style={{ height }}
+      className="flex flex-col justify-center gap-1 px-2 border-b border-border text-xs overflow-hidden"
       data-testid={`track-header-${track.id}`}
     >
       {/* Row 1 — where it sits, and what it is called */}

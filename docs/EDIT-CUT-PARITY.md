@@ -158,6 +158,14 @@ always read the flags correctly and was waiting for values that never arrived.
 Found by asking what WROTE the field, not by clicking the button.
 Fixed: `setTrackFlag()` in timeline.js, toggles are controlled.
 
+### ✅ 2026-08-23 — playhead grab handle + adjustable row height
+Owner: the playhead was "very thin... I don't have enough control to catch
+it", and they wanted to fit every layer on screen without scrolling. The
+playhead was a 1px line with `pointer-events: none` — there was NOTHING to
+grab, and the only way to move it was clicking the ruler to jump. It now has a
+20×16px chevron grip that drags. Row height cycles compact/normal/tall (38 /
+56 / 78px) and is remembered.
+
 ### ✅ 2026-08-23 — rename + reorder layers shipped
 Owner's request after using the layers: double-click a track name to rename it,
 and ↑/↓ to move it in the stack. **Reordering is NOT cosmetic** — exportPlan
