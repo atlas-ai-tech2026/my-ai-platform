@@ -146,6 +146,17 @@ export const SEED = [
     detail: 'Standing rule: I ask before ANY 2FA change reaches production.' },
 
   // ── MINE, outstanding, priority order ────────────────────────────────────
+  { ref: '79', owner: 'claude', status: 'pending', priority: 1,
+    title: 'Nothing TELLS YOU when the site is down — detection exists, notification does not',
+    why: 'The owner asked on 2026-08-23, after DigitalOcean\'s API returned 504 for several minutes: is there a check every minute or two that confirms everything is working? Good question, and the answer is half yes.',
+    detail: 'VERIFIED 2026-08-23 by reading .do/app.yaml and the SOP schedule, not from memory. '
+      + '── WHAT ALREADY EXISTS, and it is better than it might look ── DigitalOcean pings /api/health every 10 SECONDS (health_check period_seconds: 10, failure_threshold: 6), so an unhealthy container is restarted after about a minute. Production also runs TWO instances, so one dying does not take the site with it. That is real protection and it is already on. '
+      + '── THE GAP, AND IT IS THE IMPORTANT HALF ── NOBODY IS TOLD. There is no `alerts:` block in .do/app.yaml at all. The platform quietly restarts things and the owner finds out from a customer. A service that heals itself silently is fine until the day it cannot heal, and that is precisely the day nobody hears about it. '
+      + '── AND A DESIGN LIMIT WORTH STATING PLAINLY ── the SOP checks (smoke daily, integrity weekly, restore monthly) run INSIDE the app. A dead app runs no checks. They cannot report a total outage BY CONSTRUCTION — they are checks on correctness, not on being alive, and it would be a mistake to read a green SOP tab as "the site is up". '
+      + '── THE FIX, cheap and additive ── add an alerts block to .do/app.yaml: DEPLOYMENT_FAILED and DOMAIN_FAILED at the app level, plus per-service restart-count and memory rules. The alert address is already set (#38). That covers "DigitalOcean noticed". '
+      + 'SECOND, and it is the one that catches what DO cannot: an EXTERNAL ping from outside our own infrastructure, every 1–5 minutes, on voxel-ai.ai. If the whole app is down, nothing inside it can tell you — only something outside can. UptimeRobot or BetterStack free tiers do this and cost nothing. '
+      + '── NOT DONE YET ON PURPOSE ── .do/app.yaml IS production infrastructure and changing it redeploys the live site. That is the owner\'s call to make, not something to slip in. Ask before applying.' },
+
   { ref: '76', owner: 'claude', status: 'blocked', priority: 1,
     blocked_by: 'A working text model. FAL is no longer funded/used and our KIE wrapper has no text endpoint — so the agent has nothing to call. Cheapest unblock is credit on FAL for any-llm alone (a fraction of a cent per instruction); the alternative is finding a KIE text model and adding a family for it.',
     title: 'Edit Cut — the agent is wired to FAL, and we do not use FAL any more',
