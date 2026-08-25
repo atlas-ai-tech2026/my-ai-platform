@@ -83,7 +83,8 @@ const RATIO_MAP = {
   '21:9': '21/9',
 };
 
-export default function VideoRightArea({ videos = [], isGenerating = false, durationMs = 3000, aspectRatio = 'Auto', onVideoClick, modelName = 'Kling 3.0' }) {
+export default function VideoRightArea({ videos = [], isGenerating = false, durationMs = 3000, aspectRatio = 'Auto', onVideoClick, modelName = 'Kling 3.0',
+  hasMore = false, loadingMore = false, onLoadMore, moreRef, loadError = null }) {
   const ratio = RATIO_MAP[aspectRatio] || '16/9';
   const [activeTab, setActiveTab] = useState('creations');
 
@@ -203,13 +204,20 @@ export default function VideoRightArea({ videos = [], isGenerating = false, dura
                     <span style={{ fontSize:12, color:'#FF4444', fontFamily:font }}>Failed</span>
                   )}
 
-                  {/* Completed: show video preview */}
+                  {/* Completed: show video preview.
+                      preload="metadata", NOT "auto": auto made every card
+                      download its ENTIRE video file just to sit in the grid —
+                      a history of 60 clips pulled hundreds of MB before the
+                      page settled (#75's video half). metadata + the #t=0.1
+                      fragment still paints the first-frame poster; hover
+                      swaps the src and plays, which loads the full file only
+                      then. */}
                   {isReady && (
                     <video
                       src={v.result_url + '#t=0.1'}
                       muted
                       playsInline
-                      preload="auto"
+                      preload="metadata"
                       onLoadedData={e => { e.target.currentTime = 0.1; }}
                       onMouseEnter={e => { try { e.target.src = v.result_url; e.target.play(); } catch {} }}
                       onMouseLeave={e => { try { e.target.pause(); e.target.src = v.result_url + '#t=0.1'; } catch {} }}
@@ -244,6 +252,36 @@ export default function VideoRightArea({ videos = [], isGenerating = false, dura
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* ── MORE OF THE LIBRARY ──────────────────────────────────────────
+          The grid no longer downloads every video before it paints. A
+          failure says so and leaves the loaded rows alone rather than
+          blanking the grid, which would read as the work being gone. */}
+      {loadError && (
+        <p style={{ padding: '10px 0', fontSize: 12, color: '#F87171' }} data-testid="video-feed-error">
+          {loadError}{' '}
+          <button type="button" onClick={onLoadMore}
+            style={{ color: '#F87171', textDecoration: 'underline', background: 'none', border: 0, cursor: 'pointer' }}>
+            Try again
+          </button>
+        </p>
+      )}
+      {hasMore && (
+        <div ref={moreRef} style={{ display: 'flex', justifyContent: 'center', padding: '14px 0 20px' }}>
+          <button
+            type="button"
+            onClick={onLoadMore}
+            disabled={loadingMore}
+            data-testid="video-load-more"
+            style={{
+              fontSize: 12, color: 'rgba(255,255,255,0.7)', padding: '8px 18px', borderRadius: 8,
+              background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)',
+              fontFamily: font, cursor: loadingMore ? 'default' : 'pointer',
+            }}>
+            {loadingMore ? 'Loading…' : 'Load more'}
+          </button>
         </div>
       )}
     </div>

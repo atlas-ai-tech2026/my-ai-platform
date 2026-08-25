@@ -1,5 +1,6 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { base44 } from '@/api/base44Client';
+import { useHistoryFeed, useOnVisible } from '@/lib/history-feed';
 const History_ = base44.entities.GenerationHistory;
 import ImagePromptBar from '@/components/image/ImagePromptBar';
 import { buildCompositionPrompt, detectCompositionIntent } from '@/lib/enhancePrompt';
@@ -194,10 +195,16 @@ function ImageCard({ img, index, onExpand, onLoaded, isFirst = false, modelBadge
         }}>NEW MODEL</div>
       )}
 
+      {/* loading="lazy": cells download only when they approach the screen.
+          Without it, every loaded page's FULL-SIZE originals fetched eagerly
+          and the first visible row queued behind hundreds of off-screen
+          files — half of the "history takes forever" report (#75). */}
       {img.url && (
         <img
           src={img.url}
           alt={img.prompt}
+          loading="lazy"
+          decoding="async"
           onLoad={() => { setImgLoaded(true); onLoaded && onLoaded(img.id); }}
           style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', opacity: imgLoaded ? 1 : 0, transition: 'opacity 0.3s' }}
         />
@@ -277,7 +284,6 @@ export default function Image() {
   // independently and the grid shows one loading card per pending image.
   const [pending, setPending] = useState(0);
   const isGenerating = pending > 0;
-  const [images, setImages] = useState([]);
   const [imageCount, setImageCount] = useState(1);
   const [expandedImage, setExpandedImage] = useState(null);
   const [detailImage, setDetailImage] = useState(null);
@@ -297,61 +303,69 @@ export default function Image() {
     if (p) setPrompt(p);
   }, []);
 
-  // Load history whenever auth resolves to a logged-in user. Keyed on
-  // user.id so logging out then back in (same or different account) always
-  // re-fetches that user's server-side history instead of showing stale or
-  // empty results. While auth is still resolving we wait; when logged out we
-  // clear the grid so one user's history never lingers for the next.
-  useEffect(() => {
-    if (isLoadingAuth) return;
-    if (!isAuthenticated) { setImages([]); return; }
-    let cancelled = false;
+  // ── LOADING THE LIBRARY ──────────────────────────────────────────────────
+  // This used to LOOP until it had every row — 200 at a time, sequentially,
+  // on every page load. A customer with 3,000 images waited on fifteen round
+  // trips before their library was usable, and the customers who generate
+  // most waited longest. Now: one page, then more when they scroll.
+  //
+  // The loop was not gratuitous — the Saved tab was a client-side filter over
+  // it. That is why there are TWO feeds below instead of one page plus a
+  // .filter(): see the comment on `savedFeed`.
+  const signedIn = !isLoadingAuth && isAuthenticated;
 
-    const mapRecord = (r) => ({
-      id: r.id,
-      url: r.result_url,
-      prompt: r.prompt,
-      model: r.model,
-      aspect: r.ratio,
-      style: r.style,
-      quality: r.quality,
-      camera: r.camera || null,
-      lens: r.lens || null,
-      lensType: r.lens_type || null,
-      focalLength: r.focal_length || null,
-      fstop: r.fstop || null,
-      saved: r.saved || false,
-      gradient: RESULT_GRADIENTS[0],
-    });
+  const mapRecord = useCallback((r) => ({
+    id: r.id,
+    url: r.result_url,
+    prompt: r.prompt,
+    model: r.model,
+    aspect: r.ratio,
+    style: r.style,
+    quality: r.quality,
+    camera: r.camera || null,
+    lens: r.lens || null,
+    lensType: r.lens_type || null,
+    focalLength: r.focal_length || null,
+    fstop: r.fstop || null,
+    saved: r.saved || false,
+    gradient: RESULT_GRADIENTS[0],
+  }), []);
 
-    // Load the FULL history, not just the newest slice. We page through the
-    // server in batches (offset pagination) and append each page so a user
-    // with thousands of generations still sees every image. First page paints
-    // immediately; later pages stream in and grow the grid.
-    (async () => {
-      const PAGE = 200;
-      let offset = 0;
-      let first = true;
-      // Hard stop well above any realistic history size, purely as a runaway
-      // guard so a server bug can't loop forever.
-      for (let page = 0; page < 1000 && !cancelled; page++) {
-        let records;
-        try {
-          records = await History_.filter({ type: 'image' }, '-created_date', PAGE, offset);
-        } catch {
-          break;
-        }
-        if (cancelled) return;
-        const mapped = records.map(mapRecord);
-        setImages(prev => first ? mapped : [...prev, ...mapped]);
-        first = false;
-        offset += records.length;
-        if (records.length < PAGE) break; // last page reached
-      }
-    })();
+  // Keyed on user.id via `enabled` + the feed's own run counter, so logging
+  // out then back in re-fetches rather than showing the previous account's
+  // rows — and a page still in flight for the old account never lands.
+  const historyFeed = useHistoryFeed({
+    fetchPage: useCallback(
+      (limit, offset) => History_.filter({ type: 'image' }, '-created_date', limit, offset),
+      [],
+    ),
+    map: mapRecord,
+    enabled: signedIn,
+    resetKey: user?.id,
+  });
 
-    return () => { cancelled = true; };
-  }, [isLoadingAuth, isAuthenticated, user?.id]);
+  // THE SAVED TAB ASKS THE SERVER, and this is the whole reason the change is
+  // more than deleting a loop. It used to be `images.filter(img => img.saved)`
+  // — correct only because every image was in memory. Filtering one PAGE
+  // instead would hide an image saved six months ago, and a favourite that is
+  // simply gone reads as lost work, not as a paging limit.
+  const savedFeed = useHistoryFeed({
+    fetchPage: useCallback(
+      (limit, offset) => History_.filter({ type: 'image', saved: true }, '-created_date', limit, offset),
+      [],
+    ),
+    map: mapRecord,
+    enabled: signedIn && activeTab === 'saved',
+    resetKey: user?.id,
+  });
+
+  const images = historyFeed.items;
+  const setImages = historyFeed.setItems;
+
+  // Scrolling near the bottom fetches the next page. The button below it is
+  // not a fallback nobody sees — it is what works when IntersectionObserver
+  // does not exist, and what a keyboard user can actually reach.
+  const moreRef = useRef(null);
 
   const handleGenerate = async (creditCost) => {
     if (!prompt.trim()) { toast.error('Please enter a prompt'); return; }
@@ -547,6 +561,10 @@ export default function Image() {
       return;
     }
     setImages(prev => prev.map(img => img.id === imgId ? { ...img, saved: newSaved } : img));
+    // Un-saving while looking AT the Saved tab has to remove the card, or the
+    // heart goes empty and the image sits there anyway. Saving does not need
+    // to insert one: switching to the tab re-asks the server.
+    if (!newSaved) savedFeed.setItems(prev => prev.filter(img => img.id !== imgId));
     if (detailImage && detailImage.id === imgId) setDetailImage(prev => ({ ...prev, saved: newSaved }));
     toast.success(newSaved ? 'Saved!' : 'Removed from saved');
   };
@@ -556,8 +574,12 @@ export default function Image() {
     setSelectedTemplate(null);
   };
 
-  const displayImages = activeTab === 'saved' ? images.filter(img => img.saved) : images;
-  const hasContent = displayImages.length > 0 || isGenerating;
+  // Whichever tab is open reads from its OWN feed. `saved` is no longer a
+  // filter over the history — it is its own server query.
+  const feed = activeTab === 'saved' ? savedFeed : historyFeed;
+  const displayImages = feed.items;
+
+  useOnVisible(moreRef, feed.loadMore, feed.hasMore && !feed.loadingMore);
 
   return (
     <div style={{ height: 'calc(100vh - 64px)', overflow: 'hidden', background: '#0A0A0A', display: 'flex', flexDirection: 'column', position: 'relative' }}>
@@ -667,6 +689,35 @@ export default function Image() {
               </div>
           )}
         </div>
+
+        {/* ── MORE OF THE LIBRARY ────────────────────────────────────────
+            A failure here says so and leaves the loaded rows alone, rather
+            than blanking the grid and looking like the work is gone. */}
+        {feed.error && (
+          <p style={{ padding: '0 28px 12px', fontSize: 12, color: '#F87171' }} data-testid="feed-error">
+            {feed.error}{' '}
+            <button type="button" onClick={feed.loadMore}
+              style={{ color: '#F87171', textDecoration: 'underline', background: 'none', border: 0, cursor: 'pointer' }}>
+              Try again
+            </button>
+          </p>
+        )}
+        {feed.hasMore && (
+          <div ref={moreRef} style={{ display: 'flex', justifyContent: 'center', padding: '4px 0 24px' }}>
+            <button
+              type="button"
+              onClick={feed.loadMore}
+              disabled={feed.loadingMore}
+              data-testid="load-more"
+              style={{
+                fontSize: 12, color: 'rgba(255,255,255,0.7)', padding: '8px 18px', borderRadius: 8,
+                background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)',
+                cursor: feed.loadingMore ? 'default' : 'pointer',
+              }}>
+              {feed.loadingMore ? 'Loading…' : 'Load more'}
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Prompt bar */}
