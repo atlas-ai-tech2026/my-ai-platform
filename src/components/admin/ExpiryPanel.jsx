@@ -9,13 +9,13 @@
 // their thirty days, and when.
 //
 // ── THE ONE PRESS, AND WHY IT IS GATED ─────────────────────────────────────
-// Until Activate is pressed, nothing changes for anyone: the hourly sweep
-// takes nothing and the accounts locked by the old model stay locked. The
-// press does both halves of the owner's instruction in one step — every
-// locked account gets its access back, and every credit already past its 30
-// days is removed. Gated behind the exact numbers on screen (a picture that
-// moved while it was being read is refused server-side), because this is the
-// press that touches 600 accounts at once.
+// Until Activate is pressed the hourly sweep takes nothing. (Sign-in was
+// un-gated separately on 2026-08-25 after the workshop lockouts: no stored
+// date can refuse an account any more, pressed or not — the press now wipes
+// the leftover dates from the records and removes the overdue credits.)
+// Gated behind the exact numbers on screen (a picture that moved while it
+// was being read is refused server-side), because this is the press that
+// touches 600 accounts' balances at once.
 //
 // ── THE REASSURANCE IS PART OF THE DESIGN, NOT DECORATION ──────────────────
 // Expiry removes CREDITS ONLY. The account, its sign-in, its history and
@@ -129,9 +129,9 @@ export default function ExpiryPanel({ onError }) {
           <div style={{ fontSize: 12.5, lineHeight: 1.7 }}>
             One press does both halves of the change:
             <div>
-              · <b>{data.locked_accounts}</b> locked account{data.locked_accounts === 1 ? '' : 's'} get
-              their access back <span style={{ color: 'var(--crm-w40)' }}>(the old "account expired"
-              message can then never appear again)</span>
+              · <b>{data.locked_accounts}</b> old lockout date{data.locked_accounts === 1 ? '' : 's'} still
+              on the records are wiped <span style={{ color: 'var(--crm-w40)' }}>(sign-in already
+              ignores them — no date can refuse an account any more)</span>
             </div>
             <div>
               · <b style={{ color: data.due_now.accounts ? 'var(--crm-red)' : 'var(--crm-ink)' }}>

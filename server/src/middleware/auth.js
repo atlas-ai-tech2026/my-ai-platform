@@ -70,7 +70,7 @@ export async function requireNotBanned(req, res, next) {
   try {
     if (!req.user?.id) return res.status(401).json({ error: 'Not authenticated.' });
     const { rows } = await pool.query(
-      'SELECT banned, expires_at, allowed_models, sessions_valid_from FROM users WHERE id = $1',
+      'SELECT banned, allowed_models, sessions_valid_from FROM users WHERE id = $1',
       [req.user.id]
     );
     if (!rows[0]) {
@@ -99,10 +99,10 @@ export async function requireNotBanned(req, res, next) {
         });
       }
     }
-    // Bulk-provisioned accounts can carry a hard expiry (CRM Bulk tab).
-    if (rows[0].expires_at && new Date(rows[0].expires_at) <= new Date()) {
-      return res.status(403).json({ error: 'Account has expired — contact support to renew.' });
-    }
+    // ── NO EXPIRY CHECK (owner, 2026-08-25): a stored users.expires_at is a
+    // historical record; it never blocks a request. Accounts are permanent —
+    // CREDITS expire instead (credit_lots, the 30-day rule), enforced by the
+    // balance itself, not by a gate here.
     // Per-user model allow-list (NULL = unrestricted). Routes consult this
     // via req.userAccess before charging.
     req.userAccess = { allowedModels: rows[0].allowed_models || null };
