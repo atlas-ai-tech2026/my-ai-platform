@@ -177,6 +177,52 @@ export async function migrate() {
     await client.query(`ALTER TABLE credits_history ADD COLUMN IF NOT EXISTS fal_cost NUMERIC(12,4);`);
     await client.query(`CREATE INDEX IF NOT EXISTS credits_history_recent_idx ON credits_history (created_at DESC);`);
 
+    // ─── credit lots (owner's rule, 2026-08-25) ─────────────────────
+    // Every credit ADDITION is a lot with its own 30-day life, counted from
+    // the day it was added. Credits expire; ACCOUNTS NEVER DO — the lockout
+    // model users.expires_at implemented is retired (the column stays for
+    // the deliberate manual tool only; nothing writes it automatically).
+    //
+    //   amount     — what the addition granted
+    //   remaining  — what is left of it (spends drain soonest-expiring first)
+    //   expires_at — granted_at + 30 days (or a promo code's own access_days);
+    //                NULL = never expires (sorts last in spend order)
+    //   expired_at — set once the sweep has taken the remainder; doubles as
+    //                the claim marker that makes the sweep safe to run from
+    //                two instances at once
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS credit_lots (
+        id          SERIAL PRIMARY KEY,
+        user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        amount      NUMERIC(10,2) NOT NULL,
+        remaining   NUMERIC(10,2) NOT NULL,
+        source      VARCHAR(32)   NOT NULL,
+        reason      TEXT,
+        granted_at  TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
+        expires_at  TIMESTAMPTZ,
+        expired_at  TIMESTAMPTZ,
+        created_at  TIMESTAMPTZ   NOT NULL DEFAULT NOW()
+      );
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS credit_lots_user_idx ON credit_lots (user_id, expires_at);`);
+    // Partial index: the hourly sweep asks one narrow question — which lots
+    // still hold credits past their date — and should not scan spent history.
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS credit_lots_due_idx ON credit_lots (expires_at)
+        WHERE remaining > 0 AND expired_at IS NULL;
+    `);
+
+    // One-row-per-key switches that must survive restarts and be shared by
+    // both instances. First tenant: credit_lots_activated_at — the sweep
+    // takes nothing until the owner has read the preview and pressed once.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS app_flags (
+        key    VARCHAR(64) PRIMARY KEY,
+        value  JSONB       NOT NULL,
+        set_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
+
     // ─── promo codes + gift cards ───────────────────────────────────
     // Promo codes: reusable marketing codes (max_redemptions NULL =
     // unlimited, one redemption per user enforced by promo_redemptions).
@@ -242,8 +288,10 @@ export async function migrate() {
     // credits that lived forever — the opposite of what a workshop needs, and
     // the reason 584 of 587 accounts had no expiry at all (2026-08-11).
     //
-    // NULL = open-ended access, which is the old behaviour and stays the
-    // default. A number sets users.expires_at to redemption + N days.
+    // 2026-08-25: a number bounds how long the CODE'S CREDITS live after
+    // redemption (a credit_lots row of redemption + N days); NULL means the
+    // standard 30-day credit life. It no longer touches users.expires_at —
+    // accounts never expire.
     await client.query(`ALTER TABLE promo_codes ADD COLUMN IF NOT EXISTS access_days INTEGER;`);
     // Searching by description across a few hundred codes needs no index, but
     // redemption lookups by code_id do — this is what makes the "who redeemed

@@ -247,11 +247,12 @@ export default function PromoCodesTab({ onError }) {
         'Plan':             r.package || 'Free',
         'Registered':       fmt(r.registered_at),
         'Redeemed':         fmt(r.redeemed_at || r.created_at),
-        // Activation and expiry next to each other, so "30 days from activation"
-        // can be read off a single row instead of worked out by hand.
-        'Access ends':      fmt(r.access_ends_at) || 'open-ended',
-        'Days left':        r.access_ends_at
-                              ? Math.ceil((new Date(r.access_ends_at) - new Date()) / 86400000)
+        // Redemption and credit-expiry next to each other, so "redeemed on X,
+        // credits end Y" reads off a single row. Blank for redemptions made
+        // before the 30-day rule existed — blank is honest, a guess is not.
+        'Credits end':      fmt(r.credits_end_at) || '',
+        'Days left':        r.credits_end_at
+                              ? Math.ceil((new Date(r.credits_end_at) - new Date()) / 86400000)
                               : '',
         // What THIS code gave this person. The number on the code itself.
         'Credits from this code': Number(p.credits),
@@ -395,8 +396,8 @@ export default function PromoCodesTab({ onError }) {
               style={inputStyle} />
           </Field>
           <Field label="Access days"
-            info="How long the customer can USE the account after redeeming — 7, 14, 30. This is different from Expires above, which is the last day the code can be redeemed. Leave it empty for open-ended access (the old behaviour).">
-            <input placeholder="Blank = open-ended" type="number" min="1" max="3650" value={accessDays}
+            info="How long this code's CREDITS live after redeeming — 7, 14, 30. This is different from Expires above, which is the last day the code can be redeemed. Leave it empty and the credits get the standard 30 days. (2026-08-25: this used to set an account lockout; accounts never expire any more — only credits do.)">
+            <input placeholder="Blank = 30 days" type="number" min="1" max="3650" value={accessDays}
               onChange={e => setAccessDays(e.target.value)} style={{ ...inputStyle, width: 200 }} />
           </Field>
           <div style={buttonRowOffset}>
@@ -520,13 +521,14 @@ export default function PromoCodesTab({ onError }) {
                         p.expires_at ? new Date(p.expires_at).toLocaleDateString() : 'never'
                       )}
                     </td>
-                    {/* Access days — how long someone keeps working AFTER they
-                        redeem. Sits next to Expires (the redeem deadline) so the
-                        two are read as the pair they are, not confused. */}
+                    {/* Access days — how long this code's CREDITS live after
+                        redeeming (accounts themselves never expire, 2026-08-25).
+                        Sits next to Expires (the redeem deadline) so the two are
+                        read as the pair they are, not confused. */}
                     <td style={tdStyle}>
                       {p.access_days
                         ? <span style={{ color: 'var(--crm-ink)' }}>{p.access_days} days</span>
-                        : <span style={{ color: 'var(--crm-w30)' }}>open-ended</span>}
+                        : <span style={{ color: 'var(--crm-w30)' }}>30 (standard)</span>}
                     </td>
                     <td style={tdStyle}>
                       <span style={{

@@ -1,19 +1,28 @@
 // ─── ExpiryPanel.jsx ─────────────────────────────────────────────────────────
-// Who loses access, and when.
+// Credit expiry — which credits die, and when. (Accounts never do.)
 //
-// Built urgently on 2026-08-20. The owner asked which accounts created on
-// 21-23 June would expire "tomorrow" and there was no way to find out: the
-// Users table shows an access column per row and nothing sorts or filters by
-// it, so answering meant scrolling 601 rows — which produces a guess, not an
-// answer. Nothing warned in advance either, so the first sign of an expiry was
-// a customer unable to sign in.
+// Rebuilt 2026-08-25 for the owner's rule, in their words: "Do not expire any
+// account. Only expire the credit if it passed thirty days from the day that
+// the credit added to any user." The previous panel answered "who loses
+// ACCESS and when" — a question that no longer has victims, because access
+// expiry is retired. This one answers what replaced it: whose CREDITS pass
+// their thirty days, and when.
+//
+// ── THE ONE PRESS, AND WHY IT IS GATED ─────────────────────────────────────
+// Until Activate is pressed, nothing changes for anyone: the hourly sweep
+// takes nothing and the accounts locked by the old model stay locked. The
+// press does both halves of the owner's instruction in one step — every
+// locked account gets its access back, and every credit already past its 30
+// days is removed. Gated behind the exact numbers on screen (a picture that
+// moved while it was being read is refused server-side), because this is the
+// press that touches 600 accounts at once.
 //
 // ── THE REASSURANCE IS PART OF THE DESIGN, NOT DECORATION ──────────────────
-// The fear behind the question is that customers and their work disappear. They
-// do not: expiry refuses the login and touches nothing else. Somebody reading
-// "12 accounts expire tomorrow" at speed needs that clause more than any other
-// number on the screen, so it sits directly under the headline rather than in a
-// tooltip nobody opens.
+// Expiry removes CREDITS ONLY. The account, its sign-in, its history and
+// every image and video stay exactly where they are, and every removal is a
+// ledger row naming the addition dates it took — traceable, reversible by a
+// fresh grant. Somebody reading "5,000 credits will be removed" at speed
+// needs that clause more than any other number on the screen.
 
 import React, { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
@@ -26,115 +35,152 @@ const panel = {
 
 /** Red the day of and the day before; amber inside a week; plain after that. */
 function urgency(daysLeft) {
-  if (daysLeft <= 1) return { color: 'var(--crm-red)', label: daysLeft === 0 ? 'TODAY' : 'TOMORROW' };
+  if (daysLeft <= 1) return { color: 'var(--crm-red)', label: daysLeft <= 0 ? 'TODAY' : 'TOMORROW' };
   if (daysLeft <= 7) return { color: 'var(--crm-amber)', label: `in ${daysLeft} days` };
   return { color: 'var(--crm-w60)', label: `in ${daysLeft} days` };
 }
 
+const daysUntil = (day) =>
+  Math.ceil((Date.parse(`${day}T23:59:59Z`) - Date.now()) / 86400000);
+
 export default function ExpiryPanel({ onError }) {
   const [data, setData] = useState(null);
-  const [days, setDays] = useState(14);
-  const [open, setOpen] = useState(null);      // which day is expanded
-  const [plan, setPlan] = useState(null);      // credits past their 30 days
+  const [open, setOpen] = useState(null);      // which day's emails are shown
+  const [armed, setArmed] = useState(false);   // has the preview been read?
   const [running, setRunning] = useState(false);
-  const [armed, setArmed] = useState(false);   // has the list been read?
 
   const load = useCallback(async () => {
-    try { setData(await adminApi.expiryReport(days)); }
-    catch (e) { onError?.(e, 'Could not read the expiry report'); }
-  }, [days, onError]);
+    try { setData(await adminApi.creditLotsOverview(30)); }
+    catch (e) { onError?.(e, 'Could not read the credit-expiry picture'); }
+  }, [onError]);
 
   useEffect(() => { load(); }, [load]);
 
-  // Looking is separate from acting, and it is the only thing that happens
-  // automatically. The owner asked for credits past 30 days to be taken back;
-  // I recommended against it and they decided otherwise, so it is built — with
-  // the list in front of them and their finger on the button.
-  const preview = useCallback(async () => {
-    try {
-      const p = await adminApi.creditExpiryPreview(30);
-      setPlan(p); setArmed(false);
-    } catch (e) { onError?.(e, 'Could not build the preview'); }
-  }, [onError]);
-
-  const runExpiry = useCallback(async () => {
-    if (!plan) return;
+  const activate = useCallback(async () => {
+    if (!data) return;
     setRunning(true);
     try {
-      const r = await adminApi.creditExpiryRun({ days: 30, expect_accounts: plan.due.length });
-      toast.success(`${r.expired} account(s) expired · ${r.credits} credits`);
-      setPlan(null); setArmed(false); load();
-    } catch (e) { onError?.(e, 'The expiry run failed'); }
-    finally { setRunning(false); }
-  }, [plan, load, onError]);
+      const r = await adminApi.creditLotsActivate({
+        expect_accounts: data.due_now.accounts,
+        expect_credits: data.due_now.credits,
+      });
+      toast.success(
+        `${r.unlocked} account(s) got access back · ` +
+        `${r.sweep ? r.sweep.credits : 0} overdue credits removed` +
+        (r.sweep_error ? ' — first sweep pending, the hourly job finishes it' : ''));
+      setArmed(false);
+      load();
+    } catch (e) {
+      onError?.(e, 'Activation refused');
+      // The usual refusal is "the numbers moved" — reload so the fresh
+      // numbers are the ones on screen.
+      load();
+    } finally { setRunning(false); }
+  }, [data, load, onError]);
 
-  const copyEmails = (group) => {
-    const text = group.accounts.map((a) => a.email).join('\n');
-    navigator.clipboard?.writeText(text)
-      .then(() => toast.success(`${group.accounts.length} address(es) copied`))
+  const copyEmails = (g) => {
+    navigator.clipboard?.writeText((g.emails || []).join('\n'))
+      .then(() => toast.success(`${g.emails.length} address(es) copied`))
       .catch(() => toast.error('Could not copy'));
   };
 
-  if (!data) return <div style={panel}>Reading access dates…</div>;
+  if (!data) return <div style={panel}>Reading credit expiry…</div>;
 
-  const s = data.summary;
+  const active = Boolean(data.activated_at);
   const nothingSoon = !data.upcoming?.length;
 
   return (
     <div style={panel}>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, flexWrap: 'wrap' }}>
-        <div style={{ fontSize: 14, fontWeight: 700 }}>Access expiry</div>
+        <div style={{ fontSize: 14, fontWeight: 700 }}
+          title={`Every credit addition lives ${data.life_days} days from the day it was added (a promo code with its own access-days keeps its own number). The hourly sweep removes what has passed its date — credits only, never the account.`}>
+          Credit expiry — the {data.life_days}-day rule
+        </div>
         <div style={{
           fontSize: 13, fontWeight: 600,
-          color: nothingSoon ? 'var(--crm-green)' : 'var(--crm-red)',
+          color: active ? 'var(--crm-green)' : 'var(--crm-amber)',
         }}>
-          {s.headline}
+          {active
+            ? `active since ${new Date(data.activated_at).toLocaleDateString()}`
+            : 'built and waiting — nothing happens until you press Activate'}
         </div>
-        <div style={{ marginLeft: 'auto', display: 'flex', gap: 6, alignItems: 'center' }}>
-          <span style={{ fontSize: 11.5, color: 'var(--crm-w40)' }}>looking ahead</span>
-          {[7, 14, 30, 90].map((d) => (
-            <button key={d} onClick={() => setDays(d)}
-              style={{
-                fontSize: 11.5, padding: '3px 8px', borderRadius: 6, cursor: 'pointer',
-                border: '1px solid var(--crm-w08)',
-                background: days === d ? 'var(--crm-w08)' : 'transparent',
-                color: days === d ? 'var(--crm-ink)' : 'var(--crm-w40)',
-              }}>{d}d</button>
-          ))}
-        </div>
-      </div>
-
-      {/* The clause that matters most, immediately under the alarming number. */}
-      <div style={{ fontSize: 12, color: 'var(--crm-w60)', marginTop: 6, lineHeight: 1.5 }}>
-        {s.reassurance}
-      </div>
-
-      <div style={{ display: 'flex', gap: 18, marginTop: 10, fontSize: 12, flexWrap: 'wrap' }}>
-        <span><b>{data.total_accounts}</b> accounts</span>
-        <span style={{ color: 'var(--crm-w40)' }}>
-          <b style={{ color: 'var(--crm-ink)' }}>{data.open_ended}</b> never expire
-        </span>
-        <span style={{ color: 'var(--crm-w40)' }}>
-          <b style={{ color: data.already_expired ? 'var(--crm-red)' : 'var(--crm-ink)' }}>
-            {data.already_expired}
-          </b> already expired
-        </span>
-        {s.creditsAffected > 0 && (
-          <span style={{ color: 'var(--crm-w40)' }}>
-            <b style={{ color: 'var(--crm-ink)' }}>{s.creditsAffected}</b> credits behind the
-            accounts expiring in this window
+        {active && (
+          <span style={{ fontSize: 11.5, color: 'var(--crm-w40)', marginLeft: 'auto' }}
+            title="The sweep runs every hour on both instances; running twice is harmless by design.">
+            {data.last_sweep_at
+              ? `last sweep ${new Date(data.last_sweep_at).toLocaleString()}`
+              : 'no sweep has taken anything yet'}
           </span>
         )}
       </div>
 
+      {/* The clause that matters most, directly under the headline. */}
+      <div style={{ fontSize: 12, color: 'var(--crm-w60)', marginTop: 6, lineHeight: 1.5 }}>
+        Expiry removes credits only. Sign-in, history and every generated image and video
+        stay untouched, and each removal is a ledger line naming the dates the credits
+        were added — traceable, and reversible with a fresh grant.
+      </div>
+
+      {!active && (
+        <div style={{
+          marginTop: 12, padding: '10px 12px', borderRadius: 8,
+          border: '1px solid var(--crm-w08)',
+        }}>
+          <div style={{ fontSize: 12.5, lineHeight: 1.7 }}>
+            One press does both halves of the change:
+            <div>
+              · <b>{data.locked_accounts}</b> locked account{data.locked_accounts === 1 ? '' : 's'} get
+              their access back <span style={{ color: 'var(--crm-w40)' }}>(the old "account expired"
+              message can then never appear again)</span>
+            </div>
+            <div>
+              · <b style={{ color: data.due_now.accounts ? 'var(--crm-red)' : 'var(--crm-ink)' }}>
+                {data.due_now.credits}
+              </b> credits already past their {data.life_days} days are removed across{' '}
+              <b>{data.due_now.accounts}</b> account{data.due_now.accounts === 1 ? '' : 's'}
+            </div>
+            {data.unattributed_credits > 0 && (
+              <div style={{ color: 'var(--crm-w40)' }}
+                title="Credits the ledger could not date — from before the ledger existed. They were given the full life from the day the dating ran rather than being expired on a guess.">
+                · {data.unattributed_credits} credits had no recorded addition date and were given
+                the full {data.life_days} days from today — they are NOT in the removal above
+              </div>
+            )}
+          </div>
+          <label style={{
+            display: 'flex', alignItems: 'center', gap: 8,
+            fontSize: 12, marginTop: 10, cursor: 'pointer',
+          }}>
+            <input type="checkbox" checked={armed} onChange={(e) => setArmed(e.target.checked)} />
+            I have read these numbers — unlock {data.locked_accounts} account
+            {data.locked_accounts === 1 ? '' : 's'} and remove {data.due_now.credits} overdue credits
+          </label>
+          {/* Same red-on-red-tint pattern as the bulk-expiry button — the
+              theme guard rejected a plain literal here once already. */}
+          <button onClick={activate} disabled={!armed || running}
+            style={{
+              marginTop: 8, fontSize: 12, padding: '6px 14px', borderRadius: 8,
+              border: '1px solid var(--crm-red-br)',
+              background: armed ? 'var(--crm-red-bg)' : 'transparent',
+              color: armed ? 'var(--crm-red)' : 'var(--crm-w30)',
+              fontWeight: armed ? 700 : 400,
+              cursor: armed && !running ? 'pointer' : 'not-allowed',
+            }}>
+            {running ? 'Activating…' : 'Activate the rule'}
+          </button>
+        </div>
+      )}
+
+      {/* The look-ahead: whose credits die on which day. */}
       {nothingSoon ? (
         <div style={{ fontSize: 12, color: 'var(--crm-w40)', marginTop: 12 }}>
-          Nothing loses access in the next {days} days.
+          No credits reach their {data.life_days} days in the next 30 days.
         </div>
       ) : (
         <div style={{ marginTop: 12 }}>
           {data.upcoming.map((g) => {
-            const u = urgency(g.daysLeft);
+            const left = daysUntil(g.day);
+            const u = urgency(left);
             const isOpen = open === g.day;
             return (
               <div key={g.day} style={{ borderTop: '1px solid var(--crm-w06)', padding: '8px 0' }}>
@@ -146,10 +192,10 @@ export default function ExpiryPanel({ onError }) {
                     {g.day}
                   </span>
                   <span style={{ fontSize: 12.5 }}>
-                    <b>{g.accounts.length}</b> account{g.accounts.length === 1 ? '' : 's'}
-                    {g.credits > 0 && (
-                      <span style={{ color: 'var(--crm-w40)' }}> · {g.credits} credits</span>
-                    )}
+                    <b>{g.credits}</b> credits
+                    <span style={{ color: 'var(--crm-w40)' }}>
+                      {' '}across {g.accounts} account{g.accounts === 1 ? '' : 's'}
+                    </span>
                   </span>
                   <button onClick={() => setOpen(isOpen ? null : g.day)}
                     style={{
@@ -160,6 +206,7 @@ export default function ExpiryPanel({ onError }) {
                     {isOpen ? 'hide' : 'who'}
                   </button>
                   <button onClick={() => copyEmails(g)}
+                    title="Copy these addresses — e.g. to warn a workshop group their credits end this day."
                     style={{
                       fontSize: 11.5, padding: '3px 8px', borderRadius: 6,
                       border: '1px solid var(--crm-w08)', background: 'transparent',
@@ -174,20 +221,7 @@ export default function ExpiryPanel({ onError }) {
                     fontFamily: '"JetBrains Mono", monospace', lineHeight: 1.8,
                     wordBreak: 'break-all',
                   }}>
-                    {g.accounts.map((a) => (
-                      <div key={a.id}>
-                        {a.email}
-                        <span style={{ color: 'var(--crm-w30)' }}>
-                          {' · '}{a.credits} credits
-                          {/* An expiry stored as a bare date is MIDNIGHT UTC —
-                              3am in Kuwait. "Expires on the 21st" means access
-                              ends in the small hours OF the 21st, not at the
-                              end of it, which decides whether a workshop that
-                              day works. */}
-                          {' · ends '}{new Date(a.at).toLocaleString()}
-                        </span>
-                      </div>
-                    ))}
+                    {(g.emails || []).map((e) => <div key={e}>{e}</div>)}
                   </div>
                 )}
               </div>
@@ -195,91 +229,6 @@ export default function ExpiryPanel({ onError }) {
           })}
         </div>
       )}
-
-      {/* ── CREDITS PAST 30 DAYS ─────────────────────────────────────────
-          Separated from everything above by a rule, because everything above
-          only reports and this one takes something away. */}
-      <div style={{ borderTop: '1px solid var(--crm-w08)', marginTop: 14, paddingTop: 12 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-          <div style={{ fontSize: 13, fontWeight: 700 }}>Expire credits past 30 days</div>
-          <button onClick={preview} style={{
-            fontSize: 11.5, padding: '4px 10px', borderRadius: 6, cursor: 'pointer',
-            border: '1px solid var(--crm-w08)', background: 'transparent', color: 'var(--crm-w60)',
-          }}>
-            {plan ? 'refresh the list' : 'show me who'}
-          </button>
-        </div>
-        <div style={{ fontSize: 11.5, color: 'var(--crm-w40)', marginTop: 4, lineHeight: 1.5 }}>
-          Counts 30 days from the LATER of joining or the last credits granted — so someone
-          topped up recently is not included. Admins are never touched. Every removal is
-          written to the ledger, so it can be traced and reversed.
-        </div>
-
-        {plan && (
-          <div style={{ marginTop: 10 }}>
-            {plan.due.length === 0 ? (
-              <div style={{ fontSize: 12, color: 'var(--crm-green)' }}>
-                No account has credits past 30 days. Nothing to do.
-              </div>
-            ) : (
-              <>
-                <div style={{ fontSize: 12.5, marginBottom: 6 }}>
-                  <b style={{ color: 'var(--crm-red)' }}>{plan.due.length}</b> account
-                  {plan.due.length === 1 ? '' : 's'} ·{' '}
-                  <b style={{ color: 'var(--crm-red)' }}>{plan.creditsToExpire}</b> credits would
-                  be taken back and access closed
-                  <span style={{ color: 'var(--crm-w40)' }}>
-                    {' · '}{plan.counts.notYet} still inside their 30 days
-                    {' · '}{plan.counts.nothingToTake} already empty
-                  </span>
-                </div>
-                <div style={{
-                  maxHeight: 200, overflowY: 'auto', fontSize: 11.5,
-                  fontFamily: '"JetBrains Mono", monospace', lineHeight: 1.8,
-                  color: 'var(--crm-w60)', border: '1px solid var(--crm-w06)',
-                  borderRadius: 8, padding: '6px 10px',
-                }}>
-                  {plan.due.map((a) => (
-                    <div key={a.id}>
-                      {a.email}
-                      <span style={{ color: 'var(--crm-w30)' }}>
-                        {' · '}{a.credits} credits · {a.daysPast}d past · {a.basis}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-                <label style={{
-                  display: 'flex', alignItems: 'center', gap: 8,
-                  fontSize: 12, marginTop: 10, cursor: 'pointer',
-                }}>
-                  <input type="checkbox" checked={armed} onChange={e => setArmed(e.target.checked)} />
-                  I have read this list — expire {plan.due.length} account
-                  {plan.due.length === 1 ? '' : 's'} and {plan.creditsToExpire} credits
-                </label>
-                {/* Styled like the bulk-expiry button beside it: red on a
-                    red-tinted background, rather than white on solid red. The
-                    theme test caught the first version — the white literal sat
-                    on its own line, away from any accent background, which in
-                    light mode reads as invisible text. Following the pattern
-                    that already works beats teaching the guard an exception.
-                    (The guard scans comments too, which is why this one says
-                    "white" rather than spelling the value out.) */}
-                <button onClick={runExpiry} disabled={!armed || running}
-                  style={{
-                    marginTop: 8, fontSize: 12, padding: '6px 14px', borderRadius: 8,
-                    border: '1px solid var(--crm-red-br)',
-                    background: armed ? 'var(--crm-red-bg)' : 'transparent',
-                    color: armed ? 'var(--crm-red)' : 'var(--crm-w30)',
-                    fontWeight: armed ? 700 : 400,
-                    cursor: armed && !running ? 'pointer' : 'not-allowed',
-                  }}>
-                  {running ? 'Expiring…' : 'Expire them'}
-                </button>
-              </>
-            )}
-          </div>
-        )}
-      </div>
     </div>
   );
 }

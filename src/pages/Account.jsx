@@ -189,6 +189,15 @@ function ProfileSection({ user, usage, refresh, onSeeAll }) {
           <div className="text-sm text-foreground-muted mt-2">
             {pct != null ? `${pct}% of maximum credit pool` : 'Awaiting your first credits'}
           </div>
+          {/* Credits die 30 days after they were added. The one that dies
+              soonest is stated BEFORE it happens — a removal nobody was
+              warned about reads as "my credits disappeared". */}
+          {user?.credit_expiry?.soonest && (
+            <div className="text-sm text-amber-400/90 mt-2">
+              {Number(user.credit_expiry.amount).toLocaleString()} of these expire on{' '}
+              {new Date(user.credit_expiry.soonest).toLocaleDateString()}
+            </div>
+          )}
           <Link to="/pricing"
             className="inline-block mt-5 px-5 py-2 rounded-full bg-white text-black text-sm font-semibold hover:bg-white/90 transition-colors">
             Top-up
@@ -378,6 +387,10 @@ const ACTION_LABEL = {
   gift:   { label: 'Gift card', cls: 'text-pink-300' },
   grant:  { label: 'Granted', cls: 'text-blue-300' },
   revoke: { label: 'Revoked', cls: 'text-red-400' },
+  set:    { label: 'Adjusted', cls: 'text-blue-300' },
+  // Credits die 30 days after they were added (owner's rule, 2026-08-25).
+  // The sweep writes one of these per removal; the reason names the dates.
+  expire: { label: 'Expired', cls: 'text-amber-400' },
 };
 
 const PAGE = 25;
