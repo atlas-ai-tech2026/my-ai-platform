@@ -40,7 +40,10 @@ const comingNext = [
   'Multi-track timeline',
 ];
 
-export default function EditWaitlist({ onSignIn }) {
+/** `signedIn` is for the customer who IS signed in but cannot have the editor
+ *  yet — Edit Cut is switched off in production (lib/edit-cut-flag.js). They
+ *  must not be told to sign in; they already did. */
+export default function EditWaitlist({ onSignIn, signedIn = false }) {
   const [email, setEmail] = useState('');
   const [saving, setSaving] = useState(false);
 
@@ -119,10 +122,13 @@ export default function EditWaitlist({ onSignIn }) {
 
           <p className="text-foreground-secondary mb-8 max-w-md mx-auto">
             Cut your clips, reshape them for any platform, and add captions — all free,
-            with no credits used. Sign in to start.
+            with no credits used.{' '}
+            {signedIn
+              ? 'It is not open yet — leave your address below and we will tell you the day it is.'
+              : 'Sign in to start.'}
           </p>
 
-          {onSignIn && (
+          {onSignIn && !signedIn && (
             <Button
               onClick={onSignIn}
               className="bg-primary hover:bg-primary-hover text-white mb-8 px-8"

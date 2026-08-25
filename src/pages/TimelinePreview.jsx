@@ -11,7 +11,13 @@
 
 import React from 'react';
 import EditCut from '@/components/edit/EditCut';
+import { editCutVisible } from '@/lib/edit-cut-flag';
+import PageNotFound from '@/lib/PageNotFound';
 
 export default function TimelinePreview() {
+  // Gated with the SAME flag as /edit. This route takes no sign-in at all, so
+  // without this it would be the one door left open on production — the whole
+  // editor, to anyone who guessed the URL, while /edit itself was switched off.
+  if (!editCutVisible()) return <PageNotFound />;
   return <EditCut demo />;
 }

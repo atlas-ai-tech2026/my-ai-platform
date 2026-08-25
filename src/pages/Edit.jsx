@@ -25,6 +25,7 @@ import { useAuth } from '@/lib/AuthContext';
 import { base44 } from '@/api/base44Client';
 
 import EditWaitlist from '@/components/edit/EditWaitlist';
+import { editCutVisible } from '@/lib/edit-cut-flag';
 import EditCut from '@/components/edit/EditCut';
 import ProjectPicker from '@/components/edit/ProjectPicker';
 import { listProjects, fetchProject, deleteProject, saveProject, ENTITY } from '@/lib/project-store';
@@ -97,6 +98,14 @@ export default function Edit() {
   }
 
   if (!isAuthenticated) return <EditWaitlist onSignIn={openAuthModal} />;
+
+  // ── EDIT CUT IS SWITCHED OFF IN PRODUCTION ─────────────────────────────
+  // Approved by Amr 2026-08-25 so that 91 commits could ship together without
+  // cherry-picking 37 interleaved ones — three of which fix live production
+  // bugs. A signed-in customer on voxel-ai.ai sees the same waitlist they see
+  // today; dev and localhost get the editor. Flip VITE_EDIT_CUT=on to release
+  // it: one variable, no code change. See lib/edit-cut-flag.js.
+  if (!editCutVisible()) return <EditWaitlist onSignIn={openAuthModal} signedIn />;
 
   if (view === null) {
     return <ProjectPicker loading />;
