@@ -2,9 +2,10 @@
 // CRM bulk user provisioning: upload an Excel/CSV sheet of email addresses
 // (parsed client-side with SheetJS — every cell that looks like an email is
 // picked up, any column layout works), choose a Voxel plan, restrict the
-// model list (or leave "all models"), set an optional account expiry, and
-// generate. Passwords are created server-side and shown ONCE — export the
-// credentials CSV before leaving the page.
+// model list (or leave "all models"), and generate. Passwords are created
+// server-side and shown ONCE — export the credentials CSV before leaving the
+// page. (2026-08-25: the account-expiry date field is gone — accounts never
+// expire; the batch's credits expire 30 days after creation instead.)
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
@@ -89,7 +90,6 @@ export default function BulkTab({ onError }) {
   // Options
   const [plan, setPlan] = useState('Basic');
   const [credits, setCredits] = useState('300');
-  const [expiresAt, setExpiresAt] = useState('');
   const [allModels, setAllModels] = useState(true);
   const [catalog, setCatalog] = useState(null); // { image: [], video: [] }
   const [picked, setPicked] = useState(new Set());
@@ -159,7 +159,6 @@ export default function BulkTab({ onError }) {
   };
 
   const missCredits = tried && !(Number(credits) >= 0);
-  const pastExpiry = !!expiresAt && new Date(expiresAt) <= new Date();
 
   const generate = useCallback(async () => {
     setTried(true);
@@ -167,19 +166,13 @@ export default function BulkTab({ onError }) {
     if (!allModels && picked.size === 0) { toast.error('Pick at least one model, or choose All models'); return; }
     const c = Number(credits);
     if (!Number.isFinite(c) || c < 0) { toast.error('Credits must be a number'); return; }
-    // The server refuses a past expiry; catch it here so the admin sees WHICH
-    // box is wrong instead of the whole batch failing after submit.
-    if (expiresAt && new Date(expiresAt) <= new Date()) {
-      toast.error('Expiry must be a future date'); return;
-    }
-    if (!window.confirm(`Create ${emails.length} account(s) on the ${plan} plan with ${c} credits each${expiresAt ? `, expiring ${expiresAt}` : ''}?`)) return;
+    if (!window.confirm(`Create ${emails.length} account(s) on the ${plan} plan with ${c} credits each?${c > 0 ? ' Their credits expire 30 days from today.' : ''}`)) return;
     setRunning(true);
     try {
       const r = await adminApi.bulkCreateUsers({
         emails,
         package: plan,
         credits: c,
-        expires_at: expiresAt || undefined,
         allowed_models: allModels ? undefined : [...picked],
       });
       setResult(r);
@@ -189,20 +182,20 @@ export default function BulkTab({ onError }) {
     } finally {
       setRunning(false);
     }
-  }, [emails, allModels, picked, credits, plan, expiresAt, onError]);
+  }, [emails, allModels, picked, credits, plan, onError]);
 
   const downloadCsv = useCallback(() => {
     if (!result?.results?.length) return;
     const csv = [
       ['email', 'password', 'status', 'plan', 'credits', 'expires'].join(','),
-      ...result.results.map(r => [r.email, r.password || '', r.status, plan, credits, expiresAt || 'never'].join(',')),
+      ...result.results.map(r => [r.email, r.password || '', r.status, plan, credits].join(',')),
     ].join('\n');
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
     a.download = `voxel-bulk-users-${new Date().toISOString().slice(0, 10)}.csv`;
     a.click();
     URL.revokeObjectURL(a.href);
-  }, [result, plan, credits, expiresAt]);
+  }, [result, plan, credits]);
 
   // N5: derived from whatever the server offers, not a hardcoded pair. The
   // server now gates voice, music, editing, motion control and node models
@@ -266,9 +259,9 @@ export default function BulkTab({ onError }) {
         )}
       </div>
 
-      {/* Step 2 — plan, credits, expiry */}
+      {/* Step 2 — plan and credits */}
       <div style={{ ...panelStyle, marginTop: 12 }}>
-        <div style={panelTitleStyle}>2 · Plan &amp; expiry</div>
+        <div style={panelTitleStyle}>2 · Plan &amp; credits</div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
           <select value={plan} onChange={e => pickPlan(e.target.value)} style={inputStyle}>
             {CREDIT_PLANS.map(p => (
@@ -283,16 +276,14 @@ export default function BulkTab({ onError }) {
               aria-required="true" aria-invalid={missCredits}
               style={{ ...inputStyle, width: 110, ...(missCredits ? invalidStyle : null) }} />
           </Field>
-          {/* The server rejects a past date outright ("Expiry must be a future
-              date"), but nothing here checked it — so the whole batch failed
-              after submitting, with no indication which box was wrong. */}
-          <Field label="Expires" invalid={pastExpiry}
-            message="Pick a future date — accounts cannot be created already expired"
-            info="The day these accounts stop working. Leave it empty and they never expire. Useful for workshop or trial accounts. It must be a date in the future.">
-            <input type="date" value={expiresAt} onChange={e => setExpiresAt(e.target.value)}
-              aria-invalid={pastExpiry}
-              style={{ ...inputStyle, ...(pastExpiry ? invalidStyle : null) }} />
-          </Field>
+          {/* 2026-08-25: the "Expires" date box is gone on purpose. Accounts
+              never expire any more — the batch's CREDITS expire 30 days after
+              creation, automatically, like every other credit addition. A date
+              field here would be a control that silently does nothing. */}
+          <span style={{ fontSize: 11.5, color: 'var(--crm-w40)', alignSelf: 'center' }}
+            title="Every credit addition lives 30 days from the day it was added, then the unspent remainder expires on its own. Accounts themselves never expire.">
+            credits expire 30 days after creation · accounts never do
+          </span>
         </div>
       </div>
 

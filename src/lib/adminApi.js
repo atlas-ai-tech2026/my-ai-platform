@@ -137,13 +137,12 @@ export const adminApi = {
   // question from redemptions: this one can show you the people who have NOT.
   promoInvites: (id) => request('GET', `/api/admin/promocodes/${id}/invites`),
   // Who loses access, and when. Added urgently 2026-08-20 — the Users tab shows
-  // access per row and nothing sorts by it, so "who expires tomorrow" could
-  // only be answered by scrolling 601 rows.
-  expiryReport: (days) => request('GET', `/api/admin/users/expiry-report?days=${days || 14}`),
-  // Two calls on purpose: one only LOOKS, one acts and carries the count the
-  // admin was shown, so a list that moved while it was being read is refused.
-  creditExpiryPreview: (days) => request('GET', `/api/admin/users/credit-expiry-preview?days=${days || 30}`),
-  creditExpiryRun: (body) => request('POST', '/api/admin/users/credit-expiry', body),
+  // Credit expiry, the 2026-08-25 rule: credits die 30 days after they were
+  // added; accounts never expire. Two calls on purpose: one only LOOKS, one
+  // acts and carries the exact numbers the admin was shown, so a picture that
+  // moved while it was being read is refused.
+  creditLotsOverview: (days) => request('GET', `/api/admin/credit-lots/overview?days=${days || 30}`),
+  creditLotsActivate: (body) => request('POST', '/api/admin/credit-lots/activate', body),
   // #64 — arrivals counted here, plus the account history reconstructed from
   // dates that were always kept.
   audience: (days) => request('GET', `/api/admin/audience?days=${days || 90}`),

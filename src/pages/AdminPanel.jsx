@@ -338,10 +338,11 @@ export default function AdminPanel() {
         {tab === 'users' && (<>
         <StatsCards stats={stats} />
 
-        {/* WHO loses access and WHEN — above the control that closes access,
-            because reading comes before acting. Until 2026-08-20 the only way
-            to answer "who expires tomorrow" was to scroll 601 rows reading a
-            column, and nothing warned in advance at all. */}
+        {/* WHOSE CREDITS die and WHEN (2026-08-25: accounts never expire any
+            more — credits do, 30 days after they were added). Above the bulk
+            control because reading comes before acting; this panel also
+            carries the one-press Activate that unlocks every account the old
+            model locked. */}
         <ExpiryPanel onError={handleError} />
 
         {/* Close access for a finished cohort. Deletes nothing; admins are

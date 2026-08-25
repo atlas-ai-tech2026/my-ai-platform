@@ -26,8 +26,14 @@ import { AGENT_SYSTEM } from './edit-agent-prompt.js';
 import { formatProviderError, providerErrorParts, isProviderRefusal } from './provider-error.js';
 import { normalizeBulkEmails, generateBulkPassword } from './bulk-helpers.js';
 import { mayRedeem, capForInvites, splitInvites, REFUSAL } from './promo-audience.js';
-import { groupByExpiryDay, summarise, actionable, SOON_DAYS,
-         planCreditExpiry, expiryAfterManualGrant, MANUAL_GRANT_DAYS } from './expiry-report.js';
+import { groupByExpiryDay, summarise, actionable, SOON_DAYS } from './expiry-report.js';
+// Owner's rule 2026-08-25: credits expire 30 days from the day they were
+// added — each addition on its own clock. ACCOUNTS NEVER EXPIRE any more;
+// nothing below writes users.expires_at automatically (the bulk tool remains
+// as a deliberate manual switch only).
+import { addLot, mirrorSpend as mirrorLotSpend, backfillAllUsers, scheduleCreditLotSweep,
+         lotsOverview, activateNow, userCreditSummary } from './credit-lots-db.js';
+import { CREDIT_LIFE_DAYS } from './credit-backfill.js';
 import { audienceMiddleware, audienceReport, ensureAudienceTables } from './audience-store.js';
 import { runRate, breakEven, renewals, renewalHeadline, monthlySeries, CYCLES }
   from './expenses.js';
@@ -4434,7 +4440,21 @@ app.get('/api/auth/me', verifyJwt, async (req, res) => {
       [req.user.id]
     );
     if (!rows[0]) return res.status(401).json({ error: 'Account no longer exists.' });
-    res.json({ user: rows[0] });
+    // The soonest credit expiry rides along so the app can warn BEFORE the
+    // sweep takes anything — a removal nobody was told about reads as "my
+    // credits disappeared". Soft-fail: the account must load even if the
+    // lots read does not.
+    let creditExpiry = null;
+    try {
+      const s = await userCreditSummary(req.user.id);
+      if (s.soonest) creditExpiry = { soonest: s.soonest, amount: s.soonestAmount };
+    } catch (e) {
+      console.error('[auth/me] credit summary failed:', e.message);
+    }
+    // ON the user object, not beside it: the offline fallback and the
+    // localStorage cache both carry the user alone, so a sibling field would
+    // exist on some loads and vanish on others.
+    res.json({ user: { ...rows[0], credit_expiry: creditExpiry } });
   } catch (err) {
     console.error('[auth/me] error:', err);
     res.status(500).json({ error: 'Failed to load user.' });
@@ -4987,39 +5007,39 @@ app.post('/api/admin/users/:id/credits', adminGate, async (req, res) => {
       if (action === 'grant') limitAfter = limitBefore + amount;
       if (action === 'set')   limitAfter = Math.max(limitBefore, after);
 
-      // ── THE MANUAL-GRANT STANDARD (owner, 2026-08-20) ──────────────────
-      // "I connect manually, and I added must to be thirty days."
+      // ── THE MANUAL-GRANT STANDARD, v2 (owner, 2026-08-25) ──────────────
+      // "The credit that added to any account — thirty days and then expire.
+      //  Do not expire the account."
       //
-      // Until now this statement touched credits and credit_limit and NOTHING
-      // else, so credits handed out by hand carried no expiry at all — on an
-      // open-ended account they lived forever. Promo codes have always had
-      // access_days and bulk has always had its own date; the manual path was
-      // the one with no rule.
-      //
-      // NEVER SHORTENS. A grant is someone being given something; it must not
-      // also quietly remove access they already hold.
-      const grantExpiry = action === 'grant'
-        ? expiryAfterManualGrant(cur.rows[0].expires_at)
-        : null;
-
+      // The 2026-08-20 version stamped a lockout date on the ACCOUNT — the
+      // model that put 'Account has expired' in front of paying customers and
+      // is now retired. The thirty days belong to the CREDITS: the granted
+      // amount becomes a dated lot, the sweep takes whatever is left of it
+      // thirty days on, and the account itself is never touched.
       const upd = await client.query(
         `UPDATE users SET credits = $1, credit_limit = $2
-                ${grantExpiry ? ', expires_at = $4' : ''}
           WHERE id = $3
          RETURNING id, email, credits, credit_limit, role, banned, package, expires_at`,
-        grantExpiry
-          ? [after, limitAfter, targetId, grantExpiry.value]
-          : [after, limitAfter, targetId]
+        [after, limitAfter, targetId]
       );
       await client.query(
         `INSERT INTO credits_history
            (user_id, amount, action, admin_email, reason, ip_address)
          VALUES ($1, $2, $3, $4, $5, $6)`,
-        [targetId, delta, action,
-         req.user.email,
-         grantExpiry?.changed ? `${reason} · access ${grantExpiry.reason}` : reason,
-         clientIp(req)]
+        [targetId, delta, action, req.user.email, reason, clientIp(req)]
       );
+
+      // grant → a new dated lot. set upward → a lot for the added part.
+      // revoke / set downward → drain lots the way a spend would, so the
+      // dated ledger keeps agreeing with the balance it mirrors.
+      if (delta > 0) {
+        await addLot(client, {
+          userId: targetId, amount: delta, source: action,
+          reason: reason || `manual ${action} by ${req.user.email}`,
+        });
+      } else if (delta < 0) {
+        await mirrorLotSpend(client, { userId: targetId, amount: -delta });
+      }
 
       await client.query('COMMIT');
       res.json({ user: upd.rows[0], delta, before, after });
@@ -5663,7 +5683,7 @@ const normalizeCode = (c) => String(c || '').trim().toUpperCase().replace(/\s+/g
 
 // Shared grant-on-redeem: mirrors the admin grant transaction. Returns the
 // new balance. Caller owns the client + transaction.
-async function grantRedeemedCredits(client, { userId, credits, action, reason }) {
+async function grantRedeemedCredits(client, { userId, credits, action, reason, days = CREDIT_LIFE_DAYS }) {
   const cur = await client.query('SELECT credits, credit_limit FROM users WHERE id = $1 FOR UPDATE', [userId]);
   if (cur.rowCount === 0) throw new Error('User not found');
   const after = Number(cur.rows[0].credits) + Number(credits);
@@ -5673,7 +5693,12 @@ async function grantRedeemedCredits(client, { userId, credits, action, reason })
     `INSERT INTO credits_history (user_id, amount, action, reason) VALUES ($1, $2, $3, $4)`,
     [userId, credits, action, reason]
   );
-  return after;
+  // The addition is a lot with its own life (a promo code's access_days, or
+  // the 30-day standard). NOT wrapped in a savepoint like the spend mirror:
+  // an addition without its lot is drift from birth, so if this fails the
+  // whole redemption fails and can simply be retried.
+  const lot = await addLot(client, { userId, amount: credits, source: action, reason, days });
+  return { balance: after, expiresAt: lot?.expires_at || null };
 }
 
 // Redeem attempts are a code-guessing surface — throttle hard per IP.
@@ -5709,12 +5734,12 @@ app.post('/api/redeem-code', redeemLimiter, verifyJwt, requireNotBanned, async (
     );
     if (gift.rowCount === 1) {
       const credits = Number(gift.rows[0].credits);
-      const balance = await grantRedeemedCredits(client, {
+      const { balance, expiresAt } = await grantRedeemedCredits(client, {
         userId: req.user.id, credits, action: 'gift', reason: `gift card: ${code}`,
       });
       await client.query('COMMIT');
       console.log(`[redeem] gift card ${code} → user ${req.user.email} (+${credits})`);
-      return res.json({ kind: 'gift', credits, balance });
+      return res.json({ kind: 'gift', credits, balance, credits_expire_at: expiresAt });
     }
 
     // Promo code: lock the row, enforce active/expiry/global cap, then a
@@ -5775,37 +5800,22 @@ app.post('/api/redeem-code', redeemLimiter, verifyJwt, requireNotBanned, async (
         WHERE code_id = $1 AND LOWER(email) = LOWER($3) AND redeemed_at IS NULL`,
       [p.id, req.user.id, req.user.email]);
     const credits = Number(p.credits);
-    const balance = await grantRedeemedCredits(client, {
-      userId: req.user.id, credits, action: 'promo', reason: `promo: ${code}`,
+    // ACCESS PERIOD → CREDIT LIFE (owner's rule, 2026-08-25). access_days used
+    // to extend the ACCOUNT's lockout date; accounts never expire any more.
+    // The code's own window now bounds how long ITS CREDITS live, and a code
+    // with no window grants the 30-day standard — never open-ended, which is
+    // how 584 of 587 accounts once ended up holding credits forever.
+    const life = p.access_days != null && Number(p.access_days) > 0
+      ? Number(p.access_days) : CREDIT_LIFE_DAYS;
+    const { balance, expiresAt } = await grantRedeemedCredits(client, {
+      userId: req.user.id, credits, action: 'promo', reason: `promo: ${code}`, days: life,
     });
-
-    // ACCESS PERIOD. The code's own expires_at governs when it may be redeemed;
-    // access_days governs how long the person can then USE what it granted.
-    // Without this a "2-week workshop code" handed out credits that never
-    // expired — how 584 of 587 accounts ended up open-ended.
-    //
-    // Extends, never shortens: someone holding a 30-day code who redeems a
-    // 7-day one must not lose three weeks they already have. NULL = no change,
-    // which keeps every existing code behaving exactly as before.
-    let accessUntil = null;
-    if (p.access_days != null && Number(p.access_days) > 0) {
-      const { rows: acc } = await client.query(
-        `UPDATE users
-            SET expires_at = GREATEST(
-                  COALESCE(expires_at, NOW()),
-                  NOW() + ($2 || ' days')::INTERVAL)
-          WHERE id = $1
-          RETURNING expires_at`,
-        [req.user.id, String(Number(p.access_days))]
-      );
-      accessUntil = acc[0]?.expires_at || null;
-    }
 
     await client.query('COMMIT');
     console.log(
       `[redeem] promo ${code} → user ${req.user.email} (+${credits})` +
-      (accessUntil ? ` access until ${new Date(accessUntil).toISOString().slice(0, 10)}` : ''));
-    return res.json({ kind: 'promo', credits, balance, access_until: accessUntil });
+      (expiresAt ? ` credits live until ${new Date(expiresAt).toISOString().slice(0, 10)}` : ''));
+    return res.json({ kind: 'promo', credits, balance, credits_expire_at: expiresAt });
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
     console.error('[redeem] error:', err);
@@ -6142,93 +6152,62 @@ app.get('/api/admin/users/expiry-report', adminGate, async (req, res) => {
   }
 });
 
-// ── CREDITS PAST THEIR 30 DAYS: LOOK, THEN ACT ────────────────────────────
-// Owner, 2026-08-20, reaffirmed after I recommended against it: "not only for
-// promo code. Even before promo code, we created a lot of users manually...
-// if they exceed the thirty days, retrieve the credits."
-//
-// I argued for expiring ACCESS and leaving balances alone — a locked-out
-// account cannot spend anything, and the balance is the record of what a paying
-// customer received. They decided otherwise. So this does both, and the safety
-// is that it is TWO endpoints: one that only looks, one that acts and is
+// ── CREDIT LOTS: THE 30-DAY RULE'S CONTROLS (owner, 2026-08-25) ───────────
+// "Do not expire the account. Only expire the credit if it passed thirty days
+// from the day that the credit added." Two endpoints, same discipline as
+// everything destructive here: one that only looks, one that acts and is
 // pressed by a person who has read the first.
 //
-// The one query behind both. `last_grant_at` is what restarts someone's thirty
-// days — an account from May topped up last week has not run out.
-const CREDIT_EXPIRY_SQL = `
-  SELECT u.id, u.email, u.credits, u.role, u.created_at, u.expires_at,
-         (SELECT MAX(h.created_at) FROM credits_history h
-           WHERE h.user_id = u.id AND h.amount > 0) AS last_grant_at
-    FROM users u
-   WHERE u.banned = FALSE`;
+// The look shows: what the first press takes (credits already past their 30
+// days), how many locked accounts it unlocks, and the day-by-day look-ahead
+// after that. The press does BOTH halves of the owner's instruction in one
+// step — every account unlocked, the overdue credits swept — and turns the
+// hourly sweep on from then on. Until it is pressed, nothing changes for
+// anyone: the sweep stays off and the locked stay locked, so the old workshop
+// credits cannot be spent through a gap between deploy and activation.
+//
+// (This replaced the 2026-08-20 credit-expiry pair, which zeroed balances AND
+// closed account access — the half the owner has now reversed. The per-grant
+// successor keeps the ledger honest the same way: one 'expire' row per sweep
+// per account, naming the addition dates it took.)
 
-app.get('/api/admin/users/credit-expiry-preview', adminGate, async (req, res) => {
+app.get('/api/admin/credit-lots/overview', adminGate, async (req, res) => {
   if (!dbReady()) return res.status(503).json({ error: 'Database not available.' });
   try {
-    const days = Math.min(Math.max(parseInt(req.query.days, 10) || MANUAL_GRANT_DAYS, 1), 3650);
-    const { rows } = await pool.query(CREDIT_EXPIRY_SQL);
-    res.json(planCreditExpiry(rows, Date.now(), days));
+    const ahead = Math.min(Math.max(parseInt(req.query.days, 10) || 30, 1), 365);
+    res.json(await lotsOverview({ aheadDays: ahead }));
   } catch (err) {
-    console.error('[admin/credit-expiry-preview] error:', err);
-    res.status(500).json({ error: 'Could not build the preview.' });
+    console.error('[admin/credit-lots] overview error:', err);
+    res.status(500).json({ error: 'Could not read the credit-expiry picture.' });
   }
 });
 
-app.post('/api/admin/users/credit-expiry', adminGate, async (req, res) => {
+app.post('/api/admin/credit-lots/activate', adminGate, async (req, res) => {
   if (!dbReady()) return res.status(503).json({ error: 'Database not available.' });
-  // Nothing runs without the exact number the admin was shown. If the plan has
-  // moved since they read it — someone redeemed a code, someone was topped up —
-  // this refuses and makes them look again. A destructive action must not run
-  // against a list that changed while it was being considered.
-  const expected = Number(req.body?.expect_accounts);
-  const days = Math.min(Math.max(parseInt(req.body?.days, 10) || MANUAL_GRANT_DAYS, 1), 3650);
-  if (!Number.isInteger(expected) || expected < 0) {
-    return res.status(400).json({ error: 'expect_accounts is required — it is the number you were shown.' });
+  // Nothing runs without the exact numbers the admin was shown. If the picture
+  // moved since they read it — a redemption, a top-up — this refuses and makes
+  // them look again. A destructive action must not run against a list that
+  // changed while it was being considered.
+  const expectAccounts = Number(req.body?.expect_accounts);
+  const expectCredits = Number(req.body?.expect_credits);
+  if (!Number.isInteger(expectAccounts) || expectAccounts < 0 || !Number.isFinite(expectCredits)) {
+    return res.status(400).json({ error: 'expect_accounts and expect_credits are required — they are the numbers you were shown.' });
   }
-  const client = await pool.connect();
   try {
-    const { rows } = await client.query(CREDIT_EXPIRY_SQL);
-    const plan = planCreditExpiry(rows, Date.now(), days);
-    if (plan.due.length !== expected) {
+    const r = await activateNow({ adminEmail: req.user?.email, expectAccounts, expectCredits });
+    if (r.conflict === 'already-activated') {
+      return res.status(409).json({ error: 'The 30-day rule is already active.', activated_at: r.activated_at });
+    }
+    if (r.conflict === 'numbers-moved') {
       return res.status(409).json({
-        error: `The list changed since you looked — it is now ${plan.due.length} accounts, not ${expected}. Review it again.`,
-        now: plan.due.length, expected,
+        error: `The picture changed since you looked — it is now ${r.now.accounts} account(s) and ${r.now.credits} credits past their 30 days. Review it again.`,
+        now: r.now,
       });
     }
-
-    let done = 0;
-    for (const acc of plan.due) {
-      try {
-        await client.query('BEGIN');
-        // A LEDGER ROW FOR EVERY REMOVAL. A balance that changes with no record
-        // is how a customer dispute becomes unanswerable — and it is the whole
-        // difference between an expiry and a disappearance.
-        await client.query(
-          `INSERT INTO credits_history (user_id, amount, action, admin_email, reason)
-           VALUES ($1, $2, 'revoke', $3, $4)`,
-          [acc.id, -acc.credits, req.user?.email || ADMIN_EMAIL,
-           `credits expired — ${plan.windowDays} days past ${acc.basis}`]);
-        // Credits AND access, but credit_limit is left alone so the CRM still
-        // shows what this person was originally given.
-        await client.query(
-          `UPDATE users SET credits = 0,
-                  expires_at = LEAST(COALESCE(expires_at, NOW()), NOW())
-            WHERE id = $1 AND role <> 'admin'`, [acc.id]);
-        await client.query('COMMIT');
-        done += 1;
-      } catch (e) {
-        await client.query('ROLLBACK').catch(() => {});
-        console.error('[admin/credit-expiry] failed for', acc.email, e.message);
-      }
-    }
-    console.log(`[admin/credit-expiry] expired ${done}/${plan.due.length} account(s), `
-      + `${plan.creditsToExpire} credits, by ${req.user?.email}`);
-    res.json({ expired: done, of: plan.due.length, credits: plan.creditsToExpire });
+    res.json(r);
   } catch (err) {
-    console.error('[admin/credit-expiry] error:', err);
-    res.status(500).json({ error: 'The expiry run failed.' });
-  } finally {
-    client.release();
+    console.error('[admin/credit-lots] activate error:', err);
+    res.status(500).json({ error: 'Activation failed — nothing was changed.' });
   }
 });
 
@@ -6245,9 +6224,12 @@ app.post('/api/admin/users/bulk', adminGate, async (req, res) => {
 
     const pkg = String(req.body?.package || 'Free').slice(0, 32);
     const credits = Math.min(Math.max(Number(req.body?.credits) || 0, 0), 100000);
-    const expiresAt = req.body?.expires_at ? new Date(req.body.expires_at) : null;
-    if (expiresAt && (isNaN(expiresAt) || expiresAt <= new Date())) {
-      return res.status(400).json({ error: 'Expiry must be a future date.' });
+    // expires_at used to set an ACCOUNT lockout date here. Retired 2026-08-25
+    // by the owner's rule — accounts never expire; the batch's credits get the
+    // 30-day life instead. The field is accepted and ignored so an older UI
+    // still in someone's tab cannot recreate lockouts.
+    if (req.body?.expires_at) {
+      console.log('[admin/bulk] expires_at ignored — account expiry is retired; credits expire per the 30-day rule');
     }
     // allowed_models: null/empty = unrestricted (all models).
     const allowedModels = Array.isArray(req.body?.allowed_models) && req.body.allowed_models.length
@@ -6279,9 +6261,9 @@ app.post('/api/admin/users/bulk', adminGate, async (req, res) => {
 
         await client.query('BEGIN');
         const ins = await client.query(
-          `INSERT INTO users (email, password_hash, credits, credit_limit, role, package, expires_at, allowed_models)
-           VALUES ($1, $2, $3, $3, 'user', $4, $5, $6) RETURNING id`,
-          [email, hash, credits, pkg, expiresAt, allowedModels ? JSON.stringify(allowedModels) : null]
+          `INSERT INTO users (email, password_hash, credits, credit_limit, role, package, allowed_models)
+           VALUES ($1, $2, $3, $3, 'user', $4, $5) RETURNING id`,
+          [email, hash, credits, pkg, allowedModels ? JSON.stringify(allowedModels) : null]
         );
         if (credits > 0) {
           await client.query(
@@ -6289,6 +6271,12 @@ app.post('/api/admin/users/bulk', adminGate, async (req, res) => {
              VALUES ($1, $2, 'grant', $3, $4)`,
             [ins.rows[0].id, credits, req.user?.email || ADMIN_EMAIL, `bulk provision: ${pkg} plan`]
           );
+          // The batch's starting credits are an addition like any other:
+          // thirty days from today, per the owner's rule.
+          await addLot(client, {
+            userId: ins.rows[0].id, amount: credits, source: 'bulk',
+            reason: `bulk provision: ${pkg} plan`,
+          });
         }
         await client.query('COMMIT');
         results.push({ email, password, status: 'created' });
@@ -6301,7 +6289,7 @@ app.post('/api/admin/users/bulk', adminGate, async (req, res) => {
       }
     }
     const created = results.filter(r => r.status === 'created').length;
-    console.log(`[admin/bulk] ✅ ${created}/${valid.length} created (pkg=${pkg}, credits=${credits}, models=${allowedModels ? allowedModels.length : 'all'}, expires=${expiresAt?.toISOString() || 'never'})`);
+    console.log(`[admin/bulk] ✅ ${created}/${valid.length} created (pkg=${pkg}, credits=${credits}, models=${allowedModels ? allowedModels.length : 'all'}, credit life=${credits > 0 ? `${CREDIT_LIFE_DAYS}d` : 'n/a'})`);
     res.json({ results, created, skipped_existing: results.filter(r => r.status === 'exists').length, invalid, dupes });
   } catch (err) {
     console.error('[admin/bulk] error:', err);
@@ -6341,7 +6329,7 @@ app.post('/api/admin/promocodes', adminGate, async (req, res) => {
     if (req.body?.access_days != null && req.body.access_days !== '') {
       accessDays = parseInt(req.body.access_days, 10);
       if (!Number.isInteger(accessDays) || accessDays < 1 || accessDays > 3650) {
-        return res.status(400).json({ error: 'Access days must be a whole number between 1 and 3650, or blank for open-ended.' });
+        return res.status(400).json({ error: 'Access days must be a whole number between 1 and 3650, or blank for the standard 30-day credit life.' });
       }
     }
 
@@ -6478,10 +6466,15 @@ app.get('/api/admin/promocodes/:id/redemptions', adminGate, async (req, res) => 
               u.package,
               u.banned,
               u.created_at              AS registered_at,
-              -- When THIS person's access ends. Sits next to redeemed_at so the
-              -- owner can read "activated on X, expires on Y" in one line and
-              -- confirm an access period landed as intended.
-              u.expires_at              AS access_ends_at,
+              -- When THIS code's CREDITS end for this person (2026-08-25:
+              -- accounts never expire — the code's window bounds its credits'
+              -- life instead). Read from the lot the redemption planted, so
+              -- "redeemed on X, credits end Y" reads off one line. NULL for
+              -- redemptions made before the lots existed — blank, not a guess.
+              (SELECT MAX(l.expires_at) FROM credit_lots l
+                WHERE l.user_id = u.id AND l.source = 'promo'
+                  AND l.reason = 'promo: ' || (SELECT code FROM promo_codes WHERE id = $1))
+                                        AS credits_end_at,
               u.credits                 AS current_credits,
               u.last_login_at,
               -- Credits this user got from EVERY promo code, and how many codes
@@ -7345,6 +7338,12 @@ migrate()
     alertsTick();
     setInterval(alertsTick, 5 * 60 * 1000).unref?.();
     scheduleVideoChargeReconcile();
+    // Credit lots (owner's rule, 2026-08-25): date every existing balance
+    // from the ledger once — harmless, touches no balances — then sweep
+    // hourly. The sweep takes nothing until the owner activates the rule
+    // from the CRM, and is safe under two instances by construction.
+    backfillAllUsers().catch((e) => console.error('[credit-lots] boot backfill failed:', e.message));
+    scheduleCreditLotSweep({ ready: dbReady });
     // Monthly, plus once within ten minutes of the first boot that has never
     // recorded a verification — so "can we restore?" is answered now rather
     // than in a month's time.
