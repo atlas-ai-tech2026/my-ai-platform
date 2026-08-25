@@ -204,13 +204,20 @@ export default function VideoRightArea({ videos = [], isGenerating = false, dura
                     <span style={{ fontSize:12, color:'#FF4444', fontFamily:font }}>Failed</span>
                   )}
 
-                  {/* Completed: show video preview */}
+                  {/* Completed: show video preview.
+                      preload="metadata", NOT "auto": auto made every card
+                      download its ENTIRE video file just to sit in the grid —
+                      a history of 60 clips pulled hundreds of MB before the
+                      page settled (#75's video half). metadata + the #t=0.1
+                      fragment still paints the first-frame poster; hover
+                      swaps the src and plays, which loads the full file only
+                      then. */}
                   {isReady && (
                     <video
                       src={v.result_url + '#t=0.1'}
                       muted
                       playsInline
-                      preload="auto"
+                      preload="metadata"
                       onLoadedData={e => { e.target.currentTime = 0.1; }}
                       onMouseEnter={e => { try { e.target.src = v.result_url; e.target.play(); } catch {} }}
                       onMouseLeave={e => { try { e.target.pause(); e.target.src = v.result_url + '#t=0.1'; } catch {} }}
