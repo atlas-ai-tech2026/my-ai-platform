@@ -195,10 +195,16 @@ function ImageCard({ img, index, onExpand, onLoaded, isFirst = false, modelBadge
         }}>NEW MODEL</div>
       )}
 
+      {/* loading="lazy": cells download only when they approach the screen.
+          Without it, every loaded page's FULL-SIZE originals fetched eagerly
+          and the first visible row queued behind hundreds of off-screen
+          files — half of the "history takes forever" report (#75). */}
       {img.url && (
         <img
           src={img.url}
           alt={img.prompt}
+          loading="lazy"
+          decoding="async"
           onLoad={() => { setImgLoaded(true); onLoaded && onLoaded(img.id); }}
           style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', opacity: imgLoaded ? 1 : 0, transition: 'opacity 0.3s' }}
         />
