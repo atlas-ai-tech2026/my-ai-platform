@@ -16,7 +16,7 @@
 // did not make, that autosaves into their account, would be worse than an
 // empty screen by a long way.
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useMemo} from 'react';
 import { Undo2, Redo2, Download, PanelLeftClose, PanelLeftOpen, Maximize2, Minimize2, FolderOpen } from 'lucide-react';
 
 /**
@@ -81,6 +81,7 @@ import Tip from '@/components/edit/Tip';
 import { base44 } from '@/api/base44Client';
 import { sourceOf, replaceClipSource, locateClip } from '@/lib/timeline';
 import { toast } from 'sonner';
+import { hasText } from '@/lib/text-clip';
 import { measureDuration } from '@/lib/media-library';
 import { trackKindFor, extensionFor, recordingStartAt, recordingName } from '@/lib/recording';
 
@@ -241,7 +242,22 @@ export default function EditCut({ demo = false, startWith = null, onLeave = null
 
   // Recomputed as the timeline changes, so the warnings shown next to the
   // button are always about the CURRENT edit rather than the one at mount.
-  const plan = exportPlan(project, { ratio: project.ratio, mode: project.resizeMode || 'crop' });
+  // Which titles WILL be drawn, without drawing them. The real export renders
+  // a PNG per text clip; doing that here — on every keystroke, to compute a
+  // warning line — would be absurd. hasText is the same condition the renderer
+  // uses, so the warning cannot promise something the export then omits.
+  const willRenderText = useMemo(() => {
+    const map = {};
+    for (const t of project?.tracks || []) {
+      if (t.kind !== 'text' || t.hidden) continue;
+      for (const c of t.clips || []) if (hasText(c)) map[c.id] = true;
+    }
+    return map;
+  }, [project]);
+
+  const plan = exportPlan(project, {
+    ratio: project.ratio, mode: project.resizeMode || 'crop', textImages: willRenderText,
+  });
 
   /**
    * Put a real generation on the end of the video track.

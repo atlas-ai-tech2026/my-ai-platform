@@ -81,7 +81,15 @@ export function segmentsOf(track, total) {
  * @returns {{ok: boolean, problems: string[], warnings: string[], inputs: object[],
  *            args: string[], filter: string, duration: number, dimensions: object}}
  */
-export function exportPlan(project, { ratio, quality = 1080, mode = 'crop', output = 'out.mp4' } = {}) {
+export function exportPlan(project, {
+  ratio, quality = 1080, mode = 'crop', output = 'out.mp4',
+  // ── TEXT ARRIVES AS PICTURES ─────────────────────────────────────────────
+  // { [clipId]: url } — one transparent PNG per text clip, already the size of
+  // the output frame with the words at their final position (see text-image.js).
+  // Rendering happens in the caller because it needs a canvas and this function
+  // is pure; the geometry is identical because both call textLayout.
+  textImages = {},
+} = {}) {
   const problems = [];
   const warnings = [];
 
@@ -123,7 +131,12 @@ export function exportPlan(project, { ratio, quality = 1080, mode = 'crop', outp
   // ── SAY WHAT IS NOT IN THE FILE ────────────────────────────────────────
   for (const track of project?.tracks || []) {
     if (RENDERED.has(track.kind)) continue;
-    const n = track.clips?.length || 0;
+    // A text clip we have a picture for IS in the file now. Only the ones we
+    // could not render — an empty title, a kind we still do not handle — are
+    // worth warning about. Warning about something that IS included teaches
+    // people to ignore the warnings.
+    const missing = (track.clips || []).filter((c) => !(track.kind === 'text' && textImages[c.id]));
+    const n = missing.length;
     if (n > 0) {
       warnings.push(`${n} ${track.kind} clip${n === 1 ? '' : 's'} on “${track.name}” ${n === 1 ? 'is' : 'are'} not in this export yet.`);
     }
@@ -298,6 +311,35 @@ export function exportPlan(project, { ratio, quality = 1080, mode = 'crop', outp
       }
     }
   }
+  // ── TEXT, ON TOP OF EVERYTHING ─────────────────────────────────────────
+  // Last, so a title is never hidden behind a B-roll overlay — which is the
+  // one arrangement nobody ever wants.
+  //
+  // Each PNG is already the full frame with the words in place, so the overlay
+  // takes no x/y at all. Position was decided once, by textLayout, in the same
+  // call the preview makes. Handing coordinates to ffmpeg here would be a
+  // second implementation of the same geometry and the two would drift.
+  //
+  // `-loop 1` is not used: a single-frame PNG held by `enable` is enough, and
+  // looping an image input makes ffmpeg produce frames forever, which turns a
+  // 30-second export into one that never finishes.
+  let textNo = 0;
+  for (const track of project?.tracks || []) {
+    if (track.kind !== 'text' || track.hidden) continue;
+    for (const clip of [...(track.clips || [])].sort((a, b) => a.start - b.start)) {
+      const url = textImages[clip.id];
+      if (!url) continue;                       // empty title, or nothing rendered
+      const i = inputs.length;
+      inputs.push({ index: i, id: `text:${clip.id}`, url, file: `t${textNo}.png`, hasAudio: false, isText: true });
+      const out = `txo${textNo}`;
+      chains.push(
+        `[${videoOut}][${i}:v]overlay=eof_action=pass:enable='between(t,${round(clip.start)},${round(clipEnd(clip))})'[${out}]`,
+      );
+      videoOut = out;
+      textNo += 1;
+    }
+  }
+
   if (musicLabels.length > 0 && n > 0) {
     const mixIn = ['[aout]', ...musicLabels.map((l) => `[${l}]`)].join('');
     chains.push(`${mixIn}amix=inputs=${musicLabels.length + 1}:duration=first:dropout_transition=0,aresample=${SAMPLE_RATE}[amixed]`);

@@ -423,3 +423,85 @@ describe('an empty layer decides nothing', () => {
     expect(plan.problems.join(' ')).toMatch(/nothing on the video track/);
   });
 });
+
+describe('text in the export', () => {
+  // Until 2026-08-26 a text clip was listed under "Not included" and the file
+  // came out without the title. Our ffmpeg build has no libfreetype, so
+  // drawtext is unavailable — each title is drawn by the browser into a
+  // transparent PNG the size of the frame and overlaid.
+  const withText = () => {
+    let p = createProject({ name: 'T' });
+    p = addTrack(p, 'video');
+    p = addTrack(p, 'text');
+    const v = p.tracks.find((t) => t.kind === 'video');
+    const tx = p.tracks.find((t) => t.kind === 'text');
+    p = addSource(p, { id: 's1', url: 'https://x/a.mp4', kind: 'video' });
+    p = addClip(p, v.id, createClip({ kind: 'video', sourceId: 's1', name: 'shot', start: 0, in: 0, out: 10 }));
+    p = addClip(p, tx.id, createClip({ kind: 'text', name: 'Title', start: 1, in: 0, out: 4 }));
+    return p;
+  };
+  const titleId = (p) => p.tracks.find((t) => t.kind === 'text').clips[0].id;
+
+  it('overlays the title, gated to its own window', () => {
+    // start:1, in:0, out:4 runs 1s → 5s on the TIMELINE. `out` is a point in
+    // the SOURCE, not on the timeline — a four-second clip placed at one
+    // second ends at five. I got this wrong first and the code was right.
+    const p = withText();
+    const plan = exportPlan(p, { ratio: '16:9', textImages: { [titleId(p)]: 'blob:title' } });
+    expect(plan.filter).toMatch(/overlay=eof_action=pass:enable='between\(t,1,5\)'/);
+  });
+
+  it('adds the PNG as an input', () => {
+    const p = withText();
+    const plan = exportPlan(p, { ratio: '16:9', textImages: { [titleId(p)]: 'blob:title' } });
+    const png = plan.inputs.find((i) => i.isText);
+    expect(png).toBeTruthy();
+    expect(png.url).toBe('blob:title');
+    expect(png.file).toMatch(/\.png$/);
+    expect(png.hasAudio).toBe(false);
+  });
+
+  it('STOPS warning about a title it is going to draw', () => {
+    // Warning about something that IS in the file teaches people to ignore
+    // the warnings, and then they miss the one that matters.
+    const p = withText();
+    const plan = exportPlan(p, { ratio: '16:9', textImages: { [titleId(p)]: 'blob:title' } });
+    expect(plan.warnings.join(' ')).not.toMatch(/text clip/);
+  });
+
+  it('STILL warns when there is no picture for it', () => {
+    // An empty title renders no PNG. Silently dropping it would be the exact
+    // bug this whole feature exists to end.
+    const plan = exportPlan(withText(), { ratio: '16:9' });
+    expect(plan.warnings.join(' ')).toMatch(/1 text clip/);
+  });
+
+  it('puts text ABOVE the video layers', () => {
+    // A title hidden behind a B-roll overlay is the one arrangement nobody
+    // ever wants.
+    const p = withText();
+    const plan = exportPlan(p, { ratio: '16:9', textImages: { [titleId(p)]: 'blob:t' } });
+    const chains = plan.filter.split(';');
+    const lastText = chains.findLastIndex((c) => /\[txo\d+\]$/.test(c));
+    const lastOver = chains.findLastIndex((c) => /\[ovo\d+\]$/.test(c));
+    expect(lastText).toBeGreaterThan(lastOver);
+  });
+
+  it('skips a hidden text track entirely', () => {
+    let p = withText();
+    p = { ...p, tracks: p.tracks.map((t) => (t.kind === 'text' ? { ...t, hidden: true } : t)) };
+    const plan = exportPlan(p, { ratio: '16:9', textImages: { [titleId(p)]: 'blob:t' } });
+    expect(plan.inputs.some((i) => i.isText)).toBe(false);
+  });
+
+  it('does not break a project with no text at all', () => {
+    let p = createProject({ name: 'T' });
+    p = addTrack(p, 'video');
+    const v = p.tracks.find((t) => t.kind === 'video');
+    p = addSource(p, { id: 's1', url: 'https://x/a.mp4', kind: 'video' });
+    p = addClip(p, v.id, createClip({ kind: 'video', sourceId: 's1', name: 'shot', start: 0, in: 0, out: 5 }));
+    const plan = exportPlan(p, { ratio: '16:9' });
+    expect(plan.ok).toBe(true);
+    expect(plan.filter).not.toMatch(/txo/);
+  });
+});
