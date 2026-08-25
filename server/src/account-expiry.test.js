@@ -90,9 +90,9 @@ describe('a promo code can carry an access period', () => {
     expect(redeemRoute).not.toMatch(/SET\s+expires_at/);
   });
 
-  it('validates the range on creation and allows blank for open-ended', () => {
+  it('validates the range on creation; blank now means the 30-day standard, not open-ended', () => {
     expect(source).toMatch(/accessDays < 1 \|\| accessDays > 3650/);
-    expect(source).toMatch(/or blank for open-ended/);
+    expect(source).toMatch(/or blank for the standard 30-day credit life/);
   });
 });
 

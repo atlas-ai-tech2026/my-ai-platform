@@ -475,18 +475,25 @@ describe('Expires and Access days are shown as a pair', () => {
     expect(cols).toBe(count);
   });
 
-  it('a code with no access period reads as open-ended, not blank or zero', () => {
+  // 2026-08-25, the owner's rule: accounts never expire, so "open-ended
+  // access" is a phrase with no referent any more. Blank access_days now means
+  // the standard 30-day CREDIT life, and the cell must say so — a label that
+  // still read "open-ended" would promise credits that never die.
+  it('a code with no access period reads as the 30-day standard, not blank, zero, or open-ended', () => {
     const src = readFileSync(resolve(process.cwd(), 'src/components/admin/PromoCodesTab.jsx'), 'utf8');
     // the ternary on access_days must fall through to a readable label
     expect(src).toMatch(/p\.access_days/);
-    expect(src).toMatch(/open-ended/);
+    expect(src).toMatch(/30 \(standard\)/);
+    expect(src).not.toMatch(/open-ended access/);
     expect(src).not.toMatch(/\{p\.access_days \|\| 0\}/);
   });
 
-  it('the export carries activation AND expiry so they can be compared', () => {
+  it('the export carries redemption AND credit-expiry so they can be compared', () => {
     const src = readFileSync(resolve(process.cwd(), 'src/components/admin/PromoCodesTab.jsx'), 'utf8');
     expect(src).toMatch(/'Redeemed':/);
-    expect(src).toMatch(/'Access ends':/);
+    expect(src).toMatch(/'Credits end':/);
     expect(src).toMatch(/'Days left':/);
+    // The dead account date must not sneak back into the sheet.
+    expect(src).not.toMatch(/access_ends_at/);
   });
 });

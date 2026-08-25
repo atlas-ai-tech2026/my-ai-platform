@@ -6200,7 +6200,7 @@ app.post('/api/admin/promocodes', adminGate, async (req, res) => {
     if (req.body?.access_days != null && req.body.access_days !== '') {
       accessDays = parseInt(req.body.access_days, 10);
       if (!Number.isInteger(accessDays) || accessDays < 1 || accessDays > 3650) {
-        return res.status(400).json({ error: 'Access days must be a whole number between 1 and 3650, or blank for open-ended.' });
+        return res.status(400).json({ error: 'Access days must be a whole number between 1 and 3650, or blank for the standard 30-day credit life.' });
       }
     }
 
@@ -6337,10 +6337,15 @@ app.get('/api/admin/promocodes/:id/redemptions', adminGate, async (req, res) => 
               u.package,
               u.banned,
               u.created_at              AS registered_at,
-              -- When THIS person's access ends. Sits next to redeemed_at so the
-              -- owner can read "activated on X, expires on Y" in one line and
-              -- confirm an access period landed as intended.
-              u.expires_at              AS access_ends_at,
+              -- When THIS code's CREDITS end for this person (2026-08-25:
+              -- accounts never expire — the code's window bounds its credits'
+              -- life instead). Read from the lot the redemption planted, so
+              -- "redeemed on X, credits end Y" reads off one line. NULL for
+              -- redemptions made before the lots existed — blank, not a guess.
+              (SELECT MAX(l.expires_at) FROM credit_lots l
+                WHERE l.user_id = u.id AND l.source = 'promo'
+                  AND l.reason = 'promo: ' || (SELECT code FROM promo_codes WHERE id = $1))
+                                        AS credits_end_at,
               u.credits                 AS current_credits,
               u.last_login_at,
               -- Credits this user got from EVERY promo code, and how many codes
