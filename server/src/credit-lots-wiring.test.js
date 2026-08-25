@@ -53,11 +53,21 @@ describe('accounts never expire — nothing automatic writes a lockout date any 
     expect(writes[0]).toMatch(/NULL/);
   });
 
-  // Build before delete: the door checks stay until the new system has run
-  // clean — they become inert the moment Activate clears the stored dates,
-  // and a later cleanup removes them deliberately, not as a side effect.
-  it('the sign-in doors still refuse a STORED date (inert once cleared), unchanged', () => {
-    expect(source.match(/Account has expired — contact support to renew/g)?.length).toBe(2);
+  // 2026-08-25, later the same day: the doors are GONE. The build-before-
+  // delete plan was to keep them until Activate cleared the dates — and the
+  // gate locked real workshop attendees out three times in one day, because
+  // deployed code does not delete data and the press kept not happening.
+  // The owner's rule is absolute ("Do not expire any account"), so now the
+  // code cannot express a lockout at all. This test keeps the message
+  // extinct in every server file, middleware included.
+  it('NO door anywhere can refuse an account for a date — the message is extinct', () => {
+    const middleware = readFileSync(path.join(here, 'middleware', 'auth.js'), 'utf8');
+    // The full emitted string, not the phrase — comments may cite history,
+    // but no code path may say this to a person again.
+    expect(source).not.toMatch(/Account has expired — contact support to renew/);
+    expect(middleware).not.toMatch(/Account has expired — contact support to renew/);
+    // And the middleware no longer even reads the column it used to enforce.
+    expect(middleware).not.toMatch(/SELECT[^']*expires_at/);
   });
 });
 
