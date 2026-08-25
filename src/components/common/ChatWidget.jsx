@@ -37,10 +37,28 @@ export default function ChatWidget() {
 
   return (
     <>
+      {/* ── SUPPORT BUBBLE ────────────────────────────────────────────────
+          TOP-right on phones, bottom-right from `sm` up.
+
+          At bottom-6 it landed ON the Generate button. Image, Video and Audio
+          all put their prompt bar at the bottom of a phone screen, and a tap
+          on the right of GENERATE opened support instead of generating —
+          measured with elementsFromPoint after the owner's screenshot showed
+          the bubble sitting on it.
+
+          Raising it by a fixed amount is not a fix: the bar is 278px tall at
+          390px wide and its height CHANGES with how many chip rows wrap, so
+          any bottom offset that clears it today stops clearing it tomorrow.
+          The top of a phone screen has a 475px gap below the header with
+          nothing in it, and it cannot be eaten by a control row growing.
+
+          A floating button and a fixed bottom bar will always fight for the
+          same corner on a small screen. This moves the fight somewhere there
+          is room. */}
       {/* Chat Bubble Button */}
       <button
         onClick={() => setOpen(o => !o)}
-        className="fixed bottom-6 right-6 z-[200] w-14 h-14 rounded-full flex items-center justify-center shadow-lg transition-all duration-300"
+        className="fixed top-20 right-3 sm:top-auto sm:bottom-6 sm:right-6 z-[200] w-14 h-14 rounded-full flex items-center justify-center shadow-lg transition-all duration-300"
         style={{ background: '#E01E1E' }}
         aria-label="Open chat"
       >

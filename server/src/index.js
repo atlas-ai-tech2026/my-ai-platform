@@ -16,10 +16,14 @@ import { pool, isReady as dbReady, migrate, ADMIN_EMAIL } from './db.js';
 import { persistOrFallback, persistBuffer, isReady as spacesReady, uploadPrivate, listKeys, deleteKey,
          listAllMedia, readObject, primaryObjectExists } from './storage.js';
 import { configureKie, kieCreateTask, kieGetTask, kiePollUntilDone, kieUploadBuffer, kieGetCredits } from './kie.js';
+import { configureLlm, llmText, llmConfig } from './llm.js';
 import { estimateKieCredits, backfillKieEstimate, KIE_USD_PER_CREDIT,
          KIE_CALIBRATION, kieBilledUsdPerCredit } from './kie-pricing.js';
 import { estimateFalCost, backfillFalEstimate } from './fal-pricing.js';
 import { publicReason } from './sanitize.js';
+import { deepHealth } from './health-deep.js';
+import { AGENT_SYSTEM } from './edit-agent-prompt.js';
+import { formatProviderError, providerErrorParts, isProviderRefusal } from './provider-error.js';
 import { normalizeBulkEmails, generateBulkPassword } from './bulk-helpers.js';
 import { mayRedeem, capForInvites, splitInvites, REFUSAL } from './promo-audience.js';
 import { groupByExpiryDay, summarise, actionable, SOON_DAYS } from './expiry-report.js';
@@ -102,6 +106,7 @@ import { registerPnlRoutes } from './pnl-routes.js';
 import { registerReliabilityRoutes } from './reliability-routes.js';
 import { registerCustomerRoutes } from './customer-routes.js';
 import { registerWaitlistRoutes } from './waitlist.js';
+import { registerEditEventRoutes } from './edit-events.js';
 import { registerSopRoutes, scheduleSopJobs } from './sop-routes.js';
 import { registerTaskRoutes, ensureTasksTable, upsertTask } from './tasks.js';
 import { seedTasks } from './tasks-seed.js';
@@ -264,7 +269,28 @@ app.use(helmet({
       //
       // A HASH, never 'unsafe-inline': the latter would switch off what N15
       // bought in the July audit, in exchange for a heatmap.
-      scriptSrc: ["'self'", ...CLARITY_CSP],
+      //
+      // ── 'wasm-unsafe-eval' — ADDED 2026-08-21 FOR THE /edit MODULE ────────
+      // The editor runs ffmpeg compiled to WebAssembly in the browser, because
+      // DigitalOcean's Node buildpack has no ffmpeg and production's two boxes
+      // are 1 vCPU each — a server render would fight Express for the core and
+      // slow the live site. WebAssembly.instantiate is blocked by CSP without
+      // this directive, and it fails looking like a broken build rather than
+      // like a policy decision.
+      //
+      // This is NOT 'unsafe-eval', and the difference is the whole point:
+      // 'wasm-unsafe-eval' permits compiling WebAssembly ONLY. It does not
+      // permit eval() of JavaScript strings, new Function(), or setTimeout on a
+      // string — the injection paths 'unsafe-eval' would reopen and that the
+      // July audit closed. It is the narrowest directive that lets WebAssembly
+      // run at all.
+      //
+      // The wasm binary itself is served from OUR OWN ORIGIN (public/ffmpeg/,
+      // copied out of node_modules at build time), so 'self' already covers
+      // fetching it and no CDN is added to connectSrc. Loading it from unpkg —
+      // which is what every ffmpeg.wasm example does — would have meant
+      // anything published there could execute inside a signed-in session.
+      scriptSrc: ["'self'", "'wasm-unsafe-eval'", ...CLARITY_CSP],
       styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
       fontSrc: ["'self'", 'https://fonts.gstatic.com', 'data:'],
       // N15 (recheck 2026-08-03): connect-src was 'https:' — anything on the
@@ -588,6 +614,17 @@ function requireFalKey(req, res, next) {
 const falSubscribe = (model, options, label) =>
   withProviderDeadline((signal) => fal.subscribe(model, { ...options, abortSignal: signal }), label);
 
+/**
+ * Log what the PROVIDER actually said, not just the HTTP reason phrase — see
+ * provider-error.js for why this exists and what it cost to learn.
+ * Returns the status so the caller can tell "the provider refused us" from a
+ * real bug on our side.
+ */
+function logProviderError(tag, error) {
+  for (const line of formatProviderError(tag, error)) console.error(line);
+  return providerErrorParts(error).status;
+}
+
 // A provider timeout is a 504, not a 500, and its message is already
 // user-safe. Returns true when it handled the response. The caller's
 // refund (existing path) has already run by the time this is called.
@@ -603,6 +640,41 @@ function respondIfProviderTimeout(res, error) {
 // itself (dotenv runs after imports are hoisted).
 const KIE_KEY = (process.env.KIE_KEY || '').trim();
 configureKie(KIE_KEY);
+
+// ─── TEXT LLM CONFIG (#76) ─────────────────────────────────────────
+// The prompt Enhance buttons and the Edit Cut agent both need a text model.
+// Both used to call fal-ai/any-llm directly, copy-pasted, and FAL now answers
+// 403 — so both were dead for the same reason and only one got reported.
+//
+// Now they share llm.js, which defaults to kie (already paid for, already
+// keyed, 27 chat models) and keeps FAL reachable via LLM_PROVIDER=fal so a
+// revived key still works. LLM_MODEL overrides the model without a deploy.
+configureLlm({
+  kieKey: KIE_KEY,
+  falKey: FAL_KEY,
+  falSubscribe,
+  provider: (process.env.LLM_PROVIDER || '').trim() || null,
+  model: (process.env.LLM_MODEL || '').trim() || null,
+});
+{
+  const { provider, model, ready, why } = llmConfig();
+  if (ready) console.log(`[voxel-api] text LLM: ${provider} · ${model}`);
+  else console.error(`[voxel-api] text LLM UNAVAILABLE — ${why}. Enhance and the Edit Cut agent will refuse.`);
+}
+
+/** Gate for the two text-LLM routes. Was requireFalKey, which asked the wrong
+ *  question: it checked FAL specifically, so it would wave a request through
+ *  to a provider that had been swapped out from under it. */
+function requireLlm(req, res, next) {
+  const { ready, why } = llmConfig();
+  if (!ready) {
+    console.error(`[voxel-api] LLM route refused: ${why}`);
+    return res.status(503).json({
+      error: 'The AI assistant is not configured. Please contact support.',
+    });
+  }
+  next();
+}
 if (!KIE_KEY) {
   console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
   console.error('[FATAL-CONFIG] KIE_KEY is not set.');
@@ -2924,7 +2996,7 @@ app.post('/api/llm', verifyJwt, requireNotBanned, enhanceLimiter, async (req, re
 // red bolt button in the Image and Video prompt areas.
 // H2 (audit 2026-07-28): was unauthenticated — every call spends money on
 // a provider LLM. Now JWT + not-banned + a conservative per-user limit.
-app.post('/api/enhance-prompt', verifyJwt, requireNotBanned, enhanceLimiter, requireFalKey, async (req, res) => {
+app.post('/api/enhance-prompt', verifyJwt, requireNotBanned, enhanceLimiter, requireLlm, async (req, res) => {
   const { prompt, type } = req.body || {};
   if (!prompt || typeof prompt !== 'string' || !prompt.trim()) {
     return res.status(400).json({ error: 'prompt required' });
@@ -2942,33 +3014,77 @@ Add visual details: subject, setting, lighting, lens, framing, mood, color, text
 Keep the original intent. 50–90 words. One paragraph.`;
 
   try {
-    const result = await falSubscribe('fal-ai/any-llm', {
-      input: {
-        model: 'google/gemini-flash-1.5',
-        prompt: prompt.trim(),
-        system_prompt: system,
-      },
-      logs: false,
-    }, 'FAL-ENHANCE');
-    // any-llm returns the text under .output (sometimes nested in .data)
-    const raw =
-      result?.data?.output ??
-      result?.output ??
-      result?.data?.text ??
-      result?.text ??
-      '';
-    const enhanced = String(raw).trim();
-    if (!enhanced) {
-      console.error('[ENHANCE] empty LLM response. Raw:', JSON.stringify(result, null, 2));
-      return res.status(502).json({
-        error: 'Enhancer returned no output. Try again or rephrase your prompt.',
-      });
-    }
+    // Provider choice and reply-shape handling both live in llm.js now. This
+    // route had its own copy of the extraction, which is how it came to be
+    // broken in exactly the same way as the agent without anyone noticing.
+    const enhanced = await llmText({ system, prompt: prompt.trim(), tag: 'ENHANCE' });
     return res.json({ prompt: enhanced });
   } catch (e) {
-    console.error('[ENHANCE] ❌ LLM error:', e.message);
-    if (respondIfProviderTimeout(res, e)) return;
+    if (respondIfProviderTimeout(res, e)) { logProviderError('ENHANCE', e); return; }
+    const status = logProviderError('ENHANCE', e);
+    if (isProviderRefusal(status)) {
+      return res.status(502).json({
+        error: 'The prompt enhancer is unavailable — the AI provider refused the request. Your prompt is unchanged.',
+      });
+    }
     return res.status(500).json({ error: 'Enhancer failed: ' + publicError(e.message) });
+  }
+});
+
+// ─── EDIT CUT — THE CHAT AGENT ─────────────────────────────────────
+// Turns "cut the first three seconds" into commands the timeline understands.
+//
+// ── WHAT THIS ROUTE DELIBERATELY DOES NOT DO ──────────────────────
+// It does not touch the project, and it does not validate the commands. It is
+// an LLM proxy and nothing more. The browser holds the real project, checks
+// every command against it (src/lib/edit-agent.js) and refuses anything that
+// does not fit. Validating here instead would mean trusting a SUMMARY the
+// client sent us to describe a project we cannot see — which proves nothing
+// and would let a bad answer through with a server's authority behind it.
+//
+// So the trust boundary is: this route can return nonsense, and the worst
+// outcome is a message in the chat saying the edit was refused.
+//
+// The command list below MUST match COMMANDS in src/lib/edit-agent.js. That is
+// not left to discipline — src/lib/edit-agent-contract.test.js fails if they
+// drift, because a command the model is never told about looks to a customer
+// exactly like the feature quietly not working.
+app.post('/api/edit-agent', verifyJwt, requireNotBanned, enhanceLimiter, requireLlm, async (req, res) => {
+  const { instruction, timeline } = req.body || {};
+  if (!instruction || typeof instruction !== 'string' || !instruction.trim()) {
+    return res.status(400).json({ error: 'Say what you want changed.' });
+  }
+  if (instruction.length > 2000) {
+    return res.status(400).json({ error: 'That instruction is very long — try saying it in a sentence.' });
+  }
+
+  // The summary is built by the client and is small by construction. A cap
+  // anyway, because an oversized body here is a bill, not just a slow request.
+  const summary = JSON.stringify(timeline ?? {});
+  if (summary.length > 60_000) {
+    return res.status(413).json({ error: 'That project is too large for the assistant to read in one go.' });
+  }
+
+  try {
+    const raw = await llmText({
+      system: AGENT_SYSTEM,
+      prompt: `TIMELINE:\n${summary}\n\nINSTRUCTION:\n${instruction.trim()}`,
+      tag: 'EDIT-AGENT',
+    });
+    // Returned as TEXT on purpose. The browser parses it, because the browser
+    // is the only place that can check it against the real project.
+    return res.json({ raw });
+  } catch (e) {
+    if (respondIfProviderTimeout(res, e)) { logProviderError('EDIT-AGENT', e); return; }
+    const status = logProviderError('EDIT-AGENT', e);
+    if (isProviderRefusal(status)) {
+      // NOT "try again" — nothing the customer does will change it, and the
+      // fix is on the account, not in the timeline. Their work is untouched.
+      return res.status(502).json({
+        error: 'The assistant is unavailable — the AI provider refused the request. Your timeline has not been changed.',
+      });
+    }
+    return res.status(500).json({ error: 'The assistant failed: ' + publicError(e.message) });
   }
 });
 
@@ -4605,6 +4721,19 @@ registerCustomerRoutes(app, { pool, dbReady, adminGate });
 // Edit was lost while the page kept asking.
 registerWaitlistRoutes(app, {
   pool, dbReady, adminGate, limiter: waitlistLimiter, resolveIp: clientIp,
+});
+
+// ─── EDIT ACTIVITY (task #31) ────────────────────────────────────────────────
+// The count that decides whether Phase 2 of the editor is worth building.
+// Phase 1 runs in the browser and costs nothing; Phase 2 adds a render worker
+// at $12–24/month, which is roughly ONE extra Basic subscription. Cheap to
+// decide on evidence, expensive to guess.
+//
+// The ADMIN route ships in the same breath as the recording on purpose: the
+// waitlist bug in waitlist.js was addresses nobody could see, and a count
+// nobody can read is the same bug wearing a different hat.
+registerEditEventRoutes(app, {
+  pool, dbReady, verifyJwt, adminGate, limiter: waitlistLimiter,
 });
 
 // ─── SOP / DAILY OPERATIONS (task #52) ───────────────────────────────────────
@@ -6476,6 +6605,13 @@ app.get('/api/pricing', (req, res) => {
 // those don't change the frontend bundle hash).
 const SERVER_STARTED_AT = new Date().toISOString();
 
+// ── LIVENESS ──────────────────────────────────────────────────────
+// DigitalOcean's health_check calls this every 10 seconds and restarts the
+// container after six failures. It answers ONE question — has this process
+// wedged — and it must never touch a dependency: a database that is merely
+// SLOW would start killing healthy containers and turn a degradation into an
+// outage. `db_configured` means a pool was CONSTRUCTED, nothing more. For
+// "does the database actually answer", see /api/ready below.
 app.get('/api/health', (req, res) => {
   res.json({
     status: 'ok',
@@ -6484,6 +6620,45 @@ app.get('/api/health', (req, res) => {
     kie_configured: !!KIE_KEY,
     db_configured: dbReady(),
     auth_configured: !!JWT_SECRET,
+  });
+});
+
+// ── READINESS ─────────────────────────────────────────────────────
+// "Is the site actually working", for an EXTERNAL monitor — the only kind
+// that can tell you anything when the whole app is down, because a check
+// running inside a dead app runs not at all.
+//
+// Answers 503 when the database does not reply. That status code is the
+// entire point: an uptime monitor reads the code, and a body saying
+// {"ok":false} with a 200 on it is a check that never fires — worse than no
+// check, because it actively reassures.
+//
+// UNAUTHENTICATED on purpose, so a monitor can call it without holding a
+// credential. It therefore says as little as possible: coarse per-dependency
+// state, never a connection string. Rate limited because it is the one open
+// endpoint that touches the database.
+const readyLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 60,                       // a monitor needs one every 2 minutes
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { ok: false, error: 'Too many readiness checks.' },
+});
+
+app.get('/api/ready', readyLimiter, async (req, res) => {
+  const result = await deepHealth({
+    pool: dbReady() ? pool : null,
+    storageReady: spacesReady(),
+  });
+  if (!result.ok) {
+    // Full detail to the LOG, where it is safe and where somebody debugging
+    // will look. The response stays coarse.
+    console.error('[ready] NOT READY:', JSON.stringify(result.checks));
+  }
+  res.status(result.status).json({
+    ok: result.ok,
+    started_at: SERVER_STARTED_AT,
+    checks: result.checks,
   });
 });
 
@@ -6507,7 +6682,16 @@ const ROUTE_META = {
   'image': { title: 'AI Image Generator — VOXEL.AI', desc: 'Generate production-quality AI images with camera, lens and aperture control. Nano Banana Pro, GPT Image 2, Midjourney and more.' },
   'video': { title: 'AI Video Generator — VOXEL.AI', desc: 'Create cinematic AI video from text or images with Kling 3.0, Veo 3, Sora 2, Seedance 2.0 — camera motion, duration and audio control.' },
   'audio': { title: 'AI Audio & Voice Studio — VOXEL.AI', desc: 'Synthesize voice-overs and audio with ElevenLabs-quality AI voices in the VOXEL.AI Audio Studio.' },
-  'edit': { title: 'AI Video Editor — VOXEL.AI', desc: 'Edit and refine AI-generated video with Kling O1 and omni editing tools on VOXEL.AI.' },
+  // Rewritten 2026-08-21 when the editor actually shipped. It used to promise
+  // "Kling O1 and omni editing tools", which /edit has never had — this is the
+  // description search engines index, so it was the site advertising a feature
+  // that did not exist (task #30's problem, in the one place nobody looks).
+  // TEMPORARY, with a ROUTE_META entry ON PURPOSE. Leaving it out is what this
+  // very list warns about: an unlisted route renders perfectly inside the SPA
+  // and answers HTTP 404 to every real request — so the page built for the
+  // owner to LOOK at could not be opened. noindex so it is never surfaced.
+  'timelinepreview': { title: 'Timeline preview — VOXEL', desc: 'Internal preview of the Voxel Edit Cut timeline. Not a public page.', noindex: true },
+  'edit': { title: 'Free Video Editor — VOXEL.AI', desc: 'Trim your AI-generated videos, resize them for Reels, posts and YouTube, and add captions — free, with no credits used.' },
   'apps': { title: 'AI Apps & Tools — VOXEL.AI', desc: 'Face swap, relight, upscale, skin enhancer and more one-click AI apps on VOXEL.AI.' },
   'templates': { title: 'AI Templates — VOXEL.AI', desc: 'Start from proven AI generation templates for images and video on VOXEL.AI.' },
   'community': { title: 'Community — VOXEL.AI', desc: 'See what creators are making with VOXEL.AI and share your own AI generations.' },

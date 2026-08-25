@@ -395,10 +395,13 @@ export default function CameraSelector({ selection, onChange, onClose }) {
         </div>
       </div>
 
-      {/* 4 columns */}
-      <div style={{
-        display: 'grid', gridTemplateColumns: '1.1fr 1.1fr 0.85fr 0.95fr', gap: 6,
-        height: 300, minHeight: 0,
+      {/* Four columns on a laptop, 2×2 on a phone. The grid definition and
+          the height live in .camera-columns because an inline style cannot
+          carry a media query, and at 390px the four columns measured
+          128/67/52/58px — a 52px column for choosing a focal length. */}
+      <div className="camera-columns" style={{
+        gap: 6,
+        minHeight: 0,
         background: 'rgba(255,255,255,0.018)',
         border: '1px solid rgba(255,255,255,0.05)',
         borderRadius: 14, padding: 6,

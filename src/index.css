@@ -310,6 +310,33 @@ body {
   display: none;
 }
 
+/* ── THE PROMPT BAR'S CONTROL ROW ──────────────────────────────────────────
+   Model chip · Negative prompt · Style · Cinema · GENERATE.
+
+   On a wide screen these fit on one line and nowrap is right. On a phone they
+   do not, and the row was `nowrap` + `overflow-x: auto` + `hide-scrollbar` —
+   so it scrolled sideways with NO SCROLLBAR TO SEE. Measured at 390px:
+   GENERATE sat 456px off the right edge. The primary action of the product
+   was off-screen with nothing on screen suggesting you could swipe to it.
+
+   Found 2026-08-23 by measuring every control's position against the viewport,
+   after the owner sent a phone screenshot with GENERATE sliced off.
+
+   Below 640px the row WRAPS instead. Generate moves to its own line, which is
+   where a primary action belongs on a phone anyway. */
+.prompt-control-row {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+}
+
+@media (max-width: 640px) {
+  .prompt-control-row {
+    flex-wrap: wrap;
+    overflow-x: visible;
+    row-gap: 8px;
+  }
+}
+
 /* Progress bar */
 .progress-bar {
   position: fixed;
@@ -339,3 +366,68 @@ body {
 .waveform-bar:nth-child(6) { animation-delay: 0.5s; }
 .waveform-bar:nth-child(7) { animation-delay: 0.6s; }
 .waveform-bar:nth-child(8) { animation-delay: 0.7s; }
+
+/* ── THE VIDEO / AUDIO SPLIT ───────────────────────────────────────────────
+   A 380px control panel beside a results area. On a laptop that is right; on
+   a 390px phone the panel is 380px + 20px of margin and carries
+   flex-shrink: 0, so it takes the whole screen, the results column collapses
+   to ZERO width, and everything in it — the Creations/Collections tabs, the
+   grid — spills off the right edge unreachable.
+
+   Measured 2026-08-23 at 390px: the Creations tab sat 158px past the edge and
+   Collections 258px, with the results container reporting width 0 at x=400.
+
+   Below 900px the two stack and the page scrolls vertically instead. The
+   breakpoint is 900 rather than 640 because 380 + 20 + a usable results
+   column needs more room than a tablet in portrait has. */
+.split-row {
+  display: flex;
+}
+
+.split-panel {
+  width: 380px;
+  flex-shrink: 0;
+}
+
+@media (max-width: 900px) {
+  .split-row {
+    flex-direction: column;
+    overflow-y: auto;
+    overflow-x: hidden;
+  }
+
+  .split-panel {
+    width: auto;
+    flex-shrink: 1;
+    margin-left: 12px;
+    margin-right: 12px;
+  }
+}
+
+
+/* ── THE CAMERA SHEET'S FOUR COLUMNS ───────────────────────────────────────
+   Cameras · Lenses · Focal · F-Stop, side by side. Fine on a laptop.
+
+   On a 390px phone the four columns measured 128 / 67 / 52 / 58 pixels —
+   a fifty-two pixel column for choosing a focal length. The owner reported it
+   from their own phone as the focal length being unreachable, and on a
+   narrower or zoomed screen the fourth column is pushed off the edge
+   entirely.
+
+   Below 640px it becomes 2×2. Each cell then gets about 165px, which is
+   enough to read a label and hit it. Stacking all four vertically was the
+   other option and would make the sheet roughly 1200px tall inside a prompt
+   bar that is already tall — trading one unusable shape for another. */
+.camera-columns {
+  display: grid;
+  grid-template-columns: 1.1fr 1.1fr 0.85fr 0.95fr;
+  height: 300px;
+}
+
+@media (max-width: 640px) {
+  .camera-columns {
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: 1fr 1fr;
+    height: 420px;
+  }
+}

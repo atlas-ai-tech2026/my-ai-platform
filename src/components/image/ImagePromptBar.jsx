@@ -938,16 +938,18 @@ export default function ImagePromptBar({
           )}
         </div>
 
-        {/* ── Chips Row — single line, compact gap so chip cluster +
-            Generate fit inside the 900 px bar without overflow or
-            horizontal scroll. ── */}
+        {/* ── Chips Row ────────────────────────────────────────────────
+            One line on a wide screen; WRAPS below 640px. It used to be
+            nowrap + overflow-x:auto + hide-scrollbar, sized for the 900px
+            bar — which on a 390px phone put GENERATE 456px off the right
+            edge, reachable only by swiping a row with no visible scrollbar.
+            flexWrap and overflowX now live in .prompt-control-row so a media
+            query can reach them; an inline style cannot carry one. ── */}
         <div style={{
           padding: '6px 14px 14px 14px',
           display: 'flex', alignItems: 'center', gap: 5,
-          flexWrap: 'nowrap',
-          overflowX: 'auto',
         }}
-          className="hide-scrollbar"
+          className="hide-scrollbar prompt-control-row"
         >
           {/* Model chip — V_PromptBar_UltraGlass active recipe:
               radius 999, padding 10/18 (slightly bigger than inactive
@@ -995,10 +997,17 @@ export default function ImagePromptBar({
 
           {/* Image Count stepper */}
           <div style={{ ...chipBase, padding: '0 6px', gap: 2, cursor: 'default', opacity: smartComposeActive ? 0.4 : 1 }}>
+            {/* 28×32, not the 18×18 these were. The icon is still 10px — only
+                the area that answers a thumb grew, and it takes the chip's
+                full height because that space was already there and empty.
+                They also had no title, so they were the two controls on this
+                bar with no tooltip at all. */}
             <button
               onClick={() => !smartComposeActive && onCountChange && onCountChange(Math.max(1, imageCount - 1))}
               disabled={smartComposeActive}
-              style={{ width: 18, height: 18, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 4, background: 'transparent', border: 'none', cursor: smartComposeActive ? 'not-allowed' : 'pointer', color: 'rgba(255,255,255,0.7)' }}
+              title="Fewer images"
+              aria-label="Fewer images"
+              style={{ width: 28, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 6, background: 'transparent', border: 'none', cursor: smartComposeActive ? 'not-allowed' : 'pointer', color: 'rgba(255,255,255,0.7)' }}
               onMouseEnter={e => !smartComposeActive && (e.currentTarget.style.background = 'rgba(255,255,255,0.1)')}
               onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
             >
@@ -1008,7 +1017,9 @@ export default function ImagePromptBar({
             <button
               onClick={() => !smartComposeActive && onCountChange && onCountChange(Math.min(4, imageCount + 1))}
               disabled={smartComposeActive}
-              style={{ width: 18, height: 18, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 4, background: 'transparent', border: 'none', cursor: smartComposeActive ? 'not-allowed' : 'pointer', color: 'rgba(255,255,255,0.7)' }}
+              title="More images"
+              aria-label="More images"
+              style={{ width: 28, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 6, background: 'transparent', border: 'none', cursor: smartComposeActive ? 'not-allowed' : 'pointer', color: 'rgba(255,255,255,0.7)' }}
               onMouseEnter={e => !smartComposeActive && (e.currentTarget.style.background = 'rgba(255,255,255,0.1)')}
               onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
             >

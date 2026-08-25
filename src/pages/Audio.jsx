@@ -328,6 +328,12 @@ export default function Audio() {
         <style>{`
           .voxel-audio-grid { display: grid; gap: 12px; flex: 1; min-height: 0; grid-template-columns: 1fr 360px; }
           @media (max-width: 1023px) { .voxel-audio-grid { grid-template-columns: 1fr; } }
+          /* A grid ITEM defaults to min-width:auto — "never shrink below your
+             own content". So the single 1fr track floored at the panels'
+             min-content width (438px measured) inside a 334px container, and
+             the ancestor's overflow-x:hidden silently ate the difference.
+             Collapsing to one column was never enough on its own. */
+          .voxel-audio-grid > * { min-width: 0; }
         `}</style>
         <div className="voxel-audio-grid">
           <WaveformStage

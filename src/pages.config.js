@@ -18,6 +18,11 @@ const Apps = lazy(() => import('./pages/Apps'));
 const Audio = lazy(() => import('./pages/Audio'));
 const Community = lazy(() => import('./pages/Community'));
 const Edit = lazy(() => import('./pages/Edit'));
+// TEMPORARY — a scratch route so the timeline can be looked at while it is
+// being built. Not linked from anywhere and deliberately absent from
+// ROUTE_META, so it answers 404 to crawlers. Delete with the file when the real
+// /edit workspace exists.
+const TimelinePreview = lazy(() => import('./pages/TimelinePreview'));
 const Explore = lazy(() => import('./pages/Explore'));
 const Image = lazy(() => import('./pages/Image'));
 const Pricing = lazy(() => import('./pages/Pricing'));
@@ -36,6 +41,7 @@ export const PAGES = {
     "Audio": Audio,
     "Community": Community,
     "Edit": Edit,
+    "TimelinePreview": TimelinePreview,
     "Explore": Explore,
     "Image": Image,
     "Pricing": Pricing,

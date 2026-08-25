@@ -743,16 +743,20 @@ export default function Video() {
           state is the source of truth for which left panel renders. */}
       <VideoTopTabs active={videoTab} onChange={setVideoTab} />
 
-      <div style={{ display: 'flex', flex: 1, minHeight: 0, overflow: 'hidden', position: 'relative' }}>
+      {/* display and flex-direction live in .split-row so a media query can
+          reach them — an inline style cannot carry one, and below 900px
+          these two columns must stack or the results column collapses to
+          zero width and its contents leave the screen. */}
+      <div className="split-row" style={{ flex: 1, minHeight: 0, overflow: 'hidden', position: 'relative' }}>
 
       {/* LEFT — glass control panel (was on the right pre-#9). 380px wide,
           hugs the left edge. Margin flipped from `20 20 20 0` →
           `20 0 20 20`. Inner panel uses flex: 1 + min-height: 0 so the
           textarea can shrink and the GENERATE footer pins to the bottom
           regardless of viewport height (no scrolling needed). */}
-      <div style={{
+      <div className="split-panel" style={{
         position: 'relative', zIndex: 2,
-        width: 380, margin: '14px 0 20px 20px',
+        margin: '14px 0 20px 20px',
         borderRadius: 22,
         background: 'rgba(20,18,20,0.38)',
         backdropFilter: 'blur(36px) saturate(1.4)',
@@ -762,7 +766,6 @@ export default function Video() {
         // Scroll vertically when the panel is taller than a short viewport so
         // the GENERATE footer stays reachable (was overflow:hidden → clipped).
         overflowY: 'auto', overflowX: 'hidden',
-        flexShrink: 0,
         display: 'flex', flexDirection: 'column',
       }}>
         {videoTab === 'motion' ? (

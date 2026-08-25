@@ -36,6 +36,34 @@ const STATE_COLOUR = {
   warn: 'var(--crm-amber)', soon: 'var(--crm-w60)', ok: 'var(--crm-w40)',
 };
 
+/**
+ * How stale a pulled figure is, in hours. Exported so the test can pin the
+ * boundary rather than guess at it.
+ */
+export function staleHours(iso) {
+  // `new Date(null)` is the EPOCH, not an invalid date — so a missing
+  // timestamp came out finite and the screen read "20690 days old". Caught by
+  // the test rather than by anybody looking at it. Absent and unreadable both
+  // mean the same thing here: we do not know, so treat it as stale.
+  if (!iso) return Infinity;
+  const t = new Date(iso).getTime();
+  if (!Number.isFinite(t)) return Infinity;
+  return (Date.now() - t) / 36e5;
+}
+
+/**
+ * Says WHEN, not "recently". "Pulled 3 days ago" is a fact somebody can act
+ * on; "cached" is a word that makes them assume it is close enough.
+ */
+export function freshnessLine(iso) {
+  const h = staleHours(iso);
+  if (!Number.isFinite(h)) return 'DigitalOcean costs are from an earlier pull — press Refresh for today.';
+  if (h < 1) return 'DigitalOcean costs pulled less than an hour ago.';
+  if (h < 36) return `DigitalOcean costs pulled ${Math.round(h)} hour${Math.round(h) === 1 ? '' : 's'} ago.`;
+  const d = Math.round(h / 24);
+  return `⚠ DigitalOcean costs are ${d} day${d === 1 ? '' : 's'} old — press Refresh, or the provider was unreachable.`;
+}
+
 export default function ExpensesTab({ onError }) {
   const [data, setData] = useState(null);
   const [margin, setMargin] = useState('');
@@ -188,6 +216,25 @@ export default function ExpensesTab({ onError }) {
         {data.digitalocean.note && (
           <div style={{ fontSize: 11.5, color: 'var(--crm-amber)', marginTop: 6, lineHeight: 1.5 }}>
             {data.digitalocean.note}
+          </div>
+        )}
+
+        {/* ── HOW OLD THESE NUMBERS ARE ──────────────────────────────────
+            The server has always sent `lastFetched` and nothing rendered it,
+            so a cached figure looked exactly like a fresh one. That matters
+            the moment DigitalOcean's billing API is unavailable — which it
+            was on 2026-08-23, returning 504 while this tab would have shown
+            last week's cost as though it were today's.
+
+            A cost you believe is current, and is not, is worse than no cost
+            at all: you act on it. */}
+        {data.digitalocean.lastFetched && (
+          <div
+            style={{ fontSize: 11.5, marginTop: 6, lineHeight: 1.5,
+              color: staleHours(data.digitalocean.lastFetched) > 36 ? 'var(--crm-amber)' : 'var(--crm-w40)' }}
+            data-testid="do-freshness"
+          >
+            {freshnessLine(data.digitalocean.lastFetched)}
           </div>
         )}
         <div style={{ marginTop: 10, display: 'grid', gap: 4 }}>

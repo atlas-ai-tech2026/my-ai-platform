@@ -332,19 +332,29 @@ export default function FeatureCardsRow() {
 
         {pageCount > 1 && (
           <div className="flex justify-center gap-2 mt-6">
+            {/* The BUTTON is 28px and invisible; the DOT inside it is the 7px
+                you can see. It used to be a 7px button — unhittable with a
+                thumb. The obvious fix, an oversized invisible hit area, is
+                wrong here: the dots sit 15px apart, so 44px boxes would
+                overlap and the last one painted would swallow every tap. */}
             {Array.from({ length: pageCount }).map((_, i) => (
               <button
                 key={i}
                 onClick={() => goTo(i)}
                 aria-label={`Page ${i + 1}`}
-                className="rounded-full transition-all"
-                style={{
-                  width: i === page ? 22 : 7,
-                  height: 7,
-                  background:
-                    i === page ? '#E01E1E' : 'rgba(255,255,255,0.25)',
-                }}
-              />
+                className="flex items-center justify-center"
+                style={{ width: 28, height: 28 }}
+              >
+                <span
+                  className="rounded-full transition-all block"
+                  style={{
+                    width: i === page ? 22 : 7,
+                    height: 7,
+                    background:
+                      i === page ? '#E01E1E' : 'rgba(255,255,255,0.25)',
+                  }}
+                />
+              </button>
             ))}
           </div>
         )}

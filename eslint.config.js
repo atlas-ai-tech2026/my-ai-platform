@@ -97,6 +97,20 @@ export default [
     // rule gets turned off again — which is how it went missing in the first
     // place.
     files: ["**/*.test.{js,jsx}"],
-    languageOptions: { globals: { ...globals.node, ...globals.browser } },
+    languageOptions: {
+      globals: { ...globals.node, ...globals.browser },
+      // A file called *.test.jsx contains JSX — that is what the extension
+      // means. The JSX-enabling block above is scoped to components/ and
+      // pages/, so a test living beside the thing it tests (a hook in
+      // src/lib/, say) was matched ONLY by this block, parsed without JSX, and
+      // failed with "Unexpected token <" — a config gap reported as if the
+      // test file were broken. Enabling it here fixes it wherever the test
+      // sits, and turns no rule on or off.
+      parserOptions: {
+        ecmaVersion: 2022,
+        sourceType: "module",
+        ecmaFeatures: { jsx: true },
+      },
+    },
   },
 ];
