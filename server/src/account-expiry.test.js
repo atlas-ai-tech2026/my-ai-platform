@@ -175,40 +175,40 @@ describe('sparing the live workshop', () => {
 // learned their access had ended when a generation failed.
 //
 // Microsoft's callback redirects through google/complete, so one fix covers it.
-describe('an expired account is refused at every sign-in path', () => {
+// REVERSED 2026-08-25, in full, by the owner: "Do not expire any account.
+// This is very important." This block used to assert the OPPOSITE — that an
+// expired account was refused at every path. The gate it protected locked a
+// live workshop out three times in one day, so the doors are gone and these
+// tests now hold the new rule with the same grip the old ones held the old.
+describe('NO account is ever refused for a date, at any path', () => {
   const guard = /Account has expired — contact support to renew\./g;
   const complete = source.slice(
     source.indexOf("app.post('/api/auth/google/complete'"),
     source.indexOf("app.get('/api/auth/microsoft'")
   );
 
-  it('refuses at password login', () => {
+  it('password login never refuses on a stored date', () => {
     const login = source.slice(
       source.indexOf("app.post('/api/auth/login'"),
       source.indexOf("app.get('/api/auth/google'")
     );
-    expect(login).toMatch(guard);
+    expect(login.length).toBeGreaterThan(200);
+    expect(login).not.toMatch(guard);
   });
 
-  it('refuses at social sign-in completion', () => {
+  it('social sign-in completion never refuses on a stored date', () => {
     expect(complete.length).toBeGreaterThan(200);
-    expect(complete).toMatch(guard);
+    expect(complete).not.toMatch(guard);
   });
 
-  // A check against a column the query never selected reads as "not expired"
-  // for everyone — passing tests, guard silently dead.
-  it('actually selects expires_at there, or the check is always false', () => {
-    expect(complete).toMatch(/SELECT[^`]*expires_at[^`]*FROM users WHERE id = \$1/);
-  });
-
-  it('blocks on every spending request, not just at login', () => {
+  it('the per-request middleware neither refuses nor even reads the column', () => {
     const mw = readFileSync(path.join(here, 'middleware', 'auth.js'), 'utf8');
-    expect(mw).toMatch(/SELECT banned, expires_at/);
-    expect(mw).toMatch(guard);
+    expect(mw).not.toMatch(guard);
+    expect(mw).not.toMatch(/SELECT banned, expires_at/);
   });
 
-  // The reason expiry bites immediately instead of at the next sign-in: the
-  // row is re-read per request rather than trusted from the 7-day token.
+  // Still re-read per request — the BAN check depends on it, and a banned
+  // account must stop spending immediately, not at its next sign-in.
   it('re-reads the account rather than trusting the token', () => {
     const mw = readFileSync(path.join(here, 'middleware', 'auth.js'), 'utf8');
     expect(mw).toMatch(/FROM users WHERE id = \$1/);

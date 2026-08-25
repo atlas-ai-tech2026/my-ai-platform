@@ -3865,10 +3865,11 @@ app.post('/api/auth/login', loginLimiter, requireAuthInfra, async (req, res) => 
     if (row.banned) {
       return res.status(403).json({ error: 'Account is banned.' });
     }
-    // Bulk-provisioned accounts can expire (CRM Bulk tab).
-    if (row.expires_at && new Date(row.expires_at) <= new Date()) {
-      return res.status(403).json({ error: 'Account has expired — contact support to renew.' });
-    }
+    // ── NO EXPIRY CHECK HERE, ON PURPOSE (owner, 2026-08-25, third lockout
+    // incident that day) ── "Do not expire any account. This is very
+    // important." A stored users.expires_at is a historical record and must
+    // NEVER refuse a sign-in; what expires is CREDITS (credit_lots, the
+    // 30-day rule). A wiring test asserts this message stays extinct.
 
     // ── H5: TOTP second factor ──────────────────────────────────────
     // Enforced only for accounts that have COMPLETED setup (totp_enabled),
@@ -4086,15 +4087,9 @@ app.post('/api/auth/google/complete', authLimiter, async (req, res) => {
     const user = rows[0];
     if (!user) return res.status(401).json({ error: 'Account no longer exists.' });
     if (user.banned) return res.status(403).json({ error: 'Account is banned.' });
-    // Same hard-stop the password path applies at index.js:3633. Without it an
-    // expired account completes social sign-in, lands in the app looking signed
-    // in, and only discovers its access ended when the first generation is
-    // refused by requireNotBanned. No credits could ever be spent either way —
-    // this is about telling the truth at the door rather than three clicks in.
-    // Microsoft redirects through this same endpoint, so it is covered too.
-    if (user.expires_at && new Date(user.expires_at) <= new Date()) {
-      return res.status(403).json({ error: 'Account has expired — contact support to renew.' });
-    }
+    // ── NO EXPIRY CHECK HERE EITHER (owner, 2026-08-25) ── same as the
+    // password door: a stored date never refuses a sign-in. Accounts are
+    // permanent; credits expire (credit_lots).
 
     const isAdmin = user.role === 'admin';
     const token = jwt.sign(

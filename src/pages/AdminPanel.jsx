@@ -8,7 +8,9 @@ import { toast } from 'sonner';
 import { adminApi, ApiError, readCsrfCookie } from '@/lib/adminApi';
 import StatsCards from '@/components/admin/StatsCards';
 import UserTable from '@/components/admin/UserTable';
-import BulkExpiryPanel from '@/components/admin/BulkExpiryPanel';
+// BulkExpiryPanel unmounted 2026-08-25: sign-in no longer reads expiry dates
+// (owner's rule — accounts never expire), so a switch that "closes access"
+// would be a control that silently does nothing. Component kept on disk.
 import AudienceTab from '@/components/admin/AudienceTab';
 import ExpensesTab from '@/components/admin/ExpensesTab';
 import ExpiryPanel from '@/components/admin/ExpiryPanel';
@@ -345,9 +347,10 @@ export default function AdminPanel() {
             model locked. */}
         <ExpiryPanel onError={handleError} />
 
-        {/* Close access for a finished cohort. Deletes nothing; admins are
-            excluded server-side so this cannot lock the owner out. */}
-        <BulkExpiryPanel onDone={reload} onError={handleError} />
+        {/* The bulk "close access" switch used to sit here — retired with the
+            lockout model itself. Cohort economics are handled by credit
+            expiry now: the credits die on their own 30 days after they were
+            granted, and nobody is ever locked out. */}
 
         {/* Refund audit — cross-references failed videos vs refunds. */}
         <div style={{ marginBottom: 16 }}>
