@@ -74,14 +74,20 @@ describe('a promo code can carry an access period', () => {
     expect(source).toMatch(/active, expires_at, access_days\s*\n\s*FROM promo_codes/);
   });
 
-  // Extending rather than overwriting: someone with 30 days who redeems a
-  // 7-day code must not lose three weeks they already hold.
-  it('EXTENDS the existing expiry and never shortens it', () => {
-    expect(source).toMatch(/GREATEST\(\s*\n?\s*COALESCE\(expires_at, NOW\(\)\)/);
+  // Rewritten 2026-08-25 for the owner's rule. access_days used to EXTEND the
+  // account's lockout date (GREATEST(COALESCE(expires_at, NOW()) …)); accounts
+  // never expire any more, so the window now bounds how long the CODE'S
+  // CREDITS live instead, and redeeming must not touch users.expires_at.
+  it("bounds the CREDITS' life, and a code with no window grants the 30-day standard", () => {
+    expect(source).toMatch(/p\.access_days != null && Number\(p\.access_days\) > 0\s*\n?\s*\? Number\(p\.access_days\) : CREDIT_LIFE_DAYS/);
   });
 
-  it('does nothing at all when the code has no access period', () => {
-    expect(source).toMatch(/if \(p\.access_days != null && Number\(p\.access_days\) > 0\)/);
+  it('redeeming never writes an account lockout date', () => {
+    const redeemRoute = source.slice(
+      source.indexOf("app.post('/api/redeem-code'"),
+      source.indexOf("app.get('/api/admin/2fa/status'"));
+    expect(redeemRoute.length).toBeGreaterThan(200);
+    expect(redeemRoute).not.toMatch(/SET\s+expires_at/);
   });
 
   it('validates the range on creation and allows blank for open-ended', () => {

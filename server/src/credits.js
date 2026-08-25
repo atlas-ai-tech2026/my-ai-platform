@@ -11,6 +11,26 @@
 
 import { pool } from './db.js';
 import { recordAttempt, settleAttempt, labelFrom } from './generation-events.js';
+import { mirrorSpend, mirrorRefund } from './credit-lots-db.js';
+
+/**
+ * Keep the dated lots in step with a balance change, without ever letting a
+ * lots bug touch the charge itself. A SAVEPOINT — not a bare try/catch —
+ * because in Postgres an error poisons the whole transaction: without the
+ * savepoint a mirror failure would abort the COMMIT and take the customer's
+ * charge down with it. Drift is logged loudly and repaired by the sweep's
+ * reconciliation, never silently absorbed.
+ */
+async function mirrorSafely(client, fn, tag) {
+  await client.query('SAVEPOINT lots_mirror');
+  try {
+    await fn();
+    await client.query('RELEASE SAVEPOINT lots_mirror');
+  } catch (err) {
+    await client.query('ROLLBACK TO SAVEPOINT lots_mirror').catch(() => {});
+    console.error(`[credit-lots] ${tag} mirror failed (balance change stands):`, err.message);
+  }
+}
 
 export const CREDIT_COSTS = {
   image: parseFloat(process.env.CREDIT_COST_IMAGE || '2'),
@@ -113,6 +133,10 @@ export async function chargeCredits({ userId, kind, ip, cost: costOverride, note
       [userId, -cost, (note || '').slice(0, 500) || null, ip || null, kie, fal]
     );
 
+    // Owner's rule 2026-08-25: credits carry their addition date and die 30
+    // days after it — so every spend drains the soonest-expiring lots first.
+    await mirrorSafely(client, () => mirrorSpend(client, { userId, amount: cost }), 'spend');
+
     await client.query('COMMIT');
 
     // Telemetry AFTER the commit, on the pool rather than this client. Inside
@@ -167,6 +191,10 @@ export async function refundCredits({ userId, kind, ip, reason, cost: costOverri
        VALUES ($1, $2, 'refund', $3, $4)`,
       [userId, cost, reason || 'fal call failed', ip || null]
     );
+    // The refund lands in the newest live lot (longest usable window), or a
+    // fresh 30-day lot when none is live — a refund must never expire on
+    // arrival because of a timing accident our own failure caused.
+    await mirrorSafely(client, () => mirrorRefund(client, { userId, amount: cost, reason }), 'refund');
     await client.query('COMMIT');
 
     // A refund IS the failure signal — it is the only moment the platform
