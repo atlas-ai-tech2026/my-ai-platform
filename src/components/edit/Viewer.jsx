@@ -26,6 +26,7 @@ import { Play, Pause, AlertCircle } from 'lucide-react';
 
 import { activeAt, sourceTimeAt, sourceOf, projectDuration } from '@/lib/timeline';
 import Tip from './Tip';
+import { textLayout, hasText } from '@/lib/text-clip';
 
 /** Past this, a seek is a jump rather than a nudge, and we set it directly. */
 const SEEK_TOLERANCE = 0.25;
@@ -47,7 +48,7 @@ export default function Viewer({ project, playhead = 0, onScrub, playing = false
   const lastTickRef = useRef(0);
   const [problem, setProblem] = useState(null);
 
-  const { picture, audio } = activeAt(project, playhead);
+  const { picture, audio, text } = activeAt(project, playhead);
   const source = picture ? sourceOf(project, picture.clip) : null;
   const duration = projectDuration(project);
 
@@ -72,6 +73,32 @@ export default function Viewer({ project, playhead = 0, onScrub, playing = false
   const audioClips = audio.filter((a) => a.clip.kind === 'audio');
   const audioTracks = (project?.tracks || []).filter((t) => t.kind === 'audio');
   const audioRefs = useRef(new Map());
+
+  // ── TEXT ────────────────────────────────────────────────────────────────
+  // The frame is measured so the viewer can call textLayout with real pixels —
+  // the SAME function the export uses. Positioning with CSS percentages would
+  // have been less code and a second implementation of the same geometry, and
+  // a preview that computes placement differently from the renderer is a
+  // preview that stops predicting the file.
+  const frameRef = useRef(null);
+  const [frameBox, setFrameBox] = useState({ width: 0, height: 0 });
+  useEffect(() => {
+    const el = frameRef.current;
+    if (!el) return undefined;
+    // Measure ONCE up front. Relying on ResizeObserver alone meant that
+    // anywhere it is missing — an older browser, a test renderer — the frame
+    // stayed 0×0 and text silently never drew. A feature that disappears on
+    // somebody else's browser is the kind nobody reports.
+    const measure = () => {
+      const r = el.getBoundingClientRect();
+      setFrameBox({ width: Math.round(r.width), height: Math.round(r.height) });
+    };
+    measure();
+    if (typeof ResizeObserver === 'undefined') return undefined;
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
   // play() is async. Callbacks that fire later (loadedmetadata) need to know
   // whether we are STILL playing, not whether we were when they were attached.
   const playingRef = useRef(playing);
@@ -216,6 +243,7 @@ export default function Viewer({ project, playhead = 0, onScrub, playing = false
           expects and what the export actually produces. */}
       <div className="flex-1 min-h-0 flex items-center justify-center">
       <div
+        ref={frameRef}
         style={{ aspectRatio: ratio.replace(':', ' / ') }}
         data-testid="viewer-frame"
         className="relative bg-black rounded-lg overflow-hidden flex items-center justify-center h-full max-h-full max-w-full"
@@ -223,6 +251,39 @@ export default function Viewer({ project, playhead = 0, onScrub, playing = false
         {/* One per audio track. Hidden — they are speakers, not pictures —
             but real elements, because a Web Audio graph would be a second
             clock to keep in step with the timeline for no visible gain. */}
+        {/* ── TEXT, OVER THE PICTURE ──────────────────────────────────────
+            Absolutely positioned from textLayout, which the export also calls,
+            so what is on screen is what lands in the file. transform carries
+            the vertical centring and the horizontal anchor, because textLayout
+            returns an ANCHOR — the same thing canvas textAlign means — rather
+            than a top-left corner. */}
+        {frameBox.height > 0 && text.filter((t) => hasText(t.clip)).map(({ clip }) => {
+          const L = textLayout(clip, frameBox);
+          const shiftX = L.align === 'center' ? '-50%' : L.align === 'right' ? '-100%' : '0';
+          return (
+            <div
+              key={clip.id}
+              data-testid={`viewer-text-${clip.id}`}
+              className="absolute pointer-events-none whitespace-pre-wrap"
+              style={{
+                left: L.x, top: L.y, transform: `translate(${shiftX}, -50%)`,
+                maxWidth: '92%',
+                fontFamily: L.font, fontWeight: L.weight,
+                fontSize: L.fontPx, lineHeight: 1.15, color: L.color,
+                textAlign: L.align,
+                // The shadow is why a white title stays readable over a bright
+                // sky. It is the commonest way a finished video is unreadable.
+                textShadow: L.shadowPx ? `0 ${Math.round(L.shadowPx / 2)}px ${L.shadowPx}px rgba(0,0,0,0.85)` : 'none',
+                background: L.background || 'transparent',
+                padding: L.background ? `${Math.round(L.fontPx * 0.18)}px ${Math.round(L.fontPx * 0.36)}px` : 0,
+                borderRadius: L.background ? Math.round(L.fontPx * 0.14) : 0,
+              }}
+            >
+              {L.text}
+            </div>
+          );
+        })}
+
         {audioTracks.map((t) => (
           <audio
             key={t.id}
