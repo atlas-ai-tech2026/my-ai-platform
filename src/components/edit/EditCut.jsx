@@ -76,6 +76,7 @@ import {
 } from '@/lib/timeline';
 import MediaLibrary from '@/components/edit/MediaLibrary';
 import UploadsPanel from '@/components/edit/UploadsPanel';
+import VersionsMenu from '@/components/edit/VersionsMenu';
 import RegeneratePanel from '@/components/edit/RegeneratePanel';
 import RatioPicker from '@/components/edit/RatioPicker';
 import Tip from '@/components/edit/Tip';
@@ -182,6 +183,7 @@ export default function EditCut({ demo = false, startWith = null, onLeave = null
   const [libraryTab, setLibraryTab] = useState('voxel');
   const [tool, setTool] = useState('select');
   const timelineControls = useRef(null);
+  const versionsRef = useRef(null);
   // Owned here, not inside Timeline: the S key lives in the shortcuts hook, and
   // a toggle the keyboard cannot reach is a button that works next to a
   // shortcut that silently does nothing.
@@ -515,6 +517,9 @@ export default function EditCut({ demo = false, startWith = null, onLeave = null
     onDelete: () => { if (selected) { change(removeClip(project, selected), {}); setSelected(null); } },
     onStep: (delta) => seek(playhead + delta),
     onGoTo: (where) => seek(where === 'start' ? 0 : duration),
+    // ⌘S goes through the SAME save the menu button calls, so the keyboard and
+    // the button can never drift into doing different things.
+    onSaveVersion: () => versionsRef.current?.save(),
     onUndo: () => setHistory(undo),
     onRedo: () => setHistory(redo),
     // Shuttle drives the same play flag for now; variable RATE arrives with
@@ -602,6 +607,13 @@ export default function EditCut({ demo = false, startWith = null, onLeave = null
             </button></Tip>
           )}
 
+          <VersionsMenu
+            projectId={onServer.id || 'demo'}
+            project={project}
+            onRestore={(p) => change(p, {})}
+            onNotice={(msg, kind) => (kind === 'error' ? toast.error(msg) : toast.success(msg))}
+            ref={versionsRef}
+          />
           <Tip label="Undo (⌘Z)" side="bottom"><button
             onClick={() => setHistory(undo)}
             disabled={!canUndo(history)}
