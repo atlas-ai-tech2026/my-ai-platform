@@ -99,6 +99,7 @@ import { useAutosave, loadProject, setAside, clearProject } from '@/lib/editor-a
 import { exportPlan, estimateSeconds } from '@/lib/timeline-export';
 import { usePanelLayout, useIsWide } from '@/lib/usePanelLayout';
 import AgentChat from './AgentChat';
+import PresetCards from './PresetCards';
 import { useServerAutosave, listProjects, fetchProject, shouldSyncToAccount, hasContent, ENTITY as PROJECT_ENTITY } from '@/lib/project-store';
 
 function demoProject() {
@@ -773,6 +774,21 @@ export default function EditCut({ demo = false, startWith = null, onLeave = null
               onApply commits ONCE. The agent can make seven changes from one
               sentence, and undoing that sentence must take one press of ⌘Z,
               not seven. */}
+          {/* ── PRESETS, ABOVE THE CHAT ────────────────────────────────
+              The assistant is more powerful and harder to start with: it needs
+              you to know what to ask, it needs a sign-in, and it needs the
+              provider to be up. These need none of that, so a beginner meets
+              the thing that always works first.
+
+              Same onApply as the agent — one commit, so ⌘Z undoes the whole
+              preset in one press rather than step by step. */}
+          <div className="px-3 pb-3">
+            <PresetCards
+              project={project}
+              onApply={(next) => { change(next, {}); setSelected(null); }}
+            />
+          </div>
+
           <AgentChat
             project={project}
             onApply={(next) => { change(next); setSelected(null); }}
