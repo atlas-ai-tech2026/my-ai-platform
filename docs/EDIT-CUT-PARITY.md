@@ -24,7 +24,7 @@ Last read from screenshots: 2026-08-23
 | Project name, centre (`Alert Purple Dingo`) | project name in header | ✅ |
 | People icon — collaborators / share | — | ⬜ |
 | Undo / Redo | Undo / Redo | ✅ |
-| `Versions (⌘S)` — named version history | undo/redo stack only | ⬜ |
+| `Versions (⌘S)` — named version history | `Versions (⌘S)` — save, restore, delete | ✅ 2026-08-26 |
 | `Workspace` — layout switcher | panel collapse (`` ` ``) | 🟡 different shape |
 | `Export` | `Export` | ✅ |
 | `Upgrade -51%` + credits + avatar | Voxel account menu | ⛔ their pricing |
@@ -51,7 +51,7 @@ Six icon buttons along the composer:
 
 | Icon | ChatCut tooltip | Ours | Status |
 |---|---|---|---|
-| `+` | `Upload` | — | ⬜ |
+| `+` | `Upload` | Uploads tab — drop or choose, per-file state | ✅ 2026-08-26 |
 | cube | `Video generation model` | — | ⬜ |
 | waveform | `Voices` | — | ⬜ |
 | palette | `Design Style` | — | ⬜ |
@@ -111,7 +111,7 @@ See the recommendation in §10.
 | ▤ | `Blade Edit Mode (B)` | same, key B | ✅ |
 | ✂ | *(not captured — likely split at playhead)* | `C` splits | 🟡 ❓ |
 | 🔗 | `Snapping (S)` | same, key S | ✅ |
-| 🎤 + ⌄ | `Record voiceover` | — | ⬜ |
+| 🎤 + ⌄ | `Record voiceover` | Voiceover · Camera · Screen, device pickers, countdown | ✅ 2026-08-26 |
 | ▶ | play | Space | ✅ |
 | `00:00.00 / 00:00.00` | timecode | ✅ |
 | zoom − | `Zoom out (⌘ -)` | button + key | ✅ 2026-08-23 |
@@ -119,7 +119,7 @@ See the recommendation in §10.
 | zoom + | `Zoom in (⌘ =)` | button + key | ✅ 2026-08-23 |
 | ↔ | `Fit to view (⇧ Z)` | button + key | ✅ 2026-08-23 |
 | ⧉ | `Aspect Ratio` | in viewer header | ✅ |
-| `CC OFF ⌄` | `Show captions` | — | ⬜ |
+| `CC OFF ⌄` | `Show captions` | text clips render in the viewer AND the export; no CC toggle yet | 🟡 2026-08-26 |
 | ⛶ | `Enter fullscreen (` `)` | same | ✅ |
 
 ### 5.1 The `Record` menu (microphone ⌄)
@@ -134,7 +134,8 @@ RECORD
   ─────────────
   3-second countdown ✓
 ```
-**Ours:** ⬜ none of it.
+**Ours:** ✅ 2026-08-26 — all three modes, microphone and camera pickers, and
+the 3-second countdown, defaulting ON.
 
 ## 6. Track header — ⭐ the owner's question
 
