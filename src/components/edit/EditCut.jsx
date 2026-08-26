@@ -30,7 +30,7 @@ import { Undo2, Redo2, Download, PanelLeftClose, PanelLeftOpen, Maximize2, Minim
  */
 const LIBRARY_TABS = [
   { id: 'voxel', label: 'From Voxel', ready: true, hint: 'Everything you generated here' },
-  { id: 'uploads', label: 'Uploads', ready: false, hint: 'Music, logos and footage you bring in' },
+  { id: 'uploads', label: 'Uploads', ready: true, hint: 'Music, logos and footage you bring in' },
   { id: 'transcript', label: 'Transcript', ready: false, hint: 'Edit by deleting words' },
 ];
 
@@ -75,6 +75,7 @@ import {
   splitClip, removeClip, projectDuration, clipEnd, setProjectRatio, removeTrack,
 } from '@/lib/timeline';
 import MediaLibrary from '@/components/edit/MediaLibrary';
+import UploadsPanel from '@/components/edit/UploadsPanel';
 import RegeneratePanel from '@/components/edit/RegeneratePanel';
 import RatioPicker from '@/components/edit/RatioPicker';
 import Tip from '@/components/edit/Tip';
@@ -269,7 +270,7 @@ export default function EditCut({ demo = false, startWith = null, onLeave = null
    * `seconds` is measured by the library before it gets here, so `out` is
    * always a real length rather than a default.
    */
-  function addFromLibrary({ source, seconds }) {
+  function addFromLibrary({ source, seconds, kind = 'video' }) {
     // ── WHY THIS IS NOT JUST find() ANY MORE ─────────────────────────────
     // It was `project.tracks.find(t => t.kind === 'video')` followed straight
     // by `track.clips`, which throws a TypeError the moment there is no video
@@ -279,19 +280,22 @@ export default function EditCut({ demo = false, startWith = null, onLeave = null
     //
     // Locked tracks are skipped too: addClip returns the project untouched on
     // a locked track, so the clip would silently not appear.
+    // Follow the KIND. It was hardcoded to video, which was fine while the
+    // only source was a generated video — an uploaded song would have landed
+    // on a video track, invisible in the viewer and impossible to line up.
     let working = project;
-    let track = working.tracks.find((t) => t.kind === 'video' && !t.locked);
+    let track = working.tracks.find((t) => t.kind === kind && !t.locked);
     if (!track) {
-      working = addTrack(working, 'video');
+      working = addTrack(working, kind);
       track = working.tracks[working.tracks.length - 1];
     }
     const end = track.clips.reduce((max, c) => Math.max(max, clipEnd(c)), 0);
 
     let next = addSource(working, source);
     next = addClip(next, track.id, createClip({
-      kind: 'video',
+      kind,
       sourceId: source.id,
-      name: (source.prompt || source.model || 'clip').slice(0, 40),
+      name: (source.prompt || source.name || source.model || 'clip').slice(0, 40),
       start: end,
       in: 0,
       out: seconds,
@@ -820,6 +824,16 @@ export default function EditCut({ demo = false, startWith = null, onLeave = null
                       video track — it keeps the prompt, model and camera that made it.
                     </p>
                     <MediaLibrary entity={base44.entities.GenerationHistory} onAdd={addFromLibrary} />
+                  </>
+                )}
+
+                {libraryTab === 'uploads' && (
+                  <>
+                    <p className="text-[11px] text-foreground-muted mb-2">
+                      Your own footage, music and logos. They land on the track that
+                      matches them — a song on audio, a logo on its own layer.
+                    </p>
+                    <UploadsPanel onAdd={addFromLibrary} />
                   </>
                 )}
               </div>
