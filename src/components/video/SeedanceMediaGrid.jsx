@@ -51,10 +51,14 @@ export default function SeedanceMediaGrid({ items = [], onCheckEligibility, onRe
             }}>
               {/* Thumbnail */}
               {isImage && item.previewUrl && (
-                <img src={item.previewUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                <img src={item.previewUrl} alt="" loading="lazy" decoding="async"
+                  style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
               )}
+              {/* metadata, not auto — "auto" downloads the whole file for
+                  every tile in the grid. See SeedanceRightPanel for the full
+                  note; the two grids had the same bug. */}
               {isVideo && item.previewUrl && (
-                <video src={item.previewUrl + '#t=0.1'} muted playsInline preload="auto"
+                <video src={item.previewUrl + '#t=0.1'} muted playsInline preload="metadata"
                   style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
               )}
               {!item.previewUrl && (

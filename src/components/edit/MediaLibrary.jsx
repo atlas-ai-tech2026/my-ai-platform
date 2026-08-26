@@ -63,7 +63,11 @@ function LibraryItem({ record: r, view, busy, onAdd, onDragSource, onDragEnd }) 
           className="w-full h-full object-cover" />
       )}
       {use.ok && kindOf(r) === 'image' && (
-        <img src={r.result_url} alt="" className="w-full h-full object-cover" />
+        // lazy: a library of sixty generations otherwise queues the first
+        // visible row behind every off-screen one. Same fix Image.jsx already
+        // carries; this grid was missed.
+        <img src={r.result_url} alt="" loading="lazy" decoding="async"
+          className="w-full h-full object-cover" />
       )}
       {!use.ok && <Icon className="w-5 h-5 text-foreground-muted" />}
     </div>
