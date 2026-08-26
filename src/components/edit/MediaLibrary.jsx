@@ -19,7 +19,7 @@
 //    responding, and the customer reads that as the site crashing.
 
 import React, { useEffect, useState } from 'react';
-import { Loader2, AlertCircle, Plus, Film, ImageIcon, Search, X } from 'lucide-react';
+import { Loader2, AlertCircle, Plus, Film, ImageIcon, Search, X, LayoutGrid, List } from 'lucide-react';
 
 import {
   usability, kindOf, durationOf, toSource, labelFor, orderForLibrary, measureDuration,
@@ -29,6 +29,124 @@ import Tip from './Tip';
 
 /** One page is plenty for a panel; the editor is not a history browser. */
 const PAGE = 60;
+
+/** Remembered, because somebody who prefers one view prefers it tomorrow too.
+ *  Same key convention as the timeline's row height. */
+const VIEW_KEY = 'voxel.edit.libraryView';
+
+/**
+ * ONE item, in either shape.
+ *
+ * ── WHY THIS IS A COMPONENT AND NOT TWO BRANCHES ───────────────────────────
+ * A grid branch and a list branch would each carry the disabled rule, the busy
+ * overlay, the drag payload and the failure reason — four things that must
+ * agree and will not. The one that gets forgotten is always the second one,
+ * and the symptom is "it works in grid but not in list", which reads as the
+ * editor being unreliable rather than as one missing line.
+ *
+ * `view` changes LAYOUT ONLY. Everything about what the item does is here once.
+ */
+function LibraryItem({ record: r, view, busy, onAdd, onDragSource, onDragEnd }) {
+  const use = usability(r);
+  const secs = durationOf(r);
+  const Icon = kindOf(r) === 'image' ? ImageIcon : Film;
+  const list = view === 'list';
+
+  const thumb = (
+    <div className={`bg-black flex items-center justify-center shrink-0
+      ${list ? 'w-20 h-12 rounded overflow-hidden' : 'aspect-video'}`}
+    >
+      {/* A poster frame, not a live element. #t=0.1 asks for a frame rather
+          than black — some encoders start on a blank one. */}
+      {use.ok && kindOf(r) === 'video' && (
+        <video src={`${r.result_url}#t=0.1`} preload="metadata" muted playsInline
+          className="w-full h-full object-cover" />
+      )}
+      {use.ok && kindOf(r) === 'image' && (
+        <img src={r.result_url} alt="" className="w-full h-full object-cover" />
+      )}
+      {!use.ok && <Icon className="w-5 h-5 text-foreground-muted" />}
+    </div>
+  );
+
+  return (
+    <button
+      type="button"
+      disabled={!use.ok || !!busy}
+      onClick={() => onAdd(r)}
+      title={r.prompt || ''}
+      data-testid={`library-item-${r.id}`}
+      // ── DRAG IT TO CHOOSE THE MOMENT ───────────────────────────────────
+      // Clicking appends to the end, which is safe but gives you no say in
+      // WHERE. Dragging is how you place it, and the two coexist: neither
+      // replaces the other.
+      //
+      // Only usable generations drag. A failed one is deliberately still on
+      // screen with its reason, and letting it be dragged would promise
+      // something that cannot be delivered.
+      draggable={use.ok}
+      onDragStart={(e) => {
+        if (!use.ok) { e.preventDefault(); return; }
+        // Firefox refuses to start a drag unless SOMETHING is set.
+        e.dataTransfer.setData('text/plain', labelFor(r, 60));
+        e.dataTransfer.effectAllowed = 'copy';
+        onDragSource?.(r);
+      }}
+      onDragEnd={() => onDragEnd?.()}
+      className={`group relative text-left border border-border overflow-hidden
+        ${list ? 'flex items-center gap-2.5 p-1.5 rounded-md' : 'rounded-lg'}
+        ${use.ok ? 'hover:border-primary' : 'opacity-45 cursor-not-allowed'}`}
+    >
+      {thumb}
+
+      <div className={list ? 'flex-1 min-w-0' : 'p-2'}>
+        {/* ── THE POINT OF THE LIST ────────────────────────────────────
+            More of the prompt. In a four-column grid a prompt is cut to 70
+            characters and two lines, which is where "the one with the red
+            car at sunset" becomes unfindable among forty. A row is wide, so
+            it can afford the words. */}
+        <p className={`leading-tight text-foreground-secondary
+          ${list ? 'text-xs line-clamp-1' : 'text-[11px] line-clamp-2'}`}
+        >
+          {labelFor(r, list ? 160 : 70)}
+        </p>
+        {/* Model and length on one line; the REASON it cannot be used on its
+            own. They were all three in one flex row, and in a card this narrow
+            that squeezed "This generation failed" into unreadable columns —
+            "This genera / failed" — which defeats the whole point of keeping a
+            failure visible. Found by looking at a screenshot, not by a test. */}
+        <p className={`flex flex-wrap items-center gap-x-1.5 text-[10px] text-foreground-muted font-mono
+          ${list ? 'mt-0.5' : 'mt-1'}`}
+        >
+          <span className="truncate">{r.model || 'unknown model'}</span>
+          {secs !== null && <span>· {secs}s</span>}
+        </p>
+        {!use.ok && (
+          <p className={`text-[10px] leading-tight text-primary ${list ? '' : 'mt-0.5'}`}
+            data-testid={`library-why-${r.id}`}
+          >
+            {use.label}
+          </p>
+        )}
+      </div>
+
+      {busy && (
+        <span className="absolute inset-0 flex items-center justify-center bg-black/60 text-xs text-white">
+          <Loader2 className="w-4 h-4 animate-spin mr-1.5" />
+          {busy}
+        </span>
+      )}
+      {use.ok && !busy && (
+        <span className={`rounded-full bg-primary p-1 transition-opacity
+          ${list ? 'shrink-0 mr-1 opacity-0 group-hover:opacity-100'
+                 : 'absolute top-1.5 right-1.5 opacity-0 group-hover:opacity-100'}`}
+        >
+          <Plus className="w-3 h-3 text-white" />
+        </span>
+      )}
+    </button>
+  );
+}
 
 /** Below this the toolbar is furniture — you can see everything at a glance,
  *  and a search box over six items is a control that costs more than it saves. */
@@ -44,6 +162,16 @@ export default function MediaLibrary({ entity, onAdd, busyId = null, onDragSourc
   const [model, setModel] = useState(null);
   const [sort, setSort] = useState('newest');
   const [readyOnly, setReadyOnly] = useState(false);
+  // Read in the initialiser rather than an effect, so there is no visible jump
+  // from the default to the stored value on every mount.
+  const [view, setView] = useState(() => {
+    try { return localStorage.getItem(VIEW_KEY) === 'list' ? 'list' : 'grid'; }
+    catch { return 'grid'; }            // private mode, or storage disabled
+  });
+  const chooseView = (next) => {
+    setView(next);
+    try { localStorage.setItem(VIEW_KEY, next); } catch { /* not worth failing over */ }
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -189,6 +317,27 @@ export default function MediaLibrary({ entity, onAdd, busyId = null, onDragSourc
                 ${readyOnly ? 'border-primary text-white bg-primary/15'
                             : 'border-border text-foreground-muted hover:text-foreground-secondary'}`}
             >Ready only</button></Tip>
+
+            {/* ── GRID OR LIST ────────────────────────────────────────────
+                Not a single toggle button. Two, each showing its own state,
+                because a one-button toggle showing the OTHER icon is the
+                control everybody reads backwards — you cannot tell whether
+                the picture is what you have or what you would get. */}
+            <span className="flex items-center rounded border border-border overflow-hidden">
+              {[
+                ['grid', LayoutGrid, 'Show them as pictures'],
+                ['list', List, 'Show them as a list, with more of the prompt'],
+              ].map(([id, Icon, hint]) => (
+                <Tip key={id} label={hint}><button
+                  type="button"
+                  onClick={() => chooseView(id)}
+                  aria-pressed={view === id}
+                  data-testid={`library-view-${id}`}
+                  className={`px-1.5 py-1 transition-colors
+                    ${view === id ? 'bg-primary/20 text-white' : 'text-foreground-muted hover:text-foreground-secondary'}`}
+                ><Icon className="w-3 h-3" /></button></Tip>
+              ))}
+            </span>
           </div>
 
           {narrowed && (
@@ -213,93 +362,23 @@ export default function MediaLibrary({ entity, onAdd, busyId = null, onDragSourc
         </p>
       )}
 
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
-        {shown.map((r) => {
-          const use = usability(r);
-          const secs = durationOf(r);
-          const Icon = kindOf(r) === 'image' ? ImageIcon : Film;
-
-          return (
-            <button
-              key={r.id}
-              type="button"
-              disabled={!use.ok || busyId === r.id || measuring === r.id}
-              onClick={() => add(r)}
-              title={r.prompt || ''}
-              data-testid={`library-item-${r.id}`}
-              // ── DRAG IT TO CHOOSE THE MOMENT ─────────────────────────
-              // Clicking appends to the end, which is safe but gives you no
-              // say in WHERE. Dragging is how you place it, and the two
-              // coexist: neither replaces the other.
-              //
-              // Only usable generations drag. A failed one is deliberately
-              // still on screen with its reason, and letting it be dragged
-              // would promise something that cannot be delivered.
-              draggable={use.ok}
-              onDragStart={(e) => {
-                if (!use.ok) { e.preventDefault(); return; }
-                // Firefox refuses to start a drag unless SOMETHING is set.
-                e.dataTransfer.setData('text/plain', labelFor(r, 60));
-                e.dataTransfer.effectAllowed = 'copy';
-                onDragSource?.(r);
-              }}
-              onDragEnd={() => onDragEnd?.()}
-              className={`group relative text-left rounded-lg border border-border overflow-hidden
-                ${use.ok ? 'hover:border-primary' : 'opacity-45 cursor-not-allowed'}`}
-            >
-              <div className="aspect-video bg-black flex items-center justify-center">
-                {/* A poster frame, not a live element. #t=0.1 asks for a frame
-                    rather than black — some encoders start on a blank one. */}
-                {use.ok && kindOf(r) === 'video' && (
-                  <video
-                    src={`${r.result_url}#t=0.1`}
-                    preload="metadata"
-                    muted
-                    playsInline
-                    className="w-full h-full object-cover"
-                  />
-                )}
-                {use.ok && kindOf(r) === 'image' && (
-                  <img src={r.result_url} alt="" className="w-full h-full object-cover" />
-                )}
-                {!use.ok && <Icon className="w-5 h-5 text-foreground-muted" />}
-              </div>
-
-              <div className="p-2">
-                <p className="text-[11px] leading-tight text-foreground-secondary line-clamp-2">
-                  {labelFor(r, 70)}
-                </p>
-                {/* Model and length on one line; the REASON it cannot be used
-                    on its own. They were all three in one flex row, and in a
-                    card this narrow that squeezed "This generation failed"
-                    into unreadable columns — "This genera / failed" — which
-                    defeats the whole point of keeping a failure visible.
-                    Found by looking at a screenshot, not by a test. */}
-                <p className="mt-1 flex flex-wrap items-center gap-x-1.5 text-[10px] text-foreground-muted font-mono">
-                  <span className="truncate">{r.model || 'unknown model'}</span>
-                  {secs !== null && <span>· {secs}s</span>}
-                </p>
-                {!use.ok && (
-                  <p className="mt-0.5 text-[10px] leading-tight text-primary" data-testid={`library-why-${r.id}`}>
-                    {use.label}
-                  </p>
-                )}
-              </div>
-
-              {(busyId === r.id || measuring === r.id) && (
-                <span className="absolute inset-0 flex items-center justify-center bg-black/60 text-xs text-white">
-                  <Loader2 className="w-4 h-4 animate-spin mr-1.5" />
-                  {measuring === r.id ? 'Reading length…' : 'Adding…'}
-                </span>
-              )}
-              {use.ok && busyId !== r.id && measuring !== r.id && (
-                <span className="absolute top-1.5 right-1.5 rounded-full bg-primary p-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <Plus className="w-3 h-3 text-white" />
-                </span>
-              )}
-            </button>
-          );
-        })}
+      <div
+        data-testid={`library-${view}`}
+        className={view === 'grid'
+          ? 'grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2'
+          : 'flex flex-col gap-1'}
+      >
+        {shown.map((r) => (
+          <LibraryItem
+            key={r.id}
+            record={r}
+            view={view}
+            busy={busyId === r.id ? 'Adding…' : measuring === r.id ? 'Reading length…' : null}
+            onAdd={add}
+            onDragSource={onDragSource}
+            onDragEnd={onDragEnd}
+          />
+        ))}
       </div>
     </div>
   );
