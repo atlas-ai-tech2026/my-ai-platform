@@ -81,9 +81,18 @@ describe('every control says what it does ON HOVER', () => {
   //
   // A VISIBLE tooltip means <Tip label=…> or a title attribute. Nothing else
   // counts, and aria-label is now additional rather than sufficient.
-  const FILES = ['Timeline.jsx', 'Viewer.jsx', 'RatioPicker.jsx', 'MediaLibrary.jsx',
-    'RegeneratePanel.jsx', 'AgentChat.jsx', 'ProjectPicker.jsx', 'EditCut.jsx',
-    'AgentSettings.jsx'];
+  // EVERY component in this folder, discovered — not a list somebody has to
+  // remember to add to.
+  //
+  // It WAS a hardcoded list of nine, and four components shipped after it was
+  // written: RecordMenu, UploadsPanel, VersionsMenu, PresetCards. None of them
+  // were checked, which is precisely how the owner ended up saying "there are
+  // still some items without a description" for the second time.
+  //
+  // A guard with a manual list guards the past.
+  const FILES = fs.readdirSync(HERE)
+    .filter((f) => f.endsWith('.jsx') && !f.includes('.test.'))
+    .sort();
 
   for (const file of FILES) {
     it(`${file} labels every button`, () => {

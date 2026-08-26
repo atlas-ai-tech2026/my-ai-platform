@@ -31,7 +31,13 @@ import { textLayout, hasText } from '@/lib/text-clip';
 /** Past this, a seek is a jump rather than a nudge, and we set it directly. */
 const SEEK_TOLERANCE = 0.25;
 
-export default function Viewer({ project, playhead = 0, onScrub, playing = false, onPlayingChange }) {
+export default function Viewer({
+  project, playhead = 0, onScrub, playing = false, onPlayingChange,
+  // A PREVIEW setting, not an edit. Hiding a track with the eye excludes it
+  // from the export; this only stops it being drawn here, so you can look at
+  // the picture underneath for a moment without touching the project.
+  showText = true,
+}) {
   // ── THE VIEWER DRAWS THE SHAPE YOU ARE MAKING ──────────────────────────
   // Not always 16:9. Choosing "Reels" and still seeing a landscape frame
   // means choosing blind — you find out what the crop did to your subject
@@ -257,7 +263,7 @@ export default function Viewer({ project, playhead = 0, onScrub, playing = false
             the vertical centring and the horizontal anchor, because textLayout
             returns an ANCHOR — the same thing canvas textAlign means — rather
             than a top-left corner. */}
-        {frameBox.height > 0 && text.filter((t) => hasText(t.clip)).map(({ clip }) => {
+        {showText && frameBox.height > 0 && text.filter((t) => hasText(t.clip)).map(({ clip }) => {
           const L = textLayout(clip, frameBox);
           const shiftX = L.align === 'center' ? '-50%' : L.align === 'right' ? '-100%' : '0';
           return (

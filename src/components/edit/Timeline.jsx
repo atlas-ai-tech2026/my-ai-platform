@@ -123,6 +123,11 @@ export default function Timeline({
   // project, so a take lands in ONE undo step alongside everything else.
   onRecorded,
   onRecordError,
+  // ── CAPTIONS, IN THE PREVIEW ONLY ──────────────────────────────────────
+  // Owned by the page like snapping and the tool mode, so the button and any
+  // future shortcut cannot disagree about what is showing.
+  showText = true,
+  onToggleText,
   /** Imperative handle so the keyboard can drive zoom. */
   controls,
   // ── TRACK MANAGEMENT ───────────────────────────────────────────────────
@@ -424,6 +429,28 @@ export default function Timeline({
             <Rows3 className="w-3.5 h-3.5" />
           </button>
         </Tip>
+
+        {/* CC. ChatCut labels theirs `CC OFF ⌄`; ours is a plain toggle
+            because we have no caption TRACKS to choose between yet.
+
+            The tooltip says "preview" out loud on purpose: the eye on a track
+            header removes it from the EXPORT, and two controls that look like
+            they do the same thing must not quietly differ. */}
+        {onToggleText && (
+          <Tip label={`${showText ? 'Hide' : 'Show'} text in the preview — does not change the export`}>
+            <button
+              type="button"
+              onClick={() => onToggleText(!showText)}
+              aria-label="Show text in the preview"
+              aria-pressed={showText}
+              data-testid="cc-toggle"
+              className={`px-1.5 py-1 rounded text-[10px] font-semibold tracking-wider
+                ${showText ? 'text-primary' : 'text-foreground-muted'} hover:bg-background-elevated`}
+            >
+              CC
+            </button>
+          </Tip>
+        )}
 
         {/* Record. Sits with the other authoring tools rather than by the
             transport, because it CREATES a clip — it is not playback. */}

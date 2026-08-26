@@ -27,6 +27,7 @@ import { RATIOS } from '@/lib/edit-ops';
 import { buildPlan, describePlan, isEditable, outputName, toClip } from '@/lib/edit-session';
 import { runPlan } from '@/lib/edit-exec-browser';
 
+import Tip from './Tip';
 const fmt = (s) => (Number.isFinite(s) ? `${s.toFixed(1)}s` : '—');
 
 /**
@@ -191,8 +192,13 @@ export default function EditWorkspace({ clips = [], loading = false, error = nul
 
           <div className="grid grid-cols-2 lg:grid-cols-1 gap-3">
             {editable.map((clip) => (
+              // An aria-label is for a screen reader and shows nothing on
+              // hover. The owner has now asked twice for every icon to say
+              // what it does when the mouse is on it, so the tooltip is the
+              // thing that satisfies the request — the aria-label stays as
+              // well, because they are for two different people.
+              <Tip key={clip.id} label={clip.prompt || 'Untitled clip'} fill>
               <button
-                key={clip.id}
                 onClick={() => choose(clip)}
                 aria-label={clip.prompt || 'Untitled clip'}
                 aria-pressed={selected?.id === clip.id}
@@ -221,6 +227,7 @@ export default function EditWorkspace({ clips = [], loading = false, error = nul
                   {clip.prompt || 'Untitled'}
                 </span>
               </button>
+              </Tip>
             ))}
           </div>
         </aside>
@@ -334,10 +341,19 @@ export default function EditWorkspace({ clips = [], loading = false, error = nul
           <Tool icon={Crop} label="Resize for a platform">
             <div className="grid grid-cols-2 gap-2">
               {Object.entries(RATIOS).map(([key, shape]) => (
-                <button
+                // Says what it is AND that pressing it again turns it off —
+                // the card shows "9:16" and "Reels", neither of which tells
+                // you the second click undoes it.
+                <Tip
                   key={key}
+                  label={`${key} — ${shape.label}${settings.ratio === key ? ' · click again to leave it as it is' : ''}`}
+                  fill
+                >
+                <button
                   onClick={() => setSettings((s) => ({ ...s, ratio: s.ratio === key ? null : key }))}
-                  className={`rounded-lg border px-2 py-2 text-left transition-colors ${
+                  aria-label={`Resize to ${key}, ${shape.label}`}
+                  aria-pressed={settings.ratio === key}
+                  className={`w-full h-full rounded-lg border px-2 py-2 text-left transition-colors ${
                     settings.ratio === key
                       ? 'border-primary bg-primary/10 text-white'
                       : 'border-border text-foreground-secondary hover:border-primary/50'
@@ -346,6 +362,7 @@ export default function EditWorkspace({ clips = [], loading = false, error = nul
                   <span className="block text-sm font-semibold">{key}</span>
                   <span className="block text-[10px] leading-tight">{shape.label}</span>
                 </button>
+                </Tip>
               ))}
             </div>
           </Tool>

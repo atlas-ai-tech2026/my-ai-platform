@@ -185,6 +185,10 @@ export default function EditCut({ demo = false, startWith = null, onLeave = null
   const [tool, setTool] = useState('select');
   const timelineControls = useRef(null);
   const versionsRef = useRef(null);
+  // A PREVIEW setting, so it lives in the page and never in the project — it
+  // must not become an undo step and must not reach the export. The eye on a
+  // track header is the control that does affect the file.
+  const [showText, setShowText] = useState(true);
   // Owned here, not inside Timeline: the S key lives in the shortcuts hook, and
   // a toggle the keyboard cannot reach is a button that works next to a
   // shortcut that silently does nothing.
@@ -911,6 +915,7 @@ export default function EditCut({ demo = false, startWith = null, onLeave = null
               <div className="flex-1 min-h-0 flex flex-col p-4 gap-3">
                 <div className="flex-1 min-h-0 flex flex-col">
                   <Viewer
+                    showText={showText}
                     project={project}
                     playhead={playhead}
                     onScrub={setPlayhead}
@@ -988,6 +993,8 @@ export default function EditCut({ demo = false, startWith = null, onLeave = null
               onToolChange={setTool}
               onAddTrack={addLayer}
               onRemoveTrack={removeLayer}
+              showText={showText}
+              onToggleText={setShowText}
               onRecorded={addRecording}
               onRecordError={(m) => toast.error(m)}
               controls={timelineControls}
