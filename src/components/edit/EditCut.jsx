@@ -68,7 +68,7 @@ const PanelLabel = ({ children, action = null }) => (
   </div>
 );
 
-import Timeline from '@/components/edit/Timeline';
+import Timeline, { fmtTime } from '@/components/edit/Timeline';
 import Viewer from '@/components/edit/Viewer';
 import {
   createProject, createClip, addClip, addTrack, addSource, __resetIds,
@@ -368,19 +368,34 @@ export default function EditCut({ demo = false, startWith = null, onLeave = null
       .filter((c) => c.name?.startsWith(recordingName(mode))).length;
 
     const id = `rec-${Date.now()}`;
+    const at = recordingStartAt(playhead);
     let next = addSource(working, { id, url: data.url, kind, recorded: true });
-    next = addClip(next, track.id, createClip({
+    const clip = createClip({
       kind,
       sourceId: id,
       name: recordingName(mode, taken + 1),
       // At the PLAYHEAD: someone recording a voiceover is talking over a
       // particular moment, and a take that lands anywhere else needs dragging
       // before it is any use.
-      start: recordingStartAt(playhead),
+      start: at,
       in: 0,
       out: seconds,
-    }));
+    });
+    next = addClip(next, track.id, clip);
     change(next, {});
+
+    // ── AND SAY WHERE IT WENT ────────────────────────────────────────────
+    // The take lands at the playhead, and the playhead is routinely outside
+    // the part of the timeline currently on screen — so a correct recording
+    // arrived invisibly. The owner's report was "it's recording, but I don't
+    // know where", which is exactly what that looks like from the outside.
+    //
+    // Three things, because any one alone still leaves it findable-but-not-
+    // found: select it, scroll to it, and say it in words with the time and
+    // the length so the message is checkable against the timeline.
+    setSelected(clip.id);
+    timelineControls.current?.revealAt(at);
+    toast.success(`${clip.name} added at ${fmtTime(at)} · ${seconds.toFixed(1)}s`);
   }
 
   /** Add a layer. One undo step, and the new track is empty so there is

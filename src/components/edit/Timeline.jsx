@@ -330,6 +330,26 @@ export default function Timeline({
     zoomIn: () => zoomTo(Math.min(1, zoom + ZOOM_STEP)),
     zoomOut: () => zoomTo(Math.max(0, zoom - ZOOM_STEP)),
     zoomToFit: fitToView,
+    /** Scroll a moment into view.
+     *
+     *  Added because a recording lands AT THE PLAYHEAD, and the playhead is
+     *  routinely somewhere the timeline is not currently showing — so the take
+     *  arrived correctly and invisibly. The owner's words were "it's
+     *  recording, but I don't know where", which is the clearest possible
+     *  description of a clip that exists off screen.
+     *
+     *  Only scrolls when the moment is actually outside the visible span:
+     *  yanking the view when it was already fine is its own small annoyance. */
+    revealAt: (seconds) => {
+      const lane = laneRef.current;
+      if (!lane || !Number.isFinite(seconds)) return;
+      const x = seconds * pps;
+      const left = lane.scrollLeft;
+      const right = left + lane.clientWidth;
+      const margin = Math.min(120, lane.clientWidth * 0.25);
+      if (x >= left + margin && x <= right - margin) return;
+      lane.scrollTo({ left: Math.max(0, x - margin), behavior: 'smooth' });
+    },
   }), [zoom, duration, playhead, pps, fitToView]);
 
   const splitAtPlayhead = () => {
