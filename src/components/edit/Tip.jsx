@@ -174,8 +174,20 @@ export default function Tip({ label, side = 'top', children, className = '', fil
           aria-hidden="true"
           style={{
             position: 'fixed',
-            left: at.placed ? at.left : at.cx,
-            top: at.placed ? at.top : at.bottom,
+            // ── MEASURED AT THE ORIGIN, NOT AT THE ANCHOR ────────────────
+            // A fixed element's containing block is the VIEWPORT, so its
+            // shrink-to-fit width is limited by the room to the right of
+            // wherever it sits. Measuring at the anchor meant an icon near
+            // the right edge — "Fit the whole project on screen" at x=1418
+            // of 1440 — had 22px to lay out in, so it wrapped into a narrow
+            // 5-line column and the clamp then faithfully placed THAT.
+            //
+            // At left:0 it gets the whole width and max-width does the
+            // capping, which is what max-width is for. Seen on dev, on a
+            // right-hand icon; every icon I checked locally was on the left
+            // and had room to spare, so it measured correctly and looked fine.
+            left: at.placed ? at.left : 0,
+            top: at.placed ? at.top : 0,
             // Hidden for the one frame before it has been measured, so nobody
             // sees it flash at the wrong place.
             visibility: at.placed ? 'visible' : 'hidden',

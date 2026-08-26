@@ -234,4 +234,21 @@ describe('no tooltip may be positioned by its parent again', () => {
     expect(src, "position:'absolute' on the bubble is the bug that cropped 42 of 68")
       .not.toMatch(/\babsolute\b/);
   });
+
+  it('measures the bubble at the origin, never at the anchor', () => {
+    // A fixed element's containing block is the viewport, so its shrink-to-fit
+    // width is limited by the room to the RIGHT of wherever it sits. Measured
+    // at the anchor, "Fit the whole project on screen" — an icon at x=1418 of
+    // 1440 — had 22px to lay out in and wrapped into a narrow five-line
+    // column, which the clamp then faithfully placed.
+    //
+    // Source-checked because jsdom cannot reproduce it: every rect there is
+    // zero, so the constraint does not exist and a behavioural test would pass
+    // against the broken version. Found by looking at a right-hand icon on
+    // dev; every icon I checked locally was on the left and had room to spare.
+    const src = fs.readFileSync(path.join(HERE, 'Tip.jsx'), 'utf8')
+      .split('\n').filter((l) => !l.trim().startsWith('//') && !l.trim().startsWith('*')).join('\n');
+    expect(src, 'the unmeasured bubble must sit at 0, not at the anchor')
+      .toMatch(/left:\s*at\.placed\s*\?\s*at\.left\s*:\s*0/);
+  });
 });
