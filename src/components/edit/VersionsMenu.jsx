@@ -67,7 +67,11 @@ const VersionsMenu = forwardRef(function VersionsMenu({ projectId, project, onRe
 
   return (
     <span ref={rootRef} className="relative">
-      <Tip label={`Versions (⌘S) — ${list.length || 'no'} saved`}>
+      {/* side="bottom" because this button lives in the editor's TOP row.
+          Upwards it lands inside the site nav, which is fixed and was winning
+          the paint order — the tooltip was there at full opacity and simply
+          could not be seen. Every other control in this row already knew. */}
+      <Tip label={`Versions (⌘S) — ${list.length || 'no'} saved`} side="bottom">
         <button
           type="button"
           onClick={() => setOpen((v) => !v)}
