@@ -28,6 +28,7 @@ import {
   setTrackHeight, clearTrackHeight,
 } from '@/lib/timeline';
 import { snapTargets, snapStart, snapEdge } from '@/lib/timeline-snap';
+import { planDrop } from '@/lib/timeline-drop';
 import Tip from './Tip';
 import RecordMenu from './RecordMenu';
 
@@ -135,6 +136,14 @@ export default function Timeline({
   // goes through the page so it lands in ONE undo step.
   onRemoveTrack,
   onAddTrack,
+  // ── DROPPING SOMETHING IN FROM THE LIBRARY ─────────────────────────────
+  // `dragging` is what is currently held over the timeline, or null:
+  // `{ kind, seconds, label }`. It comes from the page rather than from a
+  // dataTransfer read, because dragover CANNOT read dataTransfer — the browser
+  // makes the payload write-only until drop, for privacy. Anything the preview
+  // needs to know has to travel a different way.
+  dragging = null,
+  onDropSource,
 }) {
   const [zoom, setZoom] = useState(DEFAULT_ZOOM);
   const pps = ppsFor(zoom);
@@ -174,6 +183,30 @@ export default function Timeline({
   const dragRef = useRef(null);
   const laneRef = useRef(null);
 
+  // ── WHERE A DROP WOULD ACTUALLY GO ──────────────────────────────────────
+  // Not where the cursor is — where `planDrop` says it will END UP, which may
+  // be another layer or another moment if the spot is taken. Showing the
+  // cursor position instead would promise a placement the drop then quietly
+  // fails to honour, and the customer would blame the editor for moving their
+  // clip. It is the SAME function the drop itself uses, so the preview and the
+  // result cannot disagree.
+  const [dropPlan, setDropPlan] = useState(null);
+  const clearDropPlan = useCallback(() => setDropPlan(null), []);
+
+  // A drag that ends anywhere else — cancelled with Escape, dropped on the
+  // desktop, released outside the window — leaves no dragleave on the lane.
+  // Without this the ghost stays on screen forever, over a timeline that
+  // nothing is being dragged onto.
+  useEffect(() => {
+    if (!dragging) { setDropPlan(null); return undefined; }
+    window.addEventListener('dragend', clearDropPlan);
+    window.addEventListener('drop', clearDropPlan);
+    return () => {
+      window.removeEventListener('dragend', clearDropPlan);
+      window.removeEventListener('drop', clearDropPlan);
+    };
+  }, [dragging, clearDropPlan]);
+
   // ── SNAPPING ─────────────────────────────────────────────────────────────
   // On by default because an editor without it produces gaps too small to see;
   // toggleable because one that ALWAYS snaps makes a deliberate two-frame
@@ -191,7 +224,14 @@ export default function Timeline({
   const xToTime = useCallback((clientX) => {
     const box = laneRef.current?.getBoundingClientRect();
     if (!box) return 0;
-    return Math.max(0, (clientX - box.left + (laneRef.current.scrollLeft || 0)) / pps);
+    const t = (clientX - box.left + (laneRef.current.scrollLeft || 0)) / pps;
+    // Math.max(0, NaN) is NaN, not 0 — so a bad clientX used to travel all the
+    // way through. Every mutation the timeline makes goes through this
+    // function: scrub, split, move, trim, and now drop. A NaN start reaches
+    // the project, autosaves, and serialises to JSON as `null`, which is a
+    // corrupted clip that survives a reload. Surfaced by a React warning about
+    // an invalid `left`, which was the visible edge of something much worse.
+    return Number.isFinite(t) ? Math.max(0, t) : 0;
   }, [pps]);
 
   // ── DRAG ────────────────────────────────────────────────────────────────
@@ -584,10 +624,93 @@ export default function Timeline({
             {project.tracks.map((track) => (
               <div
                 key={track.id}
+                // A stable hook for the drop tests. Finding the lane by class
+                // would turn them into no-ops the first time it is restyled —
+                // they would pass, having dispatched events at nothing.
+                data-lane={track.id}
                 style={{ height: heightOf(track) }}
                 className={`relative border-b border-border ${track.locked ? 'opacity-60' : ''}`}
                 onPointerDown={() => onSelect?.(null)}
+                // ── DROP TARGET ────────────────────────────────────────
+                // preventDefault on dragover is what MAKES this a drop
+                // target; without it the browser refuses the drop and the
+                // card flies back with no explanation.
+                onDragOver={(e) => {
+                  if (!dragging) return;
+                  e.preventDefault();
+                  e.dataTransfer.dropEffect = 'copy';
+                  const at = xToTime(e.clientX);
+                  // Length may still be unknown — an older generation with no
+                  // duration column is measured while the drag is in flight.
+                  // Until it arrives the ghost says so rather than drawing a
+                  // width it invented.
+                  if (!(dragging.seconds > 0)) {
+                    setDropPlan({ pending: true, trackId: track.id, start: at });
+                    return;
+                  }
+                  const plan = planDrop(project, {
+                    trackId: track.id, kind: dragging.kind, length: dragging.seconds, at,
+                  });
+                  setDropPlan({ ...plan, length: dragging.seconds, over: track.id });
+                }}
+                onDragLeave={(e) => {
+                  // Moving between children fires dragleave on the parent too.
+                  if (!e.currentTarget.contains(e.relatedTarget)) setDropPlan(null);
+                }}
+                onDrop={(e) => {
+                  if (!dragging) return;
+                  e.preventDefault();
+                  setDropPlan(null);
+                  onDropSource?.({ trackId: track.id, at: xToTime(e.clientX) });
+                }}
               >
+                {/* ── WHERE IT WILL LAND ──────────────────────────────
+                    Shown on the track that will RECEIVE the clip, which is
+                    not always the one under the cursor. When planDrop has
+                    moved it, the reason rides along on the ghost — the
+                    customer reads why before letting go, rather than
+                    wondering afterwards why their clip is on Video 2. */}
+                {dropPlan && !dropPlan.pending && dropPlan.ok
+                  && (dropPlan.trackId === track.id
+                      || (dropPlan.newTrack && dropPlan.over === track.id)) && (
+                  <div
+                    data-testid={`drop-ghost-${track.id}`}
+                    style={{ left: dropPlan.start * pps, width: Math.max(3, dropPlan.length * pps) }}
+                    className={`pointer-events-none absolute top-1 bottom-1 rounded border-2 border-dashed
+                      ${dropPlan.note ? 'border-amber-400 bg-amber-400/15' : 'border-primary bg-primary/20'}`}
+                  >
+                    {dropPlan.note && (
+                      <span className="absolute -top-0.5 left-1 whitespace-nowrap text-[10px] font-medium text-amber-300">
+                        {dropPlan.newTrack ? 'new layer' : 'moved'}
+                      </span>
+                    )}
+                  </div>
+                )}
+                {dropPlan?.pending && dropPlan.trackId === track.id && (
+                  <div
+                    style={{ left: dropPlan.start * pps }}
+                    className="pointer-events-none absolute top-1 bottom-1 w-0.5 bg-primary"
+                  >
+                    <span className="absolute -top-0.5 left-1 whitespace-nowrap text-[10px] text-foreground-muted">
+                      reading length…
+                    </span>
+                  </div>
+                )}
+                {/* A refusal is said BEFORE the release, not after. Dropping
+                    an audio clip on a video layer with no explanation is the
+                    thing that reads as the editor being broken. */}
+                {dropPlan && !dropPlan.pending && !dropPlan.ok && dropPlan.over === track.id && (
+                  <div
+                    data-testid={`drop-refused-${track.id}`}
+                    className="pointer-events-none absolute inset-y-1 inset-x-0 flex items-center justify-center
+                               rounded border-2 border-dashed border-primary/70 bg-primary/10"
+                  >
+                    <span className="px-2 truncate text-[10px] font-medium text-primary">
+                      {dropPlan.reason}
+                    </span>
+                  </div>
+                )}
+
                 {/* ── GAPS ────────────────────────────────────────────
                     Black silence made visible. The owner dragged a clip right,
                     saw the total grow to 1:24, and asked whether that was a

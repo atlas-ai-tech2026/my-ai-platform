@@ -37,6 +37,14 @@ export default function Viewer({
   // from the export; this only stops it being drawn here, so you can look at
   // the picture underneath for a moment without touching the project.
   showText = true,
+  // ── DROPPING ONTO THE PICTURE ──────────────────────────────────────────
+  // Deliberately NOT a placement. The frame shows one moment, so there is no
+  // "where" to aim at — dropping here means "use this", and it appends to the
+  // end exactly as a click does. Guessing that a drop on the picture meant
+  // "put it at the playhead" would make the same gesture do two different
+  // things depending on where the playhead happened to be.
+  dragging = null,
+  onDropAppend,
 }) {
   // ── THE VIEWER DRAWS THE SHAPE YOU ARE MAKING ──────────────────────────
   // Not always 16:9. Choosing "Reels" and still seeing a landscape frame
@@ -53,6 +61,7 @@ export default function Viewer({
   const rafRef = useRef(0);
   const lastTickRef = useRef(0);
   const [problem, setProblem] = useState(null);
+  const [overFrame, setOverFrame] = useState(false);
 
   const { picture, audio, text } = activeAt(project, playhead);
   const source = picture ? sourceOf(project, picture.clip) : null;
@@ -252,8 +261,36 @@ export default function Viewer({
         ref={frameRef}
         style={{ aspectRatio: ratio.replace(':', ' / ') }}
         data-testid="viewer-frame"
-        className="relative bg-black rounded-lg overflow-hidden flex items-center justify-center h-full max-h-full max-w-full"
+        onDragOver={(e) => {
+          if (!dragging) return;
+          e.preventDefault();
+          e.dataTransfer.dropEffect = 'copy';
+          setOverFrame(true);
+        }}
+        onDragLeave={(e) => {
+          if (!e.currentTarget.contains(e.relatedTarget)) setOverFrame(false);
+        }}
+        onDrop={(e) => {
+          if (!dragging) return;
+          e.preventDefault();
+          setOverFrame(false);
+          onDropAppend?.();
+        }}
+        className={`relative bg-black rounded-lg overflow-hidden flex items-center justify-center h-full max-h-full max-w-full
+          ${overFrame ? 'ring-2 ring-primary' : ''}`}
       >
+        {/* Says what the drop will DO. "Add to the end" is the whole contract
+            — without it, dropping on the picture looks like it should replace
+            what is showing, and appending reads as a bug. */}
+        {overFrame && (
+          <span
+            data-testid="viewer-drop-hint"
+            className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center
+                       bg-black/55 text-xs font-medium text-white"
+          >
+            Add to the end of the timeline
+          </span>
+        )}
         {/* One per audio track. Hidden — they are speakers, not pictures —
             but real elements, because a Web Audio graph would be a second
             clock to keep in step with the timeline for no visible gain. */}

@@ -30,7 +30,7 @@ const ICON = { video: Film, audio: Music, image: ImageIcon };
 let seq = 0;
 const nextId = () => { seq += 1; return `up${seq}`; };
 
-export default function UploadsPanel({ onAdd, disabled = false }) {
+export default function UploadsPanel({ onAdd, disabled = false, onDragSource, onDragEnd }) {
   const [items, setItems] = useState([]);      // { id, name, kind, state, url, seconds, error }
   const [dragging, setDragging] = useState(false);
   const [rejected, setRejected] = useState([]);
@@ -94,13 +94,20 @@ export default function UploadsPanel({ onAdd, disabled = false }) {
     if (!disabled) accept(e.dataTransfer?.files);
   };
 
+  /** ONE description of an upload, used by both the click and the drag, so a
+   *  clip cannot arrive with a different id or name depending on how it got
+   *  there. */
+  const sourceFor = (item) => ({
+    kind: item.kind,
+    seconds: item.seconds,
+    label: item.name,
+    source: { id: `up:${item.id}`, url: item.url, kind: item.kind, uploaded: true, name: item.name },
+  });
+
   const add = (item) => {
     if (item.state !== 'ready') return;
-    onAdd?.({
-      source: { id: `up:${item.id}`, url: item.url, kind: item.kind, uploaded: true, name: item.name },
-      seconds: item.seconds,
-      kind: item.kind,
-    });
+    const { source, seconds, kind } = sourceFor(item);
+    onAdd?.({ source, seconds, kind });
   };
 
   return (
@@ -175,6 +182,17 @@ export default function UploadsPanel({ onAdd, disabled = false }) {
                 onClick={() => add(item)}
                 disabled={!ready}
                 data-testid={`upload-${item.id}`}
+                // Same gesture as a Voxel generation. An upload that can only
+                // be clicked while a generation can be dragged teaches the
+                // customer that dragging is unreliable.
+                draggable={ready}
+                onDragStart={(e) => {
+                  if (!ready) { e.preventDefault(); return; }
+                  e.dataTransfer.setData('text/plain', item.name);
+                  e.dataTransfer.effectAllowed = 'copy';
+                  onDragSource?.(sourceFor(item));
+                }}
+                onDragEnd={() => onDragEnd?.()}
                 className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-left
                   ${ready ? 'hover:bg-background-elevated cursor-pointer' : 'cursor-default'}
                   ${item.state === 'failed' ? 'opacity-90' : ''}`}

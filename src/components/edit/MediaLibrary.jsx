@@ -34,7 +34,7 @@ const PAGE = 60;
  *  and a search box over six items is a control that costs more than it saves. */
 const TOOLBAR_FROM = 6;
 
-export default function MediaLibrary({ entity, onAdd, busyId = null }) {
+export default function MediaLibrary({ entity, onAdd, busyId = null, onDragSource, onDragEnd }) {
   const [records, setRecords] = useState(null);   // null = still loading
   const [error, setError] = useState(null);
   const [measuring, setMeasuring] = useState(null);
@@ -227,6 +227,23 @@ export default function MediaLibrary({ entity, onAdd, busyId = null }) {
               onClick={() => add(r)}
               title={r.prompt || ''}
               data-testid={`library-item-${r.id}`}
+              // ── DRAG IT TO CHOOSE THE MOMENT ─────────────────────────
+              // Clicking appends to the end, which is safe but gives you no
+              // say in WHERE. Dragging is how you place it, and the two
+              // coexist: neither replaces the other.
+              //
+              // Only usable generations drag. A failed one is deliberately
+              // still on screen with its reason, and letting it be dragged
+              // would promise something that cannot be delivered.
+              draggable={use.ok}
+              onDragStart={(e) => {
+                if (!use.ok) { e.preventDefault(); return; }
+                // Firefox refuses to start a drag unless SOMETHING is set.
+                e.dataTransfer.setData('text/plain', labelFor(r, 60));
+                e.dataTransfer.effectAllowed = 'copy';
+                onDragSource?.(r);
+              }}
+              onDragEnd={() => onDragEnd?.()}
               className={`group relative text-left rounded-lg border border-border overflow-hidden
                 ${use.ok ? 'hover:border-primary' : 'opacity-45 cursor-not-allowed'}`}
             >
