@@ -129,6 +129,61 @@ function demoProject() {
 }
 
 /**
+ * A library, for the scratch route only.
+ *
+ * ── WHY THIS EXISTS ────────────────────────────────────────────────────────
+ * The demo project exists because "a screen with nothing on it shows nothing
+ * about dragging, trimming and cutting". The library had exactly that problem
+ * and it went unnoticed: signed out it says "Sign in to see your generations
+ * here", so the panel you now DRAG FROM is empty on the one route built to
+ * show the editor working. Two features shipped that nobody could look at
+ * without an account — including me.
+ *
+ * Shaped like real GenerationHistory rows, because MediaLibrary reads
+ * `status`, `result_url`, `duration` and `model_id` and must behave here
+ * exactly as it does for a customer. The last one is deliberately FAILED: a
+ * failed generation stays visible with its reason, and that rule is worth
+ * seeing rather than only asserting.
+ */
+const DEMO_LIBRARY = [
+  { id: 'd1', type: 'video', status: 'completed', result_url: '/media/seedance-2-hero.mp4',
+    prompt: 'a yellow race car on a circuit at golden hour, low angle, heat haze off the tarmac',
+    model: 'Seedance 2.5', model_id: 'kie:seedance-2-5', ratio: '16:9', duration: 12,
+    camera: 'ARRI Alexa 35', lens: 'Zeiss Supreme Prime', focal_length: '35mm', fstop: 'f/2.8',
+    created_date: '2026-08-26T09:00:00Z' },
+  { id: 'd2', type: 'video', status: 'completed', result_url: '/media/explore-hero.mp4',
+    prompt: 'a dragon circling a castle at dusk, wide establishing shot, volumetric light',
+    model: 'Kling 3.0', model_id: 'fal:kling-3', ratio: '16:9', duration: 18,
+    created_date: '2026-08-26T08:30:00Z' },
+  { id: 'd3', type: 'video', status: 'completed', result_url: '/media/kling-3-card.mp4',
+    prompt: 'cinematic product reveal, slow push in on a matte black case',
+    model: 'Kling 3.0', model_id: 'fal:kling-3', ratio: '16:9', duration: 18,
+    created_date: '2026-08-26T08:00:00Z' },
+  { id: 'd4', type: 'image', status: 'completed', result_url: '/media/discover-dragon-castle.jpg',
+    prompt: 'a dragon over a castle, painted, warm key light',
+    model: 'Flux 1.1 Pro', model_id: 'fal:flux-pro', ratio: '16:9', duration: 5,
+    created_date: '2026-08-26T07:30:00Z' },
+  { id: 'd5', type: 'image', status: 'completed', result_url: '/media/discover-targaryen-guards.jpg',
+    prompt: 'armoured guards on a rampart at night, torchlight',
+    model: 'Flux 1.1 Pro', model_id: 'fal:flux-pro', ratio: '16:9', duration: 5,
+    created_date: '2026-08-26T07:00:00Z' },
+  { id: 'd6', type: 'video', status: 'completed', result_url: '/media/seedance-2-hero.mp4',
+    prompt: 'the same circuit from above, drone pull-back revealing the whole track',
+    model: 'Seedance 2.5', model_id: 'kie:seedance-2-5', ratio: '16:9', duration: 12,
+    created_date: '2026-08-26T06:30:00Z' },
+  { id: 'd7', type: 'video', status: 'failed', result_url: null,
+    prompt: 'a car driving through a flooded street at night',
+    model: 'Seedance 2.5', model_id: 'kie:seedance-2-5', ratio: '16:9', duration: null,
+    created_date: '2026-08-26T06:00:00Z' },
+];
+
+/** The same shape base44 entities expose, so MediaLibrary cannot tell the
+ *  difference and no branch is needed inside it. */
+const demoEntity = {
+  filter: async () => DEMO_LIBRARY,
+};
+
+/**
  * What to open with. Runs once, before anything can write.
  *
  * The order matters: an unreadable save is moved ASIDE here, in the same
@@ -998,7 +1053,12 @@ export default function EditCut({ demo = false, startWith = null, onLeave = null
                       the prompt, model and camera that made it.
                     </p>
                     <MediaLibrary
-                      entity={base44.entities.GenerationHistory}
+                      // The scratch route gets a demo library for the same
+                      // reason it gets a demo timeline. /edit must NEVER get
+                      // this — handing somebody generations they did not make,
+                      // in a panel that autosaves into their account, is worse
+                      // than an empty screen by a long way.
+                      entity={demo ? demoEntity : base44.entities.GenerationHistory}
                       onAdd={addFromLibrary}
                       onDragSource={beginDrag}
                       onDragEnd={() => setDragging(null)}

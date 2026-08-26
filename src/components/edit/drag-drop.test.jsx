@@ -202,3 +202,43 @@ describe('both panels can start a drag', () => {
     expect(src, 'appending silently reads as a bug').toMatch(/Add to the end/);
   });
 });
+
+describe('the demo library is for the scratch route ONLY', () => {
+  // EditCut's own note: handing somebody a project of racing cars they did not
+  // make, in a panel that autosaves into their account, is worse than an empty
+  // screen by a long way. The same is true of the LIBRARY, which is the newer
+  // half and the one that had no guard at all.
+  const src = fs.readFileSync(path.join(HERE, 'EditCut.jsx'), 'utf8');
+
+  it('is chosen by the demo flag, never unconditionally', () => {
+    expect(src, 'the demo library is not gated on `demo`')
+      .toMatch(/entity=\{demo\s*\?\s*demoEntity\s*:\s*base44\.entities\.GenerationHistory\}/);
+  });
+
+  it('has exactly one place that decides, so there is one thing to get right', () => {
+    expect([...src.matchAll(/demoEntity/g)].length,
+      'demoEntity is referenced in more than the definition and the one choice')
+      .toBeLessThanOrEqual(2);
+  });
+
+  it('never points a demo record at a customer URL', () => {
+    // Every demo asset is a file this site already serves. A remote or signed
+    // URL here would rot, and a customer's URL would be a leak.
+    const block = src.slice(src.indexOf('const DEMO_LIBRARY'), src.indexOf('const demoEntity'));
+    const urls = [...block.matchAll(/result_url:\s*'([^']+)'/g)].map((m) => m[1]);
+    expect(urls.length).toBeGreaterThan(0);
+    for (const u of urls) expect(u, `${u} is not a local asset`).toMatch(/^\/media\//);
+  });
+
+  it('keeps a FAILED one, so the rule is visible and not merely asserted', () => {
+    const block = src.slice(src.indexOf('const DEMO_LIBRARY'), src.indexOf('const demoEntity'));
+    expect(block).toMatch(/status:\s*'failed'/);
+  });
+
+  it('has enough rows to bring up the toolbar, or the view toggle never shows', () => {
+    // MediaLibrary hides search, filters and grid/list under six generations.
+    // Five demo rows would hide the control this route exists to demonstrate.
+    const block = src.slice(src.indexOf('const DEMO_LIBRARY'), src.indexOf('const demoEntity'));
+    expect([...block.matchAll(/\bid:\s*'d\d+'/g)].length).toBeGreaterThanOrEqual(6);
+  });
+});
