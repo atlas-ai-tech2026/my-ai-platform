@@ -15,6 +15,7 @@ import jwt from 'jsonwebtoken';
 import { pool, isReady as dbReady, migrate, ADMIN_EMAIL } from './db.js';
 import { persistOrFallback, persistBuffer, isReady as spacesReady, uploadPrivate, listKeys, deleteKey,
          listAllMedia, readObject, primaryObjectExists, cdnifyDeep, mediaCdnBase } from './storage.js';
+import { SURVEY_SQL, surveyRows } from './thumbnail-survey.js';
 import { configureKie, kieCreateTask, kieGetTask, kiePollUntilDone, kieUploadBuffer, kieGetCredits } from './kie.js';
 import { configureLlm, llmText, llmConfig } from './llm.js';
 import { estimateKieCredits, backfillKieEstimate, KIE_USD_PER_CREDIT,
@@ -5263,6 +5264,43 @@ app.post('/api/admin/users/:id/reset-password', adminGate, async (req, res) => {
 });
 
 // ─── ADMIN: USER HISTORY ────────────────────────────────────────────
+// ── THUMBNAIL DRY RUN ───────────────────────────────────────────────────────
+// What a thumbnail backfill WOULD do for one account, and nothing else.
+//
+// The owner's condition for touching 601 customers' history was that no data
+// changes and nothing breaks. I could guarantee the design and not untested
+// code, so the first thing that ships is the thing that CANNOT change
+// anything — and its output is a number he reads himself rather than one I
+// read privately and relay.
+//
+// GET, not POST, deliberately: a survey that changes nothing should be safe to
+// re-run, bookmark, and refresh. If this ever grows a write, it moves to POST
+// on the same day.
+//
+// Scoped by EMAIL because that is what the owner has in his hand ("try it with
+// aiworkshop965@gmail.com"), and scoped to ONE account because a job that can
+// only touch what you point it at cannot run away.
+app.get('/api/admin/thumbnails/survey', adminGate, async (req, res) => {
+  if (!dbReady()) return res.status(503).json({ error: 'Database not configured.' });
+  const email = String(req.query.email || '').trim().toLowerCase();
+  if (!email) return res.status(400).json({ error: 'An email is required — this runs for one account.' });
+
+  try {
+    const { rows: users } = await pool.query('SELECT id, email FROM users WHERE lower(email) = $1', [email]);
+    if (!users.length) return res.status(404).json({ error: `No account for ${email}.` });
+
+    const { rows } = await pool.query(SURVEY_SQL, [users[0].id]);
+    const report = await surveyRows(rows);
+    res.json({ account: users[0].email, ...report });
+  } catch (e) {
+    // Named, not swallowed. A survey that fails silently and returns zero
+    // would read as "nothing to do" — the worst possible lie for a number
+    // somebody is about to make a decision on.
+    console.error('[thumbnails:survey] failed:', e.message);
+    res.status(500).json({ error: `The survey could not finish: ${e.message}` });
+  }
+});
+
 app.get('/api/admin/users/:id/history', adminGate, async (req, res) => {
   try {
     const targetId = parseInt(req.params.id, 10);
