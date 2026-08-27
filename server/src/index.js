@@ -16,6 +16,7 @@ import { pool, isReady as dbReady, migrate, ADMIN_EMAIL } from './db.js';
 import { persistOrFallback, persistBuffer, isReady as spacesReady, uploadPrivate, listKeys, deleteKey,
          listAllMedia, readObject, primaryObjectExists, cdnifyDeep, mediaCdnBase } from './storage.js';
 import { SURVEY_SQL, surveyRows } from './thumbnail-survey.js';
+import { SET_THUMB_SQL, backfillRows } from './thumbnail-backfill.js';
 import { configureKie, kieCreateTask, kieGetTask, kiePollUntilDone, kieUploadBuffer, kieGetCredits } from './kie.js';
 import { configureLlm, llmText, llmConfig } from './llm.js';
 import { estimateKieCredits, backfillKieEstimate, KIE_USD_PER_CREDIT,
@@ -5298,6 +5299,48 @@ app.get('/api/admin/thumbnails/survey', adminGate, async (req, res) => {
     // somebody is about to make a decision on.
     console.error('[thumbnails:survey] failed:', e.message);
     res.status(500).json({ error: `The survey could not finish: ${e.message}` });
+  }
+});
+
+// ── THUMBNAIL BACKFILL ──────────────────────────────────────────────────────
+// POST, not GET, because this one WRITES. The survey above stays GET for the
+// same reason — the method should say which is which without reading the code.
+//
+// Scoped to ONE account by email, with a `limit` so a first run can be twenty
+// rows rather than all 333. There is no "every account" variant; the broad
+// version does not exist yet, and a job that can only touch what you point it
+// at cannot run away.
+app.post('/api/admin/thumbnails/backfill', adminGate, async (req, res) => {
+  if (!dbReady()) return res.status(503).json({ error: 'Database not configured.' });
+  if (!spacesReady()) return res.status(503).json({ error: 'Spaces not configured — nowhere to put a thumbnail.' });
+
+  const email = String(req.body?.email || '').trim().toLowerCase();
+  const limit = Math.max(1, Math.min(1000, Number(req.body?.limit) || 20));
+  if (!email) return res.status(400).json({ error: 'An email is required — this runs for one account.' });
+
+  try {
+    const { rows: users } = await pool.query('SELECT id, email FROM users WHERE lower(email) = $1', [email]);
+    if (!users.length) return res.status(404).json({ error: `No account for ${email}.` });
+    const user = users[0];
+
+    const { rows } = await pool.query(SURVEY_SQL, [user.id]);
+    const started = Date.now();
+    const report = await backfillRows(rows, {
+      limit,
+      persist: (buf, contentType, kind) => persistBuffer(buf, contentType, kind),
+      // The ONE write. Scoped to the row AND the user, through jsonb_set on a
+      // single path — result_url is unreachable from here by construction.
+      setThumb: async (id, url) => {
+        await pool.query(SET_THUMB_SQL, [JSON.stringify(url), id, user.id]);
+      },
+    });
+
+    console.log(`[thumbnails] ${user.email}: ${report.done} done, ${report.failed} failed, `
+      + `${report.savedMB} MB saved in ${Math.round((Date.now() - started) / 1000)}s`);
+    res.json({ account: user.email, tookSeconds: Math.round((Date.now() - started) / 1000), ...report });
+  } catch (e) {
+    console.error('[thumbnails:backfill] failed:', e.message);
+    res.status(500).json({ error: `The backfill could not finish: ${e.message}` });
   }
 });
 
