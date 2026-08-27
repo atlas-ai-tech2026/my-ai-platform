@@ -14,7 +14,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { pool, isReady as dbReady, migrate, ADMIN_EMAIL } from './db.js';
 import { persistOrFallback, persistBuffer, isReady as spacesReady, uploadPrivate, listKeys, deleteKey,
-         listAllMedia, readObject, primaryObjectExists } from './storage.js';
+         listAllMedia, readObject, primaryObjectExists, cdnifyDeep } from './storage.js';
 import { configureKie, kieCreateTask, kieGetTask, kiePollUntilDone, kieUploadBuffer, kieGetCredits } from './kie.js';
 import { configureLlm, llmText, llmConfig } from './llm.js';
 import { estimateKieCredits, backfillKieEstimate, KIE_USD_PER_CREDIT,
@@ -3111,7 +3111,16 @@ function rowToItem(row) {
     user_id: row.user_id,
     created_date: row.created_date instanceof Date ? row.created_date.toISOString() : row.created_date,
     updated_date: row.updated_date instanceof Date ? row.updated_date.toISOString() : row.updated_date,
-    ...(row.data || {}),
+    // ── EVERY OLD FILE, SERVED FROM THE EDGE ────────────────────────────
+    // The database keeps the origin url it was written with. This swaps the
+    // host on the way OUT, so a history from before the CDN existed gets the
+    // same speed as one made today — without rewriting a single record.
+    //
+    // A no-op until SPACES_CDN_BASE is set, and reverting is deleting that
+    // variable: there is no migration to undo. This is the ONE place every
+    // entity read passes through, so nothing can be missed and nothing has
+    // to be remembered at the call sites.
+    ...cdnifyDeep(row.data || {}),
   };
 }
 
