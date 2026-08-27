@@ -1,4 +1,5 @@
 import React, { useRef } from 'react';
+import VideoTile from '@/components/video/VideoTile';
 import { Upload, Image as ImageIcon, Film, Puzzle, Heart, Plus } from 'lucide-react';
 import SeedanceMediaGrid from './SeedanceMediaGrid';
 
@@ -134,20 +135,11 @@ export default function SeedanceRightPanel({
                 {videos.filter(v => v.status === 'completed' && v.result_url).map((v, i) => (
                   <div key={v.id || i} style={{ background: '#161616', borderRadius: 10, overflow: 'hidden', border: '1px solid #0D0D0D' }}>
                     <div style={{ aspectRatio: '16/9', position: 'relative' }}>
-                      {/* preload="metadata", NOT "auto".
-                          "auto" tells the browser to download the WHOLE file,
-                          for every card in the grid, including the ones far
-                          off the bottom of the screen. A customer with twenty
-                          finished videos was pulling tens of megabytes to
-                          paint one screen of thumbnails — which is the "my
-                          files take forever to open" report.
-                          "metadata" fetches only the header (~13 KB), which is
-                          all that #t=0.1 needs to show a first frame. The Edit
-                          library has always used it; these two grids were the
-                          only places still on "auto". */}
-                      <video src={v.result_url + '#t=0.1'} muted playsInline preload="metadata"
-                        onLoadedData={e => { e.target.currentTime = 0.1; }}
-                        style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+                      {/* One description of a video tile, shared with the other
+                          grid — see VideoTile. It carries the preload setting
+                          AND the near-viewport gate, so a card below the fold
+                          does not build a decoder it does not need. */}
+                      <VideoTile src={v.result_url} fit="contain" />
                     </div>
                     <div style={{ padding: '8px 10px' }}>
                       <p style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', margin: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{v.prompt}</p>

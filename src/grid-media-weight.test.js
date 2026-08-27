@@ -41,6 +41,10 @@ const MEDIA_GRIDS = [
   'components/video/SeedanceMediaGrid.jsx',
   'components/edit/MediaLibrary.jsx',
   'pages/Image.jsx',
+  // The one description of a video tile. The two Seedance grids delegate to
+  // it now — they each shipped `preload="auto"` independently, which is the
+  // whole argument for having one component instead of two copies.
+  'components/video/VideoTile.jsx',
 ];
 
 /** Comments stripped, so the note explaining the bug is not read as the bug. */
@@ -86,10 +90,49 @@ describe('no media grid loads its images eagerly', () => {
 describe('the two that actually broke stay fixed', () => {
   // Named separately from the loop so that shortening MEDIA_GRIDS by accident
   // cannot silently un-guard the pair this whole file exists for.
+  //
+  // They no longer contain a <video> of their own — both delegate to VideoTile
+  // — so the check is "either you use the shared tile, or you carry the
+  // setting yourself". Anything else means a third copy has appeared.
   for (const f of ['components/video/SeedanceRightPanel.jsx', 'components/video/SeedanceMediaGrid.jsx']) {
-    it(`${f} is on metadata`, () => {
-      expect(code(f)).toMatch(/preload="metadata"/);
-      expect(code(f)).not.toMatch(/preload="auto"/);
+    it(`${f} cannot preload a whole video`, () => {
+      const src = code(f);
+      expect(src).not.toMatch(/preload="auto"/);
+      expect(
+        /<VideoTile\b/.test(src) || /preload="metadata"/.test(src),
+        'this grid neither uses VideoTile nor sets preload itself',
+      ).toBe(true);
     });
   }
+
+  it('VideoTile itself is on metadata, since both grids now trust it', () => {
+    const src = code('components/video/VideoTile.jsx');
+    expect(src).toMatch(/preload="metadata"/);
+    expect(src).not.toMatch(/preload="auto"/);
+  });
+});
+
+describe('a video below the fold does not build a decoder', () => {
+  // `loading="lazy"` exists for <img> and the browser honours it. There is NO
+  // equivalent for <video>: the element is constructed and a decoder attached
+  // the moment it enters the DOM, on screen or a thousand pixels below it.
+  //
+  // After the preload fix the DOWNLOAD is small, but twenty cards still meant
+  // twenty decoders. That is the quiet half of the same complaint — the fan
+  // spins and scrolling stops responding, with no network activity to blame.
+  it('VideoTile gates the element on being near the viewport', () => {
+    const src = code('components/video/VideoTile.jsx');
+    expect(src, 'no near-viewport gate — every tile builds immediately')
+      .toMatch(/useNearViewport/);
+    expect(src, 'the <video> is not actually behind the gate')
+      .toMatch(/\{near && \(/);
+  });
+
+  it('falls back to SHOWING everything when the browser cannot observe', () => {
+    // Failing the other way would hide a customer's whole history behind a
+    // feature check — the library would look empty rather than slow, and lost
+    // work is a far worse bug than a warm laptop.
+    const src = fs.readFileSync(path.join(ROOT, 'lib/useNearViewport.js'), 'utf8');
+    expect(src).toMatch(/typeof IntersectionObserver === 'undefined'/);
+  });
 });

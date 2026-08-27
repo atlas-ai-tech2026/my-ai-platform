@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import VideoTile from '@/components/video/VideoTile';
 // N10: the shield icons implied a moderation decision this flow never makes;
 // the server confirms the image is readable, nothing more.
 import { X, Check, Loader2, UserPlus, AlertCircle, Image as ImageIcon, Film, Music, ChevronDown } from 'lucide-react';
@@ -54,12 +55,14 @@ export default function SeedanceMediaGrid({ items = [], onCheckEligibility, onRe
                 <img src={item.previewUrl} alt="" loading="lazy" decoding="async"
                   style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
               )}
-              {/* metadata, not auto — "auto" downloads the whole file for
-                  every tile in the grid. See SeedanceRightPanel for the full
-                  note; the two grids had the same bug. */}
+              {/* Shared with the other grid — see VideoTile. Both of these
+                  shipped the eager preload setting independently, which is why
+                  there is one component now instead of two copies to keep in
+                  step. (The bad value is deliberately not written out here:
+                  the guard scans source, and quoting it makes the comment
+                  itself fail the check.) */}
               {isVideo && item.previewUrl && (
-                <video src={item.previewUrl + '#t=0.1'} muted playsInline preload="metadata"
-                  style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                <VideoTile src={item.previewUrl} fit="cover" />
               )}
               {!item.previewUrl && (
                 <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
