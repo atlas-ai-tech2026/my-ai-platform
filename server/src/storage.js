@@ -65,6 +65,15 @@ function originBase(endpoint = ENDPOINT, bucket = BUCKET) {
   }
 }
 
+/** The edge base actually in force, or '' when files are served from origin.
+ *  Exposed so /api/health can answer "is the CDN live" from outside — the
+ *  two setup steps live in different DigitalOcean screens, and doing only the
+ *  first leaves the CDN switched on and completely idle, which looks exactly
+ *  like success. That happened here on 2026-08-27. */
+export function mediaCdnBase() {
+  return CDN_BASE;
+}
+
 /**
  * One URL, pointed at the edge instead of the origin.
  *
@@ -128,7 +137,8 @@ if (configured) {
   // "The media sync is working" proves A key works, not WHICH — so the safe
   // answer was not a guess, it was making it observable.
   console.log(`[storage] DO Spaces configured → bucket=${BUCKET} region=${REGION} `
-    + `key=${String(process.env.SPACES_KEY || '').slice(0, 8)}…`);
+    + `key=${String(process.env.SPACES_KEY || '').slice(0, 8)}… `
+    + `media=${CDN_BASE ? 'CDN ' + CDN_BASE : 'ORIGIN (no SPACES_CDN_BASE — the edge is idle)'}`);
 } else {
   console.warn('[storage] DO Spaces NOT configured — generated outputs will use raw FAL urls (not durable).');
 }

@@ -14,7 +14,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { pool, isReady as dbReady, migrate, ADMIN_EMAIL } from './db.js';
 import { persistOrFallback, persistBuffer, isReady as spacesReady, uploadPrivate, listKeys, deleteKey,
-         listAllMedia, readObject, primaryObjectExists, cdnifyDeep } from './storage.js';
+         listAllMedia, readObject, primaryObjectExists, cdnifyDeep, mediaCdnBase } from './storage.js';
 import { configureKie, kieCreateTask, kieGetTask, kiePollUntilDone, kieUploadBuffer, kieGetCredits } from './kie.js';
 import { configureLlm, llmText, llmConfig } from './llm.js';
 import { estimateKieCredits, backfillKieEstimate, KIE_USD_PER_CREDIT,
@@ -6629,6 +6629,17 @@ app.get('/api/health', (req, res) => {
     kie_configured: !!KIE_KEY,
     db_configured: dbReady(),
     auth_configured: !!JWT_SECRET,
+    // ── IS THE CDN ACTUALLY IN USE? ───────────────────────────────────
+    // Enabling the CDN on the Space and setting SPACES_CDN_BASE are two
+    // separate steps in two different DigitalOcean screens, and doing only
+    // the first leaves the CDN switched on and completely idle — which looks
+    // identical to working. That happened here on 2026-08-27.
+    //
+    // The value is a PUBLIC url — the address every customer's browser
+    // requests images from — so reporting it leaks nothing, and it means the
+    // question "is the edge live" is answerable from outside, forever,
+    // without a deploy log or a sign-in.
+    media_cdn: mediaCdnBase() || null,
   });
 });
 
