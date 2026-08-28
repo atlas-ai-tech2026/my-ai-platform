@@ -73,6 +73,13 @@ export const LINE_SOURCES = {
     why: 'Actually exercises the running system — reads the database, writes and rolls back, '
       + 'resolves pricing, reaches storage.',
   },
+  'media-durable': {
+    kind: KIND.DATABASE,
+    why: 'Counts generations from the last 24h whose result_url is still on a provider host, '
+      + 'from the entities table. Deliberately NOT the 12,567-file backlog: a line that '
+      + 'reports a known number every morning stops being read. The backlog is task #83; '
+      + 'this watches for it happening again.',
+  },
   versioning: { kind: KIND.BUCKET, why: 'Reads the bucket’s versioning setting on every load.' },
   'media-backup': {
     kind: KIND.BUCKET,
