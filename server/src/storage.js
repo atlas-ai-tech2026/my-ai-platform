@@ -26,7 +26,8 @@
 import crypto from 'node:crypto';
 import { S3Client, PutObjectCommand, ListObjectsV2Command, DeleteObjectCommand,
          GetObjectCommand, GetBucketVersioningCommand, HeadObjectCommand,
-         PutBucketVersioningCommand } from '@aws-sdk/client-s3';
+         PutBucketVersioningCommand, GetBucketCorsCommand,
+         PutBucketCorsCommand } from '@aws-sdk/client-s3';
 
 const ENDPOINT = (process.env.SPACES_ENDPOINT || '').trim();
 const REGION = (process.env.SPACES_REGION || '').trim();
@@ -248,6 +249,92 @@ export async function deleteKey(key) {
  * Idempotent. Enabling an already-enabled bucket is a no-op, so this is safe
  * to call on every boot and safe to call by hand.
  */
+/**
+ * Let OUR OWN pages read a media file with JavaScript.
+ *
+ * ── WHAT IS BROKEN WITHOUT IT ──────────────────────────────────────────────
+ * Voxel Edit Cut's export reads each clip with fetch() to feed it into the
+ * video engine. A cross-origin fetch needs the bucket to say who may read it;
+ * an <img> or <video> tag does not. So galleries work perfectly while
+ * EXPORTING A PROJECT THAT CONTAINS A VOXEL CLIP fails completely — the one
+ * thing the editor exists to do, broken for the one input that makes it ours.
+ *
+ * Measured 2026-08-28 on both the origin and the CDN: no
+ * access-control-allow-origin for voxel-ai.ai, dev.voxel-ai.ai or localhost.
+ * This is very likely the real cause of "export worked locally then failed for
+ * every user on dev", which was put down to CSP at the time.
+ *
+ * ── WHY IT RUNS HERE AND NOT IN THE PANEL ──────────────────────────────────
+ * Same reason as ensureVersioning: the Spaces secret is write-only in the app
+ * config, so the server is the only place that holds it. Nobody, including the
+ * owner, can do this from a laptop.
+ *
+ * ── AND WHY THE LIST IS NOT A WILDCARD ─────────────────────────────────────
+ * `*` would let any site on the internet read a customer's media with script.
+ * These files are already public to anyone holding the url, so it is not a
+ * catastrophe — but "already leaky" is a poor reason to open it wider, and a
+ * named list costs nothing.
+ */
+export const MEDIA_CORS_ORIGINS = [
+  'https://voxel-ai.ai',
+  'https://www.voxel-ai.ai',
+  'https://dev.voxel-ai.ai',
+  'http://localhost:5173',
+];
+
+export const MEDIA_CORS_RULE = {
+  AllowedOrigins: MEDIA_CORS_ORIGINS,
+  // GET and HEAD only. The browser never WRITES to this bucket — uploads go
+  // through our own API, which is where the size and type checks live.
+  AllowedMethods: ['GET', 'HEAD'],
+  AllowedHeaders: ['*'],
+  // Content-Length so the rescue and the surveys can read a size from a
+  // browser-side request without downloading the file.
+  ExposeHeaders: ['Content-Length', 'Content-Type', 'ETag'],
+  MaxAgeSeconds: 3600,
+};
+
+export async function ensureMediaCors({ s3 = client, bucket = BUCKET } = {}) {
+  if (!s3) return { ok: false, error: 'Spaces not configured' };
+
+  let before = null;
+  try {
+    const cur = await s3.send(new GetBucketCorsCommand({ Bucket: bucket }));
+    before = cur?.CORSRules || [];
+  } catch (e) {
+    // NoSuchCORSConfiguration is the normal "none set" answer, not a fault.
+    before = /NoSuchCORSConfiguration/i.test(e?.name || e?.message || '') ? [] : null;
+    if (before === null) return { ok: false, stage: 'read', error: e.message };
+  }
+
+  const already = before.some((r) =>
+    MEDIA_CORS_ORIGINS.every((o) => (r.AllowedOrigins || []).includes(o))
+    && (r.AllowedMethods || []).includes('GET'));
+  if (already) return { ok: true, changed: false, rules: before.length };
+
+  try {
+    await s3.send(new PutBucketCorsCommand({
+      Bucket: bucket, CORSConfiguration: { CORSRules: [MEDIA_CORS_RULE] },
+    }));
+  } catch (e) {
+    return { ok: false, stage: 'write', error: e.message };
+  }
+
+  // Read it back. A PUT that returns 200 and leaves the bucket unchanged would
+  // otherwise be reported as a fix that does not exist — the precise failure
+  // this project keeps finding, and the reason ensureVersioning does the same.
+  try {
+    const after = await s3.send(new GetBucketCorsCommand({ Bucket: bucket }));
+    const rules = after?.CORSRules || [];
+    const ok = rules.some((r) => (r.AllowedOrigins || []).includes('https://voxel-ai.ai'));
+    return ok
+      ? { ok: true, changed: true, rules: rules.length, origins: MEDIA_CORS_ORIGINS }
+      : { ok: false, stage: 'verify', error: 'the rule did not stick', rules: rules.length };
+  } catch (e) {
+    return { ok: false, stage: 'verify', error: e.message };
+  }
+}
+
 export async function ensureVersioning({ enable = true, s3 = client, bucket = BUCKET } = {}) {
   if (!s3) return { ok: false, error: 'Spaces not configured' };
   let was;
@@ -457,6 +544,46 @@ function publicUrl(key) {
 // generation the user already paid for.
 //
 // `kind` is a folder prefix like 'image' | 'video' | 'audio'.
+/**
+ * Write to an EXACT key, publicly readable.
+ *
+ * persistBuffer picks its own uuid under `generations/`, which is right for a
+ * customer's output and wrong for anything that has to be found again by name
+ * — the speech model, whose files transformers.js requests by path.
+ *
+ * `uploadPrivate` is the other neighbour and is also wrong here: the model has
+ * to be readable by a customer's browser, which a private ACL forbids.
+ *
+ * Callers pass the key, so this is capable of overwriting. Every use of it is
+ * under a `models/` prefix; nothing in the codebase points it at
+ * `generations/`, and a test asserts that.
+ */
+export async function uploadPublicAt(key, body, contentType = 'application/octet-stream') {
+  if (!configured) throw new Error('Spaces not configured');
+  if (!key || typeof key !== 'string') throw new Error('A key is required');
+  await client.send(new PutObjectCommand({
+    Bucket: BUCKET, Key: key, Body: body, ContentType: contentType,
+    ACL: 'public-read',
+    // A model file at a versioned path never changes. Cache it for a year so
+    // a customer downloads it once, ever.
+    CacheControl: 'public, max-age=31536000, immutable',
+  }));
+  return publicUrl(key);
+}
+
+/** How many bytes are actually stored at this key, or null if it cannot be
+ *  read. Used to verify a write rather than trust that it returned. */
+export async function objectSize(key) {
+  if (!configured) return null;
+  try {
+    const out = await client.send(new HeadObjectCommand({ Bucket: BUCKET, Key: key }));
+    const n = Number(out?.ContentLength);
+    return Number.isFinite(n) ? n : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function persistFromUrl(sourceUrl, kind = 'output', signal) {
   if (!configured) throw new Error('Spaces not configured');
   if (!sourceUrl || typeof sourceUrl !== 'string') throw new Error('No source url');

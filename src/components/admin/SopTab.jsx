@@ -22,6 +22,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { toast } from 'sonner';
 import { adminApi } from '@/lib/adminApi';
 import InfoDot from './InfoDot';
+import MaintenancePanel from './MaintenancePanel';
 
 const STATE_STYLE = {
   critical: { dot: 'var(--crm-red)',   bg: 'var(--crm-red-bg)',   label: 'Act now' },
@@ -230,6 +231,11 @@ export default function SopTab({ onError }) {
         onSaved={(schedule) => setData((d) => ({ ...d, schedule }))}
         onError={onError}
       />
+
+      {/* The one-shot jobs. Here rather than in a tab of their own because
+          this is the screen that already answers "what should I do about
+          it" — and three of these four are the answer to a line above. */}
+      <MaintenancePanel onError={onError} />
     </div>
   );
 }

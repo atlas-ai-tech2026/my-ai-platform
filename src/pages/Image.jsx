@@ -7,6 +7,7 @@ import { buildCompositionPrompt, detectCompositionIntent } from '@/lib/enhancePr
 import { uploadAllToFal } from '@/lib/uploadToFal';
 import { getImageCredits } from '@/lib/creditPricing';
 import { downloadViaApi } from '@/lib/downloadFile';
+import { waitForImage, waitedLabel } from '@/lib/wait-for-image';
 
 const STYLE_SUFFIXES = {
   Cinematic:    ', cinematic color grading, anamorphic lens flare, film grain, dramatic lighting, movie still',
@@ -287,6 +288,10 @@ export default function Image() {
   // back-to-back without the button locking — each batch charges credits
   // independently and the grid shows one loading card per pending image.
   const [pending, setPending] = useState(0);
+  // Shown while an image the server handed off is still finishing. Kept
+  // separate from the error state on purpose: this is NOT a failure, and the
+  // whole bug was slow images being announced as failed ones.
+  const [slowNote, setSlowNote] = useState('');
   const isGenerating = pending > 0;
   const [imageCount, setImageCount] = useState(1);
   const [expandedImage, setExpandedImage] = useState(null);
@@ -447,7 +452,42 @@ export default function Image() {
 
         console.log('[FAL RESPONSE]', JSON.stringify(response.data, null, 2));
 
-        const url = response.data?.result_url;
+        // ── A HANDED-OFF IMAGE (2026-08-28) ──
+        // The server stops holding the request at 90s (Cloudflare cuts a
+        // proxied request at ~100), but the job keeps going. Six customers on
+        // 28 August were told their image failed when all six had succeeded at
+        // 94–314 seconds, so "slow" must never again be reported as "failed".
+        //
+        // If this wait is abandoned — tab closed, laptop shut — the server's
+        // sweeper still delivers it into history. Nothing here is load-bearing
+        // for the image arriving; it only means the customer watches it land.
+        let url = response.data?.result_url;
+        let alreadyInHistory = false;
+        if (!url && response.data?.pending && response.data?.job_id) {
+          const jobId = response.data.job_id;
+          toast.info(response.data.message || 'This one is taking longer than usual — still working.');
+          try {
+            const out = await waitForImage(jobId, {
+              poll: async (id) => (await base44.functions.invoke('image-status', { job_id: id })).data,
+              onTick: (secs) => setSlowNote(`Still working — ${waitedLabel(secs)}. You can leave this page; `
+                + 'it will be in your history when it is done.'),
+            });
+            if (!out.done) {
+              // Stopped watching, NOT failed. Saying anything stronger would be
+              // the original bug wearing a friendlier face.
+              toast.info('Still generating. It will appear in your history on its own — no credits lost.');
+              return null;
+            }
+            url = out.url;
+            alreadyInHistory = out.already;
+          } catch (err) {
+            toast.error(err.message || 'That image could not be finished — your credits are back.');
+            return null;
+          } finally {
+            setSlowNote('');
+          }
+        }
+
         if (!url) {
           console.error('[Generate] FAL response', {
             error: response.data?.error,
@@ -462,21 +502,26 @@ export default function Image() {
         // The image EXISTS and has already been paid for. If persisting the
         // history row fails we must still show it — but say so plainly
         // rather than pretending it was saved (H7).
+        // `alreadyInHistory` means the server's sweeper (or this customer's
+        // other tab) won the claim and has already written the row. Writing a
+        // second one would show the same picture twice in their own history.
         let savedRecord = null;
-        try {
-          savedRecord = await History_.create({
-            type: 'image', model: selectedModel.name, prompt,
-            result_url: url, status: 'completed',
-            ratio: aspectRatio, style, quality,
-            camera: cameraSelection?.camera?.name || null,
-            lens: cameraSelection?.lens?.name || null,
-            lens_type: cameraSelection?.lens?.type || null,
-            focal_length: cameraSelection?.focalLength || null,
-            fstop: cameraSelection?.fstop || null,
-          });
-        } catch (err) {
-          console.error('[image] history save failed:', err);
-          toast.error('Image generated, but saving it to your history failed — download it now to keep it.');
+        if (!alreadyInHistory) {
+          try {
+            savedRecord = await History_.create({
+              type: 'image', model: selectedModel.name, prompt,
+              result_url: url, status: 'completed',
+              ratio: aspectRatio, style, quality,
+              camera: cameraSelection?.camera?.name || null,
+              lens: cameraSelection?.lens?.name || null,
+              lens_type: cameraSelection?.lens?.type || null,
+              focal_length: cameraSelection?.focalLength || null,
+              fstop: cameraSelection?.fstop || null,
+            });
+          } catch (err) {
+            console.error('[image] history save failed:', err);
+            toast.error('Image generated, but saving it to your history failed — download it now to keep it.');
+          }
         }
         return {
           id: savedRecord?.id ?? `unsaved-${crypto.randomUUID()}`,
@@ -680,6 +725,20 @@ export default function Image() {
           content so overflowY actually scrolls; paddingBottom clears the
           fixed prompt bar (bottom:28 + ~204px tall) so the last row shows. */}
       <div style={{ position: 'relative', zIndex: 2, flex: 1, minHeight: 0, overflowY: 'auto', paddingBottom: 248 }}>
+
+        {/* A handed-off image, still finishing. Deliberately NOT styled like an
+            error: the whole bug being fixed here was a slow image being
+            announced as a failed one. It says the wait is safe to walk away
+            from, because it genuinely is — the server finishes it either way. */}
+        {slowNote && (
+          <div style={{
+            margin: '16px 28px 0', padding: '11px 14px', borderRadius: 10,
+            border: '1px solid rgba(255,255,255,0.12)', background: 'rgba(255,255,255,0.04)',
+            color: 'rgba(255,255,255,0.72)', fontFamily: font, fontSize: 13, lineHeight: 1.6,
+          }}>
+            {slowNote}
+          </div>
+        )}
 
         {/* Masonry grid (always rendered — when empty, only loading cards / nothing) */}
         <div style={{

@@ -18,6 +18,7 @@
 
 import pg from 'pg';
 import { COSTING_SEED as COSTING_MODELS_SEED, SEED_PLANS as COSTING_PLANS_SEED } from './costing-seed.js';
+import { SLOW_IMAGE_DDL } from './slow-image.js';
 import dotenv from 'dotenv';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -1055,6 +1056,15 @@ export async function migrate() {
     // Serves the per-model reliability rollup: label + status, newest window.
     await client.query(`CREATE INDEX IF NOT EXISTS pending_video_charges_label_idx
       ON pending_video_charges (model_label, created_at DESC) WHERE model_label IS NOT NULL;`);
+
+    // ─── pending_image_jobs (2026-08-28) ────────────────────────────
+    // Images that finish AFTER we stop waiting. The synchronous poll gives up
+    // at 90s because Cloudflare cuts a proxied request at about 100 — but on
+    // 28 August six customers were refunded for images that finished at 94,
+    // 97, 125, 130, 144 and 314 seconds. All six succeeded and all six were
+    // paid for. The request has to end; the JOB must not.
+    // See server/src/slow-image.js for the hand-off and the exactly-once lock.
+    await client.query(SLOW_IMAGE_DDL);
 
     // ─── ownership-lookup indexes (M5 + download guard) ─────────────
     // Both /api/video-status (M5) and /api/download verify that a job id /

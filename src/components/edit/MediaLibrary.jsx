@@ -19,13 +19,18 @@
 //    responding, and the customer reads that as the site crashing.
 
 import React, { useEffect, useState } from 'react';
-import { Loader2, AlertCircle, Plus, Film, ImageIcon, Search, X, LayoutGrid, List } from 'lucide-react';
+import { Loader2, AlertCircle, Plus, Film, ImageIcon, Search, X, LayoutGrid, List,
+  Folder, FolderPlus, FolderMinus } from 'lucide-react';
 
 import {
   usability, kindOf, durationOf, toSource, labelFor, orderForLibrary, measureDuration,
   filterLibrary, modelsPresent, LIBRARY_SORTS,
 } from '@/lib/media-library';
 import Tip from './Tip';
+import {
+  loadBins, saveBins, createBin, removeBin, addToBin, removeFromBin,
+  recordsInBin, countInBin, MAX_BINS,
+} from '@/lib/library-bins';
 
 /** One page is plenty for a panel; the editor is not a history browser. */
 const PAGE = 60;
@@ -97,6 +102,8 @@ function LibraryItem({ record: r, view, busy, onAdd, onDragSource, onDragEnd }) 
         if (!use.ok) { e.preventDefault(); return; }
         // Firefox refuses to start a drag unless SOMETHING is set.
         e.dataTransfer.setData('text/plain', labelFor(r, 60));
+        // So a folder chip knows WHICH generation was dropped on it.
+        e.dataTransfer.setData('application/x-voxel-id', r.id);
         e.dataTransfer.effectAllowed = 'copy';
         onDragSource?.(r);
       }}
@@ -176,6 +183,17 @@ export default function MediaLibrary({ entity, onAdd, busyId = null, onDragSourc
     try { return localStorage.getItem(VIEW_KEY) === 'list' ? 'list' : 'grid'; }
     catch { return 'grid'; }            // private mode, or storage disabled
   });
+  // ── FOLDERS ──────────────────────────────────────────────────────────
+  // Per-browser on purpose: no column on a table holding 601 people's
+  // history, nothing to migrate, and deleting one key removes all of it. The
+  // cost is stated in the UI rather than discovered — they do not follow you
+  // to another machine.
+  const [bins, setBins] = useState(() => loadBins());
+  const [activeBin, setActiveBin] = useState(null);
+  const [binError, setBinError] = useState(null);
+  const [naming, setNaming] = useState(false);
+  const commitBins = (next) => { setBins(next); saveBins(next); };
+
   const chooseView = (next) => {
     setView(next);
     try { localStorage.setItem(VIEW_KEY, next); } catch { /* not worth failing over */ }
@@ -247,7 +265,10 @@ export default function MediaLibrary({ entity, onAdd, busyId = null, onDragSourc
   }
 
   const models = modelsPresent(records);
-  const shown = filterLibrary(records, { query, model, sort, readyOnly });
+  let shown = filterLibrary(records, { query, model, sort, readyOnly });
+  // The folder narrows what the other filters already chose, rather than
+  // replacing them — so "this folder, Seedance only" is one thought.
+  if (activeBin) shown = recordsInBin(bins, activeBin, shown);
   const narrowed = shown.length !== records.length;
 
   return (
@@ -331,7 +352,7 @@ export default function MediaLibrary({ entity, onAdd, busyId = null, onDragSourc
                 because a one-button toggle showing the OTHER icon is the
                 control everybody reads backwards — you cannot tell whether
                 the picture is what you have or what you would get. */}
-            <span className="flex items-center rounded border border-border overflow-hidden">
+            <span className="flex items-center rounded border border-border overflow-hidden" data-testid="library-view-toggle">
               {[
                 ['grid', LayoutGrid, 'Show them as pictures'],
                 ['list', List, 'Show them as a list, with more of the prompt'],
@@ -347,6 +368,114 @@ export default function MediaLibrary({ entity, onAdd, busyId = null, onDragSourc
               ))}
             </span>
           </div>
+
+          {/* ── FOLDERS ─────────────────────────────────────────────────
+              Filing is a DRAG, not a button: a card is already draggable for
+              the timeline, and a button inside a button is invalid HTML. The
+              chip is the drop target, which also makes "put this there" the
+              same gesture everywhere in the editor. */}
+          <div className="flex flex-wrap items-center gap-1" data-testid="library-bins">
+            <Tip label="Everything, in no folder">
+              <button
+                type="button"
+                onClick={() => setActiveBin(null)}
+                aria-pressed={activeBin === null}
+                data-testid="bin-all"
+                className={`px-1.5 py-0.5 rounded text-[10px] border transition-colors
+                  ${activeBin === null ? 'border-primary text-white bg-primary/15'
+                                       : 'border-border text-foreground-muted hover:text-foreground-secondary'}`}
+              >All</button>
+            </Tip>
+
+            {bins.bins.map((b) => (
+              <Tip key={b.id} label={`${countInBin(bins, b.id, records)} in “${b.name}” — drag a card here to file it`}>
+                <button
+                  type="button"
+                  onClick={() => setActiveBin(activeBin === b.id ? null : b.id)}
+                  aria-pressed={activeBin === b.id}
+                  data-testid={`bin-${b.id}`}
+                  onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    const id = e.dataTransfer.getData('application/x-voxel-id');
+                    if (!id) return;
+                    const r = addToBin(bins, b.id, id);
+                    if (r.ok) commitBins(r.state); else setBinError(r.reason);
+                  }}
+                  className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] border transition-colors
+                    ${activeBin === b.id ? 'border-primary text-white bg-primary/15'
+                                         : 'border-border text-foreground-muted hover:text-foreground-secondary'}`}
+                >
+                  <Folder className="w-2.5 h-2.5" />
+                  {b.name}
+                  <span className="opacity-60">{countInBin(bins, b.id, records)}</span>
+                </button>
+              </Tip>
+            ))}
+
+            {/* Only while a folder is open, and a DROP TARGET for symmetry:
+                filing is a drag onto a chip, so unfiling is a drag onto this
+                one. */}
+            {activeBin && (
+              <Tip label="Drag a card here to take it out of this folder">
+                <span
+                  data-testid="bin-remove"
+                  onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    const id = e.dataTransfer.getData('application/x-voxel-id');
+                    if (id) commitBins(removeFromBin(bins, activeBin, id).state);
+                  }}
+                  className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px]
+                             border border-dashed border-border text-foreground-muted"
+                ><FolderMinus className="w-2.5 h-2.5" /> take out</span>
+              </Tip>
+            )}
+
+            {naming ? (
+              <input
+                autoFocus
+                data-testid="bin-name"
+                placeholder="Folder name"
+                onBlur={() => setNaming(false)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape') { setNaming(false); return; }
+                  if (e.key !== 'Enter') return;
+                  const r = createBin(bins, e.target.value);
+                  if (r.ok) { commitBins(r.state); setNaming(false); setBinError(null); }
+                  else setBinError(r.reason);
+                }}
+                className="w-28 rounded border border-primary bg-transparent px-1.5 py-0.5
+                           text-[10px] text-white outline-none"
+              />
+            ) : bins.bins.length < MAX_BINS && (
+              <Tip label="A folder lives in THIS browser — it does not follow you to another computer">
+                <button
+                  type="button"
+                  onClick={() => { setNaming(true); setBinError(null); }}
+                  data-testid="bin-new"
+                  className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px]
+                             border border-border text-foreground-muted hover:text-foreground-secondary"
+                ><FolderPlus className="w-2.5 h-2.5" /> Folder</button>
+              </Tip>
+            )}
+
+            {activeBin && (
+              <Tip label="Delete this folder. The pictures and videos in it are NOT deleted.">
+                <button
+                  type="button"
+                  onClick={() => { commitBins(removeBin(bins, activeBin).state); setActiveBin(null); }}
+                  data-testid="bin-delete"
+                  className="px-1.5 py-0.5 rounded text-[10px] border border-border
+                             text-foreground-muted hover:text-primary"
+                >Delete folder</button>
+              </Tip>
+            )}
+          </div>
+
+          {binError && (
+            <p data-testid="bin-error" className="text-[10px] text-primary">{binError}</p>
+          )}
 
           {narrowed && (
             <p className="text-[10px] text-foreground-muted font-mono" data-testid="library-count">
