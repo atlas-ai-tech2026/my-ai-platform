@@ -66,7 +66,21 @@ export const hasMorePages = (received, pageSize) => received >= pageSize;
  * Returns items plus the state the UI needs to be honest about what it is
  * showing: still loading, loading more, nothing left, or failed.
  */
-export function useHistoryFeed({ fetchPage, map, enabled = true, pageSize = PAGE_SIZE, resetKey }) {
+/**
+ * How many pages to keep in front of where the customer has scrolled.
+ *
+ * Amr's idea, and a good one: load a little immediately, then keep fetching
+ * quietly so scrolling never stops at a "Loading…". TWO pages rather than
+ * everything — the old code pulled the ENTIRE library on every page load and
+ * that is the cost this whole change removed. Two is enough that the pause is
+ * never reached and small enough that a customer who looks at the first screen
+ * and leaves has cost us three requests, not fifteen.
+ */
+export const PAGES_AHEAD = 2;
+
+export function useHistoryFeed({
+  fetchPage, map, enabled = true, pageSize = PAGE_SIZE, resetKey, pagesAhead = PAGES_AHEAD,
+}) {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(enabled);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -138,6 +152,23 @@ export function useHistoryFeed({ fetchPage, map, enabled = true, pageSize = PAGE
     if (!hasMore || busy.current) return;
     load(false);
   }, [hasMore, load]);
+
+  // ── LOADING AHEAD ──
+  // Fetch the next pages BEFORE the customer reaches them, so the grid never
+  // stops. Bounded by `pagesAhead`: it fills to that depth and then waits for
+  // real scrolling, which is the difference between this and the loop that
+  // used to download everything.
+  //
+  // `error` is in the condition on purpose — a failed page must not be retried
+  // forever in the background, hammering a server that has already said no.
+  const ahead = useRef(0);
+  useEffect(() => { ahead.current = 0; }, [resetKey, enabled]);
+  useEffect(() => {
+    if (!enabled || loading || loadingMore || !hasMore || error) return;
+    if (ahead.current >= pagesAhead) return;
+    ahead.current += 1;
+    load(false);
+  }, [enabled, loading, loadingMore, hasMore, error, pagesAhead, load]);
 
   return { items, setItems, loading, loadingMore, hasMore, loadMore, error };
 }

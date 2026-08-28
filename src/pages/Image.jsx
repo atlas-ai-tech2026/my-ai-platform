@@ -8,6 +8,7 @@ import { uploadAllToFal } from '@/lib/uploadToFal';
 import { getImageCredits } from '@/lib/creditPricing';
 import { downloadViaApi } from '@/lib/downloadFile';
 import { waitForImage, waitedLabel } from '@/lib/wait-for-image';
+import HistoryFilterBar, { EMPTY as EMPTY_FILTER, toQuery, isFiltering } from '@/components/history/HistoryFilterBar';
 
 const STYLE_SUFFIXES = {
   Cinematic:    ', cinematic color grading, anamorphic lens flare, film grain, dramatic lighting, movie still',
@@ -292,6 +293,15 @@ export default function Image() {
   // separate from the error state on purpose: this is NOT a failure, and the
   // whole bug was slow images being announced as failed ones.
   const [slowNote, setSlowNote] = useState('');
+  // The filter bar. `filterRef` exists because the feed holds onto fetchPage
+  // and would otherwise search with whatever the filter was when the callback
+  // was created — the classic stale-closure bug, and here it would show the
+  // customer results for a search they had already changed.
+  const [filter, setFilter] = useState(EMPTY_FILTER);
+  const [matchTotal, setMatchTotal] = useState(null);
+  const [myModels, setMyModels] = useState([]);
+  const filterRef = useRef(filter);
+  filterRef.current = filter;
   const isGenerating = pending > 0;
   const [imageCount, setImageCount] = useState(1);
   const [expandedImage, setExpandedImage] = useState(null);
@@ -349,13 +359,28 @@ export default function Image() {
   // out then back in re-fetches rather than showing the previous account's
   // rows — and a page still in flight for the old account never lands.
   const historyFeed = useHistoryFeed({
-    fetchPage: useCallback(
-      (limit, offset) => History_.filter({ type: 'image' }, '-created_date', limit, offset),
-      [],
-    ),
+    fetchPage: useCallback(async (limit, offset) => {
+      // No filter means the ORDINARY feed — not a search with empty terms.
+      // Two code paths for the same pictures could disagree with each other,
+      // and the unfiltered case is the one every customer sees every day.
+      if (!isFiltering(filterRef.current)) {
+        if (offset === 0) setMatchTotal(null);
+        return History_.filter({ type: 'image' }, '-created_date', limit, offset);
+      }
+      const r = await base44.functions.invoke('history/search', {
+        ...toQuery(filterRef.current, { type: 'image' }), limit, offset,
+      });
+      // The count comes back with the FIRST page and is the total that
+      // matched, not what fits on screen — the only way to tell "too narrow"
+      // from "not there" in a grid that loads as you scroll.
+      if (offset === 0) setMatchTotal(r.data?.total ?? 0);
+      return r.data?.items || [];
+    }, []),
     map: mapRecord,
     enabled: signedIn,
-    resetKey: user?.id,
+    // The filter is part of the key, so changing it restarts the feed from
+    // page one rather than appending new results underneath the old ones.
+    resetKey: `${user?.id || ''}|${filter.text}|${filter.preset}|${filter.model}`,
   });
 
   // THE SAVED TAB ASKS THE SERVER, and this is the whole reason the change is
@@ -372,6 +397,18 @@ export default function Image() {
     enabled: signedIn && activeTab === 'saved',
     resetKey: user?.id,
   });
+
+  // Their models, not all 28. Loaded once per account; a failure here leaves
+  // the dropdown disabled rather than breaking the page — the filter is a
+  // convenience and must never be able to take the history down with it.
+  useEffect(() => {
+    if (!signedIn) { setMyModels([]); return; }
+    let alive = true;
+    base44.functions.invoke('history/models', {})
+      .then((r) => { if (alive) setMyModels(r.data?.models || []); })
+      .catch(() => { if (alive) setMyModels([]); });
+    return () => { alive = false; };
+  }, [signedIn, user?.id]);
 
   const images = historyFeed.items;
   const setImages = historyFeed.setItems;
@@ -731,6 +768,37 @@ export default function Image() {
           content so overflowY actually scrolls; paddingBottom clears the
           fixed prompt bar (bottom:28 + ~204px tall) so the last row shows. */}
       <div style={{ position: 'relative', zIndex: 2, flex: 1, minHeight: 0, overflowY: 'auto', paddingBottom: 248 }}>
+
+        {/* Search your own work. Only on the history tab — the Saved tab is a
+            different server query, and a search box that silently did nothing
+            there would be worse than no search box. */}
+        {activeTab === 'history' && signedIn && (
+          <div style={{ paddingTop: 14 }}>
+            <HistoryFilterBar
+              value={filter}
+              onChange={setFilter}
+              models={myModels}
+              total={isFiltering(filter) ? matchTotal : null}
+              loading={historyFeed.loading && isFiltering(filter)}
+            />
+          </div>
+        )}
+
+        {/* THE MOST IMPORTANT SENTENCE ON THIS PAGE.
+            A customer who filters to nothing must never suspect their work was
+            deleted. That fear is the single biggest risk in adding a filter,
+            and it costs one line to remove. */}
+        {activeTab === 'history' && isFiltering(filter)
+          && !historyFeed.loading && images.length === 0 && (
+          <div style={{
+            margin: '4px 28px 0', padding: '14px 16px', borderRadius: 10,
+            border: '1px solid rgba(255,255,255,0.10)', background: 'rgba(255,255,255,0.04)',
+            color: 'rgba(255,255,255,0.72)', fontFamily: font, fontSize: 13, lineHeight: 1.6,
+          }}>
+            Nothing matches that. <strong style={{ color: '#FFF' }}>Your older work is still here</strong>
+            {' '}— widen the date, or clear the search.
+          </div>
+        )}
 
         {/* A handed-off image, still finishing. Deliberately NOT styled like an
             error: the whole bug being fixed here was a slow image being
