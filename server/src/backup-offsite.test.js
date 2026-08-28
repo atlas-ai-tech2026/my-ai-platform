@@ -6,6 +6,9 @@
 
 import { describe, it, expect } from 'vitest';
 import zlib from 'node:zlib';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   encryptBackup, decryptBackup,
   encryptionConfigured, offsiteConfigured, missingOffsiteVars, choosePrunable, MAX_PRUNE_PER_PASS, prunePrimary,} from './backup-offsite.js';
@@ -257,5 +260,52 @@ describe('pruning the primary copy', () => {
     const r = await prunePrimary({ prefix: 'backups/', keep: 30, list: listing, remove: () => {} });
     const { doomed } = choosePrunable(objects, { prefix: 'backups/', keep: 30 });
     expect(r.doomed).toEqual(doomed);
+  });
+});
+
+// ─── TWO POOLS, SO UPLOADS CANNOT STARVE LISTINGS (2026-08-28) ──────────────
+// Production stalled for two and a half hours tonight: every listing failed
+// with "the request socket did not establish a connection", four hours after a
+// clean restart, directly behind a 235 MiB upload batch. The sync must list
+// the destination before it can copy, so nothing went offsite while customers
+// generated video all evening.
+//
+// These read the source rather than the behaviour, because the thing that must
+// be true is a WIRING fact: reads and writes use different clients. A unit test
+// on either function would pass however they are wired.
+describe('listings and uploads do not share a connection pool', () => {
+  const src = readFileSync(
+    path.join(path.dirname(fileURLToPath(import.meta.url)), 'backup-offsite.js'), 'utf8')
+    .split('\n').filter((l) => !l.trim().startsWith('*') && !l.trim().startsWith('//')).join('\n');
+
+  it('there are two clients, cached separately', () => {
+    expect(src).toMatch(/let cachedClient = null/);
+    expect(src).toMatch(/let cachedReader = null/);
+  });
+
+  it('every LIST goes through the reader', () => {
+    expect(src).not.toMatch(/offsiteClient\(env\)\.send\(new ListObjectsV2Command/);
+    expect(src).toMatch(/offsiteReader\(env\)\.send\(new ListObjectsV2Command/);
+  });
+
+  it('and every WRITE stays on the upload client — a slow PUT is normal', () => {
+    // Uploads of whole videos to another continent legitimately take minutes.
+    // Giving them the listing's shorter deadline would break the backup to fix
+    // the check that watches it.
+    expect(src).toMatch(/offsiteClient\(env\)\.send\(new PutObjectCommand/);
+    expect(src).not.toMatch(/offsiteReader\(env\)\.send\(new PutObjectCommand/);
+  });
+
+  it('the reader gives up sooner than an upload does', () => {
+    const reader = src.slice(src.indexOf('function offsiteReader'), src.indexOf('function offsiteClient'));
+    expect(reader).toMatch(/requestTimeout: 30_000/);
+  });
+
+  it('neither client is left without a deadline — that caused the 3-hour silence', () => {
+    for (const fn of ['offsiteReader', 'offsiteClient']) {
+      const block = src.slice(src.indexOf(`function ${fn}`), src.indexOf(`function ${fn}`) + 400);
+      expect(block, `${fn} has no connectionTimeout`).toMatch(/connectionTimeout/);
+      expect(block, `${fn} has no requestTimeout`).toMatch(/requestTimeout/);
+    }
   });
 });
