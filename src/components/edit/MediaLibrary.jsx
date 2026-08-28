@@ -63,10 +63,14 @@ function LibraryItem({ record: r, view, busy, onAdd, onDragSource, onDragEnd }) 
           className="w-full h-full object-cover" />
       )}
       {use.ok && kindOf(r) === 'image' && (
+        // Thumbnail first, original as the fallback — a cell is ~7.5 MB
+        // without this and about 8 KB with it. Dropping the clip on the
+        // timeline still uses result_url, the full original.
+        //
         // lazy: a library of sixty generations otherwise queues the first
         // visible row behind every off-screen one. Same fix Image.jsx already
         // carries; this grid was missed.
-        <img src={r.result_url} alt="" loading="lazy" decoding="async"
+        <img src={r.thumb_url || r.result_url} alt="" loading="lazy" decoding="async"
           className="w-full h-full object-cover" />
       )}
       {!use.ok && <Icon className="w-5 h-5 text-foreground-muted" />}

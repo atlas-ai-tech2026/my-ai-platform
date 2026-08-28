@@ -65,6 +65,18 @@ function originBase(endpoint = ENDPOINT, bucket = BUCKET) {
   }
 }
 
+/**
+ * Computed ONCE, at import.
+ *
+ * cdnifyDeep walks every field of every record, and the first version called
+ * originBase() — which parses a URL and builds a string — for EVERY value.
+ * A history page of sixty generations is roughly fifteen hundred needless URL
+ * parses per request, for a value that cannot change while the process is
+ * running. Cheap individually, silly in aggregate, and on the hottest read
+ * path in the app.
+ */
+const ORIGIN_PREFIX = `${originBase()}/`;
+
 /** The edge base actually in force, or '' when files are served from origin.
  *  Exposed so /api/health can answer "is the CDN live" from outside — the
  *  two setup steps live in different DigitalOcean screens, and doing only the
@@ -84,7 +96,7 @@ export function mediaCdnBase() {
  */
 export function toCdn(url, { cdnBase = CDN_BASE, origin = null } = {}) {
   if (!cdnBase || typeof url !== 'string' || !url) return url;
-  const prefix = `${origin || originBase()}/`;
+  const prefix = origin ? `${origin}/` : ORIGIN_PREFIX;
   if (!url.startsWith(prefix)) return url;
   return `${cdnBase}/${url.slice(prefix.length)}`;
 }
