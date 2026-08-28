@@ -15,13 +15,17 @@ import jwt from 'jsonwebtoken';
 import { pool, isReady as dbReady, migrate, ADMIN_EMAIL } from './db.js';
 import { persistOrFallback, persistBuffer, isReady as spacesReady, uploadPrivate, listKeys, deleteKey,
          listAllMedia, readObject, primaryObjectExists, cdnifyDeep, mediaCdnBase,
-         ensureMediaCors, uploadPublicAt, objectSize } from './storage.js';
+         ensureMediaCors, uploadPublicAt, objectSize, persistWithThumb } from './storage.js';
 import { installModel, modelReady, MODEL_PREFIX } from './whisper-model.js';
 import { SURVEY_SQL, surveyRows } from './thumbnail-survey.js';
 import { SET_THUMB_SQL, backfillRows } from './thumbnail-backfill.js';
 import { RESCUE_SQL, RESCUE_QUEUE_SQL, rescueRows } from './media-rescue.js';
 import { RECORD_SQL, CLAIM_SQL, GIVE_UP_SQL, TOUCH_SQL, DUE_SQL, OWNS_SQL,
          sweepJobs, historyRowFor } from './slow-image.js';
+// The resizer the backfill already uses. Imported here so BOTH the button
+// and the automatic path run identical code — two resizers would drift, and
+// the grid would show two different sizes of "small".
+import { makeThumbnail } from './thumbnail-backfill.js';
 import { headSize } from './thumbnail-survey.js';
 import { ourMediaHosts, checkSample, summarise as summariseMediaHealth,
          HOST_BREAKDOWN_SQL, AT_RISK_SAMPLE_SQL } from './media-health.js';
@@ -1528,8 +1532,12 @@ app.post('/api/generate', verifyJwt, requireNotBanned, noDoubleCharge, requireMo
         }
 
         // kie result urls expire after ~14 days — re-host to our Spaces
-        // bucket so history stays durable (same as FAL outputs).
-        const durableUrl = await persistOrFallback(done.resultUrls[0], 'image');
+        // bucket so history stays durable (same as FAL outputs). The small
+        // version is made from the SAME download, so the grid has one from the
+        // moment the picture exists — until 2026-08-28 only the admin backfill
+        // ever made one, and the grid got slower again every day.
+        const { url: durableUrl, thumbUrl } = await persistWithThumb(
+          done.resultUrls[0], 'image', { makeThumb: makeThumbnail });
         // Midjourney returns 4 images per task; surface the extras so the
         // client can use them later without another charge.
         const extra = done.resultUrls.slice(1);
@@ -1537,6 +1545,9 @@ app.post('/api/generate', verifyJwt, requireNotBanned, noDoubleCharge, requireMo
           success: true,
           type: 'image',
           result_url: durableUrl,
+          // The browser writes the history row, so the thumbnail has to travel
+          // to it. A thumb_url the client never sends is a field nothing reads.
+          ...(thumbUrl ? { thumb_url: thumbUrl } : {}),
           ...(extra.length ? { result_urls: [durableUrl, ...extra] } : {}),
           mode,
         });
@@ -2826,7 +2837,8 @@ app.post('/api/image-status', verifyJwt, requireNotBanned, statusLimiter, async 
 
     // Re-host BEFORE claiming: kie urls expire in ~14 days, and a failure here
     // must leave the row 'pending' so the sweeper can try again.
-    const durableUrl = await persistOrFallback(t.resultUrls[0], 'image');
+    const { url: durableUrl, thumbUrl } = await persistWithThumb(
+      t.resultUrls[0], 'image', { makeThumb: makeThumbnail });
     const claim = await pool.query(CLAIM_SQL, [jobId, durableUrl]);
     if (!claim.rowCount) {
       // The sweeper or another tab won. The image is safe and already in
@@ -2835,7 +2847,7 @@ app.post('/api/image-status', verifyJwt, requireNotBanned, statusLimiter, async 
     }
     await settleVideoCharge(jobId);
     console.log(`[KIE-IMG] late delivery taskId=${jobId} user=${req.user.id} (browser)`);
-    return res.json({ status: 'COMPLETED', image_url: durableUrl, already: false });
+    return res.json({ status: 'COMPLETED', image_url: durableUrl, thumb_url: thumbUrl || null, already: false });
   } catch (e) {
     // Never a failure verdict from an error we do not understand — the job may
     // be perfectly fine and the sweeper will get it. Saying FAILED here would
@@ -7629,7 +7641,10 @@ async function sweepSlowImages() {
 
   const report = await sweepJobs(rows, {
     check: (family, taskId) => kieGetTask(family, taskId, { tag: 'KIE-IMG-SWEEP' }),
-    persist: (url) => persistOrFallback(url, 'image'),
+    // Returns {url, thumbUrl} — the sweeper writes the history row itself, so
+    // it must put the thumbnail in too. A row written without one would be the
+    // slow-grid bug re-entering through the back door.
+    persist: (url) => persistWithThumb(url, 'image', { makeThumb: makeThumbnail }),
     claim: async (taskId, url) => {
       const r = await pool.query(CLAIM_SQL, [taskId, url]);
       return r.rowCount ? r.rows[0] : null;
@@ -7641,10 +7656,11 @@ async function sweepSlowImages() {
     // The sweeper writes the history row ITSELF. This is the step the browser
     // would normally do, and the reason the whole table carries the prompt and
     // the model: with the tab gone, nothing else knows what was asked for.
-    saveRow: async (job, url) => {
+    saveRow: async (job, url, thumbUrl) => {
       await pool.query(
         `INSERT INTO entities (id, name, user_id, data) VALUES ($1, 'GenerationHistory', $2, $3::jsonb)`,
-        [crypto.randomUUID(), job.user_id, JSON.stringify({ ...historyRowFor(job, url), job_id: job.task_id })]
+        [crypto.randomUUID(), job.user_id,
+         JSON.stringify({ ...historyRowFor(job, url, thumbUrl), job_id: job.task_id })]
       );
     },
     settle: (taskId) => settleVideoCharge(taskId),

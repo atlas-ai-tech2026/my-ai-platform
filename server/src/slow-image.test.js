@@ -30,10 +30,10 @@ function harness(over = {}) {
     saved, settled, refunded,
     deps: {
       check: vi.fn(async () => ok()),
-      persist: vi.fn(async (u) => `https://spaces/${u.split('/').pop()}`),
+      persist: vi.fn(async (u) => ({ url: `https://spaces/${u.split('/').pop()}`, thumbUrl: `https://spaces/thumb-${u.split('/').pop()}` })),
       claim: vi.fn(async (_id, url) => ({ user_id: 7, model_label: 'Nano Banana Pro', prompt: 'a cat', ratio: '1:1', quality: '2K', url })),
       giveUp: vi.fn(async () => 7),
-      saveRow: vi.fn(async (row, url) => { saved.push({ row, url }); }),
+      saveRow: vi.fn(async (row, url, thumbUrl) => { saved.push({ row, url, thumbUrl }); }),
       settle: vi.fn(async (id) => { settled.push(id); }),
       refund: vi.fn(async (id, why) => { refunded.push({ id, why }); }),
       touch: vi.fn(async () => {}),
@@ -181,6 +181,27 @@ describe('one bad job does not stop the rest', () => {
     const h = harness();
     expect(await sweepJobs([], h.deps)).toMatchObject({ looked: 0, delivered: 0, problems: [] });
     expect(await sweepJobs(null, h.deps)).toMatchObject({ looked: 0 });
+  });
+});
+
+describe('a late picture still gets its small version', () => {
+  it('the thumbnail from the re-host reaches saveRow', async () => {
+    // Otherwise a late-delivered image is a full-size download in the grid —
+    // the slow-grid bug re-entering one row at a time.
+    const h = harness();
+    await sweepJobs([job()], h.deps);
+    expect(h.saved[0].thumbUrl).toMatch(/thumb-/);
+  });
+
+  it('and lands in the history row', () => {
+    expect(historyRowFor({}, 'u', 'https://spaces/t.jpg').thumb_url).toBe('https://spaces/t.jpg');
+  });
+
+  it('no thumbnail is an ABSENT field, never an empty string', () => {
+    // `thumb_url: ''` would make the grid render a broken image instead of
+    // falling back to the original.
+    expect(historyRowFor({}, 'u', null)).not.toHaveProperty('thumb_url');
+    expect(historyRowFor({}, 'u')).not.toHaveProperty('thumb_url');
   });
 });
 

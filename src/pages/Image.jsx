@@ -462,6 +462,10 @@ export default function Image() {
         // sweeper still delivers it into history. Nothing here is load-bearing
         // for the image arriving; it only means the customer watches it land.
         let url = response.data?.result_url;
+        // The server makes the small version now; the history row is written
+        // HERE, so it has to travel. A thumb_url the client never sends is a
+        // field nothing reads — which is exactly what the grid had until today.
+        let thumbUrl = response.data?.thumb_url || null;
         let alreadyInHistory = false;
         if (!url && response.data?.pending && response.data?.job_id) {
           const jobId = response.data.job_id;
@@ -479,6 +483,7 @@ export default function Image() {
               return null;
             }
             url = out.url;
+            thumbUrl = out.thumbUrl || thumbUrl;
             alreadyInHistory = out.already;
           } catch (err) {
             toast.error(err.message || 'That image could not be finished — your credits are back.');
@@ -511,6 +516,7 @@ export default function Image() {
             savedRecord = await History_.create({
               type: 'image', model: selectedModel.name, prompt,
               result_url: url, status: 'completed',
+              ...(thumbUrl ? { thumb_url: thumbUrl } : {}),
               ratio: aspectRatio, style, quality,
               camera: cameraSelection?.camera?.name || null,
               lens: cameraSelection?.lens?.name || null,
@@ -534,7 +540,7 @@ export default function Image() {
           lensType: cameraSelection?.lens?.type || null,
           focalLength: cameraSelection?.focalLength || null,
           fstop: cameraSelection?.fstop || null,
-          saved: false, url,
+          saved: false, url, thumbUrl,
         };
       };
 

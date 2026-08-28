@@ -34,7 +34,7 @@ export class ImageFailed extends Error {}
  * @param poll   (jobId) => {status, image_url?, already?, error?}
  * @param onTick (seconds) => void   for "still working, 2m 10s"
  * @returns {{done:false}}                     stopped asking; it is still coming
- *          {{done:true, url, already}}        it arrived
+ *          {{done:true, url, thumbUrl, already}}  it arrived
  * @throws  ImageFailed                        the SERVER said it failed
  */
 export async function waitForImage(jobId, {
@@ -62,7 +62,7 @@ export async function waitForImage(jobId, {
       // `already` means something else — the sweeper, or another tab — has
       // written the history row. Writing a second one shows the customer the
       // same picture twice.
-      return { done: true, url: answer.image_url, already: !!answer.already };
+      return { done: true, url: answer.image_url, thumbUrl: answer.thumb_url || null, already: !!answer.already };
     }
     if (answer?.status === 'FAILED') {
       throw new ImageFailed(answer.error || 'That image could not be finished — your credits are back.');
