@@ -649,3 +649,51 @@ export async function persistOrFallback(sourceUrl, kind = 'output', { timeoutMs 
     clearTimeout(timer);
   }
 }
+
+/**
+ * The same thing, plus the small version the history grid loads.
+ *
+ * NEVER THROWS, exactly like persistOrFallback — a thumbnail failure returns
+ * `{url, thumbUrl: null}` and a re-host failure returns the provider's own
+ * url. The customer's picture is not at risk from either.
+ *
+ * `makeThumb` is injected so this file does not import the image library: it
+ * is loaded on the boot path, and the resizer is only ever needed once a
+ * generation has already succeeded.
+ *
+ * ONE download feeds both uploads. Downloading a 7.5 MB file twice would add
+ * the wait straight back onto the customer, which is the thing this whole
+ * piece of work exists to remove.
+ */
+export async function persistWithThumb(sourceUrl, kind = 'output', { timeoutMs = 10000, makeThumb } = {}) {
+  if (!configured || !sourceUrl || !makeThumb) {
+    return { url: await persistOrFallback(sourceUrl, kind, { timeoutMs }), thumbUrl: null };
+  }
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), timeoutMs);
+  const startedAt = Date.now();
+  try {
+    const { saveWithThumbnail } = await import('./thumb-on-save.js');
+    const out = await saveWithThumbnail(sourceUrl, kind, {
+      download: async (u) => {
+        const resp = await fetch(u, { signal: ac.signal });
+        if (!resp.ok) throw new Error(`Fetch source failed: ${resp.status}`);
+        return {
+          buf: Buffer.from(await resp.arrayBuffer()),
+          contentType: resp.headers.get('content-type') || '',
+        };
+      },
+      store: (buf, contentType, k) => persistBuffer(buf, contentType, k, ac.signal, sourceUrl),
+      thumbnail: makeThumb,
+      onNote: (note) => console.log(`[storage] ${note}`),
+    });
+    console.log(`[storage] re-hosted ${kind} in ${Date.now() - startedAt}ms → ${out.url}`
+      + `${out.thumbUrl ? ' (+ thumbnail)' : ' (no thumbnail)'}`);
+    return out;
+  } catch (e) {
+    console.error(`[storage] re-host failed after ${Date.now() - startedAt}ms (${kind}), keeping provider url:`, e.message);
+    return { url: sourceUrl, thumbUrl: null };
+  } finally {
+    clearTimeout(timer);
+  }
+}

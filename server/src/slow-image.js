@@ -160,10 +160,10 @@ export function verdictFor(task, ageMs) {
  * not stop the other nineteen from being delivered.
  *
  * @param deps.check    (family, taskId) => task           ask the provider
- * @param deps.persist  (url) => durableUrl                re-host to our bucket
+ * @param deps.persist  (url) => {url, thumbUrl}           re-host + small version
  * @param deps.claim    (taskId, url) => row|null          the exactly-once lock
  * @param deps.giveUp   (taskId, why) => userId|null       the same lock, losing
- * @param deps.saveRow  (row, url) => void                 write the history row
+ * @param deps.saveRow  (row, url, thumbUrl) => void       write the history row
  * @param deps.settle   (taskId) => void                   charge kept
  * @param deps.refund   (taskId, why) => void              credits back
  * @param deps.touch    (taskId, note) => void             record a failed look
@@ -194,7 +194,7 @@ export async function sweepJobs(rows, deps) {
       // history row pointing at one is a picture with a fuse on it — the same
       // reason FAL outputs are re-hosted. If this throws we have NOT claimed,
       // the row stays 'pending', and the next sweep tries again.
-      const durable = await deps.persist(verdict.url);
+      const { url: durable, thumbUrl } = await deps.persist(verdict.url);
 
       const claimed = await deps.claim(row.task_id, durable);
       if (!claimed) continue;                       // the browser got there first
@@ -204,7 +204,7 @@ export async function sweepJobs(rows, deps) {
       // refundable. Settling first would leave a paid-for image that exists
       // nowhere the customer can see, which is the bug we are fixing wearing a
       // different hat.
-      await deps.saveRow(claimed, durable);
+      await deps.saveRow(claimed, durable, thumbUrl);
       await deps.settle(row.task_id);
       report.delivered += 1;
     } catch (e) {
@@ -226,12 +226,15 @@ export async function sweepJobs(rows, deps) {
  * so "how often does the hand-off actually fire?" is answerable from the data
  * later instead of from a guess.
  */
-export function historyRowFor(job, url) {
+export function historyRowFor(job, url, thumbUrl = null) {
   return {
     type: 'image',
     model: job.model_label || 'Image',
     prompt: job.prompt || '',
     result_url: url,
+    // Written here as well as on the fast path. A late-delivered picture with
+    // no small version would put the slow grid back one row at a time.
+    ...(thumbUrl ? { thumb_url: thumbUrl } : {}),
     status: 'completed',
     ratio: job.ratio || null,
     quality: job.quality || null,

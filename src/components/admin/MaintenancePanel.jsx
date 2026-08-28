@@ -62,13 +62,16 @@ const JOBS = [
   {
     id: 'thumbs',
     title: 'Make small versions',
-    blurb: 'Builds a small copy of each old picture so the history grid loads them instead of the '
-      + 'full-size file. New generations already get one automatically.',
+    blurb: 'Builds a small copy of each picture so the history grid loads those instead of the '
+      + 'full-size file. Run it per account — and re-run it as new pictures are made, because '
+      + 'nothing creates these automatically yet.',
     writes: 'WRITES to customer history — adds a thumb_url. The original is never touched, moved '
       + 'or deleted, and opening a picture still shows it at full size.',
     info: 'The grid was downloading twelve full-size files at 7.5 MB each. This makes a small copy '
       + 'for the grid only. It ADDS a field; nothing existing is modified, so the worst case for a '
-      + 'row that fails is that it stays exactly as slow as it is today.',
+      + 'row that fails is that it stays exactly as slow as it is today. NOTE: a picture generated '
+      + 'today does NOT get one on its own — only this button creates them, so the grid gets slower '
+      + 'again as new work is made. Making it automatic is still to be built.',
     scoped: true,
     emailOnly: true,
     run: (f) => adminApi.thumbsBackfill({ email: f.email, limit: f.limit }),

@@ -72,7 +72,16 @@ describe('when it does arrive', () => {
   it('returns the url', async () => {
     const t = fakeTime();
     expect(await waitForImage('t1', { poll: async () => done(), ...t }))
-      .toEqual({ done: true, url: 'https://spaces/a.png', already: false });
+      .toEqual({ done: true, url: 'https://spaces/a.png', thumbUrl: null, already: false });
+  });
+
+  it('carries the small version through, so the grid is fast for late ones too', async () => {
+    const t = fakeTime();
+    const r = await waitForImage('t1', {
+      poll: async () => ({ status: 'COMPLETED', image_url: 'u', thumb_url: 'https://spaces/t.jpg' }),
+      ...t,
+    });
+    expect(r.thumbUrl).toBe('https://spaces/t.jpg');
   });
 
   it('passes on "already" so history is not written twice', async () => {
