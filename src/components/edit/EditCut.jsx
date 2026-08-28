@@ -16,7 +16,7 @@
 // did not make, that autosaves into their account, would be worse than an
 // empty screen by a long way.
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useMemo} from 'react';
 import { Undo2, Redo2, Download, PanelLeftClose, PanelLeftOpen, Maximize2, Minimize2, FolderOpen } from 'lucide-react';
 
 /**
@@ -30,7 +30,7 @@ import { Undo2, Redo2, Download, PanelLeftClose, PanelLeftOpen, Maximize2, Minim
  */
 const LIBRARY_TABS = [
   { id: 'voxel', label: 'From Voxel', ready: true, hint: 'Everything you generated here' },
-  { id: 'uploads', label: 'Uploads', ready: false, hint: 'Music, logos and footage you bring in' },
+  { id: 'uploads', label: 'Uploads', ready: true, hint: 'Music, logos and footage you bring in' },
   { id: 'transcript', label: 'Transcript', ready: false, hint: 'Edit by deleting words' },
 ];
 
@@ -68,20 +68,24 @@ const PanelLabel = ({ children, action = null }) => (
   </div>
 );
 
-import Timeline from '@/components/edit/Timeline';
+import Timeline, { fmtTime } from '@/components/edit/Timeline';
 import Viewer from '@/components/edit/Viewer';
 import {
   createProject, createClip, addClip, addTrack, addSource, __resetIds,
   splitClip, removeClip, projectDuration, clipEnd, setProjectRatio, removeTrack,
 } from '@/lib/timeline';
 import MediaLibrary from '@/components/edit/MediaLibrary';
+import UploadsPanel from '@/components/edit/UploadsPanel';
+import VersionsMenu from '@/components/edit/VersionsMenu';
 import RegeneratePanel from '@/components/edit/RegeneratePanel';
 import RatioPicker from '@/components/edit/RatioPicker';
 import Tip from '@/components/edit/Tip';
 import { base44 } from '@/api/base44Client';
 import { sourceOf, replaceClipSource, locateClip } from '@/lib/timeline';
 import { toast } from 'sonner';
-import { measureDuration } from '@/lib/media-library';
+import { hasText } from '@/lib/text-clip';
+import { measureDuration, durationOf, kindOf, toSource, labelFor } from '@/lib/media-library';
+import { planDrop } from '@/lib/timeline-drop';
 import { trackKindFor, extensionFor, recordingStartAt, recordingName } from '@/lib/recording';
 
 /** The generate endpoints take a bearer token directly — they are raw fetches
@@ -96,6 +100,7 @@ import { useAutosave, loadProject, setAside, clearProject } from '@/lib/editor-a
 import { exportPlan, estimateSeconds } from '@/lib/timeline-export';
 import { usePanelLayout, useIsWide } from '@/lib/usePanelLayout';
 import AgentChat from './AgentChat';
+import PresetCards from './PresetCards';
 import { useServerAutosave, listProjects, fetchProject, shouldSyncToAccount, hasContent, ENTITY as PROJECT_ENTITY } from '@/lib/project-store';
 
 function demoProject() {
@@ -122,6 +127,61 @@ function demoProject() {
   p = addClip(p, t1, createClip({ kind: 'text', sourceId: 'title', name: 'Title card', start: 1, in: 0, out: 4 }));
   return p;
 }
+
+/**
+ * A library, for the scratch route only.
+ *
+ * ── WHY THIS EXISTS ────────────────────────────────────────────────────────
+ * The demo project exists because "a screen with nothing on it shows nothing
+ * about dragging, trimming and cutting". The library had exactly that problem
+ * and it went unnoticed: signed out it says "Sign in to see your generations
+ * here", so the panel you now DRAG FROM is empty on the one route built to
+ * show the editor working. Two features shipped that nobody could look at
+ * without an account — including me.
+ *
+ * Shaped like real GenerationHistory rows, because MediaLibrary reads
+ * `status`, `result_url`, `duration` and `model_id` and must behave here
+ * exactly as it does for a customer. The last one is deliberately FAILED: a
+ * failed generation stays visible with its reason, and that rule is worth
+ * seeing rather than only asserting.
+ */
+const DEMO_LIBRARY = [
+  { id: 'd1', type: 'video', status: 'completed', result_url: '/media/seedance-2-hero.mp4',
+    prompt: 'a yellow race car on a circuit at golden hour, low angle, heat haze off the tarmac',
+    model: 'Seedance 2.5', model_id: 'kie:seedance-2-5', ratio: '16:9', duration: 12,
+    camera: 'ARRI Alexa 35', lens: 'Zeiss Supreme Prime', focal_length: '35mm', fstop: 'f/2.8',
+    created_date: '2026-08-26T09:00:00Z' },
+  { id: 'd2', type: 'video', status: 'completed', result_url: '/media/explore-hero.mp4',
+    prompt: 'a dragon circling a castle at dusk, wide establishing shot, volumetric light',
+    model: 'Kling 3.0', model_id: 'fal:kling-3', ratio: '16:9', duration: 18,
+    created_date: '2026-08-26T08:30:00Z' },
+  { id: 'd3', type: 'video', status: 'completed', result_url: '/media/kling-3-card.mp4',
+    prompt: 'cinematic product reveal, slow push in on a matte black case',
+    model: 'Kling 3.0', model_id: 'fal:kling-3', ratio: '16:9', duration: 18,
+    created_date: '2026-08-26T08:00:00Z' },
+  { id: 'd4', type: 'image', status: 'completed', result_url: '/media/discover-dragon-castle.jpg',
+    prompt: 'a dragon over a castle, painted, warm key light',
+    model: 'Flux 1.1 Pro', model_id: 'fal:flux-pro', ratio: '16:9', duration: 5,
+    created_date: '2026-08-26T07:30:00Z' },
+  { id: 'd5', type: 'image', status: 'completed', result_url: '/media/discover-targaryen-guards.jpg',
+    prompt: 'armoured guards on a rampart at night, torchlight',
+    model: 'Flux 1.1 Pro', model_id: 'fal:flux-pro', ratio: '16:9', duration: 5,
+    created_date: '2026-08-26T07:00:00Z' },
+  { id: 'd6', type: 'video', status: 'completed', result_url: '/media/seedance-2-hero.mp4',
+    prompt: 'the same circuit from above, drone pull-back revealing the whole track',
+    model: 'Seedance 2.5', model_id: 'kie:seedance-2-5', ratio: '16:9', duration: 12,
+    created_date: '2026-08-26T06:30:00Z' },
+  { id: 'd7', type: 'video', status: 'failed', result_url: null,
+    prompt: 'a car driving through a flooded street at night',
+    model: 'Seedance 2.5', model_id: 'kie:seedance-2-5', ratio: '16:9', duration: null,
+    created_date: '2026-08-26T06:00:00Z' },
+];
+
+/** The same shape base44 entities expose, so MediaLibrary cannot tell the
+ *  difference and no branch is needed inside it. */
+const demoEntity = {
+  filter: async () => DEMO_LIBRARY,
+};
 
 /**
  * What to open with. Runs once, before anything can write.
@@ -179,7 +239,21 @@ export default function EditCut({ demo = false, startWith = null, onLeave = null
   const [regenerating, setRegenerating] = useState(false);
   const [libraryTab, setLibraryTab] = useState('voxel');
   const [tool, setTool] = useState('select');
+  // ── WHAT IS BEING DRAGGED IN FROM THE LIBRARY ──────────────────────────
+  // Held here rather than read from dataTransfer, because `dragover` cannot
+  // read dataTransfer at all — browsers make the payload write-only until the
+  // drop, so a preview that needs the clip's LENGTH has to get it another way.
+  //
+  // `{ record, kind, seconds }`, or null. `seconds` may start null on an older
+  // generation with no duration column and arrive mid-drag.
+  const [dragging, setDragging] = useState(null);
+  const [dropNote, setDropNote] = useState(null);
   const timelineControls = useRef(null);
+  const versionsRef = useRef(null);
+  // A PREVIEW setting, so it lives in the page and never in the project — it
+  // must not become an undo step and must not reach the export. The eye on a
+  // track header is the control that does affect the file.
+  const [showText, setShowText] = useState(true);
   // Owned here, not inside Timeline: the S key lives in the shortcuts hook, and
   // a toggle the keyboard cannot reach is a button that works next to a
   // shortcut that silently does nothing.
@@ -241,7 +315,22 @@ export default function EditCut({ demo = false, startWith = null, onLeave = null
 
   // Recomputed as the timeline changes, so the warnings shown next to the
   // button are always about the CURRENT edit rather than the one at mount.
-  const plan = exportPlan(project, { ratio: project.ratio, mode: project.resizeMode || 'crop' });
+  // Which titles WILL be drawn, without drawing them. The real export renders
+  // a PNG per text clip; doing that here — on every keystroke, to compute a
+  // warning line — would be absurd. hasText is the same condition the renderer
+  // uses, so the warning cannot promise something the export then omits.
+  const willRenderText = useMemo(() => {
+    const map = {};
+    for (const t of project?.tracks || []) {
+      if (t.kind !== 'text' || t.hidden) continue;
+      for (const c of t.clips || []) if (hasText(c)) map[c.id] = true;
+    }
+    return map;
+  }, [project]);
+
+  const plan = exportPlan(project, {
+    ratio: project.ratio, mode: project.resizeMode || 'crop', textImages: willRenderText,
+  });
 
   /**
    * Put a real generation on the end of the video track.
@@ -253,7 +342,7 @@ export default function EditCut({ demo = false, startWith = null, onLeave = null
    * `seconds` is measured by the library before it gets here, so `out` is
    * always a real length rather than a default.
    */
-  function addFromLibrary({ source, seconds }) {
+  function addFromLibrary({ source, seconds, kind = 'video' }) {
     // ── WHY THIS IS NOT JUST find() ANY MORE ─────────────────────────────
     // It was `project.tracks.find(t => t.kind === 'video')` followed straight
     // by `track.clips`, which throws a TypeError the moment there is no video
@@ -263,24 +352,130 @@ export default function EditCut({ demo = false, startWith = null, onLeave = null
     //
     // Locked tracks are skipped too: addClip returns the project untouched on
     // a locked track, so the clip would silently not appear.
+    // Follow the KIND. It was hardcoded to video, which was fine while the
+    // only source was a generated video — an uploaded song would have landed
+    // on a video track, invisible in the viewer and impossible to line up.
     let working = project;
-    let track = working.tracks.find((t) => t.kind === 'video' && !t.locked);
+    let track = working.tracks.find((t) => t.kind === kind && !t.locked);
     if (!track) {
-      working = addTrack(working, 'video');
+      working = addTrack(working, kind);
       track = working.tracks[working.tracks.length - 1];
     }
     const end = track.clips.reduce((max, c) => Math.max(max, clipEnd(c)), 0);
 
     let next = addSource(working, source);
     next = addClip(next, track.id, createClip({
-      kind: 'video',
+      kind,
       sourceId: source.id,
-      name: (source.prompt || source.model || 'clip').slice(0, 40),
+      name: (source.prompt || source.name || source.model || 'clip').slice(0, 40),
       start: end,
       in: 0,
       out: seconds,
     }));
     change(next, {});
+  }
+
+  /**
+   * A library card has been picked up.
+   *
+   * The duration is resolved HERE rather than at the drop, because the ghost
+   * on the timeline needs a width the moment the clip is over a track — and a
+   * preview that guesses a length would show the clip fitting in a gap it does
+   * not fit in. Most rows carry a duration already; the older ones are measured
+   * while the drag is still in the air, which is dead time anyway.
+   */
+  /** The length of whatever is being dragged, measuring only if the drop got
+   *  here before the measurement did. Shared by both drop targets so they
+   *  cannot disagree about when something is unusable. */
+  async function lengthOf(held) {
+    if (held.seconds === null || held.seconds === undefined) {
+      return measureDuration(held.source.url);
+    }
+    return held.seconds;
+  }
+
+  function beginDrag(record) {
+    const kind = kindOf(record) === 'image' ? 'image' : 'video';
+    const known = durationOf(record);
+    const source = toSource(record);
+    // Held as { kind, seconds, source, label } — NOT as the library row.
+    // An upload is a different shape entirely, and a drag payload that only
+    // one panel can build is how "it works on Voxel but not on Uploads"
+    // happens.
+    setDragging({ kind, seconds: known, source, label: labelFor(record, 40) });
+    if (known === null) {
+      measureDuration(source.url).then((seconds) => {
+        // Only if this is still the clip being dragged — a slow measurement
+        // that lands after the customer has picked up something else would
+        // otherwise put the wrong length on the new one.
+        setDragging((cur) => (cur?.source?.id === source.id ? { ...cur, seconds } : cur));
+      });
+    }
+  }
+
+  /**
+   * Dropped onto a track at a moment.
+   *
+   * The placement rule lives in `planDrop`, NOT here, for the reason the whole
+   * module exists: `activeAt` takes the first clip covering a moment, so a clip
+   * dropped inside a longer one is added, saved, exported — and never plays.
+   * The same function drew the ghost, so what was promised is what happens.
+   */
+  async function dropOnTimeline({ trackId, at }) {
+    const held = dragging;
+    setDragging(null);
+    setDropNote(null);
+    if (!held) return;
+
+    const seconds = await lengthOf(held);
+    if (!(seconds > 0)) {
+      toast.error(`“${held.label}” could not be read, so its length is unknown. It has not been added.`);
+      return;
+    }
+
+    const live = projectRef.current;
+    const plan = planDrop(live, { trackId, kind: held.kind, length: seconds, at });
+    if (!plan.ok) { toast.error(plan.reason); return; }
+
+    const { source } = held;
+    let next = addSource(live, source);
+    let landing = plan.trackId;
+    if (plan.newTrack) {
+      next = addTrack(next, plan.newTrack);
+      landing = next.tracks[next.tracks.length - 1].id;
+    }
+    next = addClip(next, landing, createClip({
+      kind: held.kind,
+      sourceId: source.id,
+      name: (source.prompt || source.name || source.model || 'clip').slice(0, 40),
+      start: plan.start,
+      in: 0,
+      out: seconds,
+    }));
+    change(next, {});
+    // Said out loud only when it did NOT go where it was aimed. A clip that
+    // quietly appears on another layer is the complaint; a clip that says
+    // "Put on Video 2 — Video 1 was busy there" is an editor doing its job.
+    if (plan.note) setDropNote(plan.note);
+  }
+
+  /**
+   * Dropped onto the picture — the same thing a click does.
+   *
+   * It goes through `addFromLibrary` rather than repeating the append, so the
+   * two routes cannot drift apart: one of them growing a rule the other lacks
+   * is how "it works when I click but not when I drag" starts.
+   */
+  async function dropOnViewer() {
+    const held = dragging;
+    setDragging(null);
+    if (!held) return;
+    const seconds = await lengthOf(held);
+    if (!(seconds > 0)) {
+      toast.error(`“${held.label}” could not be read, so its length is unknown. It has not been added.`);
+      return;
+    }
+    addFromLibrary({ source: held.source, seconds, kind: held.kind });
   }
 
   /**
@@ -346,19 +541,34 @@ export default function EditCut({ demo = false, startWith = null, onLeave = null
       .filter((c) => c.name?.startsWith(recordingName(mode))).length;
 
     const id = `rec-${Date.now()}`;
+    const at = recordingStartAt(playhead);
     let next = addSource(working, { id, url: data.url, kind, recorded: true });
-    next = addClip(next, track.id, createClip({
+    const clip = createClip({
       kind,
       sourceId: id,
       name: recordingName(mode, taken + 1),
       // At the PLAYHEAD: someone recording a voiceover is talking over a
       // particular moment, and a take that lands anywhere else needs dragging
       // before it is any use.
-      start: recordingStartAt(playhead),
+      start: at,
       in: 0,
       out: seconds,
-    }));
+    });
+    next = addClip(next, track.id, clip);
     change(next, {});
+
+    // ── AND SAY WHERE IT WENT ────────────────────────────────────────────
+    // The take lands at the playhead, and the playhead is routinely outside
+    // the part of the timeline currently on screen — so a correct recording
+    // arrived invisibly. The owner's report was "it's recording, but I don't
+    // know where", which is exactly what that looks like from the outside.
+    //
+    // Three things, because any one alone still leaves it findable-but-not-
+    // found: select it, scroll to it, and say it in words with the time and
+    // the length so the message is checkable against the timeline.
+    setSelected(clip.id);
+    timelineControls.current?.revealAt(at);
+    toast.success(`${clip.name} added at ${fmtTime(at)} · ${seconds.toFixed(1)}s`);
   }
 
   /** Add a layer. One undo step, and the new track is empty so there is
@@ -486,6 +696,19 @@ export default function EditCut({ demo = false, startWith = null, onLeave = null
     }
   }
   const change = (next, opts) => setHistory((h) => commit(h, next, opts));
+
+  // ── THE PROJECT AS IT IS NOW, NOT AS IT WAS AT RENDER ───────────────────
+  // `change` commits functionally, but the project handed to it is built from
+  // whatever `project` was when the handler was created. For a synchronous
+  // click those are the same thing. For anything that AWAITS — a drop that has
+  // to measure a duration first — they are not: the assistant edits the
+  // timeline asynchronously, so a clip built on the pre-await project would be
+  // committed on top of it and quietly discard the edit.
+  //
+  // Assigned during render rather than in an effect so it is never a frame
+  // behind, which is the whole point of having it.
+  const projectRef = useRef(project);
+  projectRef.current = project;
   const duration = projectDuration(project);
   const seek = (t) => setPlayhead(Math.min(duration, Math.max(0, t)));
 
@@ -495,6 +718,9 @@ export default function EditCut({ demo = false, startWith = null, onLeave = null
     onDelete: () => { if (selected) { change(removeClip(project, selected), {}); setSelected(null); } },
     onStep: (delta) => seek(playhead + delta),
     onGoTo: (where) => seek(where === 'start' ? 0 : duration),
+    // ⌘S goes through the SAME save the menu button calls, so the keyboard and
+    // the button can never drift into doing different things.
+    onSaveVersion: () => versionsRef.current?.save(),
     onUndo: () => setHistory(undo),
     onRedo: () => setHistory(redo),
     // Shuttle drives the same play flag for now; variable RATE arrives with
@@ -582,6 +808,13 @@ export default function EditCut({ demo = false, startWith = null, onLeave = null
             </button></Tip>
           )}
 
+          <VersionsMenu
+            projectId={onServer.id || 'demo'}
+            project={project}
+            onRestore={(p) => change(p, {})}
+            onNotice={(msg, kind) => (kind === 'error' ? toast.error(msg) : toast.success(msg))}
+            ref={versionsRef}
+          />
           <Tip label="Undo (⌘Z)" side="bottom"><button
             onClick={() => setHistory(undo)}
             disabled={!canUndo(history)}
@@ -726,6 +959,21 @@ export default function EditCut({ demo = false, startWith = null, onLeave = null
               onApply commits ONCE. The agent can make seven changes from one
               sentence, and undoing that sentence must take one press of ⌘Z,
               not seven. */}
+          {/* ── PRESETS, ABOVE THE CHAT ────────────────────────────────
+              The assistant is more powerful and harder to start with: it needs
+              you to know what to ask, it needs a sign-in, and it needs the
+              provider to be up. These need none of that, so a beginner meets
+              the thing that always works first.
+
+              Same onApply as the agent — one commit, so ⌘Z undoes the whole
+              preset in one press rather than step by step. */}
+          <div className="px-3 pb-3">
+            <PresetCards
+              project={project}
+              onApply={(next) => { change(next, {}); setSelected(null); }}
+            />
+          </div>
+
           <AgentChat
             project={project}
             onApply={(next) => { change(next); setSelected(null); }}
@@ -801,9 +1049,34 @@ export default function EditCut({ demo = false, startWith = null, onLeave = null
                   <>
                     <p className="text-[11px] text-foreground-muted mb-2">
                       Everything you generated in Voxel. Click one to add it to the end of the
-                      video track — it keeps the prompt, model and camera that made it.
+                      video track, or drag it onto the timeline to choose the moment — it keeps
+                      the prompt, model and camera that made it.
                     </p>
-                    <MediaLibrary entity={base44.entities.GenerationHistory} onAdd={addFromLibrary} />
+                    <MediaLibrary
+                      // The scratch route gets a demo library for the same
+                      // reason it gets a demo timeline. /edit must NEVER get
+                      // this — handing somebody generations they did not make,
+                      // in a panel that autosaves into their account, is worse
+                      // than an empty screen by a long way.
+                      entity={demo ? demoEntity : base44.entities.GenerationHistory}
+                      onAdd={addFromLibrary}
+                      onDragSource={beginDrag}
+                      onDragEnd={() => setDragging(null)}
+                    />
+                  </>
+                )}
+
+                {libraryTab === 'uploads' && (
+                  <>
+                    <p className="text-[11px] text-foreground-muted mb-2">
+                      Your own footage, music and logos. They land on the track that
+                      matches them — a song on audio, a logo on its own layer.
+                    </p>
+                    <UploadsPanel
+                      onAdd={addFromLibrary}
+                      onDragSource={setDragging}
+                      onDragEnd={() => setDragging(null)}
+                    />
                   </>
                 )}
               </div>
@@ -838,11 +1111,14 @@ export default function EditCut({ demo = false, startWith = null, onLeave = null
               <div className="flex-1 min-h-0 flex flex-col p-4 gap-3">
                 <div className="flex-1 min-h-0 flex flex-col">
                   <Viewer
+                    showText={showText}
                     project={project}
                     playhead={playhead}
                     onScrub={setPlayhead}
                     playing={playing}
                     onPlayingChange={setPlaying}
+                    dragging={dragging}
+                    onDropAppend={dropOnViewer}
                   />
 
                 </div>
@@ -915,10 +1191,32 @@ export default function EditCut({ demo = false, startWith = null, onLeave = null
               onToolChange={setTool}
               onAddTrack={addLayer}
               onRemoveTrack={removeLayer}
+              showText={showText}
+              onToggleText={setShowText}
               onRecorded={addRecording}
               onRecordError={(m) => toast.error(m)}
               controls={timelineControls}
+              dragging={dragging}
+              onDropSource={dropOnTimeline}
             />
+            {/* Where a dropped clip actually went, when that was not where it
+                was aimed. Sits with the timeline rather than in a toast: it is
+                about a specific spot on screen, and a toast in the corner sends
+                you looking in the wrong place. */}
+            {dropNote && (
+              <p
+                data-testid="drop-note"
+                className="flex items-center gap-2 px-3 py-1 border-t border-border/60 text-[11px] text-amber-300"
+              >
+                {dropNote}
+                <Tip label="Hide this message"><button
+                  type="button"
+                  onClick={() => setDropNote(null)}
+                  aria-label="Dismiss"
+                  className="text-foreground-muted hover:text-white"
+                >×</button></Tip>
+              </p>
+            )}
             <div className="flex flex-wrap gap-x-4 gap-y-0.5 px-3 py-1.5 border-t border-border/60 text-[10px] text-foreground-muted">
               {SHORTCUTS.map(([key, what]) => (
                 <span key={key}>

@@ -733,14 +733,18 @@ export function activeAt(project, seconds) {
   const covers = (c) => seconds >= c.start && seconds < clipEnd(c);
   let picture = null;
   const audio = [];
+  // Text was in neither list, which is why nothing drew it. Every text clip
+  // covering this moment, in track order — they stack, unlike the picture.
+  const text = [];
   for (const track of project.tracks) {
     for (const clip of track.clips) {
       if (!covers(clip)) continue;
       if (['video', 'image'].includes(clip.kind) && !track.hidden && !picture) picture = { track, clip };
       if (['video', 'audio'].includes(clip.kind) && !track.muted) audio.push({ track, clip });
+      if (clip.kind === 'text' && !track.hidden) text.push({ track, clip });
     }
   }
-  return { picture, audio, seconds: round(seconds) };
+  return { picture, audio, text, seconds: round(seconds) };
 }
 
 /**

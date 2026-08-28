@@ -32,6 +32,7 @@
 
 import { FFmpeg } from '@ffmpeg/ffmpeg';
 import { fetchFile, toBlobURL } from '@ffmpeg/util';
+import { renderProjectText } from './text-image.js';
 
 import { argsFor, isLocal } from './edit-ffmpeg-args.js';
 import { exportPlan } from './timeline-export.js';
@@ -236,6 +237,9 @@ export async function runOperation(op, { sources = {}, input, onProgress, qualit
     // Without this, editing ten clips holds all ten plus every intermediate,
     // and the tab is killed for memory partway through — which the customer
     // reads as the site crashing, not as a memory limit.
+    // Object urls are not garbage collected. One full-frame PNG per title,
+    // held for the life of the tab, on every export.
+    revokeText();
     for (const f of written) await ffmpeg.deleteFile(f).catch(() => {});
     await ffmpeg.deleteFile(outName).catch(() => {});
   }
@@ -293,7 +297,26 @@ export async function runPlan(ops = [], { input, sources = {}, onProgress, onSte
 export async function runExport(project, {
   ratio, quality = 1080, mode = 'crop', onProgress, onStage,
 } = {}) {
-  const plan = exportPlan(project, { ratio, quality, mode, output: 'export.mp4' });
+  // ── TEXT BECOMES PICTURES FIRST ────────────────────────────────────────
+  // Our ffmpeg build has no libfreetype, so drawtext is not available. The
+  // browser draws each title into a transparent PNG the size of the output —
+  // using the SAME textLayout the preview uses, so the file matches what was
+  // on screen — and ffmpeg simply overlays them.
+  //
+  // A first plan is built purely to learn the output dimensions, which the
+  // canvas needs. It is cheap: exportPlan is a pure function over the project
+  // and touches no media.
+  const sizing = exportPlan(project, { ratio, quality, mode, output: 'export.mp4' });
+  let textImages = {};
+  let revokeText = () => {};
+  if (sizing.dimensions) {
+    onStage?.('Drawing titles');
+    const rendered = await renderProjectText(project, sizing.dimensions);
+    textImages = rendered.images;
+    revokeText = rendered.revoke;
+  }
+
+  const plan = exportPlan(project, { ratio, quality, mode, output: 'export.mp4', textImages });
 
   // Refuse BEFORE downloading 32 MB of runtime. Somebody with an empty
   // timeline should not wait for a WebAssembly download to be told so.

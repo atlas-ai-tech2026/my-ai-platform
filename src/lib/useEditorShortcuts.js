@@ -80,6 +80,11 @@ export function useEditorShortcuts(handlers = {}, { enabled = true } = {}) {
     // hard to undo.
     if (mod && (e.key === '-' || e.key === '_')) { e.preventDefault(); h.onZoomOut?.(); return; }
     if (mod && (e.key === '=' || e.key === '+')) { e.preventDefault(); h.onZoomIn?.(); return; }
+    // ⌘S saves a VERSION of the edit. preventDefault is the point: without
+    // it the browser opens "Save page as…", so an editor's muscle memory
+    // reaching for save got a file dialog for the web page — worse than the
+    // key doing nothing at all.
+    if (mod && (e.key === 's' || e.key === 'S')) { e.preventDefault(); h.onSaveVersion?.(); return; }
     if (mod) return;   // leave every other browser shortcut alone
 
     switch (e.key) {
@@ -210,6 +215,7 @@ export const SHORTCUTS = [
   ['I · O', 'Mark in · mark out'],
   ['← →', 'One frame'],
   ['⇧ ← →', 'One second'],
+  ['⌘S', 'Save a version'],
   ['Home · End', 'Start · end'],
   ['Delete', 'Remove the selected clip'],
   ['⌘Z · ⇧⌘Z', 'Undo · redo'],

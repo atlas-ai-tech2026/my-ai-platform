@@ -37,6 +37,82 @@ const CDN_BASE = (process.env.SPACES_CDN_BASE || '').trim().replace(/\/+$/, '');
 
 const configured = Boolean(ENDPOINT && REGION && BUCKET && KEY && SECRET);
 
+// ─── SERVING OLD FILES FROM THE EDGE, WITHOUT REWRITING ANY RECORD ─────────
+// `publicUrl` below builds CDN links for files stored from now on. Every file
+// stored BEFORE the CDN existed carries the origin host in its record —
+// `voxel-ai-store.nyc3.digitaloceanspaces.com` — and there are tens of
+// thousands of those.
+//
+// A migration would fix them and is the wrong tool: it rewrites customer
+// history in place to gain a faster hostname, and if the CDN is ever turned
+// off, every one of those records points somewhere that no longer serves.
+//
+// So the swap happens on the way OUT instead, in rowToItem. Nothing in the
+// database changes, the origin keeps working, and removing SPACES_CDN_BASE
+// reverts every URL to exactly what it was — no data to undo.
+//
+// It is a no-op until SPACES_CDN_BASE is set. Deploying this changes nothing
+// on its own, which is the property that makes it safe to ship ahead of the
+// switch.
+
+/** The prefix existing records already carry — the same string publicUrl
+ *  falls back to when there is no CDN. */
+function originBase(endpoint = ENDPOINT, bucket = BUCKET) {
+  try {
+    return `https://${bucket}.${new URL(endpoint).host}`;
+  } catch {
+    return `${endpoint}/${bucket}`;
+  }
+}
+
+/** The edge base actually in force, or '' when files are served from origin.
+ *  Exposed so /api/health can answer "is the CDN live" from outside — the
+ *  two setup steps live in different DigitalOcean screens, and doing only the
+ *  first leaves the CDN switched on and completely idle, which looks exactly
+ *  like success. That happened here on 2026-08-27. */
+export function mediaCdnBase() {
+  return CDN_BASE;
+}
+
+/**
+ * One URL, pointed at the edge instead of the origin.
+ *
+ * Rewrites ONLY urls that start with our own bucket's origin. A provider url
+ * left behind by a failed re-host, a data: URI, a relative path, someone
+ * else's CDN — all pass through untouched. Anything unrecognised is returned
+ * exactly as given.
+ */
+export function toCdn(url, { cdnBase = CDN_BASE, origin = null } = {}) {
+  if (!cdnBase || typeof url !== 'string' || !url) return url;
+  const prefix = `${origin || originBase()}/`;
+  if (!url.startsWith(prefix)) return url;
+  return `${cdnBase}/${url.slice(prefix.length)}`;
+}
+
+/**
+ * Every url inside a record, pointed at the edge.
+ *
+ * Walks the value rather than naming fields, because a generation carries
+ * several: result_url, and on some kinds source_video_url and
+ * motion_video_url too. A named list would quietly miss whichever one is
+ * added next, and the symptom — one thumbnail slower than its neighbours —
+ * is the kind nobody reports.
+ *
+ * Depth-capped: these are small flat records, and an unbounded walk over
+ * arbitrary JSONB is a way to make a read path slow for no reason.
+ */
+export function cdnifyDeep(value, opts = {}, depth = 0) {
+  if (depth > 6) return value;
+  if (typeof value === 'string') return toCdn(value, opts);
+  if (Array.isArray(value)) return value.map((v) => cdnifyDeep(v, opts, depth + 1));
+  if (value && typeof value === 'object') {
+    const out = {};
+    for (const [k, v] of Object.entries(value)) out[k] = cdnifyDeep(v, opts, depth + 1);
+    return out;
+  }
+  return value;
+}
+
 let client = null;
 if (configured) {
   client = new S3Client({
@@ -61,7 +137,8 @@ if (configured) {
   // "The media sync is working" proves A key works, not WHICH — so the safe
   // answer was not a guess, it was making it observable.
   console.log(`[storage] DO Spaces configured → bucket=${BUCKET} region=${REGION} `
-    + `key=${String(process.env.SPACES_KEY || '').slice(0, 8)}…`);
+    + `key=${String(process.env.SPACES_KEY || '').slice(0, 8)}… `
+    + `media=${CDN_BASE ? 'CDN ' + CDN_BASE : 'ORIGIN (no SPACES_CDN_BASE — the edge is idle)'}`);
 } else {
   console.warn('[storage] DO Spaces NOT configured — generated outputs will use raw FAL urls (not durable).');
 }

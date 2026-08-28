@@ -14,7 +14,9 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { pool, isReady as dbReady, migrate, ADMIN_EMAIL } from './db.js';
 import { persistOrFallback, persistBuffer, isReady as spacesReady, uploadPrivate, listKeys, deleteKey,
-         listAllMedia, readObject, primaryObjectExists } from './storage.js';
+         listAllMedia, readObject, primaryObjectExists, cdnifyDeep, mediaCdnBase } from './storage.js';
+import { SURVEY_SQL, surveyRows } from './thumbnail-survey.js';
+import { SET_THUMB_SQL, backfillRows } from './thumbnail-backfill.js';
 import { configureKie, kieCreateTask, kieGetTask, kiePollUntilDone, kieUploadBuffer, kieGetCredits } from './kie.js';
 import { configureLlm, llmText, llmConfig } from './llm.js';
 import { estimateKieCredits, backfillKieEstimate, KIE_USD_PER_CREDIT,
@@ -3111,7 +3113,16 @@ function rowToItem(row) {
     user_id: row.user_id,
     created_date: row.created_date instanceof Date ? row.created_date.toISOString() : row.created_date,
     updated_date: row.updated_date instanceof Date ? row.updated_date.toISOString() : row.updated_date,
-    ...(row.data || {}),
+    // ── EVERY OLD FILE, SERVED FROM THE EDGE ────────────────────────────
+    // The database keeps the origin url it was written with. This swaps the
+    // host on the way OUT, so a history from before the CDN existed gets the
+    // same speed as one made today — without rewriting a single record.
+    //
+    // A no-op until SPACES_CDN_BASE is set, and reverting is deleting that
+    // variable: there is no migration to undo. This is the ONE place every
+    // entity read passes through, so nothing can be missed and nothing has
+    // to be remembered at the call sites.
+    ...cdnifyDeep(row.data || {}),
   };
 }
 
@@ -5254,6 +5265,85 @@ app.post('/api/admin/users/:id/reset-password', adminGate, async (req, res) => {
 });
 
 // ─── ADMIN: USER HISTORY ────────────────────────────────────────────
+// ── THUMBNAIL DRY RUN ───────────────────────────────────────────────────────
+// What a thumbnail backfill WOULD do for one account, and nothing else.
+//
+// The owner's condition for touching 601 customers' history was that no data
+// changes and nothing breaks. I could guarantee the design and not untested
+// code, so the first thing that ships is the thing that CANNOT change
+// anything — and its output is a number he reads himself rather than one I
+// read privately and relay.
+//
+// GET, not POST, deliberately: a survey that changes nothing should be safe to
+// re-run, bookmark, and refresh. If this ever grows a write, it moves to POST
+// on the same day.
+//
+// Scoped by EMAIL because that is what the owner has in his hand ("try it with
+// aiworkshop965@gmail.com"), and scoped to ONE account because a job that can
+// only touch what you point it at cannot run away.
+app.get('/api/admin/thumbnails/survey', adminGate, async (req, res) => {
+  if (!dbReady()) return res.status(503).json({ error: 'Database not configured.' });
+  const email = String(req.query.email || '').trim().toLowerCase();
+  if (!email) return res.status(400).json({ error: 'An email is required — this runs for one account.' });
+
+  try {
+    const { rows: users } = await pool.query('SELECT id, email FROM users WHERE lower(email) = $1', [email]);
+    if (!users.length) return res.status(404).json({ error: `No account for ${email}.` });
+
+    const { rows } = await pool.query(SURVEY_SQL, [users[0].id]);
+    const report = await surveyRows(rows);
+    res.json({ account: users[0].email, ...report });
+  } catch (e) {
+    // Named, not swallowed. A survey that fails silently and returns zero
+    // would read as "nothing to do" — the worst possible lie for a number
+    // somebody is about to make a decision on.
+    console.error('[thumbnails:survey] failed:', e.message);
+    res.status(500).json({ error: `The survey could not finish: ${e.message}` });
+  }
+});
+
+// ── THUMBNAIL BACKFILL ──────────────────────────────────────────────────────
+// POST, not GET, because this one WRITES. The survey above stays GET for the
+// same reason — the method should say which is which without reading the code.
+//
+// Scoped to ONE account by email, with a `limit` so a first run can be twenty
+// rows rather than all 333. There is no "every account" variant; the broad
+// version does not exist yet, and a job that can only touch what you point it
+// at cannot run away.
+app.post('/api/admin/thumbnails/backfill', adminGate, async (req, res) => {
+  if (!dbReady()) return res.status(503).json({ error: 'Database not configured.' });
+  if (!spacesReady()) return res.status(503).json({ error: 'Spaces not configured — nowhere to put a thumbnail.' });
+
+  const email = String(req.body?.email || '').trim().toLowerCase();
+  const limit = Math.max(1, Math.min(1000, Number(req.body?.limit) || 20));
+  if (!email) return res.status(400).json({ error: 'An email is required — this runs for one account.' });
+
+  try {
+    const { rows: users } = await pool.query('SELECT id, email FROM users WHERE lower(email) = $1', [email]);
+    if (!users.length) return res.status(404).json({ error: `No account for ${email}.` });
+    const user = users[0];
+
+    const { rows } = await pool.query(SURVEY_SQL, [user.id]);
+    const started = Date.now();
+    const report = await backfillRows(rows, {
+      limit,
+      persist: (buf, contentType, kind) => persistBuffer(buf, contentType, kind),
+      // The ONE write. Scoped to the row AND the user, through jsonb_set on a
+      // single path — result_url is unreachable from here by construction.
+      setThumb: async (id, url) => {
+        await pool.query(SET_THUMB_SQL, [JSON.stringify(url), id, user.id]);
+      },
+    });
+
+    console.log(`[thumbnails] ${user.email}: ${report.done} done, ${report.failed} failed, `
+      + `${report.savedMB} MB saved in ${Math.round((Date.now() - started) / 1000)}s`);
+    res.json({ account: user.email, tookSeconds: Math.round((Date.now() - started) / 1000), ...report });
+  } catch (e) {
+    console.error('[thumbnails:backfill] failed:', e.message);
+    res.status(500).json({ error: `The backfill could not finish: ${e.message}` });
+  }
+});
+
 app.get('/api/admin/users/:id/history', adminGate, async (req, res) => {
   try {
     const targetId = parseInt(req.params.id, 10);
@@ -6620,6 +6710,17 @@ app.get('/api/health', (req, res) => {
     kie_configured: !!KIE_KEY,
     db_configured: dbReady(),
     auth_configured: !!JWT_SECRET,
+    // ── IS THE CDN ACTUALLY IN USE? ───────────────────────────────────
+    // Enabling the CDN on the Space and setting SPACES_CDN_BASE are two
+    // separate steps in two different DigitalOcean screens, and doing only
+    // the first leaves the CDN switched on and completely idle — which looks
+    // identical to working. That happened here on 2026-08-27.
+    //
+    // The value is a PUBLIC url — the address every customer's browser
+    // requests images from — so reporting it leaks nothing, and it means the
+    // question "is the edge live" is answerable from outside, forever,
+    // without a deploy log or a sign-in.
+    media_cdn: mediaCdnBase() || null,
   });
 });
 
