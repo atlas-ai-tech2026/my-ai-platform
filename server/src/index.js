@@ -17,6 +17,8 @@ import { persistOrFallback, persistBuffer, isReady as spacesReady, uploadPrivate
          listAllMedia, readObject, primaryObjectExists, cdnifyDeep, mediaCdnBase } from './storage.js';
 import { SURVEY_SQL, surveyRows } from './thumbnail-survey.js';
 import { SET_THUMB_SQL, backfillRows } from './thumbnail-backfill.js';
+import { ourMediaHosts, checkSample, summarise as summariseMediaHealth,
+         HOST_BREAKDOWN_SQL, AT_RISK_SAMPLE_SQL } from './media-health.js';
 import { configureKie, kieCreateTask, kieGetTask, kiePollUntilDone, kieUploadBuffer, kieGetCredits } from './kie.js';
 import { configureLlm, llmText, llmConfig } from './llm.js';
 import { estimateKieCredits, backfillKieEstimate, KIE_USD_PER_CREDIT,
@@ -5281,6 +5283,51 @@ app.post('/api/admin/users/:id/reset-password', adminGate, async (req, res) => {
 // Scoped by EMAIL because that is what the owner has in his hand ("try it with
 // aiworkshop965@gmail.com"), and scoped to ONE account because a job that can
 // only touch what you point it at cannot run away.
+// ── MEDIA HEALTH ────────────────────────────────────────────────────────────
+// How many customer records point at a file that is no longer there?
+//
+// The thumbnail survey found 16 of one account's 349 images unreadable, and
+// then Amr hovered a video tile: the play button appeared — so the record was
+// complete and HAD a link — and the file never loaded. A slow picture is
+// annoying; a missing one is work a customer paid for and cannot get back.
+//
+// GET, because it only reads. Most of the answer costs no network at all:
+// which HOST a row points at is the risk, and one query counts that. Provider
+// links expire by design, and persistOrFallback keeps them when the copy into
+// our bucket fails — quietly, so the generation still succeeds. The network is
+// only used to measure how many have already died, from a random sample.
+app.get('/api/admin/media-health', adminGate, async (req, res) => {
+  if (!dbReady()) return res.status(503).json({ error: 'Database not configured.' });
+  const sampleSize = Math.max(0, Math.min(500, Number(req.query.sample) || 60));
+
+  try {
+    const hosts = ourMediaHosts({
+      endpoint: process.env.SPACES_ENDPOINT,
+      bucket: process.env.SPACES_BUCKET,
+      cdnBase: process.env.SPACES_CDN_BASE,
+    });
+    if (!hosts.length) {
+      // Refusing beats guessing: with no idea which host is ours, EVERY row
+      // would be classed at risk and the report would be alarming nonsense.
+      return res.status(503).json({ error: 'Spaces is not configured here, so nothing can be judged durable.' });
+    }
+
+    const { rows: breakdown } = await pool.query(HOST_BREAKDOWN_SQL, [hosts]);
+    let sample = null;
+    if (sampleSize > 0) {
+      const { rows: atRisk } = await pool.query(AT_RISK_SAMPLE_SQL, [hosts, sampleSize]);
+      sample = atRisk.length ? await checkSample(atRisk) : null;
+    }
+
+    res.json({ readOnly: true, ourHosts: hosts, ...summariseMediaHealth(breakdown, sample) });
+  } catch (e) {
+    // Named, never swallowed. A health check that fails quietly and returns
+    // zero is worse than no health check at all.
+    console.error('[media-health] failed:', e.message);
+    res.status(500).json({ error: `The check could not finish: ${e.message}` });
+  }
+});
+
 app.get('/api/admin/thumbnails/survey', adminGate, async (req, res) => {
   if (!dbReady()) return res.status(503).json({ error: 'Database not configured.' });
   const email = String(req.query.email || '').trim().toLowerCase();
