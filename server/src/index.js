@@ -20,6 +20,8 @@ import { installModel, modelReady, MODEL_PREFIX } from './whisper-model.js';
 import { SURVEY_SQL, surveyRows } from './thumbnail-survey.js';
 import { SET_THUMB_SQL, backfillRows } from './thumbnail-backfill.js';
 import { RESCUE_SQL, RESCUE_QUEUE_SQL, rescueRows } from './media-rescue.js';
+import { RECORD_SQL, CLAIM_SQL, GIVE_UP_SQL, TOUCH_SQL, DUE_SQL, OWNS_SQL,
+         sweepJobs, historyRowFor } from './slow-image.js';
 import { headSize } from './thumbnail-survey.js';
 import { ourMediaHosts, checkSample, summarise as summariseMediaHealth,
          HOST_BREAKDOWN_SQL, AT_RISK_SAMPLE_SQL } from './media-health.js';
@@ -1490,7 +1492,40 @@ app.post('/api/generate', verifyJwt, requireNotBanned, noDoubleCharge, requireMo
         const mode = hasImages ? (readyUrls.length >= 2 ? 'multi-image-edit' : 'image-to-image') : 'text-to-image';
         const kieInput = buildKieImageInput(cfg, { prompt, ratio, quality, imageUrls: readyUrls });
         const taskId = await kieCreateTask(cfg.family, kieInput, { tag: 'KIE-IMG' });
-        const done = await kiePollUntilDone(cfg.family, taskId, { timeoutMs: 90_000, tag: 'KIE-IMG' });
+
+        let done;
+        try {
+          done = await kiePollUntilDone(cfg.family, taskId, { timeoutMs: 90_000, tag: 'KIE-IMG' });
+        } catch (e) {
+          // ── THE HAND-OFF (2026-08-28) ──
+          // Only for running out of PATIENCE. A real provider failure still
+          // falls through to the catch below and refunds, as it should.
+          //
+          // On 28 August six customers were told their image failed. All six
+          // had actually succeeded — at 94, 97, 125, 130, 144 and 314 seconds
+          // — and we had paid for every one. Waiting longer is not the fix:
+          // Cloudflare cuts a proxied request at about 100s, so a bigger
+          // timeout only moves the failure somewhere we cannot refund from.
+          //
+          // So the REQUEST ends and the JOB continues. Recorded BEFORE the
+          // response goes out: if this insert throws, the customer gets the
+          // old refund rather than a promise nothing is keeping.
+          if (!e?.gaveUp) throw e;
+          await pool.query(RECORD_SQL, [taskId, req.user.id, cfg.family,
+            model || null, prompt || null, ratio || null, quality || null]);
+          // The `kie:<family>:` prefix is not decoration — it is how the boot
+          // reconciler knows WHICH provider to ask about this charge. A bare
+          // model name reads as a FAL request id and the charge sits pending
+          // forever; that is the exact shape of the 124 stuck charges.
+          await trackVideoCharge(taskId, { userId: req.user.id, kind: chargedKind, cost: chargedCost, modelLabel: chargedLabel, modelId: `kie:${cfg.family}:${cfg.kieModel || 'image'}` });
+          console.log(`[KIE-IMG] handed off taskId=${taskId} user=${req.user.id} — the job continues`);
+          return res.json({
+            success: true, type: 'image', pending: true, job_id: taskId, mode,
+            message: 'This one is taking longer than usual. It will finish on its own — '
+              + 'it appears here and in your history the moment it does, and you keep your credits '
+              + 'only if it fails.',
+          });
+        }
 
         // kie result urls expire after ~14 days — re-host to our Spaces
         // bucket so history stays durable (same as FAL outputs).
@@ -2749,6 +2784,64 @@ app.post('/api/video-status', verifyJwt, requireNotBanned, statusLimiter, async 
     if (!st || st >= 500) return res.json({ status: 'IN_PROGRESS' });
     await refundFailedVideo(job_id, `fal status error: ${error.message}`);
     return res.json({ status: 'FAILED', error: publicError(error.message) });
+  }
+});
+
+// ─── SLOW IMAGE STATUS POLLING (2026-08-28) ───────────────────────
+// The browser's half of the hand-off. The server-side sweeper below is what
+// GUARANTEES delivery; this route only makes it fast, and lets the browser
+// write the history row while it still holds the camera, lens and f-stop the
+// customer chose. A sweeper-written row cannot have those.
+//
+// Ownership is checked the same way /api/video-status does it (M5): the row
+// is looked up BY task id AND user id, so polling somebody else's job returns
+// the same 404 as a job that does not exist.
+app.post('/api/image-status', verifyJwt, requireNotBanned, statusLimiter, async (req, res) => {
+  if (!dbReady()) return res.status(503).json({ error: 'Database not configured.' });
+  const jobId = String(req.body?.job_id || '');
+  if (!jobId) return res.status(400).json({ error: 'job_id required' });
+
+  try {
+    const { rows } = await pool.query(OWNS_SQL, [jobId, req.user.id]);
+    if (!rows.length) return res.status(404).json({ error: 'Job not found.' });
+    const row = rows[0];
+
+    // Already resolved — by the sweeper, or by this customer's other tab.
+    // `already: true` tells the client NOT to write a second history row.
+    if (row.status === 'delivered') {
+      return res.json({ status: 'COMPLETED', image_url: row.result_url, already: true });
+    }
+    if (row.status === 'refunded') {
+      return res.json({ status: 'FAILED', error: 'That image could not be finished — your credits are back.' });
+    }
+
+    const family = req.body?.family === 'veo' ? 'veo' : 'jobs';
+    const t = await kieGetTask(family, jobId, { tag: 'KIE-IMG' });
+    if (t.state === 'fail') {
+      const gone = await pool.query(GIVE_UP_SQL, [jobId, `kie: ${t.failMsg || 'generation failed'}`]);
+      if (gone.rowCount) await refundFailedVideo(jobId, `kie: ${t.failMsg || 'generation failed'}`);
+      return res.json({ status: 'FAILED', error: publicError(t.failMsg, 'Generation failed') });
+    }
+    if (t.state !== 'success') return res.json({ status: 'IN_PROGRESS' });
+
+    // Re-host BEFORE claiming: kie urls expire in ~14 days, and a failure here
+    // must leave the row 'pending' so the sweeper can try again.
+    const durableUrl = await persistOrFallback(t.resultUrls[0], 'image');
+    const claim = await pool.query(CLAIM_SQL, [jobId, durableUrl]);
+    if (!claim.rowCount) {
+      // The sweeper or another tab won. The image is safe and already in
+      // history; writing it again would show the customer two of it.
+      return res.json({ status: 'COMPLETED', image_url: durableUrl, already: true });
+    }
+    await settleVideoCharge(jobId);
+    console.log(`[KIE-IMG] late delivery taskId=${jobId} user=${req.user.id} (browser)`);
+    return res.json({ status: 'COMPLETED', image_url: durableUrl, already: false });
+  } catch (e) {
+    // Never a failure verdict from an error we do not understand — the job may
+    // be perfectly fine and the sweeper will get it. Saying FAILED here would
+    // refund an image that is on its way.
+    console.error('[image-status] error:', e.message);
+    return res.json({ status: 'IN_PROGRESS' });
   }
 });
 
@@ -7514,6 +7607,67 @@ function scheduleVideoChargeReconcile() {
   setInterval(run, 60 * 60 * 1000).unref?.();
 }
 
+// ─── SLOW IMAGE SWEEPER (2026-08-28) ───────────────────────────────
+// The part that makes the hand-off a promise rather than a hope.
+//
+// /api/image-status only works while a browser is open on the page. This
+// finishes the job when the tab is closed, the laptop is shut, or the customer
+// simply walks away — the ordinary case in a workshop room. Without it the
+// image would still be lost, just later and more quietly than before.
+//
+// Every MINUTE, not hourly like the video reconcile: the whole point is that
+// the picture is waiting a couple of minutes, and an hourly sweep would turn a
+// two-minute wait into an hour of thinking it failed.
+//
+// Safe on two instances by construction — the exactly-once claim is a
+// conditional UPDATE, so a duplicate pass loses the race and does nothing.
+// No lock, no leader, nothing held in process memory.
+async function sweepSlowImages() {
+  if (!dbReady()) return;
+  const { rows } = await pool.query(DUE_SQL, [50]);
+  if (!rows.length) return;
+
+  const report = await sweepJobs(rows, {
+    check: (family, taskId) => kieGetTask(family, taskId, { tag: 'KIE-IMG-SWEEP' }),
+    persist: (url) => persistOrFallback(url, 'image'),
+    claim: async (taskId, url) => {
+      const r = await pool.query(CLAIM_SQL, [taskId, url]);
+      return r.rowCount ? r.rows[0] : null;
+    },
+    giveUp: async (taskId, why) => {
+      const r = await pool.query(GIVE_UP_SQL, [taskId, String(why).slice(0, 500)]);
+      return r.rowCount ? r.rows[0].user_id : null;
+    },
+    // The sweeper writes the history row ITSELF. This is the step the browser
+    // would normally do, and the reason the whole table carries the prompt and
+    // the model: with the tab gone, nothing else knows what was asked for.
+    saveRow: async (job, url) => {
+      await pool.query(
+        `INSERT INTO entities (id, name, user_id, data) VALUES ($1, 'GenerationHistory', $2, $3::jsonb)`,
+        [crypto.randomUUID(), job.user_id, JSON.stringify({ ...historyRowFor(job, url), job_id: job.task_id })]
+      );
+    },
+    settle: (taskId) => settleVideoCharge(taskId),
+    refund: (taskId, why) => refundFailedVideo(taskId, String(why).slice(0, 500)),
+    touch: (taskId, note) => pool.query(TOUCH_SQL, [taskId, String(note).slice(0, 500)]),
+  });
+
+  // Logged only when something happened — a line every minute saying "0 of 0"
+  // is how a log stops being read.
+  if (report.delivered || report.refunded || report.problems.length) {
+    console.log(`[image-sweep] ${report.delivered} delivered, ${report.refunded} refunded, `
+      + `${report.waiting} still working${report.problems.length ? `, ${report.problems.length} problem(s): `
+        + report.problems.map((p) => `${p.taskId}: ${p.why}`).join('; ') : ''}`);
+  }
+}
+
+function scheduleSlowImageSweep() {
+  const run = () => sweepSlowImages().catch((e) =>
+    console.error('[image-sweep] pass failed:', e.message));
+  setTimeout(run, 20 * 1000).unref?.();
+  setInterval(run, 60 * 1000).unref?.();
+}
+
 /**
  * Copy customer media offsite, a slice at a time.
  *
@@ -7600,6 +7754,10 @@ migrate()
     alertsTick();
     setInterval(alertsTick, 5 * 60 * 1000).unref?.();
     scheduleVideoChargeReconcile();
+    // Finishes any image the browser never came back for. Every minute,
+    // because a customer waiting two minutes for a picture should not have to
+    // wait an hour to find out it arrived.
+    scheduleSlowImageSweep();
     // Credit lots (owner's rule, 2026-08-25): date every existing balance
     // from the ledger once — harmless, touches no balances — then sweep
     // hourly. The sweep takes nothing until the owner activates the rule

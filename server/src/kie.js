@@ -224,9 +224,20 @@ export async function kiePollUntilDone(family, taskId, { timeoutMs = 90_000, int
     if (t.state === 'fail') throw new Error(t.failMsg || 'the model could not complete this generation');
     if (Date.now() + intervalMs > deadline) {
       // The task may still complete on kie's side after we give up — log so
-      // occurrences are countable (we refund the user but ate the kie cost).
+      // occurrences are countable.
       console.error(`[${tag}] timeout-after-create taskId=${taskId} (${timeoutMs}ms)`);
-      throw new Error('the image is taking longer than expected, so we stopped and refunded your credits — please try again');
+      // `gaveUp` separates OUR IMPATIENCE from the provider actually failing,
+      // and callers must be able to tell them apart: one deserves a hand-off,
+      // the other a refund. Matching on the message would have been the third
+      // string-matching bug of the week.
+      //
+      // On 2026-08-28 this path refunded six customers whose images had all
+      // succeeded (94–314s). The message it used to carry — "we stopped and
+      // refunded your credits" — is now only true if nothing catches this.
+      const e = new Error('the image is taking longer than expected — it will keep going and appear when it is ready');
+      e.gaveUp = true;
+      e.taskId = taskId;
+      throw e;
     }
     await new Promise((r) => setTimeout(r, intervalMs));
   }
