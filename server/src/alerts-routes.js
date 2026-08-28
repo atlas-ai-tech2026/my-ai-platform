@@ -12,6 +12,7 @@ import {
   evaluateAll, withDefaults, shouldEmail, subjectFor, bySeverity, SEVERITY,
 } from './alerts-engine.js';
 import { sendEmail, mailConfigured } from './mailer.js';
+import { ourMediaHosts } from './media-health.js';
 
 const SETTINGS_COLS = [
   'kie_balance_min', 'stuck_charge_hours', 'failure_rate_pct',
@@ -32,7 +33,10 @@ export async function loadSettings(pool) {
  */
 export async function gatherFacts(pool, { getKieCredits, now = new Date() } = {}) {
   const facts = { now: now.toISOString(), recent: [], models: [], pending: 0,
-    oldestHours: null, credits: null, burnPerDay: null, lastSweepIso: null, providerError: null };
+    oldestHours: null, credits: null, burnPerDay: null, lastSweepIso: null, providerError: null,
+    // Left as null, NOT zero. The SOP line reads null as "could not tell" and
+    // shows UNKNOWN; a zero would show a green light meaning "I did not look".
+    mediaAtRiskToday: null, mediaAtRiskTotal: null, mediaDurable: null };
 
   // Failures in the last hour — the only way fal's empty account is ever seen,
   // since fal publishes no balance endpoint.
@@ -65,6 +69,45 @@ export async function gatherFacts(pool, { getKieCredits, now = new Date() } = {}
   const sweep = await pool.query(`SELECT catalog_synced_at FROM pricing_settings WHERE id = 1`);
   facts.lastSweepIso = sweep.rows[0]?.catalog_synced_at
     ? new Date(sweep.rows[0].catalog_synced_at).toISOString() : null;
+
+  // ── ARE NEW FILES REACHING OUR BUCKET? ──────────────────────────────────
+  // Every generation is meant to be copied into Spaces, because provider
+  // links expire. persistOrFallback keeps the provider link when that copy
+  // fails — silently, so the customer still gets their file. That silence is
+  // why this is counted: a file stranded TODAY means copying is broken today.
+  //
+  // The 24h window is the STATE; the total is context only. A line reporting
+  // a known 12,567 every morning is one nobody reads by the third day.
+  try {
+    const hosts = ourMediaHosts({
+      endpoint: process.env.SPACES_ENDPOINT,
+      bucket: process.env.SPACES_BUCKET,
+      cdnBase: process.env.SPACES_CDN_BASE,
+    });
+    if (hosts.length) {
+      const media = await pool.query(`
+        SELECT
+          count(*) FILTER (
+            WHERE COALESCE(data->>'result_url','') <> ''
+              AND split_part(split_part(data->>'result_url','://',2),'/',1) <> ALL($1::text[])
+              AND created_date > NOW() - INTERVAL '24 hours'
+          )::int AS at_risk_today,
+          count(*) FILTER (
+            WHERE COALESCE(data->>'result_url','') <> ''
+              AND split_part(split_part(data->>'result_url','://',2),'/',1) <> ALL($1::text[])
+          )::int AS at_risk_total,
+          count(*) FILTER (
+            WHERE split_part(split_part(data->>'result_url','://',2),'/',1) = ANY($1::text[])
+          )::int AS durable
+        FROM entities WHERE name = 'GenerationHistory'`, [hosts]);
+      facts.mediaAtRiskToday = media.rows[0]?.at_risk_today ?? null;
+      facts.mediaAtRiskTotal = media.rows[0]?.at_risk_total ?? null;
+      facts.mediaDurable = media.rows[0]?.durable ?? null;
+    }
+  } catch (e) {
+    // Left null on purpose — the line shows UNKNOWN rather than a green zero.
+    console.error('[sop] media durability count failed:', e.message);
+  }
 
   // Burn rate, for turning "4,180 left" into "runs out Saturday" — the form
   // that actually prompts a top-up.
@@ -130,7 +173,7 @@ export async function persist(pool, alerts, { now = new Date() } = {}) {
   //   · the "nothing firing" branch still referenced $2 while binding one
   //     parameter, so a HEALTHY system threw on every pass — the failure mode
   //     you would notice last;
-  //   · `key = ANY($1)` with a JS array has no inferable type. The cast is
+  //   · `key = ANY($1::text[])` with a JS array has no inferable type. The cast is
   //     required, not decorative.
   // Kept as ONE statement with a constant parameter list so the two branches
   // cannot drift apart again.

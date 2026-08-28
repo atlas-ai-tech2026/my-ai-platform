@@ -227,6 +227,65 @@ export function balanceLine({ credits, burnPerDay, providerError, now, minCredit
     info, value, checkedAt: now, detail: 'Comfortable.' });
 }
 
+/**
+ * Are customer files being STRANDED on a provider link right now?
+ *
+ * ── WHY THIS DOES NOT ALERT ON THE BACKLOG ─────────────────────────────────
+ * Measured on production 2026-08-28: 12,567 generations still point at a
+ * provider host and roughly 6,007 of those are already gone. That is a large,
+ * known number — and a line that says "12,567" every single morning is one
+ * nobody reads by the third day. It is a task (#83), not an alarm.
+ *
+ * What actually needs watching is whether it is HAPPENING AGAIN. Every
+ * generation is supposed to be copied into our bucket; persistOrFallback
+ * keeps the provider link when that copy fails, quietly, so the customer
+ * still gets their file. That silence is the point of this line: a file
+ * stranded TODAY means the copying is broken today, and every hour it stays
+ * broken adds files to the pile that expires.
+ *
+ * So: the backlog is CONTEXT, and the last 24 hours is the STATE. The same
+ * rule as the advisories line — report what changed, never that a problem
+ * exists.
+ */
+export function mediaDurabilityLine({ atRiskTotal, atRiskToday, durable, now }) {
+  const info = 'Generated files are copied into our own bucket because provider links expire. '
+    + 'When that copy fails the provider link is kept and the generation still succeeds — '
+    + 'so a failure is SILENT, and the file quietly dies weeks later. This watches for '
+    + 'files stranded in the last 24 hours.';
+
+  const backlog = Number.isFinite(atRiskTotal) ? atRiskTotal : null;
+  const context = backlog === null ? '' : ` ${backlog.toLocaleString()} older files are still on a provider link — see task #83.`;
+
+  // UNKNOWN, never OK, when the numbers could not be read. A green light that
+  // means "I could not look" is the one failure this whole tab exists to
+  // prevent.
+  if (!Number.isFinite(atRiskToday)) {
+    return line({ key: 'media-durable', zone: 'today', label: 'New files stored durably',
+      state: STATE.UNKNOWN, info, value: '—', checkedAt: now,
+      detail: 'The count could not be read, so this is not a clean bill of health.',
+      action: 'Reload the tab. If it stays blank the database query failed — check the app logs.' });
+  }
+
+  if (atRiskToday === 0) {
+    return line({ key: 'media-durable', zone: 'today', label: 'New files stored durably',
+      state: STATE.OK, info, value: '0', checkedAt: now,
+      detail: `Everything generated in the last 24h reached our bucket.${context}` });
+  }
+
+  // Any file stranded today is a live fault, not a backlog. Ten or more says
+  // it is not an unlucky one-off.
+  const state = atRiskToday >= 10 ? STATE.CRITICAL : STATE.WARN;
+  return line({
+    key: 'media-durable', zone: 'today', label: 'New files stored durably',
+    state, info, value: String(atRiskToday), checkedAt: now,
+    detail: `${atRiskToday} file(s) generated in the last 24h are still on a provider link — `
+      + `the copy into our bucket is failing NOW.`
+      + context,
+    action: 'Check the [storage] re-host lines in the app logs. Every hour this stays broken '
+      + 'adds files to the pile that expires.',
+  });
+}
+
 export function stuckChargesLine({ pending, oldestHours, now, thresholdHours = 2 }) {
   const info = 'Customers charged for a video that never arrived. The provider was asked, '
     + 'took the money, and nothing came back. 124 of these accumulated unnoticed before '
@@ -325,6 +384,8 @@ export function buildToday(facts, settings = {}) {
       pct: settings.failure_rate_pct, minAttempts: settings.failure_min_attempts }),
     sweepLine({ lastSweepIso: facts.lastSweepIso, now,
       staleHours: settings.catalogue_stale_hours }),
+    mediaDurabilityLine({ atRiskTotal: facts.mediaAtRiskTotal, atRiskToday: facts.mediaAtRiskToday,
+      durable: facts.mediaDurable, now }),
   ];
 }
 

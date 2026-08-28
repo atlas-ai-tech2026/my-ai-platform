@@ -67,7 +67,7 @@ export const HOST_BREAKDOWN_SQL = `
       CASE
         WHEN COALESCE(data->>'result_url', '') = '' THEN 'missing'
         WHEN data->>'result_url' !~* '^https?://' THEN 'other'
-        WHEN split_part(split_part(data->>'result_url', '://', 2), '/', 1) = ANY($1) THEN 'ours'
+        WHEN split_part(split_part(data->>'result_url', '://', 2), '/', 1) = ANY($1::text[]) THEN 'ours'
         ELSE 'provider'
       END AS bucket_class,
       user_id
@@ -85,7 +85,7 @@ export const AT_RISK_SAMPLE_SQL = `
     FROM entities
    WHERE name = 'GenerationHistory'
      AND COALESCE(data->>'result_url', '') <> ''
-     AND split_part(split_part(data->>'result_url', '://', 2), '/', 1) <> ALL($1)
+     AND split_part(split_part(data->>'result_url', '://', 2), '/', 1) <> ALL($1::text[])
    ORDER BY random()
    LIMIT $2
 `;

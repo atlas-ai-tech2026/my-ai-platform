@@ -563,6 +563,46 @@ export const SEED = [
       + 'PRODUCTION, BOTH INSTANCES — the case that produced sixteen versions: 18:50:57Z and 18:51:34Z each logged [auto-backup] skipped — backups/voxel-auto-2026-08-24.ndjson.gz.enc already exists (offsite). Two boots, two checks, two refusals to write a second copy. '
       + 'DEV — the half that had FAILED OPEN, and that I only found because the owner asked whether dev needed backups at all: 19:28:03Z [auto-backup] skipped — … already exists (PRIMARY). The word primary is the proof. Dev has no offsite bucket by design (#51), so the first guard asked a question dev could not answer and backed up on every boot. It now asks the destination the environment actually writes to, and BOTH branches are now exercised in production conditions rather than only the one with an offsite bucket. '
       + '⚠️ WHAT THE LOGS STILL CANNOT SAY, so it is not claimed: the VERSION COUNT of today\'s object. The skip line proves the archive exists and that nothing overwrote it since; counting versions needs a LISTING, which is precisely what #70 is about. If the owner is in Backblaze anyway, one look at today\'s file closes it completely — optional, not required.' },
+  // ── ADDED 2026-08-28, raised by Amr ─────────────────────────────────────
+  { ref: '82', owner: 'claude', status: 'pending', priority: 4,
+    title: 'A microphone on the prompt box — speak the prompt instead of typing it',
+    why: 'Amr raised this while dictating to me by voice, which is the argument: '
+      + 'describing a scene out loud is far faster than typing it, and for an '
+      + 'Arabic-speaking workshop room being asked to type detailed English, '
+      + 'the keyboard is the barrier — not the idea. A beginner who cannot '
+      + 'phrase a prompt in English can usually say what they want.',
+    detail: 'Browser SpeechRecognition, which is BUILT IN to Chrome, Edge and '
+      + 'Safari — no provider, no per-minute cost, and it supports Arabic. It '
+      + 'fills the prompt box as dictated text the customer can then edit, '
+      + 'never sending anything straight to a model. '
+      + 'CAVEAT to decide before building: Chrome sends the audio to Google to '
+      + 'transcribe it, which is a question worth answering for a B2B customer '
+      + 'before the button ships. Firefox does not support it, so the mic must '
+      + 'be HIDDEN where unsupported rather than shown and dead. '
+      + 'NOT related to the Edit Cut transcript tab: that needs a file '
+      + 'transcribed, which this cannot do.' },
+
+  // ── ADDED 2026-08-28, found by the media-health check ────────────────────
+  { ref: '83', owner: 'claude', status: 'pending', priority: 1,
+    title: 'RESCUE the customer files still on a provider link, before they expire',
+    why: 'Measured on production 2026-08-28: of 20,048 generations only 6,869 '
+      + 'are in our own bucket. 12,567 still point at a provider host — almost '
+      + 'all tempfile.aiquickdraw.com, whose name says how long it keeps them. '
+      + 'A sample of 500 found 47.8% ALREADY GONE, so roughly 6,007 files are '
+      + 'lost across 289 accounts and cannot be recovered. About 6,560 are '
+      + 'still alive. This is a clock, not a backlog.',
+    detail: 'Cause: Spaces re-hosting went live 2026-08-02; everything before '
+      + 'kept the provider link because there was nowhere else to put it, and '
+      + 'persistOrFallback keeps that link when a copy fails. '
+      + 'The rescue fetches each surviving file, uploads it to Spaces, and only '
+      + 'THEN points result_url at our copy — keeping the provider link in a '
+      + 'new field. A failure leaves the record exactly as it is, so nothing '
+      + 'gets worse. ~6,560 files, roughly 58 GB, must run in stoppable '
+      + 'batches. Dry run first, then one account, then the rest. '
+      + 'Also outstanding: 612 records carry no url at all, and the ~6,007 '
+      + 'dead ones should SAY they are unavailable rather than showing a grey '
+      + 'tile forever.' },
+
 ];
 
 /**

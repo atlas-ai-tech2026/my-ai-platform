@@ -10,7 +10,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   STATE, ZONES, line, worst, buildToday, summarise,
-  backupLine, restoreLine, balanceLine, stuckChargesLine, failureRateLine, sweepLine,
+  backupLine, restoreLine, balanceLine, stuckChargesLine, failureRateLine, sweepLine, mediaDurabilityLine,
 } from './sop-engine.js';
 
 const NOW = '2026-08-18T12:00:00Z';
@@ -198,11 +198,14 @@ describe('buildToday', () => {
     pending: 0, oldestHours: null,
     spends: 100, failures: 2, recent: [],
     lastSweepIso: ago(5),
+    // A healthy system strands nothing: every file generated today reached
+    // our own bucket. The backlog is a separate, known task (#83).
+    mediaAtRiskToday: 0, mediaAtRiskTotal: 12567, mediaDurable: 6869,
   };
 
   it('produces one line per check, all in the today zone', () => {
     const lines = buildToday(healthy);
-    expect(lines).toHaveLength(6);
+    expect(lines).toHaveLength(7);
     expect(lines.every((l) => l.zone === 'today')).toBe(true);
   });
 
@@ -240,5 +243,47 @@ describe('buildToday', () => {
   it('rolls a partly-unknown system up as UNKNOWN, never OK', () => {
     const s = summarise(buildToday({ ...healthy, autoBackup: null }));
     expect(s.state).toBe(STATE.UNKNOWN);
+  });
+});
+
+describe('new files stored durably', () => {
+  // The backlog is 12,567 and known. A line that reports it every morning is
+  // one nobody reads by the third day — so this watches the last 24 hours
+  // instead, and carries the backlog only as context.
+  const CTX = { atRiskTotal: 12567, durable: 6869, now: NOW };
+
+  it('is OK when nothing was stranded today, even with a huge backlog', () => {
+    const l = mediaDurabilityLine({ ...CTX, atRiskToday: 0 });
+    expect(l.state).toBe(STATE.OK);
+    expect(l.detail, 'the backlog should still be mentioned').toMatch(/12,567/);
+    expect(l.detail).toMatch(/#83/);
+  });
+
+  it('WARNS when a file was stranded today — the copy is failing now', () => {
+    expect(mediaDurabilityLine({ ...CTX, atRiskToday: 3 }).state).toBe(STATE.WARN);
+  });
+
+  it('goes CRITICAL at ten, which is past an unlucky one-off', () => {
+    expect(mediaDurabilityLine({ ...CTX, atRiskToday: 10 }).state).toBe(STATE.CRITICAL);
+  });
+
+  it('says UNKNOWN — never OK — when the count could not be read', () => {
+    // A green light meaning "I could not look" is the one failure this whole
+    // tab exists to prevent.
+    for (const bad of [undefined, null, NaN]) {
+      expect(mediaDurabilityLine({ ...CTX, atRiskToday: bad }).state).toBe(STATE.UNKNOWN);
+    }
+  });
+
+  it('never shows the backlog as the alarming number', () => {
+    // 12,567 in the value field would read as "12,567 broke today".
+    expect(mediaDurabilityLine({ ...CTX, atRiskToday: 0 }).value).toBe('0');
+    expect(mediaDurabilityLine({ ...CTX, atRiskToday: 2 }).value).toBe('2');
+  });
+
+  it('tells you where to look when it fires', () => {
+    // In `action`, not `detail` — the tab requires every non-OK line to carry
+    // one, which is a better home for "what do I do" than the description.
+    expect(mediaDurabilityLine({ ...CTX, atRiskToday: 5 }).action).toMatch(/\[storage\]/);
   });
 });
