@@ -27,6 +27,8 @@ import { RECORD_SQL, CLAIM_SQL, GIVE_UP_SQL, TOUCH_SQL, DUE_SQL, OWNS_SQL,
 // the grid would show two different sizes of "small".
 import { makeThumbnail } from './thumbnail-backfill.js';
 import { SCALE_SQL, SAMPLE_SQL, summariseScale } from './thumbnail-scale.js';
+import { RECORD_SQL as SYNC_OK_SQL, READ_SQL as SYNC_READ_SQL, SYNC_FLAG,
+         judgeSyncHeartbeat, syncStaleAlert } from './sync-heartbeat.js';
 import { headSize } from './thumbnail-survey.js';
 import { ourMediaHosts, checkSample, summarise as summariseMediaHealth,
          HOST_BREAKDOWN_SQL, AT_RISK_SAMPLE_SQL } from './media-health.js';
@@ -7762,6 +7764,16 @@ function scheduleMediaSync() {
         readDest: readMediaObject,
       });
       if (r.error) console.error(`[media-sync] ${r.error}`);
+      else if (dbReady()) {
+        // ── THE HEARTBEAT (2026-08-28) ──
+        // Recorded ONLY on a clean pass. Tonight the sync failed 22 times in a
+        // row while the alerts pass said "0 open" every five minutes, because
+        // nothing anywhere was watching whether the backup was still backing
+        // up. A row, not a variable: this app redeploys several times a day
+        // and a memory heartbeat would reset to healthy every time.
+        await pool.query(SYNC_OK_SQL, [SYNC_FLAG, r.copied ?? 0, String(r.bytes ?? 0)])
+          .catch((e) => console.error('[media-sync] heartbeat not recorded:', e.message));
+      }
     } catch (e) {
       // Never let a backup job take the web process down — it would have made
       // things worse than the gap it was closing.

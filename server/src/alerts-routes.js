@@ -13,6 +13,7 @@ import {
 } from './alerts-engine.js';
 import { sendEmail, mailConfigured } from './mailer.js';
 import { ourMediaHosts } from './media-health.js';
+import { READ_SQL as SYNC_READ_SQL, SYNC_FLAG, syncStaleAlert } from './sync-heartbeat.js';
 
 const SETTINGS_COLS = [
   'kie_balance_min', 'stuck_charge_hours', 'failure_rate_pct',
@@ -238,6 +239,24 @@ export async function runAlertChecks(pool, dbReady, { getKieCredits, send, now =
       detail: `${facts.providerError} — the balance check is not running, so a low balance would NOT be caught right now.`,
       value: null,
     });
+  }
+
+  // ── HAS THE OFFSITE BACKUP STOPPED? (2026-08-28) ────────────────────────
+  // On the night this was added, the media sync copied nothing for two and a
+  // half hours while THIS pass logged "0 open · 0 resolved · 0 emailed" every
+  // five minutes. There were alerts for the restore check going stale, for the
+  // provider balance, for stuck charges — and none for the backup itself
+  // having stopped, which is the one that mattered.
+  //
+  // Deliberately outside evaluateAll: it reads a row rather than the gathered
+  // facts, and a failure to read it must not take the whole alerts pass down —
+  // that would trade one blind spot for a larger one.
+  try {
+    const { rows } = await pool.query(SYNC_READ_SQL, [SYNC_FLAG]);
+    const stale = syncStaleAlert(rows[0]?.value || null, now);
+    if (stale) alerts.push(stale);
+  } catch (e) {
+    console.error('[alerts] could not read the backup heartbeat:', e.message);
   }
 
   const { opened, resolved } = await persist(pool, alerts, { now });
