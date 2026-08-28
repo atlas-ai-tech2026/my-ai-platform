@@ -14,7 +14,8 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { pool, isReady as dbReady, migrate, ADMIN_EMAIL } from './db.js';
 import { persistOrFallback, persistBuffer, isReady as spacesReady, uploadPrivate, listKeys, deleteKey,
-         listAllMedia, readObject, primaryObjectExists, cdnifyDeep, mediaCdnBase } from './storage.js';
+         listAllMedia, readObject, primaryObjectExists, cdnifyDeep, mediaCdnBase,
+         ensureMediaCors } from './storage.js';
 import { SURVEY_SQL, surveyRows } from './thumbnail-survey.js';
 import { SET_THUMB_SQL, backfillRows } from './thumbnail-backfill.js';
 import { RESCUE_SQL, RESCUE_QUEUE_SQL, rescueRows } from './media-rescue.js';
@@ -5310,6 +5311,28 @@ app.post('/api/admin/users/:id/reset-password', adminGate, async (req, res) => {
 // The order is the safety: fetch → upload → VERIFY our copy reads back at the
 // right size → only then write, recording the provider url in origin_url so
 // the old address is never thrown away. Any failure writes nothing at all.
+// ── LET OUR OWN PAGES READ MEDIA WITH JAVASCRIPT ────────────────────────────
+// Voxel Edit Cut's export reads each clip with fetch(). A cross-origin fetch
+// needs the bucket to say who may read it; an <img> tag does not. So galleries
+// work while EXPORTING A PROJECT CONTAINING A VOXEL CLIP fails completely.
+//
+// Runs on the server for the same reason ensureVersioning does: the Spaces
+// secret is write-only in the app config, so nothing else holds it.
+//
+// POST because it changes bucket configuration. Idempotent — if the rule is
+// already there it reports changed:false and writes nothing.
+app.post('/api/admin/media-cors', adminGate, async (req, res) => {
+  if (!spacesReady()) return res.status(503).json({ error: 'Spaces not configured.' });
+  try {
+    const out = await ensureMediaCors();
+    console.log(`[media-cors] ${JSON.stringify(out)}`);
+    res.status(out.ok ? 200 : 500).json(out);
+  } catch (e) {
+    console.error('[media-cors] failed:', e.message);
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
 app.post('/api/admin/media-rescue', adminGate, async (req, res) => {
   if (!dbReady()) return res.status(503).json({ error: 'Database not configured.' });
   if (!spacesReady()) return res.status(503).json({ error: 'Spaces not configured — nowhere to rescue files to.' });
