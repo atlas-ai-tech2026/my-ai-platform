@@ -17,6 +17,8 @@ import { persistOrFallback, persistBuffer, isReady as spacesReady, uploadPrivate
          listAllMedia, readObject, primaryObjectExists, cdnifyDeep, mediaCdnBase } from './storage.js';
 import { SURVEY_SQL, surveyRows } from './thumbnail-survey.js';
 import { SET_THUMB_SQL, backfillRows } from './thumbnail-backfill.js';
+import { RESCUE_SQL, RESCUE_QUEUE_SQL, rescueRows } from './media-rescue.js';
+import { headSize } from './thumbnail-survey.js';
 import { ourMediaHosts, checkSample, summarise as summariseMediaHealth,
          HOST_BREAKDOWN_SQL, AT_RISK_SAMPLE_SQL } from './media-health.js';
 import { configureKie, kieCreateTask, kieGetTask, kiePollUntilDone, kieUploadBuffer, kieGetCredits } from './kie.js';
@@ -5296,6 +5298,70 @@ app.post('/api/admin/users/:id/reset-password', adminGate, async (req, res) => {
 // links expire by design, and persistOrFallback keeps them when the copy into
 // our bucket fails — quietly, so the generation still succeeds. The network is
 // only used to measure how many have already died, from a random sample.
+// ── MEDIA RESCUE ────────────────────────────────────────────────────────────
+// Copy a customer's file out of a provider's temporary storage into ours,
+// before it expires. The only endpoint that rewrites result_url.
+//
+// POST because it writes. Scoped to ONE account by email unless `all: true` is
+// passed explicitly — there is no way to run it across every customer by
+// accident, which matters for the one operation that could destroy history if
+// it were wrong.
+//
+// The order is the safety: fetch → upload → VERIFY our copy reads back at the
+// right size → only then write, recording the provider url in origin_url so
+// the old address is never thrown away. Any failure writes nothing at all.
+app.post('/api/admin/media-rescue', adminGate, async (req, res) => {
+  if (!dbReady()) return res.status(503).json({ error: 'Database not configured.' });
+  if (!spacesReady()) return res.status(503).json({ error: 'Spaces not configured — nowhere to rescue files to.' });
+
+  const email = String(req.body?.email || '').trim().toLowerCase();
+  const all = req.body?.all === true;
+  const limit = Math.max(1, Math.min(500, Number(req.body?.limit) || 20));
+  if (!email && !all) {
+    return res.status(400).json({ error: 'Give an email to rescue one account, or all:true to run across every account.' });
+  }
+
+  try {
+    const hosts = ourMediaHosts({
+      endpoint: process.env.SPACES_ENDPOINT,
+      bucket: process.env.SPACES_BUCKET,
+      cdnBase: process.env.SPACES_CDN_BASE,
+    });
+    if (!hosts.length) return res.status(503).json({ error: 'Cannot tell which files are already ours.' });
+
+    let userId = null;
+    if (email) {
+      const { rows: users } = await pool.query('SELECT id FROM users WHERE lower(email) = $1', [email]);
+      if (!users.length) return res.status(404).json({ error: `No account for ${email}.` });
+      userId = users[0].id;
+    }
+
+    const { rows } = await pool.query(RESCUE_QUEUE_SQL, [userId, hosts, limit]);
+    const started = Date.now();
+    const report = await rescueRows(rows, {
+      ourHosts: hosts,
+      limit,
+      persist: (buf, contentType, kind) => persistBuffer(buf, contentType, kind),
+      // Verify through the PUBLIC url, not the bucket API: what matters is
+      // that the customer's browser can read it, which is a stronger claim
+      // than the object existing.
+      verify: (url) => headSize(url),
+      setUrls: async (id, originUrl, newUrl, rowUserId) => {
+        await pool.query(RESCUE_SQL,
+          [JSON.stringify(originUrl), JSON.stringify(newUrl), id, rowUserId]);
+      },
+    });
+
+    const seconds = Math.round((Date.now() - started) / 1000);
+    console.log(`[media-rescue] ${email || 'ALL'}: ${report.rescued} rescued, ${report.alreadyGone} already gone, `
+      + `${report.failed} failed, ${report.movedMB} MB in ${seconds}s`);
+    res.json({ scope: email || 'all accounts', tookSeconds: seconds, ...report });
+  } catch (e) {
+    console.error('[media-rescue] failed:', e.message);
+    res.status(500).json({ error: `The rescue could not finish: ${e.message}` });
+  }
+});
+
 app.get('/api/admin/media-health', adminGate, async (req, res) => {
   if (!dbReady()) return res.status(503).json({ error: 'Database not configured.' });
   const sampleSize = Math.max(0, Math.min(500, Number(req.query.sample) || 60));
