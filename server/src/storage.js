@@ -544,6 +544,46 @@ function publicUrl(key) {
 // generation the user already paid for.
 //
 // `kind` is a folder prefix like 'image' | 'video' | 'audio'.
+/**
+ * Write to an EXACT key, publicly readable.
+ *
+ * persistBuffer picks its own uuid under `generations/`, which is right for a
+ * customer's output and wrong for anything that has to be found again by name
+ * — the speech model, whose files transformers.js requests by path.
+ *
+ * `uploadPrivate` is the other neighbour and is also wrong here: the model has
+ * to be readable by a customer's browser, which a private ACL forbids.
+ *
+ * Callers pass the key, so this is capable of overwriting. Every use of it is
+ * under a `models/` prefix; nothing in the codebase points it at
+ * `generations/`, and a test asserts that.
+ */
+export async function uploadPublicAt(key, body, contentType = 'application/octet-stream') {
+  if (!configured) throw new Error('Spaces not configured');
+  if (!key || typeof key !== 'string') throw new Error('A key is required');
+  await client.send(new PutObjectCommand({
+    Bucket: BUCKET, Key: key, Body: body, ContentType: contentType,
+    ACL: 'public-read',
+    // A model file at a versioned path never changes. Cache it for a year so
+    // a customer downloads it once, ever.
+    CacheControl: 'public, max-age=31536000, immutable',
+  }));
+  return publicUrl(key);
+}
+
+/** How many bytes are actually stored at this key, or null if it cannot be
+ *  read. Used to verify a write rather than trust that it returned. */
+export async function objectSize(key) {
+  if (!configured) return null;
+  try {
+    const out = await client.send(new HeadObjectCommand({ Bucket: BUCKET, Key: key }));
+    const n = Number(out?.ContentLength);
+    return Number.isFinite(n) ? n : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function persistFromUrl(sourceUrl, kind = 'output', signal) {
   if (!configured) throw new Error('Spaces not configured');
   if (!sourceUrl || typeof sourceUrl !== 'string') throw new Error('No source url');

@@ -15,7 +15,8 @@ import jwt from 'jsonwebtoken';
 import { pool, isReady as dbReady, migrate, ADMIN_EMAIL } from './db.js';
 import { persistOrFallback, persistBuffer, isReady as spacesReady, uploadPrivate, listKeys, deleteKey,
          listAllMedia, readObject, primaryObjectExists, cdnifyDeep, mediaCdnBase,
-         ensureMediaCors } from './storage.js';
+         ensureMediaCors, uploadPublicAt, objectSize } from './storage.js';
+import { installModel, modelReady, MODEL_PREFIX } from './whisper-model.js';
 import { SURVEY_SQL, surveyRows } from './thumbnail-survey.js';
 import { SET_THUMB_SQL, backfillRows } from './thumbnail-backfill.js';
 import { RESCUE_SQL, RESCUE_QUEUE_SQL, rescueRows } from './media-rescue.js';
@@ -5321,6 +5322,35 @@ app.post('/api/admin/users/:id/reset-password', adminGate, async (req, res) => {
 //
 // POST because it changes bucket configuration. Idempotent — if the rule is
 // already there it reports changed:false and writes nothing.
+// ── THE SPEECH MODEL, IN OUR OWN BUCKET ─────────────────────────────────────
+// So a customer's browser never talks to HuggingFace to transcribe their own
+// video. mediaConnectSources() already allows our bucket, so this needs NO CSP
+// change — the same reasoning that put ffmpeg-core.wasm on our own origin
+// instead of a CDN.
+//
+// Runs here because the Spaces secret is write-only in the app config; it
+// cannot be done from a laptop. Idempotent: files already present are skipped,
+// so re-running costs nothing.
+app.post('/api/admin/whisper-model', adminGate, async (req, res) => {
+  if (!spacesReady()) return res.status(503).json({ error: 'Spaces not configured.' });
+  try {
+    const started = Date.now();
+    const out = await installModel({
+      force: req.body?.force === true,
+      exists: (key) => primaryObjectExists(key),
+      put: (key, buf, contentType) => uploadPublicAt(key, buf, contentType),
+      size: (key) => objectSize(key),
+    });
+    const seconds = Math.round((Date.now() - started) / 1000);
+    console.log(`[whisper-model] ${JSON.stringify({ ...out, problems: out.problems.length })} in ${seconds}s`);
+    // A partial model is not a success. 200 only when every file is there.
+    res.status(out.complete ? 200 : 500).json({ tookSeconds: seconds, ...out });
+  } catch (e) {
+    console.error('[whisper-model] failed:', e.message);
+    res.status(500).json({ complete: false, error: e.message });
+  }
+});
+
 app.post('/api/admin/media-cors', adminGate, async (req, res) => {
   if (!spacesReady()) return res.status(503).json({ error: 'Spaces not configured.' });
   try {
