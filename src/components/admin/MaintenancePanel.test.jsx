@@ -9,7 +9,7 @@ import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import MaintenancePanel from './MaintenancePanel';
+import MaintenancePanel, { MAX_BATCH } from './MaintenancePanel';
 import { adminApi } from '@/lib/adminApi';
 
 vi.mock('sonner', () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
@@ -124,5 +124,39 @@ describe('a full batch invites another press', () => {
     await userEvent.click(runner('Rescue expiring files'));
 
     expect(await screen.findByRole('button', { name: /^Run again: Rescue/ })).toBeInTheDocument();
+  });
+});
+
+describe('the batch box cannot be set to a number that fails', () => {
+  it('refuses more than MAX_BATCH, clamping as you type', async () => {
+    // These run while the page waits and Cloudflare cuts at ~100s. Measured on
+    // production: 20 thumbnails in 24s. A box accepting 1000 was a trap I
+    // built and Amr would have walked into.
+    render(<MaintenancePanel />);
+    const box = screen.getByRole('spinbutton');
+    await userEvent.clear(box);
+    await userEvent.type(box, '500');
+    expect(Number(box.value)).toBeLessThanOrEqual(MAX_BATCH);
+  });
+
+  it('and the ceiling is one a batch can actually finish inside 100s', () => {
+    // 1.2 seconds each, measured. Anything past ~80 gets cut.
+    expect(MAX_BATCH * 1.2).toBeLessThan(100);
+  });
+
+  it('says the limit on screen rather than silently correcting it', () => {
+    render(<MaintenancePanel />);
+    expect(screen.getByText(new RegExp(`${MAX_BATCH} max`))).toBeInTheDocument();
+  });
+
+  it('never sends a batch of zero', async () => {
+    const spy = vi.spyOn(adminApi, 'thumbsBackfill').mockResolvedValue({ attempted: 0, done: 0, failed: 0 });
+    render(<MaintenancePanel />);
+    const box = screen.getByRole('spinbutton');
+    await userEvent.clear(box);
+    await userEvent.type(screen.getByPlaceholderText(/someone@example/), 'a@b.com');
+    await userEvent.click(screen.getByRole('button', { name: /^Run: Make small versions/ }));
+    await waitFor(() => expect(spy).toHaveBeenCalled());
+    expect(spy.mock.calls[0][0].limit).toBeGreaterThan(0);
   });
 });

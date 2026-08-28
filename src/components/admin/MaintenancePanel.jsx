@@ -29,6 +29,20 @@ import { adminApi } from '@/lib/adminApi';
 import { outcomeOf } from '@/lib/maintenance-outcome';
 import InfoDot from './InfoDot';
 
+/**
+ * The largest batch that can actually FINISH.
+ *
+ * These jobs run while the page waits, and Cloudflare cuts a proxied request
+ * at about 100 seconds. The real measured rate on production was 20 thumbnails
+ * in 24 seconds — 1.2s each — so anything past roughly 80 is cut off.
+ *
+ * Nothing is lost when that happens: each thumbnail is saved as it is made, so
+ * the finished ones keep theirs. But the screen shows a failure that is not
+ * one, and a box that accepts 1000 while 80 is the ceiling is a trap I built
+ * and Amr would have walked into.
+ */
+export const MAX_BATCH = 60;
+
 const TONE = {
   ok:      { dot: 'var(--crm-green)', bg: 'transparent' },
   idle:    { dot: 'var(--crm-w40)',   bg: 'var(--crm-w03)' },
@@ -173,10 +187,18 @@ export default function MaintenancePanel({ onError }) {
         <label style={{ fontSize: 12, color: 'var(--crm-w55)' }}>
           <div style={{ marginBottom: 4 }}>Batch size</div>
           <input
-            type="number" min="1" max="500" value={form.limit}
-            onChange={(e) => setForm((f) => ({ ...f, limit: e.target.value }))}
+            type="number" min="1" max={MAX_BATCH} value={form.limit}
+            onChange={(e) => setForm((f) => ({
+              // Clamped on the way IN, not validated on the way out. A number
+              // that cannot finish should be impossible to type, not corrected
+              // after it has already failed.
+              ...f, limit: Math.min(MAX_BATCH, Math.max(1, Number(e.target.value) || 1)),
+            }))}
             style={{ ...inp, width: 90 }}
           />
+          <div style={{ fontSize: 11, color: 'var(--crm-w40)', marginTop: 3 }}>
+            {MAX_BATCH} max — bigger runs get cut off at 100s
+          </div>
         </label>
         <label style={{
           display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer',
