@@ -273,6 +273,23 @@ export const adminApi = {
   // ─── Bulk user provisioning ───────────────────────────────────────
   listModels: () => request('GET', '/api/admin/models'),
   bulkCreateUsers: (body) => request('POST', '/api/admin/users/bulk', body),
+
+  // ─── One-shot maintenance ─────────────────────────────────────────
+  // These four endpoints existed for days with NOTHING that could call
+  // them. A GET can be run by pasting the url in the address bar while
+  // signed in; a POST cannot — it needs the CSRF header this client adds.
+  // So "built and deployed" meant "unreachable", which is the same shape
+  // of mistake as the task board: correct code that never reached a screen.
+  mediaHealth:    (sample = 60)  => request('GET',  `/api/admin/media-health?sample=${sample}`),
+  mediaRescue:    (body)         => request('POST', '/api/admin/media-rescue', body),
+  mediaCors:      ()             => request('POST', '/api/admin/media-cors', {}),
+  whisperModel:   (force = false)=> request('POST', '/api/admin/whisper-model', { force }),
+  thumbsSurvey:   (email)        => request('GET',  `/api/admin/thumbnails/survey?email=${encodeURIComponent(email)}`),
+  thumbsBackfill: (body)         => request('POST', '/api/admin/thumbnails/backfill', body),
+  // Answers "was the backup passphrase ever rotated?" without anyone having to
+  // remember, and without the passphrase being shown to anybody. Read-only —
+  // it decrypts one old archive in memory and writes nothing.
+  passphraseCheck:()             => request('POST', '/api/admin/backup/passphrase-check', {}),
 };
 
 // Decode a JWT payload WITHOUT verifying its signature. Used only for

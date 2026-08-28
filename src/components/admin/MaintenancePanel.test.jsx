@@ -1,0 +1,128 @@
+// ─── MaintenancePanel.test.jsx ───────────────────────────────────────────────
+// Does a button exist, and does pressing it call the endpoint?
+//
+// That question sounds too simple to test. It is the exact question nobody
+// asked about five endpoints that shipped unreachable, so it is the one this
+// file answers — with a render and a click, not by reading the source.
+
+import React from 'react';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import MaintenancePanel from './MaintenancePanel';
+import { adminApi } from '@/lib/adminApi';
+
+vi.mock('sonner', () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
+
+beforeEach(() => vi.restoreAllMocks());
+
+/** The Run button for a job, by its accessible name — not by walking the DOM
+ *  from a heading, which finds the ⓘ button first. */
+const runner = (title) => screen.getByRole('button', { name: new RegExp(`^Run(?: again)?: ${title}`) });
+
+describe('the buttons exist at all', () => {
+  it('renders one Run button per job', () => {
+    render(<MaintenancePanel />);
+    expect(screen.getAllByRole('button', { name: /^Run(?: again)?: / })).toHaveLength(5);
+  });
+
+  it('every job says what it writes BEFORE it is pressed', () => {
+    // Two of these write to 601 customers' history and sit one tab from the
+    // button that expires accounts. The warning cannot arrive afterwards.
+    render(<MaintenancePanel />);
+    const writes = screen.getAllByText(/WRITES to customer history|Writes nothing|bucket SETTINGS|Writes to models/);
+    expect(writes.length).toBe(5);
+  });
+});
+
+describe('pressing one actually calls the endpoint', () => {
+  it('the speech model needs no account and just runs', async () => {
+    const spy = vi.spyOn(adminApi, 'whisperModel')
+      .mockResolvedValue({ complete: true, stored: 7, skipped: 0, downloadedMB: 41.2 });
+    render(<MaintenancePanel />);
+
+    await userEvent.click(runner('Install the speech model'));
+
+    await waitFor(() => expect(spy).toHaveBeenCalled());
+    expect(await screen.findByText(/speech model is in our bucket/i)).toBeInTheDocument();
+  });
+
+  it('a half-installed model reports NOT installed, from a 500', async () => {
+    // The endpoint answers 500 on a partial install on purpose, so the client
+    // sees a thrown error carrying the report. Rendering the throw as a
+    // generic failure would lose the only useful sentence in it.
+    vi.spyOn(adminApi, 'whisperModel').mockRejectedValue(
+      Object.assign(new Error('HTTP 500'), {
+        status: 500,
+        body: { complete: false, stored: 6, skipped: 0, problems: [{ file: 'onnx/decoder.onnx', why: 'upstream responded 503' }] },
+      }));
+    render(<MaintenancePanel />);
+
+    await userEvent.click(runner('Install the speech model'));
+
+    expect(await screen.findByText(/NOT installed/)).toBeInTheDocument();
+    expect(screen.getByText(/503/)).toBeInTheDocument();
+  });
+});
+
+describe('the two that touch customer history are scoped', () => {
+  it('refuses to run the rescue with no account and no "every account"', async () => {
+    const { toast } = await import('sonner');
+    const spy = vi.spyOn(adminApi, 'mediaRescue').mockResolvedValue({});
+    render(<MaintenancePanel />);
+
+    await userEvent.click(runner('Rescue expiring files'));
+
+    expect(spy).not.toHaveBeenCalled();
+    expect(toast.error).toHaveBeenCalled();
+  });
+
+  it('sends the account and the batch size it was given', async () => {
+    const spy = vi.spyOn(adminApi, 'mediaRescue')
+      .mockResolvedValue({ considered: 5, rescued: 5, alreadyGone: 0, failed: 0, movedMB: 12 });
+    render(<MaintenancePanel />);
+
+    await userEvent.type(screen.getByPlaceholderText(/someone@example/), 'ai.workshops965@gmail.com');
+    await userEvent.click(runner('Rescue expiring files'));
+
+    await waitFor(() => expect(spy).toHaveBeenCalledWith(
+      expect.objectContaining({ email: 'ai.workshops965@gmail.com', limit: 20 })));
+  });
+
+  it('running across EVERY account takes a deliberate second action', async () => {
+    const spy = vi.spyOn(adminApi, 'mediaRescue')
+      .mockResolvedValue({ considered: 20, rescued: 20, alreadyGone: 0, failed: 0 });
+    render(<MaintenancePanel />);
+
+    await userEvent.click(screen.getByLabelText(/Every account/i));
+    await userEvent.click(runner('Rescue expiring files'));
+
+    await waitFor(() => expect(spy).toHaveBeenCalledWith(expect.objectContaining({ all: true })));
+  });
+
+  it('the thumbnail backfill never gets an "all accounts" body', async () => {
+    // There is no every-account variant on the server; sending one would 400.
+    const spy = vi.spyOn(adminApi, 'thumbsBackfill')
+      .mockResolvedValue({ attempted: 3, done: 3, failed: 0 });
+    render(<MaintenancePanel />);
+
+    await userEvent.type(screen.getByPlaceholderText(/someone@example/), 'a@b.com');
+    await userEvent.click(runner('Make small versions'));
+
+    await waitFor(() => expect(spy).toHaveBeenCalled());
+    expect(spy.mock.calls[0][0]).not.toHaveProperty('all');
+  });
+});
+
+describe('a full batch invites another press', () => {
+  it('the button changes to "Run again" when there is more queued', async () => {
+    vi.spyOn(adminApi, 'mediaRescue')
+      .mockResolvedValue({ considered: 20, rescued: 20, alreadyGone: 0, failed: 0 });
+    render(<MaintenancePanel />);
+
+    await userEvent.click(screen.getByLabelText(/Every account/i));
+    await userEvent.click(runner('Rescue expiring files'));
+
+    expect(await screen.findByRole('button', { name: /^Run again: Rescue/ })).toBeInTheDocument();
+  });
+});

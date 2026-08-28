@@ -1,0 +1,183 @@
+// ─── maintenance-outcome.js ──────────────────────────────────────────────────
+// Turn the JSON a maintenance endpoint returns into the sentence the owner
+// reads.
+//
+// ── WHY THIS IS A MODULE AND NOT A FEW LINES OF JSX ────────────────────────
+// Because it is the only part that can lie. Every one of these jobs can come
+// back HALF DONE — six of seven model files, forty of sixty files rescued —
+// and every one of them returns HTTP 200 while doing so. A green tick on a
+// half-finished rescue is worse than a red cross, because the owner stops
+// looking.
+//
+// So the rule is one line, and the tests are mostly about it:
+//
+//   SUCCESS MEANS NOTHING FAILED AND SOMETHING HAPPENED.
+//
+// Partial → 'partial'. Nothing to do → 'idle', never 'ok'. And a run that did
+// half the queue is a REASON TO RUN AGAIN, which the sentence has to say,
+// because "40 rescued" reads like an ending.
+
+/** A count that is missing is unknown, not zero. Zero is a claim. */
+const n = (v) => (Number.isFinite(Number(v)) ? Number(v) : null);
+const plural = (c, one, many = `${one}s`) => `${c} ${c === 1 ? one : many}`;
+
+/**
+ * @returns {{tone:'ok'|'partial'|'idle'|'bad', headline:string, detail:string,
+ *            again:boolean}} `again` = there is more queued; running it once
+ *            more is the correct next action rather than a retry of a failure.
+ */
+export function outcomeOf(action, result) {
+  if (!result) return { tone: 'bad', headline: 'No answer came back.', detail: '', again: false };
+  if (result.error) {
+    // Keep `stage` if the server gave one. It is the difference between "the
+    // write was refused" and "the write worked and reading it back did not",
+    // and only the second means the bucket may already have changed.
+    const where = result.stage ? `Failed while ${result.stage}. ` : '';
+    return { tone: 'bad', headline: 'It did not run.', detail: `${where}${result.error}`, again: false };
+  }
+
+  switch (action) {
+    case 'whisper': return whisper(result);
+    case 'cors':    return cors(result);
+    case 'rescue':  return rescue(result);
+    case 'thumbs':  return thumbs(result);
+    case 'passphrase': return passphrase(result);
+    default:        return { tone: 'bad', headline: 'Unknown job.', detail: '', again: false };
+  }
+}
+
+// ── The speech model ────────────────────────────────────────────────────────
+// `complete` is the only field that decides. Files stored is progress, and
+// progress is not a model: six of seven fails inside a web worker on a
+// customer's machine, which is the hardest place there is to debug.
+function whisper(r) {
+  const stored = n(r.stored) ?? 0;
+  const skipped = n(r.skipped) ?? 0;
+  const size = r.downloadedMB ? ` (${r.downloadedMB} MB downloaded)` : '';
+
+  if (!r.complete) {
+    return {
+      tone: 'partial',
+      headline: 'The model is NOT installed.',
+      detail: `${plural(stored + skipped, 'file')} of the set are there. `
+        + `${firstProblems(r.problems)} Nothing will use a half-installed model — press it again.`,
+      again: true,
+    };
+  }
+  if (stored === 0) {
+    return { tone: 'idle', headline: 'Already installed — nothing to do.',
+      detail: `All ${skipped} files were already in the bucket.`, again: false };
+  }
+  return { tone: 'ok', headline: 'The speech model is in our bucket.',
+    detail: `${plural(stored, 'file')} stored${size}. Transcription can now run entirely `
+      + 'in the customer\'s browser — no audio leaves their computer.', again: false };
+}
+
+// ── The bucket's CORS rule ──────────────────────────────────────────────────
+function cors(r) {
+  if (!r.ok) {
+    return { tone: 'bad', headline: 'The rule was not applied.',
+      detail: `Failed while ${r.stage || 'running'}. ${r.error || ''}`.trim(), again: false };
+  }
+  if (r.changed === false) {
+    return { tone: 'idle', headline: 'The rule was already there.',
+      detail: 'Nothing was written. Export can read a Voxel clip.', again: false };
+  }
+  return { tone: 'ok', headline: 'Export can now read a Voxel clip.',
+    detail: 'The bucket answers the editor with the header the browser needs. '
+      + 'Read-only: GET and HEAD, nothing that can write.', again: false };
+}
+
+// ── The file rescue ─────────────────────────────────────────────────────────
+// The one with real consequences, so it is the one that states plainly what
+// it could NOT do. "Already gone" is not a failure and not a save — those
+// files were lost before this ran, and no run will bring them back.
+function rescue(r) {
+  const rescued = n(r.rescued) ?? 0;
+  const gone = n(r.alreadyGone) ?? 0;
+  const failed = n(r.failed) ?? 0;
+  const considered = n(r.considered) ?? (rescued + gone + failed);
+  const moved = r.movedMB ? `, ${r.movedMB} MB copied` : '';
+
+  const parts = [];
+  if (rescued) parts.push(`${plural(rescued, 'file')} copied into our own storage${moved}`);
+  if (gone) parts.push(`${plural(gone, 'file')} was already gone before this ran — nothing could save those`);
+  if (failed) parts.push(`${plural(failed, 'file')} failed. ${firstProblems(r.problems)}`);
+
+  if (!considered) {
+    return { tone: 'idle', headline: 'Nothing was queued.',
+      detail: 'No at-risk files were found for this scope. That is the answer, not an error.',
+      again: false };
+  }
+  // A full batch means the queue is almost certainly longer than the limit.
+  const more = considered >= (n(r.limit) || considered) && rescued > 0;
+  if (failed) {
+    return { tone: 'partial', headline: `${plural(rescued, 'file')} saved, ${failed} failed.`,
+      detail: `${parts.join('. ')}.`, again: true };
+  }
+  if (!rescued) {
+    return { tone: 'idle', headline: 'Nothing could be saved.',
+      detail: `${parts.join('. ')}. Those files expired before we started copying.`, again: false };
+  }
+  return {
+    tone: 'ok',
+    headline: `${plural(rescued, 'file')} rescued.`,
+    detail: `${parts.join('. ')}.`
+      + (more ? ' This was one batch — press it again to take the next one.' : ''),
+    again: more,
+  };
+}
+
+// ── Thumbnails ──────────────────────────────────────────────────────────────
+function thumbs(r) {
+  const done = n(r.done) ?? 0;
+  const failed = n(r.failed) ?? 0;
+  const attempted = n(r.attempted) ?? (done + failed);
+  const saved = r.savedMB ? `, ${r.savedMB} MB less to download` : '';
+
+  if (!attempted) {
+    return { tone: 'idle', headline: 'Nothing needed one.',
+      detail: 'Every generation in this account already has a small version.', again: false };
+  }
+  if (failed) {
+    return { tone: 'partial', headline: `${plural(done, 'thumbnail')} made, ${failed} failed.`,
+      detail: `The ${failed} that failed kept their original and lost nothing — they just did not `
+        + `get faster. ${firstProblems(r.problems)}`, again: true };
+  }
+  return { tone: 'ok', headline: `${plural(done, 'thumbnail')} made.`,
+    detail: `The grid loads these instead of the full-size file${saved}. `
+      + 'Opening a picture still shows the original.'
+      + (done >= (n(r.limit) || done) ? ' Press it again for the next batch.' : ''),
+    again: done >= (n(r.limit) || done) };
+}
+
+// ── Was the backup passphrase rotated? ──────────────────────────────────────
+// A FAILURE HERE IS NOT A BUG. It means the passphrase changed and everything
+// written before the change can no longer be opened — which is exactly the
+// thing worth finding out on a quiet afternoon rather than during a restore.
+// So it is amber, not red, and the sentence says which of the two it is.
+function passphrase(r) {
+  const which = r.archive ? ` Archive tested: ${r.archive}.` : '';
+  if (r.opened) {
+    return { tone: 'ok', headline: 'The passphrase has not changed.',
+      detail: 'The current passphrase opened the OLDEST archive we still hold, so every archive '
+        + `in between opens too.${which}`, again: false };
+  }
+  return {
+    tone: 'partial',
+    headline: 'The oldest archive could NOT be opened.',
+    detail: `${r.verdict || 'Either the passphrase was changed, or that archive is damaged.'} `
+      + `This is a finding, not a crash — but archives older than the change are unreadable.${which} `
+      + `${firstProblems(r.problems)}`.trim(),
+    again: false,
+  };
+}
+
+/** Name what went wrong. A count with no reason cannot be acted on. */
+function firstProblems(problems, max = 2) {
+  if (!Array.isArray(problems) || !problems.length) return '';
+  const shown = problems.slice(0, max)
+    .map((p) => `${p.file || p.id || 'one'}: ${p.why || p.error || 'no reason given'}`);
+  const rest = problems.length - shown.length;
+  return `${shown.join('; ')}${rest > 0 ? ` (and ${rest} more)` : ''}.`;
+}
