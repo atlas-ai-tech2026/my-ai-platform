@@ -27,6 +27,8 @@ import { RECORD_SQL, CLAIM_SQL, GIVE_UP_SQL, TOUCH_SQL, DUE_SQL, OWNS_SQL,
 // the grid would show two different sizes of "small".
 import { makeThumbnail } from './thumbnail-backfill.js';
 import { SCALE_SQL, SAMPLE_SQL, summariseScale } from './thumbnail-scale.js';
+import { DELETE_SQL as SOFT_DELETE_SQL, RESTORE_OWN_SQL, RECOVERABLE_SQL,
+         DUE_FOR_PURGE_SQL, PURGE_ROW_SQL, purgeRows, daysLeft, RECOVERY_DAYS } from './soft-delete.js';
 import { RECORD_SQL as SYNC_OK_SQL, READ_SQL as SYNC_READ_SQL, SYNC_FLAG,
          judgeSyncHeartbeat, syncStaleAlert } from './sync-heartbeat.js';
 import { headSize } from './thumbnail-survey.js';
@@ -3272,7 +3274,11 @@ app.post('/api/entities/:name/filter', verifyJwt, async (req, res) => {
   try {
     const { query, sort, limit, offset } = req.body || {};
     const params = [req.user.id, req.params.name];
-    let where = `user_id = $1 AND name = $2`;
+    // A deleted picture must stop appearing the moment it is deleted. This
+    // filter is the entire difference between "deleted" and "still there but
+    // we called it deleted" — see soft-delete.js, and the guard test that
+    // scans every read for it.
+    let where = `user_id = $1 AND name = $2 AND deleted_at IS NULL`;
     if (query && typeof query === 'object' && Object.keys(query).length) {
       params.push(JSON.stringify(query));
       where += ` AND data @> $${params.length}::jsonb`;
@@ -3294,7 +3300,7 @@ app.get('/api/entities/:name', verifyJwt, async (req, res) => {
   if (!dbReady()) return res.status(503).json({ error: 'Database not configured.' });
   try {
     const params = [req.user.id, req.params.name, clampLimit(req.query.limit), clampOffset(req.query.offset)];
-    const sql = `SELECT * FROM entities WHERE user_id = $1 AND name = $2 ${sortClause(req.query.sort)} LIMIT $3 OFFSET $4`;
+    const sql = `SELECT * FROM entities WHERE user_id = $1 AND name = $2 AND deleted_at IS NULL ${sortClause(req.query.sort)} LIMIT $3 OFFSET $4`;
     const { rows } = await pool.query(sql, params);
     res.json(rows.map(rowToItem));
   } catch (e) {
@@ -3354,6 +3360,20 @@ app.put('/api/entities/:name/:id', verifyJwt, requireNotBanned, async (req, res)
 app.delete('/api/entities/:name/:id', verifyJwt, async (req, res) => {
   if (!dbReady()) return res.status(503).json({ error: 'Database not configured.' });
   try {
+    // ── HISTORY IS SOFT-DELETED (2026-08-28) ──
+    // Until now this route removed the row outright, so a customer who deleted
+    // a picture lost it, permanently, with no way for anyone to help them.
+    // Amr approved a 30-day recovery window, and the confirmation the customer
+    // reads promises exactly that — so history goes to `deleted_at` and the
+    // purge collects it a month later.
+    //
+    // Everything else — node spaces, drafts — is still removed outright.
+    // Those are the customer's own working documents, not their paid-for work.
+    if (req.params.name === 'GenerationHistory') {
+      const { rowCount } = await pool.query(SOFT_DELETE_SQL, [[req.params.id], req.user.id]);
+      if (rowCount === 0) return res.status(404).json({ error: 'Not found' });
+      return res.json({ success: true, recoverable_days: RECOVERY_DAYS });
+    }
     const { rowCount } = await pool.query(
       `DELETE FROM entities WHERE id = $1 AND user_id = $2 AND name = $3`,
       [req.params.id, req.user.id, req.params.name]

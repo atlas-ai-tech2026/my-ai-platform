@@ -65,7 +65,9 @@ export function buildSearch({
   }
 
   const params = [Number(userId), name];
-  const where = ['user_id = $1', 'name = $2'];
+  // Deleted pictures are invisible here. A search that turned up something the
+  // customer had deleted would be the worst possible place to find it.
+  const where = ['user_id = $1', 'name = $2', 'deleted_at IS NULL'];
 
   if (type) { params.push(String(type)); where.push(`data->>'type' = $${params.length}`); }
 
@@ -120,6 +122,7 @@ export const MODELS_USED_SQL = `
   SELECT DISTINCT data->>'model' AS model
     FROM entities
    WHERE user_id = $1 AND name = 'GenerationHistory'
+     AND deleted_at IS NULL
      AND ($2::text IS NULL OR data->>'type' = $2::text)
      AND COALESCE(data->>'model','') <> ''
    ORDER BY 1`;
