@@ -20,6 +20,7 @@ import { installModel, modelReady, MODEL_PREFIX } from './whisper-model.js';
 import { SURVEY_SQL, surveyRows } from './thumbnail-survey.js';
 import { SET_THUMB_SQL, backfillRows } from './thumbnail-backfill.js';
 import { RESCUE_SQL, RESCUE_QUEUE_SQL, rescueRows } from './media-rescue.js';
+import { buildSearch, MODELS_USED_SQL, toGridItem } from './history-search.js';
 import { RECORD_SQL, CLAIM_SQL, GIVE_UP_SQL, TOUCH_SQL, DUE_SQL, OWNS_SQL,
          sweepJobs, historyRowFor } from './slow-image.js';
 // The resizer the backfill already uses. Imported here so BOTH the button
@@ -3383,6 +3384,113 @@ app.delete('/api/entities/:name/:id', verifyJwt, async (req, res) => {
   } catch (e) {
     console.error('[entities:delete] error:', e.message);
     res.status(500).json({ error: 'Delete failed.' });
+  }
+});
+
+// ─── SEARCHING YOUR OWN HISTORY (2026-08-28) ───────────────────────
+// Words, date, model. Amr's request, and the right one: the grid was already
+// paged and lazy, so the remaining pain was never loading — it was FINDING.
+// There was no search of any kind. A customer with 349 pictures looking for
+// last Tuesday's work had exactly one option: scroll.
+//
+// The scoping is not in this route. buildSearch REFUSES to produce SQL without
+// a user, so a bug here cannot widen it — see history-search.js.
+app.post('/api/history/search', verifyJwt, requireNotBanned, async (req, res) => {
+  if (!dbReady()) return res.status(503).json({ error: 'Database not configured.' });
+  const b = req.body || {};
+  try {
+    const q = buildSearch({
+      userId: req.user.id,
+      type: b.type === 'video' ? 'video' : b.type === 'image' ? 'image' : null,
+      text: b.text, from: b.from || null, to: b.to || null,
+      models: Array.isArray(b.models) ? b.models.slice(0, 40) : null,
+      savedOnly: b.saved === true,
+      limit: b.limit, offset: b.offset,
+    });
+    // The count runs alongside, not after: the customer needs "128 pictures"
+    // at the same moment as the first 30, or the number arrives too late to
+    // tell them whether their search was too narrow.
+    const [page, total] = await Promise.all([
+      pool.query(q.sql, q.params),
+      pool.query(q.countSql, q.countParams),
+    ]);
+    res.json({ items: page.rows.map(toGridItem), total: total.rows[0]?.total ?? 0 });
+  } catch (e) {
+    console.error('[history:search] failed:', e.message);
+    res.status(500).json({ error: 'Search failed.' });
+  }
+});
+
+// The models THIS customer has used — not all 28. Offering models they have
+// never touched, most returning nothing, makes the filter feel broken.
+app.get('/api/history/models', verifyJwt, async (req, res) => {
+  if (!dbReady()) return res.status(503).json({ error: 'Database not configured.' });
+  try {
+    const type = req.query.type === 'video' ? 'video' : req.query.type === 'image' ? 'image' : null;
+    const { rows } = await pool.query(MODELS_USED_SQL, [req.user.id, type]);
+    res.json({ models: rows.map((r) => r.model).filter(Boolean) });
+  } catch (e) {
+    console.error('[history:models] failed:', e.message);
+    res.status(500).json({ error: 'Could not load the model list.' });
+  }
+});
+
+// ─── RECENTLY DELETED (2026-08-28) ─────────────────────────────────
+// The customer's own half of the recovery window, so the ordinary mistake
+// never reaches Amr at all. His Recovery tab stays for the cases that need
+// him: a closed account, a bulk mistake, somebody who cannot find it.
+app.get('/api/history/deleted', verifyJwt, async (req, res) => {
+  if (!dbReady()) return res.status(503).json({ error: 'Database not configured.' });
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, deleted_at, data->>'type' AS type, data->>'model' AS model,
+              data->>'thumb_url' AS thumb_url, data->>'result_url' AS result_url,
+              left(COALESCE(data->>'prompt',''), 160) AS prompt
+         FROM entities
+        WHERE user_id = $1 AND name = 'GenerationHistory'
+          AND deleted_at IS NOT NULL
+          AND deleted_at > NOW() - INTERVAL '${RECOVERY_DAYS} days'
+        ORDER BY deleted_at DESC LIMIT 120`, [req.user.id]);
+    res.json({
+      items: rows.map((r) => ({ ...r, days_left: daysLeft(r.deleted_at) })),
+      recovery_days: RECOVERY_DAYS,
+    });
+  } catch (e) {
+    console.error('[history:deleted] failed:', e.message);
+    res.status(500).json({ error: 'Could not load recently deleted.' });
+  }
+});
+
+app.post('/api/history/restore', verifyJwt, requireNotBanned, async (req, res) => {
+  if (!dbReady()) return res.status(503).json({ error: 'Database not configured.' });
+  const ids = Array.isArray(req.body?.ids) ? req.body.ids.slice(0, 500) : [];
+  if (!ids.length) return res.status(400).json({ error: 'Nothing to restore.' });
+  try {
+    const { rows } = await pool.query(RESTORE_OWN_SQL, [ids, req.user.id]);
+    // Says how many, not just "ok". Asking for 40 and getting 38 back is a
+    // fact the customer needs — the other two aged out.
+    res.json({ restored: rows.length, asked: ids.length });
+  } catch (e) {
+    console.error('[history:restore] failed:', e.message);
+    res.status(500).json({ error: 'Could not restore.' });
+  }
+});
+
+// Bulk delete. Ids only — NEVER "everything matching this filter" evaluated on
+// the server. The browser sends exactly what it counted and showed; a filter
+// re-run here could match a different set by the time it arrives, and the
+// customer would have confirmed a number that was no longer true.
+app.post('/api/history/delete', verifyJwt, requireNotBanned, async (req, res) => {
+  if (!dbReady()) return res.status(503).json({ error: 'Database not configured.' });
+  const ids = Array.isArray(req.body?.ids) ? req.body.ids.slice(0, 500) : [];
+  if (!ids.length) return res.status(400).json({ error: 'Nothing to delete.' });
+  try {
+    const { rows } = await pool.query(SOFT_DELETE_SQL, [ids, req.user.id]);
+    console.log(`[history:delete] user=${req.user.id} deleted ${rows.length} of ${ids.length}`);
+    res.json({ deleted: rows.length, asked: ids.length, recoverable_days: RECOVERY_DAYS });
+  } catch (e) {
+    console.error('[history:delete] failed:', e.message);
+    res.status(500).json({ error: 'Could not delete.' });
   }
 });
 
