@@ -201,7 +201,11 @@ function ImageCard({ img, index, onExpand, onLoaded, isFirst = false, modelBadge
           files — half of the "history takes forever" report (#75). */}
       {img.url && (
         <img
-          src={img.url}
+          // Thumbnail first, original as the fallback. A cell is 7.5 MB
+          // without this and about 8 KB with it — measured on a real account:
+          // 349 images totalling 2,500.9 MB, none under 60 KB, all drawn at
+          // 160×96. The full file is still what opens when it is clicked.
+          src={img.thumbUrl || img.url}
           alt={img.prompt}
           loading="lazy"
           decoding="async"
@@ -317,6 +321,11 @@ export default function Image() {
   const mapRecord = useCallback((r) => ({
     id: r.id,
     url: r.result_url,
+    // ── THE SMALL COPY, WHEN ONE EXISTS ──────────────────────────────────
+    // Written by the thumbnail backfill; absent on everything it has not
+    // reached yet. The GRID prefers it; opening the picture always uses
+    // `url`, the full original, untouched.
+    thumbUrl: r.thumb_url || null,
     prompt: r.prompt,
     model: r.model,
     aspect: r.ratio,
