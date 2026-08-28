@@ -103,6 +103,23 @@ describe('the rescue', () => {
     const out = outcomeOf('rescue', { considered: 10, rescued: 0, alreadyGone: 10, failed: 0 });
     expect(out.tone).not.toBe('ok');
   });
+
+  it('says a fully-gone batch is FINAL — the queue is newest-first', () => {
+    // Amr pressed this on aiworkshop965@gmail.com and got 20 of 20 gone. The
+    // useful fact is not "nothing was saved", it is "there is nothing more to
+    // try" — otherwise the natural next move is to press it again forever.
+    const out = outcomeOf('rescue', { considered: 20, rescued: 0, alreadyGone: 20, failed: 0 });
+    expect(out.detail).toMatch(/NEWEST FIRST/);
+    expect(out.detail).toMatch(/everything older is gone/);
+    expect(out.again).toBe(false);
+  });
+
+  it('counts read as English — "1 file was", "20 files were"', () => {
+    expect(outcomeOf('rescue', { considered: 1, rescued: 0, alreadyGone: 1, failed: 0 }).detail)
+      .toMatch(/1 file was already gone/);
+    expect(outcomeOf('rescue', { considered: 20, rescued: 0, alreadyGone: 20, failed: 0 }).detail)
+      .toMatch(/20 files were already gone/);
+  });
 });
 
 describe('thumbnails', () => {

@@ -117,7 +117,7 @@ export async function measureOffsiteUsage(env = process.env, { prefix } = {}) {
   try {
     const { measureBucket } = await import('./storage-usage.js');
     const bucket = env.OFFSITE_S3_BUCKET.trim();
-    const r = await measureBucket(offsiteClient(env), bucket, { ListObjectsV2Command, prefix });
+    const r = await measureBucket(offsiteReader(env), bucket, { ListObjectsV2Command, prefix });
     return { ...r, bucket };
   } catch (e) {
     return { error: e.message };
@@ -143,7 +143,7 @@ export async function listOffsiteMedia(env = process.env) {
   try {
     const { listAllObjects } = await import('./storage-usage.js');
     const { MEDIA_PREFIX } = await import('./media-sync.js');
-    const r = await listAllObjects(offsiteClient(env), env.OFFSITE_S3_BUCKET.trim(), {
+    const r = await listAllObjects(offsiteReader(env), env.OFFSITE_S3_BUCKET.trim(), {
       ListObjectsV2Command, prefix: MEDIA_PREFIX,
     });
     return { ...r, bucket: env.OFFSITE_S3_BUCKET.trim() };
@@ -161,7 +161,7 @@ export async function listOffsiteMedia(env = process.env) {
  */
 export async function readMediaObject(key, env = process.env) {
   if (!offsiteConfigured(env)) throw new Error('offsite storage is not configured');
-  const out = await offsiteClient(env).send(new GetObjectCommand({
+  const out = await offsiteReader(env).send(new GetObjectCommand({
     Bucket: env.OFFSITE_S3_BUCKET.trim(), Key: key,
   }));
   return { body: out.Body, contentLength: Number(out.ContentLength) || 0 };
@@ -197,9 +197,52 @@ export async function writeMediaObject({ key, body, contentLength, contentType }
 }
 
 let cachedClient = null;
+let cachedReader = null;
+
+/**
+ * A SECOND client, used only for LISTING and READING.
+ *
+ * ── WHY TWO CLIENTS ────────────────────────────────────────────────────────
+ * On 2026-08-28, four hours and nineteen minutes after a clean restart, every
+ * listing began failing with "the request socket did not establish a
+ * connection" — directly behind an upload batch that pushed 235 MiB in one go.
+ * Copies then stopped entirely for two and a half hours, because the sync must
+ * list the destination before it can know what is missing.
+ *
+ * That timing killed the theory held since 21 August. We expected it after
+ * DAYS of uptime; it returned after HOURS, behind the three heaviest upload
+ * batches of the night. So the variable is upload VOLUME, not elapsed time —
+ * which points at the connection pool: heavy uploads hold the sockets and a
+ * listing cannot get one before its connect timeout expires.
+ *
+ * Two clients means two pools. A busy upload can no longer starve a listing.
+ *
+ * This is a HYPOTHESIS with a cheap fix attached, and it says so: if listings
+ * still fail on a heavy night after this ships, the cause is elsewhere — most
+ * likely Backblaze refusing connections under load — and the next place to
+ * look is their side, not ours. Either way it costs one client object and
+ * answers a question that has been open for a week.
+ */
+function offsiteReader(env = process.env) {
+  if (cachedReader) return cachedReader;
+  cachedReader = buildOffsiteClient(env, {
+    // Listing a bucket is not uploading a video to another continent. It
+    // should answer quickly or say so.
+    connectionTimeout: 10_000, requestTimeout: 30_000, maxAttempts: 3,
+  });
+  return cachedReader;
+}
+
 function offsiteClient(env = process.env) {
   if (cachedClient) return cachedClient;
-  cachedClient = new S3Client({
+  cachedClient = buildOffsiteClient(env, {
+    connectionTimeout: 10_000, requestTimeout: 120_000, maxAttempts: 3,
+  });
+  return cachedClient;
+}
+
+function buildOffsiteClient(env, { connectionTimeout, requestTimeout, maxAttempts }) {
+  return new S3Client({
     endpoint: env.OFFSITE_S3_ENDPOINT.trim(),
     region: env.OFFSITE_S3_REGION.trim(),
     credentials: {
@@ -220,8 +263,8 @@ function offsiteClient(env = process.env) {
     //
     // 120s rather than the 8s used for Spaces: these are uploads of whole
     // videos to a different continent, so slow is normal and forever is not.
-    maxAttempts: 3,
-    requestHandler: { connectionTimeout: 10_000, requestTimeout: 120_000 },
+    maxAttempts,
+    requestHandler: { connectionTimeout, requestTimeout },
     // SDK ≥3.729 defaults to flexible checksums (aws-chunked bodies with
     // trailing CRC), which some S3-compatible providers reject. B2 accepts
     // them today (verified 2026-08-02), but plain signed bodies are the
@@ -231,7 +274,6 @@ function offsiteClient(env = process.env) {
     requestChecksumCalculation: 'WHEN_REQUIRED',
     responseChecksumValidation: 'WHEN_REQUIRED',
   });
-  return cachedClient;
 }
 
 /**
@@ -312,7 +354,7 @@ function requirePrefix(prefix) {
 /** Every object under one prefix, newest first. */
 export async function listOffsite(prefix, env = process.env) {
   const p = requirePrefix(prefix);
-  const out = await offsiteClient(env).send(new ListObjectsV2Command({
+  const out = await offsiteReader(env).send(new ListObjectsV2Command({
     Bucket: env.OFFSITE_S3_BUCKET.trim(), Prefix: p,
   }));
   return (out.Contents || [])

@@ -9,7 +9,7 @@ import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import MaintenancePanel from './MaintenancePanel';
+import MaintenancePanel, { MAX_BATCH } from './MaintenancePanel';
 import { adminApi } from '@/lib/adminApi';
 
 vi.mock('sonner', () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
@@ -124,5 +124,83 @@ describe('a full batch invites another press', () => {
     await userEvent.click(runner('Rescue expiring files'));
 
     expect(await screen.findByRole('button', { name: /^Run again: Rescue/ })).toBeInTheDocument();
+  });
+});
+
+describe('the batch box cannot be set to a number that fails', () => {
+  it('refuses more than MAX_BATCH, clamping as you type', async () => {
+    // These run while the page waits and Cloudflare cuts at ~100s. Measured on
+    // production: 20 thumbnails in 24s. A box accepting 1000 was a trap I
+    // built and Amr would have walked into.
+    render(<MaintenancePanel />);
+    const box = screen.getByRole('spinbutton');
+    await userEvent.clear(box);
+    await userEvent.type(box, '500');
+    expect(Number(box.value)).toBeLessThanOrEqual(MAX_BATCH);
+  });
+
+  it('and the ceiling is one a batch can actually finish inside 100s', () => {
+    // 1.2 seconds each, measured. Anything past ~80 gets cut.
+    expect(MAX_BATCH * 1.2).toBeLessThan(100);
+  });
+
+  it('says the limit on screen rather than silently correcting it', () => {
+    render(<MaintenancePanel />);
+    expect(screen.getByText(new RegExp(`${MAX_BATCH} max`))).toBeInTheDocument();
+  });
+
+  it('never sends a batch of zero', async () => {
+    const spy = vi.spyOn(adminApi, 'thumbsBackfill').mockResolvedValue({ attempted: 0, done: 0, failed: 0 });
+    render(<MaintenancePanel />);
+    const box = screen.getByRole('spinbutton');
+    await userEvent.clear(box);
+    await userEvent.type(screen.getByPlaceholderText(/someone@example/), 'a@b.com');
+    await userEvent.click(screen.getByRole('button', { name: /^Run: Make small versions/ }));
+    await waitFor(() => expect(spy).toHaveBeenCalled());
+    expect(spy.mock.calls[0][0].limit).toBeGreaterThan(0);
+  });
+});
+
+describe('the count that answers "must I press this 601 times?"', () => {
+  it('is on the screen, and reachable', async () => {
+    const spy = vi.spyOn(adminApi, 'thumbsScale').mockResolvedValue({
+      need: 12000, have: 3000, done_pct: 20, accounts_waiting: 480, accounts_total: 601,
+      presses_by_hand: 240, estimated_hours: 4, days_at_slow_pace: 0.4,
+      sampled: 25, avg_mb: 7.6, estimated_gb_moved: 178,
+      verdict: '12,000 pictures still load at full size. About 178 GB would be moved.',
+    });
+    render(<MaintenancePanel />);
+    await userEvent.click(screen.getByRole('button', { name: /^Count$/ }));
+    await waitFor(() => expect(spy).toHaveBeenCalled());
+    expect(await screen.findByText(/240 presses by hand/)).toBeInTheDocument();
+    expect(screen.getAllByText(/178 GB/).length).toBeGreaterThan(0);
+  });
+
+  it('an unmeasurable data cost is shown as UNKNOWN, never as zero', async () => {
+    // Zero would read as "this is free" while deciding whether to run a job
+    // across 601 customers' history.
+    vi.spyOn(adminApi, 'thumbsScale').mockResolvedValue({
+      need: 12000, have: 0, done_pct: 0, accounts_waiting: 480, accounts_total: 601,
+      presses_by_hand: 240, estimated_hours: 4, days_at_slow_pace: 0.4,
+      sampled: 0, avg_mb: null, estimated_gb_moved: null,
+      verdict: '12,000 pictures still load at full size. The data cost could not be measured.',
+    });
+    render(<MaintenancePanel />);
+    await userEvent.click(screen.getByRole('button', { name: /^Count$/ }));
+    expect(await screen.findByText(/UNKNOWN/)).toBeInTheDocument();
+    expect(screen.getByText(/Do not read that as zero/)).toBeInTheDocument();
+  });
+
+  it('counting changes nothing — no job is run by pressing it', async () => {
+    const run = vi.spyOn(adminApi, 'thumbsBackfill').mockResolvedValue({});
+    vi.spyOn(adminApi, 'thumbsScale').mockResolvedValue({
+      need: 0, have: 10, done_pct: 100, accounts_waiting: 0, accounts_total: 601,
+      presses_by_hand: 0, estimated_hours: 0, days_at_slow_pace: 0,
+      sampled: 0, avg_mb: null, estimated_gb_moved: null, verdict: 'Every picture already has one.',
+    });
+    render(<MaintenancePanel />);
+    await userEvent.click(screen.getByRole('button', { name: /^Count$/ }));
+    await screen.findByText(/Every picture already has one/);
+    expect(run).not.toHaveBeenCalled();
   });
 });

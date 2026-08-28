@@ -286,6 +286,9 @@ export const adminApi = {
   whisperModel:   (force = false)=> request('POST', '/api/admin/whisper-model', { force }),
   thumbsSurvey:   (email)        => request('GET',  `/api/admin/thumbnails/survey?email=${encodeURIComponent(email)}`),
   thumbsBackfill: (body)         => request('POST', '/api/admin/thumbnails/backfill', body),
+  // How big is this job across ALL accounts? Read-only, and the thing that
+  // has to exist before a background job is switched on for 601 customers.
+  thumbsScale:    ()             => request('GET',  '/api/admin/thumbnails/scale'),
   // Answers "was the backup passphrase ever rotated?" without anyone having to
   // remember, and without the passphrase being shown to anybody. Read-only —
   // it decrypts one old archive in memory and writes nothing.

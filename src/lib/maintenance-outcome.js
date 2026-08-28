@@ -101,7 +101,7 @@ function rescue(r) {
 
   const parts = [];
   if (rescued) parts.push(`${plural(rescued, 'file')} copied into our own storage${moved}`);
-  if (gone) parts.push(`${plural(gone, 'file')} was already gone before this ran — nothing could save those`);
+  if (gone) parts.push(`${plural(gone, 'file')} ${gone === 1 ? 'was' : 'were'} already gone before this ran`);
   if (failed) parts.push(`${plural(failed, 'file')} failed. ${firstProblems(r.problems)}`);
 
   if (!considered) {
@@ -116,8 +116,18 @@ function rescue(r) {
       detail: `${parts.join('. ')}.`, again: true };
   }
   if (!rescued) {
-    return { tone: 'idle', headline: 'Nothing could be saved.',
-      detail: `${parts.join('. ')}. Those files expired before we started copying.`, again: false };
+    // The queue is NEWEST FIRST. So a batch that is entirely gone means the
+    // older ones are gone too — this is a finished answer, not a bad batch,
+    // and pressing again will say the same thing. Saying so stops the owner
+    // pressing a button that cannot change its reply.
+    return {
+      tone: 'idle',
+      headline: 'Nothing left to save here.',
+      detail: `${parts.join('. ')}. These are checked NEWEST FIRST, so everything older is gone `
+        + 'too — there is nothing more for this scope. They expired at the provider before we '
+        + 'started copying files into our own storage.',
+      again: false,
+    };
   }
   return {
     tone: 'ok',
