@@ -26,6 +26,7 @@ import { RECORD_SQL, CLAIM_SQL, GIVE_UP_SQL, TOUCH_SQL, DUE_SQL, OWNS_SQL,
 // and the automatic path run identical code — two resizers would drift, and
 // the grid would show two different sizes of "small".
 import { makeThumbnail } from './thumbnail-backfill.js';
+import { SCALE_SQL, SAMPLE_SQL, summariseScale } from './thumbnail-scale.js';
 import { headSize } from './thumbnail-survey.js';
 import { ourMediaHosts, checkSample, summarise as summariseMediaHealth,
          HOST_BREAKDOWN_SQL, AT_RISK_SAMPLE_SQL } from './media-health.js';
@@ -5570,6 +5571,36 @@ app.get('/api/admin/thumbnails/survey', adminGate, async (req, res) => {
     // somebody is about to make a decision on.
     console.error('[thumbnails:survey] failed:', e.message);
     res.status(500).json({ error: `The survey could not finish: ${e.message}` });
+  }
+});
+
+// ── HOW BIG IS THIS JOB, ACROSS EVERYONE? ───────────────────────────────────
+// Amr asked "do you need to press it many times?" — his partner's account alone
+// needs seven presses, and there are 601 accounts. So a background job is
+// plainly right, and this is what has to exist BEFORE one is switched on: the
+// count, and what it would cost in data.
+//
+// GET, and read-only by construction — thumbnail-scale.js contains no write of
+// any kind and a test proves that by reading the file.
+app.get('/api/admin/thumbnails/scale', adminGate, async (req, res) => {
+  if (!dbReady()) return res.status(503).json({ error: 'Database not configured.' });
+  const sample = Math.max(0, Math.min(60, Number(req.query.sample) || 25));
+  try {
+    const { rows } = await pool.query(SCALE_SQL);
+    let sizes = [];
+    if (sample > 0) {
+      const { rows: urls } = await pool.query(SAMPLE_SQL, [sample]);
+      // HEAD, not GET. Measuring a bandwidth problem by downloading gigabytes
+      // would be a strange way to go about it.
+      sizes = await Promise.all(urls.map((r) => headSize(r.url).catch(() => null)));
+    }
+    res.json(summariseScale(rows[0], sizes));
+  } catch (e) {
+    // Named, not swallowed. A count that fails quietly and returns zero would
+    // read as "nothing to do" — the worst possible lie for a number somebody
+    // is about to make a decision on.
+    console.error('[thumbnails:scale] failed:', e.message);
+    res.status(500).json({ error: `The count could not finish: ${e.message}` });
   }
 });
 

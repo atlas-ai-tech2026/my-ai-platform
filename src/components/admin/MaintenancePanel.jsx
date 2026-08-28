@@ -130,6 +130,7 @@ const JOBS = [
 
 export default function MaintenancePanel({ onError }) {
   const [busy, setBusy] = useState(null);
+  const [scale, setScale] = useState(null);
   const [results, setResults] = useState({});
   const [form, setForm] = useState({ email: '', limit: 20, all: false });
 
@@ -218,11 +219,75 @@ export default function MaintenancePanel({ onError }) {
         )}
       </div>
 
+      <ScaleLine scale={scale} onLoad={async () => {
+        setBusy('scale');
+        try { setScale(await adminApi.thumbsScale()); }
+        catch (e) { onError?.(e, 'The count could not run'); }
+        finally { setBusy(null); }
+      }} busy={busy === 'scale'} anyBusy={!!busy} />
+
       {JOBS.map((job) => (
         <Card key={job.id} job={job} busy={busy === job.id} anyBusy={!!busy}
           result={results[job.id]} onRun={() => run(job)} />
       ))}
     </section>
+  );
+}
+
+/**
+ * How much work is left, across everyone.
+ *
+ * Separate from the job cards because it CHANGES NOTHING — it is the number
+ * you read before deciding, not a thing you run. And it exists because Amr
+ * asked the right question: pressing a button once per account, 601 times, is
+ * not a plan.
+ */
+function ScaleLine({ scale, onLoad, busy, anyBusy }) {
+  return (
+    <div style={{
+      padding: '12px 14px', borderRadius: 10, marginBottom: 10,
+      border: '1px solid var(--crm-w08)', background: 'var(--crm-w03)',
+    }}>
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+        <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--crm-ink)' }}>
+          How much is left, across every account
+        </span>
+        <InfoDot
+          label="How much is left"
+          text={'Counts every picture that still loads at full size, and measures a random sample to '
+            + 'estimate the data a catch-up would move. It writes NOTHING — it is the number you read '
+            + 'before deciding, not a job. If the data cost cannot be measured it says "unknown", '
+            + 'never zero.'}
+        />
+        <button onClick={onLoad} disabled={anyBusy} style={{ ...btn, marginLeft: 'auto' }}>
+          {busy ? 'Counting…' : scale ? 'Count again' : 'Count'}
+        </button>
+      </div>
+
+      {scale && (
+        <div style={{ marginTop: 10, fontSize: 12.5, color: 'var(--crm-w55)', lineHeight: 1.7 }}>
+          <div style={{ color: 'var(--crm-ink)', fontWeight: 600, marginBottom: 4 }}>{scale.verdict}</div>
+          <div>
+            {scale.have.toLocaleString()} already done
+            {scale.done_pct !== null ? ` (${scale.done_pct}%)` : ''}
+            {' · '}{scale.accounts_waiting.toLocaleString()} of {scale.accounts_total.toLocaleString()} accounts waiting
+          </div>
+          <div>
+            {/* The number that answers "do I have to press this myself?" */}
+            <strong style={{ color: 'var(--crm-amber)' }}>
+              {scale.presses_by_hand.toLocaleString()} presses by hand
+            </strong>
+            {' · '}about {scale.estimated_hours}h of work
+            {' · '}{scale.days_at_slow_pace} days at a deliberately slow pace
+          </div>
+          <div style={{ color: 'var(--crm-w40)', fontSize: 11.5 }}>
+            {scale.estimated_gb_moved === null
+              ? 'Data cost UNKNOWN — nothing could be measured. Do not read that as zero.'
+              : `~${scale.estimated_gb_moved} GB moved (estimated from ${scale.sampled} files averaging ${scale.avg_mb} MB)`}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
