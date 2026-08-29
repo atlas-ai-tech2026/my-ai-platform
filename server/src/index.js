@@ -15,7 +15,7 @@ import jwt from 'jsonwebtoken';
 import { pool, isReady as dbReady, migrate, ADMIN_EMAIL } from './db.js';
 import { persistOrFallback, persistBuffer, isReady as spacesReady, uploadPrivate, listKeys, deleteKey,
          listAllMedia, readObject, primaryObjectExists, cdnifyDeep, mediaCdnBase,
-         ensureMediaCors, uploadPublicAt, objectSize, persistWithThumb } from './storage.js';
+         ensureMediaCors, uploadPublicAt, objectSize, persistWithThumb , keyFromUrl } from './storage.js';
 import { installModel, modelReady, MODEL_PREFIX } from './whisper-model.js';
 import { SURVEY_SQL, surveyRows } from './thumbnail-survey.js';
 import { SET_THUMB_SQL, backfillRows } from './thumbnail-backfill.js';
@@ -7825,6 +7825,55 @@ async function videoJobVerdict(row) {
   return { verdict: 'pending', reason: `fal-status:${status.status || 'none'}` };
 }
 
+// ─── THE 30-DAY PURGE (2026-08-28) ─────────────────────────────────
+// Without this, "after 30 days it is permanently deleted" is not true — the
+// row would sit marked forever and the file would sit with it. A retention
+// promise nobody keeps is worse than no promise, and Amr is about to put this
+// period into his B2B legal documents.
+//
+// ROW FIRST, THEN THE FILE. If the file survives, the result is an orphan
+// costing pennies that nobody can reach. The other order leaves a row that
+// still LOOKS recoverable while its picture is gone — and restoring it would
+// tell the customer their work is back when it is not. The safe failure is
+// the waste, so that is the one this chooses. See soft-delete.js.
+//
+// Daily, and capped per run. There is no hurry: a row one day past its window
+// is no more urgent than one an hour past it, and a slow purge cannot look
+// like an attack on our own bucket.
+async function purgeExpiredDeletions() {
+  if (!dbReady()) return;
+  const { rows } = await pool.query(DUE_FOR_PURGE_SQL, [200]);
+  if (!rows.length) return;
+
+  const report = await purgeRows(rows, {
+    dropRow: async (id) => (await pool.query(PURGE_ROW_SQL, [id])).rowCount,
+    dropFile: async (url) => {
+      // NULL for anything not ours — a provider link left by a failed re-host,
+      // someone else's host. Nothing to delete, and guessing a key here would
+      // delete the wrong object with no undo beneath it.
+      const key = keyFromUrl(url);
+      if (!key || !spacesReady()) return;
+      await deleteKey(key);
+    },
+  });
+
+  console.log(`[purge] ${report.purged} of ${report.considered} removed for good, `
+    + `${report.filesRemoved} file(s) deleted`
+    + (report.problems.length
+      ? ` · ${report.problems.length} problem(s): ${report.problems.slice(0, 3)
+        .map((x) => `${x.id}: ${x.why}`).join('; ')}`
+      : ''));
+}
+
+function schedulePurge() {
+  const run = () => purgeExpiredDeletions().catch((e) =>
+    console.error('[purge] pass failed:', e.message));
+  // Ten minutes after boot rather than immediately: a deploy should not begin
+  // by deleting things while the process is still warming up.
+  setTimeout(run, 10 * 60 * 1000).unref?.();
+  setInterval(run, 24 * 60 * 60 * 1000).unref?.();
+}
+
 function scheduleVideoChargeReconcile() {
   const run = () => reconcilePendingCharges(videoJobVerdict).catch((e) =>
     console.error('[video-reconcile] pass failed:', e.message));
@@ -7997,6 +8046,9 @@ migrate()
     // because a customer waiting two minutes for a picture should not have to
     // wait an hour to find out it arrived.
     scheduleSlowImageSweep();
+    // Makes "after 30 days it is permanently deleted" true. Nothing else in
+    // the app removes a deleted row or its file.
+    schedulePurge();
     // Credit lots (owner's rule, 2026-08-25): date every existing balance
     // from the ledger once — harmless, touches no balances — then sweep
     // hourly. The sweep takes nothing until the owner activates the rule

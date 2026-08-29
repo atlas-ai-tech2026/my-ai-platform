@@ -131,3 +131,33 @@ describe('the reads that deliberately DO include deleted rows', () => {
       + 'then add it above').toEqual([]);
   });
 });
+
+describe('and "permanently deleted after 30 days" is actually true', () => {
+  const index = read('index.js');
+
+  it('a purge exists and is scheduled at boot, not merely defined', () => {
+    // Without this the row sits marked forever and the file sits with it — a
+    // retention promise nobody keeps, about to go into the B2B legal documents.
+    expect(index).toMatch(/async function purgeExpiredDeletions/);
+    expect(index).toMatch(/^\s*schedulePurge\(\);/m);
+  });
+
+  it('it removes the ROW before the FILE', () => {
+    // The other order leaves a row that still looks recoverable while its
+    // picture is gone, and restoring it would tell the customer their work is
+    // back when it is not. An orphan file is the safe failure.
+    const fn = index.slice(index.indexOf('async function purgeExpiredDeletions'));
+    expect(fn.indexOf('dropRow')).toBeLessThan(fn.indexOf('dropFile'));
+  });
+
+  it('it never guesses a key for a url that is not ours', () => {
+    const fn = index.slice(index.indexOf('async function purgeExpiredDeletions'), index.indexOf('function schedulePurge'));
+    expect(fn).toMatch(/keyFromUrl\(url\)/);
+    expect(fn, 'it deletes without checking the key first').toMatch(/if \(!key[\s\S]{0,40}return;/);
+  });
+
+  it('and it is capped per run — a purge must not look like an attack on our own bucket', () => {
+    const fn = index.slice(index.indexOf('async function purgeExpiredDeletions'));
+    expect(fn.slice(0, 600)).toMatch(/DUE_FOR_PURGE_SQL, \[\d+\]/);
+  });
+});

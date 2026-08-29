@@ -219,6 +219,36 @@ export async function listKeys(prefix) {
   return (out.Contents || []).map(o => ({ key: o.Key, size: o.Size, modified: o.LastModified }));
 }
 
+/**
+ * Our own url → the object key. NULL for anything that is not ours.
+ *
+ * ── WHY NULL AND NOT A GUESS ───────────────────────────────────────────────
+ * This feeds the purge, which DELETES. A url we do not recognise — a provider
+ * link left behind by a failed re-host, someone else's CDN, a data: URI — must
+ * produce nothing at all rather than a key that might match something real.
+ * Guessing here deletes the wrong file, and there is no undo below this layer.
+ *
+ * Both hosts are accepted: files were written to the origin before the CDN
+ * existed and are read through the edge now, so history holds both spellings
+ * of the same object.
+ */
+export function keyFromUrl(url, { origin = null, cdnBase = CDN_BASE } = {}) {
+  if (!url || typeof url !== 'string') return null;
+  // Injectable, like toCdn — the env is not configured under test, and a guard
+  // that can only be exercised on its refusal path is one that could match
+  // NOTHING in production and delete no files while reporting success.
+  for (const base of [origin || originBase(), cdnBase].filter(Boolean)) {
+    const prefix = `${base}/`;
+    if (url.startsWith(prefix)) {
+      const key = url.slice(prefix.length).split('?')[0];
+      // A key that escapes its own prefix is not one of ours, whatever the
+      // host says.
+      return key && !key.includes('..') ? decodeURIComponent(key) : null;
+    }
+  }
+  return null;
+}
+
 export async function deleteKey(key) {
   if (!configured) throw new Error('Spaces not configured');
   await client.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: key }));
