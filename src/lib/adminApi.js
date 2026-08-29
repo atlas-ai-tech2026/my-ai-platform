@@ -293,6 +293,12 @@ export const adminApi = {
   // remember, and without the passphrase being shown to anybody. Read-only —
   // it decrypts one old archive in memory and writes nothing.
   passphraseCheck:()             => request('POST', '/api/admin/backup/passphrase-check', {}),
+  // Old versions of deleted files. The GET writes NOTHING — it describes what
+  // would change, and is read before the POST is ever pressed, because the
+  // difference between expiring old versions and deleting every live customer
+  // file is one word in a JSON body.
+  versionExpiryPlan:()           => request('GET',  '/api/admin/version-expiry'),
+  versionExpiryApply:()          => request('POST', '/api/admin/version-expiry', {}),
 };
 
 // Decode a JWT payload WITHOUT verifying its signature. Used only for

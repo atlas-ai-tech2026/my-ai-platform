@@ -42,6 +42,7 @@ export function outcomeOf(action, result) {
     case 'rescue':  return rescue(result);
     case 'thumbs':  return thumbs(result);
     case 'passphrase': return passphrase(result);
+    case 'expiry':  return expiry(result);
     default:        return { tone: 'bad', headline: 'Unknown job.', detail: '', again: false };
   }
 }
@@ -179,6 +180,47 @@ function passphrase(r) {
     detail: `${r.verdict || 'Either the passphrase was changed, or that archive is damaged.'} `
       + `This is a finding, not a crash — but archives older than the change are unreadable.${which} `
       + `${firstProblems(r.problems)}`.trim(),
+    again: false,
+  };
+}
+
+// ── The bucket rule ─────────────────────────────────────────────────────────
+// The preview and the apply come back through here. A preview must never read
+// as "done" — it changed nothing, and mistaking one for the other on THIS job
+// is how somebody concludes the rule is in place when it is not.
+function expiry(r) {
+  // Any rule that deletes LIVE files outranks everything else on this screen.
+  if (r.dangerousRules?.length || r.liveExpiryRules?.length) {
+    const names = (r.dangerousRules || r.liveExpiryRules).join(', ');
+    return {
+      tone: 'bad',
+      headline: 'STOP — a rule on this bucket deletes LIVE files.',
+      detail: `Rule(s): ${names}. That removes customers' actual pictures on a timer, not old `
+        + 'versions of deleted ones. Do not run anything else here until it is understood.',
+      again: false,
+    };
+  }
+  if (r.ok === undefined) {
+    // A preview. It wrote nothing, and says so first.
+    return {
+      tone: 'idle',
+      headline: r.unchanged ? 'Already set — Run would change nothing.' : 'Preview only — nothing changed.',
+      detail: `${r.summary}${r.otherRules?.length ? ` Other rules left alone: ${r.otherRules.join(', ')}.` : ''}`,
+      again: false,
+    };
+  }
+  if (!r.ok) {
+    return { tone: 'bad', headline: 'The rule was not applied.',
+      detail: `Failed while ${r.stage || 'running'}. ${r.error || ''}`.trim(), again: false };
+  }
+  if (!r.changed) {
+    return { tone: 'idle', headline: 'Already set — nothing was written.', detail: r.summary || '', again: false };
+  }
+  return {
+    tone: 'ok',
+    headline: `Old versions now expire after ${r.days} days.`,
+    detail: 'Read back and confirmed. Live files are untouched — this only removes copies the '
+      + 'bucket kept after something was deleted or overwritten.',
     again: false,
   };
 }

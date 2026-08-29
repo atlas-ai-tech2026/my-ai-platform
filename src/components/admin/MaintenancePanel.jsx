@@ -114,6 +114,22 @@ const JOBS = [
     run: () => adminApi.whisperModel(false),
   },
   {
+    id: 'expiry',
+    title: 'Stop keeping deleted files forever',
+    blurb: 'Old versions of deleted or overwritten files are removed after 60 days. LIVE files are '
+      + 'never touched — this only affects copies the bucket keeps after something is deleted.',
+    writes: 'Changes ONE bucket rule. No customer row, no live file. Read the preview first — press '
+      + 'Preview before Run.',
+    info: 'Versioning is switched on, which is what makes a stolen key or a mistaken script '
+      + 'survivable — deleting an object keeps the old bytes recoverable. The cost is that a file '
+      + 'deleted by a customer is never really deleted, so "permanently deleted after 30 days" is '
+      + 'true of the service and not of the storage. 60 days is a month past the customer window, so '
+      + 'a late-discovered mistake is still fixable and destruction eventually follows. Preview '
+      + 'writes nothing and shows exactly what would change.',
+    preview: () => adminApi.versionExpiryPlan(),
+    run: () => adminApi.versionExpiryApply(),
+  },
+  {
     id: 'passphrase',
     title: 'Was the backup passphrase changed?',
     blurb: 'Tries the current passphrase against the OLDEST archive we still hold. If it opens, '
@@ -134,14 +150,15 @@ export default function MaintenancePanel({ onError }) {
   const [results, setResults] = useState({});
   const [form, setForm] = useState({ email: '', limit: 20, all: false });
 
-  async function run(job) {
-    if (job.scoped && !form.all && !form.email.trim()) {
+  async function run(job, { preview = false } = {}) {
+    if (!preview && job.scoped && !form.all && !form.email.trim()) {
       toast.error('Put an account email in first.');
       return;
     }
     setBusy(job.id);
     try {
-      const body = await job.run({ ...form, email: form.email.trim(), limit: Number(form.limit) || 20 });
+      const call = preview ? job.preview : job.run;
+      const body = await call({ ...form, email: form.email.trim(), limit: Number(form.limit) || 20 });
       // The limit round-trips so the outcome can tell a FULL batch (there is
       // more queued) from a part-full one (that was everything).
       setResults((r) => ({ ...r, [job.id]: { limit: Number(form.limit) || 20, ...body } }));
@@ -228,7 +245,9 @@ export default function MaintenancePanel({ onError }) {
 
       {JOBS.map((job) => (
         <Card key={job.id} job={job} busy={busy === job.id} anyBusy={!!busy}
-          result={results[job.id]} onRun={() => run(job)} />
+          result={results[job.id]}
+          onRun={() => run(job)}
+          onPreview={() => run(job, { preview: true })} />
       ))}
     </section>
   );
@@ -291,7 +310,7 @@ function ScaleLine({ scale, onLoad, busy, anyBusy }) {
   );
 }
 
-function Card({ job, busy, anyBusy, result, onRun }) {
+function Card({ job, busy, anyBusy, result, onRun, onPreview }) {
   const out = result ? outcomeOf(job.id, result) : null;
   const tone = out ? TONE[out.tone] : null;
 
@@ -307,9 +326,20 @@ function Card({ job, busy, anyBusy, result, onRun }) {
         {/* Named, not just "Run". Five identical buttons on one screen is a
             way to press the wrong one, and two of these write to customer
             history. Screen readers get the same benefit. */}
+        {/* Some jobs can be understood before they are done. Preview writes
+            nothing — it is the difference between reading a bucket rule and
+            applying one. */}
+        {job.preview && (
+          <button
+            onClick={onPreview} disabled={anyBusy} aria-label={`Preview: ${job.title}`}
+            style={{ ...btn, marginLeft: 'auto' }}
+          >
+            {busy ? '…' : 'Preview'}
+          </button>
+        )}
         <button
           onClick={onRun} disabled={anyBusy} aria-label={`${out?.again ? 'Run again' : 'Run'}: ${job.title}`}
-          style={{ ...btn, marginLeft: 'auto' }}
+          style={{ ...btn, marginLeft: job.preview ? 0 : 'auto' }}
         >
           {busy ? 'Running…' : out?.again ? 'Run again' : 'Run'}
         </button>
