@@ -148,6 +148,27 @@ export async function listOffsiteMedia(env = process.env) {
     });
     return { ...r, bucket: env.OFFSITE_S3_BUCKET.trim() };
   } catch (e) {
+    // ── SAY WHICH THING BROKE (2026-08-29) ──
+    // Three nights of "could not list the offsite bucket", and that one
+    // sentence covers two problems with opposite fixes: Backblaze unreachable,
+    // or listing specifically failing. Last night's fix assumed the second and
+    // changed nothing.
+    //
+    // So instead of a fourth guess, ask the cheapest possible question right
+    // now — one HEAD for one key — and let the two outcomes separate. It never
+    // throws and its only output is a log line.
+    try {
+      const { probeOffsite, diagnose, diagnosisLine } = await import('./offsite-diagnose.js');
+      const probe = await probeOffsite({
+        head: (key) => offsiteReader(env).send(new HeadObjectCommand({
+          Bucket: env.OFFSITE_S3_BUCKET.trim(), Key: key,
+        })),
+      });
+      console.error(diagnosisLine(diagnose(e, probe)));
+    } catch (probeErr) {
+      // A diagnostic that breaks the thing it is diagnosing is worse than none.
+      console.error(`[offsite-diagnosis] the probe itself failed: ${probeErr?.message || probeErr}`);
+    }
     return { error: e.message };
   }
 }
