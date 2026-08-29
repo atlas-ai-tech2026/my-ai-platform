@@ -161,3 +161,39 @@ describe('and "permanently deleted after 30 days" is actually true', () => {
     expect(fn.slice(0, 600)).toMatch(/DUE_FOR_PURGE_SQL, \[\d+\]/);
   });
 });
+
+describe('the rescue runs on its own, and converges', () => {
+  const index = read('index.js');
+
+  it('a sweeper exists AND is scheduled — not merely defined', () => {
+    expect(index).toMatch(/async function sweepRescue/);
+    expect(index).toMatch(/^\s*scheduleRescueSweep\(\);/m);
+  });
+
+  it('it marks what is already gone, or it takes the same dead rows forever', () => {
+    // The queue is "not ours yet", newest first. A file that died months ago
+    // never leaves it, so without this the sweeper never reaches the ones
+    // still alive.
+    const fn = index.slice(index.indexOf('async function sweepRescue'));
+    expect(fn.slice(0, 2600)).toMatch(/MARK_GONE_SQL/);
+    expect(fn.slice(0, 2600)).toMatch(/report\.goneIds/);
+  });
+
+  it('and reports how many are LEFT, so progress is visible', () => {
+    const fn = index.slice(index.indexOf('async function sweepRescue'));
+    expect(fn.slice(0, 2600)).toMatch(/REMAINING_SQL/);
+    expect(fn.slice(0, 2600)).toMatch(/still to try/);
+  });
+
+  it('two passes cannot overlap — this moves real customer media', () => {
+    expect(index).toMatch(/rescueSweepRunning/);
+  });
+
+  it('a small batch, deliberately — it downloads and re-uploads real files', () => {
+    const fn = index.slice(index.indexOf('async function sweepRescue'));
+    const m = fn.match(/RESCUE_QUEUE_SQL, \[null, hosts, (\d+)\]/);
+    expect(m, 'the batch size is gone or renamed').toBeTruthy();
+    expect(Number(m[1]), 'a big batch would hammer the provider and our bucket')
+      .toBeLessThanOrEqual(25);
+  });
+});
