@@ -27,7 +27,8 @@ import crypto from 'node:crypto';
 import { S3Client, PutObjectCommand, ListObjectsV2Command, DeleteObjectCommand,
          GetObjectCommand, GetBucketVersioningCommand, HeadObjectCommand,
          PutBucketVersioningCommand, GetBucketCorsCommand,
-         PutBucketCorsCommand } from '@aws-sdk/client-s3';
+         PutBucketCorsCommand, GetBucketLifecycleConfigurationCommand,
+         PutBucketLifecycleConfigurationCommand } from '@aws-sdk/client-s3';
 
 const ENDPOINT = (process.env.SPACES_ENDPOINT || '').trim();
 const REGION = (process.env.SPACES_REGION || '').trim();
@@ -726,4 +727,36 @@ export async function persistWithThumb(sourceUrl, kind = 'output', { timeoutMs =
   } finally {
     clearTimeout(timer);
   }
+}
+
+
+// ─── LIFECYCLE RULES (2026-08-29) ────────────────────────────────────────────
+// Read and write the bucket's lifecycle configuration, for version-expiry.js.
+//
+// Kept to two thin functions with no policy in them at all: WHAT rule to write
+// is decided in version-expiry.js, where it is tested and where the difference
+// between expiring old versions and deleting every live customer file is
+// guarded. This layer only carries bytes.
+
+export async function getLifecycleRules() {
+  if (!configured) throw new Error('Spaces not configured');
+  try {
+    const out = await client.send(new GetBucketLifecycleConfigurationCommand({ Bucket: BUCKET }));
+    return out.Rules || [];
+  } catch (e) {
+    // "No configuration yet" is an ERROR from S3 and a perfectly normal state.
+    // Everything else must propagate — a caller that cannot tell those apart
+    // would write on top of rules it never saw.
+    if (e?.name === 'NoSuchLifecycleConfiguration'
+      || e?.Code === 'NoSuchLifecycleConfiguration') return [];
+    throw e;
+  }
+}
+
+export async function putLifecycleRules(rules) {
+  if (!configured) throw new Error('Spaces not configured');
+  await client.send(new PutBucketLifecycleConfigurationCommand({
+    Bucket: BUCKET,
+    LifecycleConfiguration: { Rules: rules },
+  }));
 }

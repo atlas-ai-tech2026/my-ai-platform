@@ -15,7 +15,7 @@ import jwt from 'jsonwebtoken';
 import { pool, isReady as dbReady, migrate, ADMIN_EMAIL } from './db.js';
 import { persistOrFallback, persistBuffer, isReady as spacesReady, uploadPrivate, listKeys, deleteKey,
          listAllMedia, readObject, primaryObjectExists, cdnifyDeep, mediaCdnBase,
-         ensureMediaCors, uploadPublicAt, objectSize, persistWithThumb , keyFromUrl } from './storage.js';
+         ensureMediaCors, uploadPublicAt, objectSize, persistWithThumb , keyFromUrl , getLifecycleRules, putLifecycleRules } from './storage.js';
 import { installModel, modelReady, MODEL_PREFIX } from './whisper-model.js';
 import { SURVEY_SQL, surveyRows } from './thumbnail-survey.js';
 import { SET_THUMB_SQL, backfillRows } from './thumbnail-backfill.js';
@@ -30,6 +30,7 @@ import { makeThumbnail } from './thumbnail-backfill.js';
 import { SCALE_SQL, SAMPLE_SQL, summariseScale } from './thumbnail-scale.js';
 import { DELETE_SQL as SOFT_DELETE_SQL, RESTORE_OWN_SQL, RECOVERABLE_SQL,
          DUE_FOR_PURGE_SQL, PURGE_ROW_SQL, purgeRows, daysLeft, RECOVERY_DAYS } from './soft-delete.js';
+import { describePlan as describeExpiryPlan, applyExpiry, NONCURRENT_DAYS } from './version-expiry.js';
 import { RECORD_SQL as SYNC_OK_SQL, READ_SQL as SYNC_READ_SQL, SYNC_FLAG,
          judgeSyncHeartbeat, syncStaleAlert } from './sync-heartbeat.js';
 import { headSize } from './thumbnail-survey.js';
@@ -5636,6 +5637,39 @@ app.post('/api/admin/whisper-model', adminGate, async (req, res) => {
   } catch (e) {
     console.error('[whisper-model] failed:', e.message);
     res.status(500).json({ complete: false, error: e.message });
+  }
+});
+
+// ── OLD VERSIONS OF DELETED FILES (2026-08-29) ──────────────────────────────
+// Versioning is on, deliberately — it is what makes a stolen key survivable.
+// It also means a deleted object is never actually deleted, so the 30-day
+// purge removes a picture from the SERVICE while the bytes linger forever.
+//
+// GET describes what WOULD change and writes nothing. Amr reads it first,
+// because the difference between "expire old versions" and "delete every live
+// customer file" is one word in a JSON body — see version-expiry.js.
+app.get('/api/admin/version-expiry', adminGate, async (req, res) => {
+  if (!spacesReady()) return res.status(503).json({ error: 'Spaces not configured.' });
+  try {
+    const rules = await getLifecycleRules();
+    res.json(describeExpiryPlan(rules, NONCURRENT_DAYS));
+  } catch (e) {
+    console.error('[version-expiry] preview failed:', e.message);
+    res.status(500).json({ error: `Could not read the bucket rules: ${e.message}` });
+  }
+});
+
+app.post('/api/admin/version-expiry', adminGate, async (req, res) => {
+  if (!spacesReady()) return res.status(503).json({ error: 'Spaces not configured.' });
+  try {
+    const out = await applyExpiry({
+      getRules: getLifecycleRules, putRules: putLifecycleRules, days: NONCURRENT_DAYS,
+    });
+    console.log(`[version-expiry] ${JSON.stringify(out)}`);
+    res.status(out.ok ? 200 : 500).json(out);
+  } catch (e) {
+    console.error('[version-expiry] failed:', e.message);
+    res.status(500).json({ ok: false, error: e.message });
   }
 });
 

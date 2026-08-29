@@ -167,3 +167,46 @@ describe('missing counts are unknown, never zero', () => {
     expect(out.detail).toMatch(/not an error|That is the answer/);
   });
 });
+
+describe('the bucket rule — where a preview must never read as done', () => {
+  it('a preview says it changed nothing', () => {
+    const out = outcomeOf('expiry', {
+      days: 60, unchanged: false, otherRules: [], dangerousRules: [],
+      summary: 'Would add one rule: old versions removed after 60 days. LIVE files are never touched.',
+    });
+    expect(out.tone).toBe('idle');
+    expect(out.headline).toMatch(/nothing changed/i);
+    expect(out.detail).toMatch(/LIVE files are never touched/);
+  });
+
+  it('an applied rule is confirmed only after being read back', () => {
+    const out = outcomeOf('expiry', { ok: true, changed: true, verified: true, days: 60 });
+    expect(out.tone).toBe('ok');
+    expect(out.headline).toMatch(/expire after 60 days/);
+    expect(out.detail).toMatch(/Read back and confirmed/);
+  });
+
+  it('☠ a rule that deletes LIVE files outranks everything else on the screen', () => {
+    // Old versions of deleted files vs every customer's actual pictures. If
+    // one of these ever exists, nothing else on this panel matters.
+    for (const body of [
+      { dangerousRules: ['legacy-cleanup'] },
+      { ok: true, changed: true, liveExpiryRules: ['legacy-cleanup'] },
+    ]) {
+      const out = outcomeOf('expiry', body);
+      expect(out.tone).toBe('bad');
+      expect(out.headline).toMatch(/deletes LIVE files/);
+      expect(out.detail).toMatch(/legacy-cleanup/);
+    }
+  });
+
+  it('a failed write says which stage it died in', () => {
+    expect(outcomeOf('expiry', { ok: false, stage: 'verify', error: 'read back nothing' }).detail)
+      .toMatch(/verify/);
+  });
+
+  it('already correct is idle, not a fresh success', () => {
+    expect(outcomeOf('expiry', { ok: true, changed: false, days: 60, summary: 'Already set.' }).tone)
+      .toBe('idle');
+  });
+});

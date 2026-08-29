@@ -23,15 +23,31 @@ const runner = (title) => screen.getByRole('button', { name: new RegExp(`^Run(?:
 describe('the buttons exist at all', () => {
   it('renders one Run button per job', () => {
     render(<MaintenancePanel />);
-    expect(screen.getAllByRole('button', { name: /^Run(?: again)?: / })).toHaveLength(5);
+    expect(screen.getAllByRole('button', { name: /^Run(?: again)?: / })).toHaveLength(6);
+  });
+
+  it('the bucket-rule job offers a PREVIEW, because that one is irreversible', async () => {
+    // The difference between expiring old versions and deleting every live
+    // customer file is one word in a JSON body. It gets read before it is run.
+    const spy = vi.spyOn(adminApi, 'versionExpiryPlan').mockResolvedValue({
+      days: 60, alreadySet: false, unchanged: false, otherRules: [], dangerousRules: [],
+      summary: 'Would add one rule: old versions of deleted or overwritten files are removed after '
+        + '60 days. LIVE files are never touched.',
+    });
+    const apply = vi.spyOn(adminApi, 'versionExpiryApply').mockResolvedValue({});
+    render(<MaintenancePanel />);
+    await userEvent.click(screen.getByRole('button', { name: /^Preview: Stop keeping deleted files/ }));
+    await waitFor(() => expect(spy).toHaveBeenCalled());
+    expect(apply, 'previewing applied the rule').not.toHaveBeenCalled();
   });
 
   it('every job says what it writes BEFORE it is pressed', () => {
     // Two of these write to 601 customers' history and sit one tab from the
     // button that expires accounts. The warning cannot arrive afterwards.
     render(<MaintenancePanel />);
-    const writes = screen.getAllByText(/WRITES to customer history|Writes nothing|bucket SETTINGS|Writes to models/);
-    expect(writes.length).toBe(5);
+    const writes = screen.getAllByText(
+      /WRITES to customer history|Writes nothing|bucket SETTINGS|Writes to models|Changes ONE bucket rule/);
+    expect(writes.length).toBe(6);
   });
 });
 
