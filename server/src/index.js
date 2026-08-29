@@ -19,7 +19,7 @@ import { persistOrFallback, persistBuffer, isReady as spacesReady, uploadPrivate
 import { installModel, modelReady, MODEL_PREFIX } from './whisper-model.js';
 import { SURVEY_SQL, surveyRows } from './thumbnail-survey.js';
 import { SET_THUMB_SQL, backfillRows } from './thumbnail-backfill.js';
-import { RESCUE_SQL, RESCUE_QUEUE_SQL, rescueRows } from './media-rescue.js';
+import { RESCUE_SQL, RESCUE_QUEUE_SQL, MARK_GONE_SQL, REMAINING_SQL, rescueRows } from './media-rescue.js';
 import { buildSearch, MODELS_USED_SQL, toGridItem } from './history-search.js';
 import { RECORD_SQL, CLAIM_SQL, GIVE_UP_SQL, TOUCH_SQL, DUE_SQL, OWNS_SQL,
          sweepJobs, historyRowFor } from './slow-image.js';
@@ -7901,6 +7901,72 @@ async function purgeExpiredDeletions() {
       : ''));
 }
 
+// ─── THE RESCUE, RUNNING ON ITS OWN (2026-08-29) ───────────────────
+// 12,568 files still live only on the provider's storage. At 60 per press
+// that is 210 presses, so the button was never going to finish it — the same
+// mistake as the thumbnails, and Amr was right to push back on it there.
+//
+// NEWEST FIRST, which matters more here than anywhere: the newest stranded
+// files are the ones most likely to still EXIST. Oldest-first would spend
+// every run discovering things that died months ago.
+//
+// Deliberately slow. This downloads and re-uploads real customer media, so a
+// small batch every few minutes spreads the bandwidth across days instead of
+// hammering the provider and our own bucket. There is no deadline — only a
+// clock on the files, and steady progress beats a burst.
+let rescueSweepRunning = false;
+async function sweepRescue() {
+  if (!dbReady() || !spacesReady() || rescueSweepRunning) return;
+  const hosts = ourMediaHosts({
+    endpoint: process.env.SPACES_ENDPOINT,
+    bucket: process.env.SPACES_BUCKET,
+    cdnBase: process.env.SPACES_CDN_BASE,
+  });
+  if (!hosts.length) return;
+
+  rescueSweepRunning = true;
+  try {
+    const { rows } = await pool.query(RESCUE_QUEUE_SQL, [null, hosts, 15]);
+    if (!rows.length) return;
+
+    const report = await rescueRows(rows, {
+      ourHosts: hosts,
+      limit: rows.length,
+      persist: (buf, contentType, kind) => persistBuffer(buf, contentType, kind),
+      verify: (url) => headSize(url),
+      setUrls: async (id, originUrl, newUrl, rowUserId) => {
+        await pool.query(RESCUE_SQL,
+          [JSON.stringify(originUrl), JSON.stringify(newUrl), id, rowUserId]);
+      },
+    });
+
+    // Mark what is already gone, or this takes the same dead rows every pass
+    // and never reaches the ones still alive. Additive — the customer's row and
+    // its link are untouched.
+    for (const id of report.goneIds || []) {
+      await pool.query(MARK_GONE_SQL, [id]).catch((e) =>
+        console.error(`[rescue-sweep] could not mark ${id}: ${e.message}`));
+    }
+
+    const { rows: left } = await pool.query(REMAINING_SQL, [hosts]);
+    console.log(`[rescue-sweep] ${report.rescued} saved, ${report.alreadyGone} already gone, `
+      + `${report.failed} failed, ${report.movedMB} MB · ${left[0]?.n ?? '?'} still to try`);
+  } catch (e) {
+    console.error('[rescue-sweep] pass failed:', e.message);
+  } finally {
+    rescueSweepRunning = false;
+  }
+}
+
+function scheduleRescueSweep() {
+  const run = () => sweepRescue().catch((e) => console.error('[rescue-sweep] failed:', e.message));
+  // Five minutes after boot, then every three. 15 files a pass is roughly 300
+  // an hour — the 12,568 clear in about two days without anybody noticing the
+  // bandwidth.
+  setTimeout(run, 5 * 60 * 1000).unref?.();
+  setInterval(run, 3 * 60 * 1000).unref?.();
+}
+
 function schedulePurge() {
   const run = () => purgeExpiredDeletions().catch((e) =>
     console.error('[purge] pass failed:', e.message));
@@ -8108,6 +8174,9 @@ migrate()
     // Makes "after 30 days it is permanently deleted" true. Nothing else in
     // the app removes a deleted row or its file.
     schedulePurge();
+    // The 12,568 files still on provider links, saved a few at a time rather
+    // than by 210 button presses nobody would make.
+    scheduleRescueSweep();
     // Credit lots (owner's rule, 2026-08-25): date every existing balance
     // from the ledger once — harmless, touches no balances — then sweep
     // hourly. The sweep takes nothing until the owner activates the rule

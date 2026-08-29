@@ -10,7 +10,7 @@ import { describe, it, expect, vi } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { needsRescue, rescueRows, RESCUE_SQL, MAX_BYTES } from './media-rescue.js';
+import { needsRescue, rescueRows, RESCUE_SQL, MAX_BYTES, MARK_GONE_SQL, REMAINING_SQL, RESCUE_QUEUE_SQL} from './media-rescue.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const OURS = ['voxel-ai-store.nyc3.digitaloceanspaces.com', 'voxel-ai-store.nyc3.cdn.digitaloceanspaces.com'];
@@ -267,5 +267,78 @@ describe('who the write is scoped to', () => {
     expect(seen.sort((a, b) => a.userId - b.userId)).toEqual([
       { id: 'e1', userId: 42 }, { id: 'e2', userId: 99 },
     ]);
+  });
+});
+
+// ─── THE BACKGROUND RESCUE CONVERGES (2026-08-29) ───────────────────────────
+// 12,568 files are still on provider links. At 60 per press that is 210
+// presses, which nobody will do — so it has to run on its own.
+//
+// And a background rescue has one failure a human pressing a button does not:
+// the queue is "rows whose file is not ours", newest first. A row whose file
+// died months ago NEVER LEAVES that queue. Without a marker the sweeper takes
+// the same newest twenty every pass, finds them all gone, and never reaches
+// the ones still alive — running forever and saving nothing.
+describe('a sweeper can tell which rows it has already given up on', () => {
+  it('rescueRows reports the ids it found already gone', async () => {
+    const rows = [
+      { id: 'dead', user_id: 1, data: { result_url: 'https://gone.example/a.png' } },
+      { id: 'alive', user_id: 1, data: { result_url: 'https://live.example/b.png' } },
+    ];
+    const r = await rescueRows(rows, {
+      ourHosts: ['ours.example'],
+      fetchImpl: async (u) => (u.includes('gone')
+        ? { status: 404, ok: false }
+        : { status: 200, ok: true, headers: { get: () => 'image/png' }, arrayBuffer: async () => Buffer.from('xy') }),
+      persist: async () => 'https://ours.example/b.png',
+      verify: async () => 2,
+      setUrls: async () => {},
+    });
+    expect(r.alreadyGone).toBe(1);
+    expect(r.goneIds).toEqual(['dead']);
+    expect(r.rescued).toBe(1);
+  });
+
+  it('the queue SKIPS rows already marked gone, so the sweep moves forward', () => {
+    expect(RESCUE_QUEUE_SQL).toMatch(/data->>'rescue_gone_at' IS NULL/);
+  });
+
+  it('the mark is ADDITIVE — the picture and its link are untouched', () => {
+    // A customer whose file is gone loses nothing here; the row still shows
+    // exactly as it did. This is a note to ourselves, not a change to them.
+    expect(MARK_GONE_SQL).toMatch(/jsonb_set\(data, '\{rescue_gone_at\}'/);
+    expect(MARK_GONE_SQL).not.toMatch(/result_url/);
+  });
+
+  it('and the remaining count ignores the ones already given up on', () => {
+    // Otherwise the number never falls and the job looks like it is failing.
+    expect(REMAINING_SQL).toMatch(/rescue_gone_at' IS NULL/);
+    expect(REMAINING_SQL).toMatch(/count\(\*\)/);
+  });
+
+  it('a rescue that SUCCEEDS is not marked gone', async () => {
+    const r = await rescueRows(
+      [{ id: 'x', user_id: 1, data: { result_url: 'https://live.example/b.png' } }],
+      {
+        ourHosts: ['ours.example'],
+        fetchImpl: async () => ({ status: 200, ok: true, headers: { get: () => 'image/png' }, arrayBuffer: async () => Buffer.from('xy') }),
+        persist: async () => 'https://ours.example/b.png',
+        verify: async () => 2,
+        setUrls: async () => {},
+      });
+    expect(r.goneIds).toEqual([]);
+  });
+
+  it('a rescue that FAILED for another reason is not marked gone either', async () => {
+    // A network blip must not permanently retire a file that still exists.
+    const r = await rescueRows(
+      [{ id: 'x', user_id: 1, data: { result_url: 'https://live.example/b.png' } }],
+      {
+        ourHosts: ['ours.example'],
+        fetchImpl: async () => { throw new Error('network down'); },
+        persist: async () => 'u', verify: async () => 1, setUrls: async () => {},
+      });
+    expect(r.failed).toBe(1);
+    expect(r.goneIds).toEqual([]);
   });
 });

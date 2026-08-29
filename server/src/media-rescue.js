@@ -93,6 +93,7 @@ export async function rescueRows(rows, {
     .slice(0, limit);
 
   let rescued = 0; let alreadyGone = 0; let failed = 0; let bytes = 0;
+  const goneIds = [];
   const problems = [];
   const note = (id, why) => { if (problems.length < 25) problems.push({ id, why }); };
 
@@ -107,6 +108,7 @@ export async function rescueRows(rows, {
         // arrived too late, and that is counted separately so the report can
         // say how much was saved versus how much was already lost.
         alreadyGone += 1;
+        goneIds.push(row.id);
         return;
       }
       if (!resp.ok) throw new Error(`provider responded ${resp.status}`);
@@ -150,6 +152,9 @@ export async function rescueRows(rows, {
   return {
     considered: todo.length,
     rescued,
+    // So a background sweeper can stamp them and stop re-examining the same
+    // dead rows on every single pass.
+    goneIds,
     // Named plainly. These were already lost before this ran; the rescue did
     // not lose them and could not have saved them.
     alreadyGone,
@@ -174,6 +179,38 @@ export const RESCUE_QUEUE_SQL = `
      AND COALESCE(data->>'result_url','') <> ''
      AND data->>'result_url' ~* '^https?://'
      AND split_part(split_part(data->>'result_url','://',2),'/',1) <> ALL($2::text[])
+     AND data->>'rescue_gone_at' IS NULL
    ORDER BY created_date DESC
    LIMIT $3
+`;
+
+/**
+ * "We looked, and the file was already gone."
+ *
+ * ── WHY A BACKGROUND RESCUE CANNOT WORK WITHOUT THIS ───────────────────────
+ * The queue is "rows whose file is not ours yet", newest first. A row whose
+ * file died months ago NEVER LEAVES that queue — so a sweeper would take the
+ * same newest twenty every pass, find them all gone, and never reach the ones
+ * that are still alive. It would run forever and save nothing.
+ *
+ * A human pressing the button notices. A background job does not.
+ *
+ * This is an ADDITIVE field. result_url is untouched, the picture is unchanged,
+ * and the row still shows exactly as it did — it is a note to ourselves that
+ * this one has been checked and cannot be saved.
+ */
+export const MARK_GONE_SQL = `
+  UPDATE entities
+     SET data = jsonb_set(data, '{rescue_gone_at}', to_jsonb(NOW()::text), true)
+   WHERE id = $1 AND name = 'GenerationHistory'`;
+
+/** How many are still worth trying — for the SOP line and the panel. */
+export const REMAINING_SQL = `
+  SELECT count(*)::int AS n
+    FROM entities
+   WHERE name = 'GenerationHistory'
+     AND COALESCE(data->>'result_url','') <> ''
+     AND data->>'result_url' ~* '^https?://'
+     AND split_part(split_part(data->>'result_url','://',2),'/',1) <> ALL($1::text[])
+     AND data->>'rescue_gone_at' IS NULL
 `;
