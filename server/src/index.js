@@ -3421,6 +3421,46 @@ app.post('/api/history/search', verifyJwt, requireNotBanned, async (req, res) =>
   }
 });
 
+// Just the ids that match, for "Select all 128".
+//
+// ── WHY THIS EXISTS AT ALL ─────────────────────────────────────────────────
+// Bulk delete takes IDS, never a filter — re-running a filter on the server
+// could match a DIFFERENT set by the time the request lands, and the customer
+// would have confirmed a number that was no longer true.
+//
+// But the browser only holds the 60 rows it has loaded. Without this, "Select
+// all 128" would silently mean "all 60 you can see", the customer would press
+// delete expecting everything, and two thirds would quietly survive. So the
+// ids come down first, and the delete still sends exactly what was counted.
+//
+// Capped, and the cap is REPORTED rather than silently applied — a truncated
+// selection that says nothing is the same lie in a different place.
+app.post('/api/history/search/ids', verifyJwt, requireNotBanned, async (req, res) => {
+  if (!dbReady()) return res.status(503).json({ error: 'Database not configured.' });
+  const b = req.body || {};
+  const CAP = 500;
+  try {
+    const q = buildSearch({
+      userId: req.user.id,
+      type: b.type === 'video' ? 'video' : b.type === 'image' ? 'image' : null,
+      text: b.text, from: b.from || null, to: b.to || null,
+      models: Array.isArray(b.models) ? b.models.slice(0, 40) : null,
+      savedOnly: b.saved === true,
+      limit: 1, offset: 0,
+    });
+    // Reuse the search's WHERE so the ids can never describe a different set
+    // than the count and the grid did.
+    const where = q.countSql.slice(q.countSql.indexOf('WHERE'));
+    const { rows } = await pool.query(
+      `SELECT id FROM entities ${where} ORDER BY created_date DESC LIMIT ${CAP + 1}`, q.countParams);
+    const ids = rows.slice(0, CAP).map((r) => r.id);
+    res.json({ ids, capped: rows.length > CAP, cap: CAP });
+  } catch (e) {
+    console.error('[history:ids] failed:', e.message);
+    res.status(500).json({ error: 'Could not select everything.' });
+  }
+});
+
 // The models THIS customer has used — not all 28. Offering models they have
 // never touched, most returning nothing, makes the filter feel broken.
 // GET *and* POST. The browser's only helper for calling a function is

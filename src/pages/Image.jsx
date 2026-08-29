@@ -9,6 +9,11 @@ import { getImageCredits } from '@/lib/creditPricing';
 import { downloadViaApi } from '@/lib/downloadFile';
 import { waitForImage, waitedLabel } from '@/lib/wait-for-image';
 import HistoryFilterBar, { EMPTY as EMPTY_FILTER, toQuery, isFiltering } from '@/components/history/HistoryFilterBar';
+import SelectionBar from '@/components/history/SelectionBar';
+import {
+  emptySelection, setMode, toggle as toggleSel, selectAll, clear as clearSel,
+  isSelected, afterDelete,
+} from '@/lib/history-selection';
 
 const STYLE_SUFFIXES = {
   Cinematic:    ', cinematic color grading, anamorphic lens flare, film grain, dramatic lighting, movie still',
@@ -302,6 +307,9 @@ export default function Image() {
   const [myModels, setMyModels] = useState([]);
   const filterRef = useRef(filter);
   filterRef.current = filter;
+  const [selection, setSelection] = useState(emptySelection());
+  const [selBusy, setSelBusy] = useState(false);
+  const [undo, setUndo] = useState(null);
   const isGenerating = pending > 0;
   const [imageCount, setImageCount] = useState(1);
   const [expandedImage, setExpandedImage] = useState(null);
@@ -409,6 +417,61 @@ export default function Image() {
       .catch(() => { if (alive) setMyModels([]); });
     return () => { alive = false; };
   }, [signedIn, user?.id]);
+
+  // ── DELETE ──
+  // Ids go to the server, never a filter. Re-running a filter there could
+  // match a DIFFERENT set by the time it lands, and the customer would have
+  // confirmed a number that was no longer true.
+  const doSelectAll = async () => {
+    setSelBusy(true);
+    try {
+      if (!isFiltering(filter)) {
+        // Nothing is narrowed, so "all" is what is loaded. Selecting the whole
+        // history without a filter is not something to make easy.
+        setSelection((s0) => selectAll(s0, historyFeed.items.map((i) => i.id)));
+      } else {
+        const r = await base44.functions.invoke('history/search/ids', toQuery(filter, { type: 'image' }));
+        setSelection((s0) => selectAll(s0, r.data?.ids || []));
+        // A silent cap is the same lie in a different place.
+        if (r.data?.capped) toast.info(`Selected the first ${r.data.cap}. Delete those, then select again.`);
+      }
+    } catch { toast.error('Could not select everything — try again.'); }
+    finally { setSelBusy(false); }
+  };
+
+  const doDelete = async () => {
+    const ids = selection.ids;
+    if (!ids.length) return;
+    setSelBusy(true);
+    try {
+      const r = await base44.functions.invoke('history/delete', { ids });
+      const deleted = r.data?.deleted || 0;
+      // Removed from view immediately — a delete that leaves the pictures on
+      // screen reads as broken, whatever the server did.
+      setImages((prev) => prev.filter((i) => !ids.includes(i.id)));
+      setSelection(emptySelection());
+      setUndo({ message: afterDelete({ deleted, asked: ids.length }), canUndo: deleted > 0, ids });
+    } catch (e) {
+      toast.error(e?.message || 'Could not delete — nothing was changed.');
+    } finally { setSelBusy(false); }
+  };
+
+  const doUndo = async () => {
+    if (!undo?.ids?.length) return;
+    setSelBusy(true);
+    try {
+      const r = await base44.functions.invoke('history/restore', { ids: undo.ids });
+      const back = r.data?.restored || 0;
+      setUndo(null);
+      toast.success(back === 1 ? '1 picture restored' : `${back} pictures restored`);
+      // Reload rather than splicing them back: their position depends on the
+      // sort and the filter, and guessing where they go would put a picture in
+      // the wrong place in somebody's own history.
+      setFilter((f) => ({ ...f }));
+    } catch (e) {
+      toast.error(e?.message || 'Could not restore — they are still in Recently deleted.');
+    } finally { setSelBusy(false); }
+  };
 
   const images = historyFeed.items;
   const setImages = historyFeed.setItems;
@@ -780,6 +843,21 @@ export default function Image() {
               models={myModels}
               total={isFiltering(filter) ? matchTotal : null}
               loading={historyFeed.loading && isFiltering(filter)}
+              selecting={selection.on}
+              onSelectMode={() => setSelection((s0) => setMode(s0, !s0.on))}
+            />
+            <SelectionBar
+              selection={selection}
+              filter={filter}
+              total={isFiltering(filter) ? matchTotal : null}
+              loaded={images.length}
+              busy={selBusy}
+              undo={undo}
+              onSelectAll={doSelectAll}
+              onClear={() => setSelection(clearSel)}
+              onDelete={doDelete}
+              onUndo={doUndo}
+              onDismissUndo={() => setUndo(null)}
             />
           </div>
         )}
@@ -826,8 +904,29 @@ export default function Image() {
           )}
             {/* Generated images */}
             {displayImages.map((img, i) =>
-          <div key={img.id} style={{ animation: 'imgFadeIn 0.4s ease forwards' }}>
+          <div
+            key={img.id}
+            style={{ animation: 'imgFadeIn 0.4s ease forwards', position: 'relative' }}
+            onClickCapture={selection.on ? (e) => {
+              // Capture, so a tick never also opens the picture. While
+              // selecting, the card's own click is not what the customer means.
+              e.preventDefault(); e.stopPropagation();
+              setSelection((s0) => toggleSel(s0, img.id));
+            } : undefined}
+          >
                 <ImageCard img={img} index={i} onExpand={setDetailImage} onLoaded={() => {}} isFirst={i === 0} modelBadge={selectedModel.badge} />
+                {selection.on && (
+                  <span
+                    aria-hidden="true"
+                    style={{
+                      position: 'absolute', top: 8, left: 8, width: 24, height: 24, borderRadius: 7,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      background: isSelected(selection, img.id) ? '#E01E1E' : 'rgba(0,0,0,0.55)',
+                      border: `1px solid ${isSelected(selection, img.id) ? '#E01E1E' : 'rgba(255,255,255,0.45)'}`,
+                      color: '#FFF', fontSize: 14, fontWeight: 700, pointerEvents: 'none',
+                    }}
+                  >{isSelected(selection, img.id) ? '✓' : ''}</span>
+                )}
               </div>
           )}
         </div>
