@@ -404,3 +404,66 @@ describe('a hung copy cannot stop the sync forever', () => {
     expect(RUN_WATCHDOG_MS).toBeGreaterThan(COPY_TIMEOUT_MS);
   });
 });
+
+// ─── THE BACKUP SURVIVES A FAILED LISTING (2026-08-29) ──────────────────────
+// The offsite listing has failed since 20 August, and when it failed the whole
+// backup stopped — seventeen hours on the 29th, while customers generated all
+// day. Three fixes assumed three different causes and none held.
+//
+// So the listing is DEMOTED: the ledger decides what to copy, and a failed
+// listing is a warning rather than a full stop. These tests are the difference
+// between "the backup keeps running" and "the backup stops for a day".
+describe('a failed offsite listing no longer stops the backup', () => {
+  const src = [{ key: 'a.png', size: 10 }, { key: 'b.png', size: 20 }];
+  const base = (over = {}) => ({
+    listSource: async () => ({ objects: src }),
+    listDest: async () => ({ error: 'the request socket did not establish a connection' }),
+    read: async (k) => ({ body: Buffer.from('x'), size: 1, contentType: 'image/png', key: k }),
+    write: async () => {},
+    env: { MEDIA_SYNC_ENABLED: '1' },
+    log: { warn: () => {}, error: () => {}, log: () => {} },
+    ...over,
+  });
+
+  it('copies anyway, using the ledger', async () => {
+    const recorded = [];
+    const r = await syncMediaOffsite(base({
+      ledger: {
+        missing: async () => [],            // nothing recorded → everything missing
+        record: async (k, n) => { recorded.push([k, n]); },
+      },
+    }));
+    expect(r.error, 'it refused to run').toBeUndefined();
+    expect(r.copied).toBeGreaterThan(0);
+    expect(recorded.length).toBeGreaterThan(0);
+  });
+
+  it('but WITHOUT a ledger it still refuses — that is the only honest answer', async () => {
+    // No listing and no record means there is genuinely no way to know what is
+    // missing, and copying everything blindly is not a backup strategy.
+    const r = await syncMediaOffsite(base({ ledger: null }));
+    expect(r.error).toMatch(/could not list the offsite bucket/);
+  });
+
+  it('a WORKING listing seeds the ledger — this is what avoids re-uploading 72 GB', async () => {
+    const seeded = [];
+    await syncMediaOffsite(base({
+      listDest: async () => ({ objects: [{ key: 'media/a.png', size: 10 }] }),
+      ledger: {
+        seed: async (rows) => { seeded.push(...rows); },
+        missing: async () => [],
+        record: async () => {},
+      },
+    }));
+    expect(seeded.map((s) => s.key)).toContain('a.png');
+  });
+
+  it('a truncated SOURCE listing still refuses — that half has not changed', () => {
+    // Our own bucket, and a partial view of it is indistinguishable from
+    // "nothing is missing".
+    return expect(syncMediaOffsite(base({
+      listSource: async () => ({ objects: src, truncated: true }),
+      ledger: { missing: async () => [], record: async () => {} },
+    }))).resolves.toMatchObject({ error: expect.stringMatching(/truncated/) });
+  });
+});

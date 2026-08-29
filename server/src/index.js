@@ -31,6 +31,8 @@ import { SCALE_SQL, SAMPLE_SQL, summariseScale } from './thumbnail-scale.js';
 import { DELETE_SQL as SOFT_DELETE_SQL, RESTORE_OWN_SQL, RECOVERABLE_SQL,
          DUE_FOR_PURGE_SQL, PURGE_ROW_SQL, purgeRows, daysLeft, RECOVERY_DAYS } from './soft-delete.js';
 import { describePlan as describeExpiryPlan, applyExpiry, NONCURRENT_DAYS } from './version-expiry.js';
+import { RECORD_SQL as LEDGER_RECORD_SQL, SEED_SQL as LEDGER_SEED_SQL,
+         MISSING_SQL as LEDGER_MISSING_SQL } from './offsite-ledger.js';
 import { RECORD_SQL as SYNC_OK_SQL, READ_SQL as SYNC_READ_SQL, SYNC_FLAG,
          judgeSyncHeartbeat, syncStaleAlert } from './sync-heartbeat.js';
 import { headSize } from './thumbnail-survey.js';
@@ -122,7 +124,7 @@ import { registerAlertsRoutes, runAlertChecks } from './alerts-routes.js';
 import { registerBackupVerifyRoutes, scheduleRestoreVerification,
          runRestoreVerification } from './backup-verify-routes.js';
 import { fetchOldestOffsite } from './backup-verify.js';
-import { syncMediaOffsite, RUN_WATCHDOG_MS } from './media-sync.js';
+import { syncMediaOffsite, RUN_WATCHDOG_MS , destKeyFor } from './media-sync.js';
 import { registerPnlRoutes } from './pnl-routes.js';
 import { registerReliabilityRoutes } from './reliability-routes.js';
 import { registerCustomerRoutes } from './customer-routes.js';
@@ -8025,6 +8027,29 @@ function scheduleMediaSync() {
         read: readObject,
         write: writeMediaObject,
         readDest: readMediaObject,
+        // OUR OWN RECORD of what has been copied. With this, a failed offsite
+        // listing is a warning rather than a full stop — which is the whole
+        // point, after seventeen hours of no backup on 29 August.
+        ledger: dbReady() ? {
+          seed: async (rows) => {
+            if (!rows?.length) return;
+            await pool.query(LEDGER_SEED_SQL, [
+              rows.map((x) => x.key), rows.map((x) => String(x.size ?? 0)),
+            ]);
+          },
+          // Returns what is ALREADY copied, in the shape runSync expects for
+          // its `dest` — so anything not in the ledger is treated as missing.
+          missing: async (sourceObjects) => {
+            const keys = (sourceObjects || []).map((o) => o.key).filter(Boolean);
+            if (!keys.length) return [];
+            const { rows } = await pool.query(LEDGER_MISSING_SQL, [keys]);
+            const notCopied = new Set(rows.map((r2) => r2.k));
+            return (sourceObjects || [])
+              .filter((o) => !notCopied.has(o.key))
+              .map((o) => ({ key: destKeyFor(o.key), size: o.size }));
+          },
+          record: (key, size) => pool.query(LEDGER_RECORD_SQL, [key, String(size)]),
+        } : null,
       });
       if (r.error) console.error(`[media-sync] ${r.error}`);
       else if (dbReady()) {

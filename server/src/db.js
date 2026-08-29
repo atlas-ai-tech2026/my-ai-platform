@@ -20,6 +20,7 @@ import pg from 'pg';
 import { COSTING_SEED as COSTING_MODELS_SEED, SEED_PLANS as COSTING_PLANS_SEED } from './costing-seed.js';
 import { SLOW_IMAGE_DDL } from './slow-image.js';
 import { SOFT_DELETE_DDL } from './soft-delete.js';
+import { LEDGER_DDL } from './offsite-ledger.js';
 import dotenv from 'dotenv';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -1057,6 +1058,12 @@ export async function migrate() {
     // Serves the per-model reliability rollup: label + status, newest window.
     await client.query(`CREATE INDEX IF NOT EXISTS pending_video_charges_label_idx
       ON pending_video_charges (model_label, created_at DESC) WHERE model_label IS NOT NULL;`);
+
+    // ─── offsite_media (2026-08-29) ─────────────────────────────────
+    // What we have copied offsite, recorded by us, so the backup stops
+    // depending on listing a remote bucket — the operation that has failed
+    // since 20 August and stopped the backup for 17 hours on the 29th.
+    await client.query(LEDGER_DDL);
 
     // ─── deleted_at on entities (2026-08-28) ────────────────────────
     // Deleting a picture used to remove the row outright: a customer who

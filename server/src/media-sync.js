@@ -326,27 +326,70 @@ export function syncEnabled(env = process.env) {
  * neither storage module has to know the other exists.
  */
 export async function syncMediaOffsite({
-  listSource, listDest, read, write, readDest, env = process.env, limits = {}, log = console,
+  listSource, listDest, read, write, readDest, ledger = null,
+  env = process.env, limits = {}, log = console,
 } = {}) {
   if (!syncEnabled(env)) {
     return { skipped: 'MEDIA_SYNC_ENABLED is not set — the offsite media copy is switched off' };
   }
 
   const [srcList, dstList] = await Promise.all([listSource(), listDest()]);
+  // Our OWN bucket. Same region, same provider, and it has never been the one
+  // that fails. Without this there is nothing to sync and no ledger can help.
   if (srcList?.error) return { error: `could not list the media bucket: ${srcList.error}` };
-  if (dstList?.error) return { error: `could not list the offsite bucket: ${dstList.error}` };
-
-  // A truncated list on EITHER side looks identical to "everything is already
-  // copied", which is the most dangerous wrong answer a backup job can reach.
-  // Refuse rather than report a false all-clear.
-  if (srcList?.truncated || dstList?.truncated) {
-    return { error: 'a bucket listing was truncated — refusing to sync against a partial view '
-      + 'of what exists, because that is indistinguishable from "nothing is missing"' };
+  if (srcList?.truncated) {
+    return { error: 'the media bucket listing was truncated — refusing to sync against a partial '
+      + 'view of what exists, because that is indistinguishable from "nothing is missing"' };
   }
 
+  // ── THE OFFSITE LISTING IS NOW OPTIONAL (2026-08-29) ──
+  // It has failed since 20 August, and when it failed the whole backup stopped
+  // — seventeen hours on the 29th, while customers generated all day. Three
+  // fixes assumed three different causes and none held.
+  //
+  // So the ledger decides what to copy, and the listing is DEMOTED to a
+  // seeder: when it works it tells the ledger about objects it did not know
+  // about (which is what lets this ship without re-uploading 72 GB, and what
+  // self-heals a lost record). When it fails, the copy carries on.
+  const listingWorked = Boolean(dstList && !dstList.error && !dstList.truncated);
+  if (!listingWorked && ledger?.seed) {
+    log.warn?.(`[media-sync] offsite listing unavailable (${dstList?.error || 'truncated'}) — `
+      + 'using our own record of what has been copied. The copy continues.');
+  }
+  if (listingWorked && ledger?.seed) {
+    // Everything already there, recorded. Cheap, idempotent, and it makes the
+    // ledger true on the very first run.
+    await ledger.seed(dstList.objects.map((d) => ({ key: sourceKeyFor(d.key), size: d.size }))
+      .filter((d) => d.key)).catch((e) => log.error?.(`[media-sync] could not seed the ledger: ${e.message}`));
+  }
+  // Without a ledger AND without a listing there is genuinely no way to know
+  // what is missing. That is the only case that still refuses.
+  if (!listingWorked && !ledger?.missing) {
+    return { error: `could not list the offsite bucket: ${dstList?.error || 'truncated'}` };
+  }
+
+  // What is missing, from the ledger when we have one — from the listing only
+  // when we do not.
+  const dest = ledger?.missing
+    ? await ledger.missing(srcList.objects)
+    : dstList.objects;
+
   const result = await runSync({
-    read, write, source: srcList.objects, dest: dstList.objects, limits, log,
+    read, write, source: srcList.objects, dest, limits, log,
   });
+
+  // Record ONLY what has been read back at the right size. A ledger that
+  // remembers a copy which did not happen skips that file FOREVER, silently,
+  // while every screen says the backup is complete — worse than the listing
+  // failure this replaces, which at least announces itself.
+  if (ledger?.record && result.copiedObjects?.length) {
+    for (const o of result.copiedObjects) {
+      if (o?.key && o?.size > 0) {
+        await ledger.record(o.key, o.size)
+          .catch((e) => log.error?.(`[media-sync] copied ${o.key} but could not record it: ${e.message}`));
+      }
+    }
+  }
 
   // Read a sample back. An upload returning 200 proves the request was
   // accepted; it proves nothing about whether the bytes are there, complete, or
@@ -366,7 +409,7 @@ export async function syncMediaOffsite({
   // correctly last week and corrupted since is exactly as broken, and only
   // re-reading finds it.
   if (readDest && !result.stopped) {
-    const alreadyOffsite = dstList.objects
+    const alreadyOffsite = (listingWorked ? dstList.objects : [])
       .map((d) => ({ key: sourceKeyFor(d.key), size: d.size }))
       .filter((d) => d.key);
     const shouldBeThere = [...alreadyOffsite, ...(result.copiedObjects || [])]
