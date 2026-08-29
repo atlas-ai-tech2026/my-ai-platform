@@ -10,6 +10,7 @@ import { downloadViaApi } from '@/lib/downloadFile';
 import { waitForImage, waitedLabel } from '@/lib/wait-for-image';
 import HistoryFilterBar, { EMPTY as EMPTY_FILTER, toQuery, isFiltering } from '@/components/history/HistoryFilterBar';
 import SelectionBar from '@/components/history/SelectionBar';
+import RecentlyDeleted from '@/components/history/RecentlyDeleted';
 import {
   emptySelection, setMode, toggle as toggleSel, selectAll, clear as clearSel,
   isSelected, afterDelete,
@@ -310,6 +311,12 @@ export default function Image() {
   const [selection, setSelection] = useState(emptySelection());
   const [selBusy, setSelBusy] = useState(false);
   const [undo, setUndo] = useState(null);
+  // Recently deleted — its own small feed. Not part of useHistoryFeed: it is a
+  // short, complete list (120 max, 30 days), not something you page through.
+  const [binItems, setBinItems] = useState(null);
+  const [binErr, setBinErr] = useState(null);
+  const [binSel, setBinSel] = useState([]);
+  const [binNonce, setBinNonce] = useState(0);
   const isGenerating = pending > 0;
   const [imageCount, setImageCount] = useState(1);
   const [expandedImage, setExpandedImage] = useState(null);
@@ -470,6 +477,35 @@ export default function Image() {
       setFilter((f) => ({ ...f }));
     } catch (e) {
       toast.error(e?.message || 'Could not restore — they are still in Recently deleted.');
+    } finally { setSelBusy(false); }
+  };
+
+  useEffect(() => {
+    if (activeTab !== 'deleted' || !signedIn) return;
+    let alive = true;
+    setBinItems(null); setBinErr(null);
+    base44.functions.invoke('history/deleted', {})
+      .then((r) => { if (alive) setBinItems(r.data?.items || []); })
+      // An error here must NOT render as an empty bin — "nothing to recover"
+      // and "I could not look" are indistinguishable to the person reading,
+      // and only one of them is good news.
+      .catch((e) => { if (alive) setBinErr(e?.message || 'Could not load.'); });
+    return () => { alive = false; };
+  }, [activeTab, signedIn, user?.id, binNonce]);
+
+  const restoreFromBin = async () => {
+    if (!binSel.length) return;
+    setSelBusy(true);
+    try {
+      const r = await base44.functions.invoke('history/restore', { ids: binSel });
+      const back = r.data?.restored || 0;
+      toast.success(back === 1 ? '1 picture restored' : `${back} pictures restored`);
+      setBinSel([]);
+      setBinNonce((n) => n + 1);
+      // The history feed is now stale by exactly the rows just restored.
+      setFilter((f) => ({ ...f }));
+    } catch (e) {
+      toast.error(e?.message || 'Could not restore — they are still here.');
     } finally { setSelBusy(false); }
   };
 
@@ -807,7 +843,7 @@ export default function Image() {
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          {['history', 'saved', 'community'].map(tab => (
+          {['history', 'saved', 'deleted', 'community'].map(tab => (
             <button key={tab} onClick={() => setActiveTab(tab)} style={{
               padding: '7px 14px', fontSize: 12, fontWeight: 500, borderRadius: 999,
               background: activeTab === tab ? 'rgba(255,255,255,0.1)' : 'rgba(255,255,255,0.04)',
@@ -821,7 +857,7 @@ export default function Image() {
               {tab === 'history' && <History style={{ width: 12, height: 12 }} />}
               {tab === 'saved' && <Heart style={{ width: 12, height: 12 }} />}
               {tab === 'community' && <Globe style={{ width: 12, height: 12 }} />}
-              {tab}
+              {tab === 'deleted' ? 'Recently deleted' : tab}
             </button>
           ))}
         </div>
@@ -892,9 +928,28 @@ export default function Image() {
           </div>
         )}
 
+        {/* Recently deleted — the screen the delete confirmation points at.
+            Its own panel rather than the shared grid: these are not pictures
+            you scroll through, they are decisions with a clock on them. */}
+        {activeTab === 'deleted' && signedIn && (
+          <div style={{ paddingTop: 14 }}>
+            <RecentlyDeleted
+              items={binItems}
+              loading={binItems === null && !binErr}
+              error={binErr}
+              busy={selBusy}
+              selected={binSel}
+              onToggle={(id) => setBinSel((v) => (v.includes(id) ? v.filter((x) => x !== id) : [...v, id]))}
+              onRestore={restoreFromBin}
+              onReload={() => setBinNonce((n) => n + 1)}
+            />
+          </div>
+        )}
+
         {/* Masonry grid (always rendered — when empty, only loading cards / nothing) */}
         <div style={{
-          display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 10, padding: '20px 28px 14px'
+          display: activeTab === 'deleted' ? 'none' : 'grid',
+          gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 10, padding: '20px 28px 14px'
         }}>
             {/* Loading cards — one per in-flight image across all batches */}
             {Array.from({ length: pending }).map((_, i) =>
