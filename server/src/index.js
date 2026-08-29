@@ -3423,10 +3423,21 @@ app.post('/api/history/search', verifyJwt, requireNotBanned, async (req, res) =>
 
 // The models THIS customer has used — not all 28. Offering models they have
 // never touched, most returning nothing, makes the filter feel broken.
-app.get('/api/history/models', verifyJwt, async (req, res) => {
+// GET *and* POST. The browser's only helper for calling a function is
+// base44Client's `invoke`, which always POSTs — so a GET-only route is
+// UNREACHABLE from the app, which is exactly how it shipped: Amr opened the
+// model dropdown, it was disabled, and the reason was a 404 nobody saw because
+// the client swallows the failure into an empty list.
+//
+// Sixth time today that "built and deployed" meant "unreachable". The read is
+// genuinely a GET, so both verbs are registered rather than pretending it is
+// a write.
+app.all(['/api/history/models'], verifyJwt, async (req, res, next) => {
+  if (req.method !== 'GET' && req.method !== 'POST') return next();
   if (!dbReady()) return res.status(503).json({ error: 'Database not configured.' });
   try {
-    const type = req.query.type === 'video' ? 'video' : req.query.type === 'image' ? 'image' : null;
+    const asked = req.query.type || req.body?.type;
+    const type = asked === 'video' ? 'video' : asked === 'image' ? 'image' : null;
     const { rows } = await pool.query(MODELS_USED_SQL, [req.user.id, type]);
     res.json({ models: rows.map((r) => r.model).filter(Boolean) });
   } catch (e) {
@@ -3439,7 +3450,8 @@ app.get('/api/history/models', verifyJwt, async (req, res) => {
 // The customer's own half of the recovery window, so the ordinary mistake
 // never reaches Amr at all. His Recovery tab stays for the cases that need
 // him: a closed account, a bulk mistake, somebody who cannot find it.
-app.get('/api/history/deleted', verifyJwt, async (req, res) => {
+app.all(['/api/history/deleted'], verifyJwt, async (req, res, next) => {
+  if (req.method !== 'GET' && req.method !== 'POST') return next();
   if (!dbReady()) return res.status(503).json({ error: 'Database not configured.' });
   try {
     const { rows } = await pool.query(
