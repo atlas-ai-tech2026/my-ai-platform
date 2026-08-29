@@ -19,6 +19,7 @@
 import pg from 'pg';
 import { COSTING_SEED as COSTING_MODELS_SEED, SEED_PLANS as COSTING_PLANS_SEED } from './costing-seed.js';
 import { SLOW_IMAGE_DDL } from './slow-image.js';
+import { SOFT_DELETE_DDL } from './soft-delete.js';
 import dotenv from 'dotenv';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -1056,6 +1057,15 @@ export async function migrate() {
     // Serves the per-model reliability rollup: label + status, newest window.
     await client.query(`CREATE INDEX IF NOT EXISTS pending_video_charges_label_idx
       ON pending_video_charges (model_label, created_at DESC) WHERE model_label IS NOT NULL;`);
+
+    // ─── deleted_at on entities (2026-08-28) ────────────────────────
+    // Deleting a picture used to remove the row outright: a customer who
+    // deleted by mistake had lost it, and nobody could help them. Amr approved
+    // a 30-day recovery window, so history is now marked rather than removed.
+    //
+    // Nullable, no default: every existing row becomes "not deleted" the
+    // moment this lands, and not one of them is touched.
+    await client.query(SOFT_DELETE_DDL);
 
     // ─── pending_image_jobs (2026-08-28) ────────────────────────────
     // Images that finish AFTER we stop waiting. The synchronous poll gives up

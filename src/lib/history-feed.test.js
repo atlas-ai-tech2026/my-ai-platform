@@ -82,7 +82,11 @@ describe('loading a library', () => {
     const fetchPage = vi.fn()
       .mockResolvedValueOnce(rows(60))
       .mockResolvedValueOnce(rows(5, 60));
-    const { result } = renderHook(() => useHistoryFeed({ fetchPage, map: (r) => r }));
+    // pagesAhead: 0 — this test is about the MANUAL loadMore. Loading ahead is
+    // tested separately below; leaving it on here would fetch page two before
+    // loadMore was ever called and the assertion would be measuring the wrong
+    // thing.
+    const { result } = renderHook(() => useHistoryFeed({ fetchPage, map: (r) => r, pagesAhead: 0 }));
 
     await waitFor(() => expect(result.current.hasMore).toBe(true));
     act(() => result.current.loadMore());
@@ -111,7 +115,7 @@ describe('the ways this could lose somebody their work', () => {
     const fetchPage = vi.fn()
       .mockResolvedValueOnce(rows(60))
       .mockRejectedValueOnce(new Error('Network is down'));
-    const { result } = renderHook(() => useHistoryFeed({ fetchPage, map: (r) => r }));
+    const { result } = renderHook(() => useHistoryFeed({ fetchPage, map: (r) => r, pagesAhead: 0 }));
 
     await waitFor(() => expect(result.current.hasMore).toBe(true));
     act(() => result.current.loadMore());
@@ -144,5 +148,72 @@ describe('the ways this could lose somebody their work', () => {
       useHistoryFeed({ fetchPage, map: (r) => r, enabled: false }));
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(fetchPage).not.toHaveBeenCalled();
+  });
+});
+
+
+// ─── LOADING AHEAD (2026-08-28) ─────────────────────────────────────────────
+// Amr's idea: load a little immediately, then keep fetching quietly so
+// scrolling never stops at a "Loading…". The danger is obvious and is what the
+// old code did — pulling the ENTIRE library on every page load, fifteen round
+// trips before the grid was usable. So this is BOUNDED, and these tests are
+// mostly about the bound holding.
+describe('loading ahead of the scroll', () => {
+  it('fetches the next pages without being asked', async () => {
+    const fetchPage = vi.fn()
+      .mockResolvedValueOnce(rows(60))
+      .mockResolvedValueOnce(rows(60, 60))
+      .mockResolvedValueOnce(rows(60, 120))
+      .mockResolvedValue(rows(60, 180));
+    const { result } = renderHook(() => useHistoryFeed({ fetchPage, map: (r) => r }));
+
+    await waitFor(() => expect(result.current.items).toHaveLength(180));
+    expect(fetchPage).toHaveBeenCalledTimes(3);
+  });
+
+  it('STOPS at the bound — it does not download the whole library', async () => {
+    // The failure this whole change was made to remove.
+    const fetchPage = vi.fn().mockImplementation((limit, offset) => Promise.resolve(rows(60, offset)));
+    const { result } = renderHook(() => useHistoryFeed({ fetchPage, map: (r) => r }));
+
+    await waitFor(() => expect(result.current.items).toHaveLength(180));
+    await new Promise((r) => setTimeout(r, 60));
+    expect(fetchPage, 'it kept going past the bound').toHaveBeenCalledTimes(3);
+  });
+
+  it('a short first page ends it — nothing is fetched past the end', async () => {
+    const fetchPage = vi.fn().mockResolvedValueOnce(rows(12));
+    const { result } = renderHook(() => useHistoryFeed({ fetchPage, map: (r) => r }));
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    await new Promise((r) => setTimeout(r, 60));
+    expect(fetchPage).toHaveBeenCalledTimes(1);
+  });
+
+  it('a FAILED page is not retried forever in the background', async () => {
+    // Otherwise a server that has already said no gets hammered by a loop
+    // nobody can see, with no user action driving it.
+    const fetchPage = vi.fn()
+      .mockResolvedValueOnce(rows(60))
+      .mockRejectedValue(new Error('Network is down'));
+    const { result } = renderHook(() => useHistoryFeed({ fetchPage, map: (r) => r }));
+
+    await waitFor(() => expect(result.current.error).toMatch(/Network is down/));
+    const calls = fetchPage.mock.calls.length;
+    await new Promise((r) => setTimeout(r, 80));
+    expect(fetchPage.mock.calls.length, 'it kept retrying a failed page').toBe(calls);
+    expect(result.current.items, 'the loaded page was thrown away').toHaveLength(60);
+  });
+
+  it('starts again from zero when the account changes', async () => {
+    const fetchPage = vi.fn().mockImplementation((limit, offset) => Promise.resolve(rows(60, offset)));
+    const { result, rerender } = renderHook(
+      ({ k }) => useHistoryFeed({ fetchPage, map: (r) => r, resetKey: k }),
+      { initialProps: { k: 'user-1' } });
+
+    await waitFor(() => expect(result.current.items).toHaveLength(180));
+    fetchPage.mockClear();
+    rerender({ k: 'user-2' });
+    await waitFor(() => expect(fetchPage).toHaveBeenCalledTimes(3));
   });
 });

@@ -15,11 +15,12 @@ import jwt from 'jsonwebtoken';
 import { pool, isReady as dbReady, migrate, ADMIN_EMAIL } from './db.js';
 import { persistOrFallback, persistBuffer, isReady as spacesReady, uploadPrivate, listKeys, deleteKey,
          listAllMedia, readObject, primaryObjectExists, cdnifyDeep, mediaCdnBase,
-         ensureMediaCors, uploadPublicAt, objectSize, persistWithThumb } from './storage.js';
+         ensureMediaCors, uploadPublicAt, objectSize, persistWithThumb , keyFromUrl } from './storage.js';
 import { installModel, modelReady, MODEL_PREFIX } from './whisper-model.js';
 import { SURVEY_SQL, surveyRows } from './thumbnail-survey.js';
 import { SET_THUMB_SQL, backfillRows } from './thumbnail-backfill.js';
 import { RESCUE_SQL, RESCUE_QUEUE_SQL, rescueRows } from './media-rescue.js';
+import { buildSearch, MODELS_USED_SQL, toGridItem } from './history-search.js';
 import { RECORD_SQL, CLAIM_SQL, GIVE_UP_SQL, TOUCH_SQL, DUE_SQL, OWNS_SQL,
          sweepJobs, historyRowFor } from './slow-image.js';
 // The resizer the backfill already uses. Imported here so BOTH the button
@@ -27,6 +28,8 @@ import { RECORD_SQL, CLAIM_SQL, GIVE_UP_SQL, TOUCH_SQL, DUE_SQL, OWNS_SQL,
 // the grid would show two different sizes of "small".
 import { makeThumbnail } from './thumbnail-backfill.js';
 import { SCALE_SQL, SAMPLE_SQL, summariseScale } from './thumbnail-scale.js';
+import { DELETE_SQL as SOFT_DELETE_SQL, RESTORE_OWN_SQL, RECOVERABLE_SQL,
+         DUE_FOR_PURGE_SQL, PURGE_ROW_SQL, purgeRows, daysLeft, RECOVERY_DAYS } from './soft-delete.js';
 import { RECORD_SQL as SYNC_OK_SQL, READ_SQL as SYNC_READ_SQL, SYNC_FLAG,
          judgeSyncHeartbeat, syncStaleAlert } from './sync-heartbeat.js';
 import { headSize } from './thumbnail-survey.js';
@@ -3272,7 +3275,11 @@ app.post('/api/entities/:name/filter', verifyJwt, async (req, res) => {
   try {
     const { query, sort, limit, offset } = req.body || {};
     const params = [req.user.id, req.params.name];
-    let where = `user_id = $1 AND name = $2`;
+    // A deleted picture must stop appearing the moment it is deleted. This
+    // filter is the entire difference between "deleted" and "still there but
+    // we called it deleted" — see soft-delete.js, and the guard test that
+    // scans every read for it.
+    let where = `user_id = $1 AND name = $2 AND deleted_at IS NULL`;
     if (query && typeof query === 'object' && Object.keys(query).length) {
       params.push(JSON.stringify(query));
       where += ` AND data @> $${params.length}::jsonb`;
@@ -3294,7 +3301,7 @@ app.get('/api/entities/:name', verifyJwt, async (req, res) => {
   if (!dbReady()) return res.status(503).json({ error: 'Database not configured.' });
   try {
     const params = [req.user.id, req.params.name, clampLimit(req.query.limit), clampOffset(req.query.offset)];
-    const sql = `SELECT * FROM entities WHERE user_id = $1 AND name = $2 ${sortClause(req.query.sort)} LIMIT $3 OFFSET $4`;
+    const sql = `SELECT * FROM entities WHERE user_id = $1 AND name = $2 AND deleted_at IS NULL ${sortClause(req.query.sort)} LIMIT $3 OFFSET $4`;
     const { rows } = await pool.query(sql, params);
     res.json(rows.map(rowToItem));
   } catch (e) {
@@ -3354,6 +3361,20 @@ app.put('/api/entities/:name/:id', verifyJwt, requireNotBanned, async (req, res)
 app.delete('/api/entities/:name/:id', verifyJwt, async (req, res) => {
   if (!dbReady()) return res.status(503).json({ error: 'Database not configured.' });
   try {
+    // ── HISTORY IS SOFT-DELETED (2026-08-28) ──
+    // Until now this route removed the row outright, so a customer who deleted
+    // a picture lost it, permanently, with no way for anyone to help them.
+    // Amr approved a 30-day recovery window, and the confirmation the customer
+    // reads promises exactly that — so history goes to `deleted_at` and the
+    // purge collects it a month later.
+    //
+    // Everything else — node spaces, drafts — is still removed outright.
+    // Those are the customer's own working documents, not their paid-for work.
+    if (req.params.name === 'GenerationHistory') {
+      const { rowCount } = await pool.query(SOFT_DELETE_SQL, [[req.params.id], req.user.id]);
+      if (rowCount === 0) return res.status(404).json({ error: 'Not found' });
+      return res.json({ success: true, recoverable_days: RECOVERY_DAYS });
+    }
     const { rowCount } = await pool.query(
       `DELETE FROM entities WHERE id = $1 AND user_id = $2 AND name = $3`,
       [req.params.id, req.user.id, req.params.name]
@@ -3363,6 +3384,165 @@ app.delete('/api/entities/:name/:id', verifyJwt, async (req, res) => {
   } catch (e) {
     console.error('[entities:delete] error:', e.message);
     res.status(500).json({ error: 'Delete failed.' });
+  }
+});
+
+// ─── SEARCHING YOUR OWN HISTORY (2026-08-28) ───────────────────────
+// Words, date, model. Amr's request, and the right one: the grid was already
+// paged and lazy, so the remaining pain was never loading — it was FINDING.
+// There was no search of any kind. A customer with 349 pictures looking for
+// last Tuesday's work had exactly one option: scroll.
+//
+// The scoping is not in this route. buildSearch REFUSES to produce SQL without
+// a user, so a bug here cannot widen it — see history-search.js.
+app.post('/api/history/search', verifyJwt, requireNotBanned, async (req, res) => {
+  if (!dbReady()) return res.status(503).json({ error: 'Database not configured.' });
+  const b = req.body || {};
+  try {
+    const q = buildSearch({
+      userId: req.user.id,
+      type: b.type === 'video' ? 'video' : b.type === 'image' ? 'image' : null,
+      text: b.text, from: b.from || null, to: b.to || null,
+      models: Array.isArray(b.models) ? b.models.slice(0, 40) : null,
+      savedOnly: b.saved === true,
+      limit: b.limit, offset: b.offset,
+    });
+    // The count runs alongside, not after: the customer needs "128 pictures"
+    // at the same moment as the first 30, or the number arrives too late to
+    // tell them whether their search was too narrow.
+    const [page, total] = await Promise.all([
+      pool.query(q.sql, q.params),
+      pool.query(q.countSql, q.countParams),
+    ]);
+    res.json({ items: page.rows.map(toGridItem), total: total.rows[0]?.total ?? 0 });
+  } catch (e) {
+    console.error('[history:search] failed:', e.message);
+    res.status(500).json({ error: 'Search failed.' });
+  }
+});
+
+// Just the ids that match, for "Select all 128".
+//
+// ── WHY THIS EXISTS AT ALL ─────────────────────────────────────────────────
+// Bulk delete takes IDS, never a filter — re-running a filter on the server
+// could match a DIFFERENT set by the time the request lands, and the customer
+// would have confirmed a number that was no longer true.
+//
+// But the browser only holds the 60 rows it has loaded. Without this, "Select
+// all 128" would silently mean "all 60 you can see", the customer would press
+// delete expecting everything, and two thirds would quietly survive. So the
+// ids come down first, and the delete still sends exactly what was counted.
+//
+// Capped, and the cap is REPORTED rather than silently applied — a truncated
+// selection that says nothing is the same lie in a different place.
+app.post('/api/history/search/ids', verifyJwt, requireNotBanned, async (req, res) => {
+  if (!dbReady()) return res.status(503).json({ error: 'Database not configured.' });
+  const b = req.body || {};
+  const CAP = 500;
+  try {
+    const q = buildSearch({
+      userId: req.user.id,
+      type: b.type === 'video' ? 'video' : b.type === 'image' ? 'image' : null,
+      text: b.text, from: b.from || null, to: b.to || null,
+      models: Array.isArray(b.models) ? b.models.slice(0, 40) : null,
+      savedOnly: b.saved === true,
+      limit: 1, offset: 0,
+    });
+    // Reuse the search's WHERE so the ids can never describe a different set
+    // than the count and the grid did.
+    const where = q.countSql.slice(q.countSql.indexOf('WHERE'));
+    const { rows } = await pool.query(
+      `SELECT id FROM entities ${where} ORDER BY created_date DESC LIMIT ${CAP + 1}`, q.countParams);
+    const ids = rows.slice(0, CAP).map((r) => r.id);
+    res.json({ ids, capped: rows.length > CAP, cap: CAP });
+  } catch (e) {
+    console.error('[history:ids] failed:', e.message);
+    res.status(500).json({ error: 'Could not select everything.' });
+  }
+});
+
+// The models THIS customer has used — not all 28. Offering models they have
+// never touched, most returning nothing, makes the filter feel broken.
+// GET *and* POST. The browser's only helper for calling a function is
+// base44Client's `invoke`, which always POSTs — so a GET-only route is
+// UNREACHABLE from the app, which is exactly how it shipped: Amr opened the
+// model dropdown, it was disabled, and the reason was a 404 nobody saw because
+// the client swallows the failure into an empty list.
+//
+// Sixth time today that "built and deployed" meant "unreachable". The read is
+// genuinely a GET, so both verbs are registered rather than pretending it is
+// a write.
+app.all(['/api/history/models'], verifyJwt, async (req, res, next) => {
+  if (req.method !== 'GET' && req.method !== 'POST') return next();
+  if (!dbReady()) return res.status(503).json({ error: 'Database not configured.' });
+  try {
+    const asked = req.query.type || req.body?.type;
+    const type = asked === 'video' ? 'video' : asked === 'image' ? 'image' : null;
+    const { rows } = await pool.query(MODELS_USED_SQL, [req.user.id, type]);
+    res.json({ models: rows.map((r) => r.model).filter(Boolean) });
+  } catch (e) {
+    console.error('[history:models] failed:', e.message);
+    res.status(500).json({ error: 'Could not load the model list.' });
+  }
+});
+
+// ─── RECENTLY DELETED (2026-08-28) ─────────────────────────────────
+// The customer's own half of the recovery window, so the ordinary mistake
+// never reaches Amr at all. His Recovery tab stays for the cases that need
+// him: a closed account, a bulk mistake, somebody who cannot find it.
+app.all(['/api/history/deleted'], verifyJwt, async (req, res, next) => {
+  if (req.method !== 'GET' && req.method !== 'POST') return next();
+  if (!dbReady()) return res.status(503).json({ error: 'Database not configured.' });
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, deleted_at, data->>'type' AS type, data->>'model' AS model,
+              data->>'thumb_url' AS thumb_url, data->>'result_url' AS result_url,
+              left(COALESCE(data->>'prompt',''), 160) AS prompt
+         FROM entities
+        WHERE user_id = $1 AND name = 'GenerationHistory'
+          AND deleted_at IS NOT NULL
+          AND deleted_at > NOW() - INTERVAL '${RECOVERY_DAYS} days'
+        ORDER BY deleted_at DESC LIMIT 120`, [req.user.id]);
+    res.json({
+      items: rows.map((r) => ({ ...r, days_left: daysLeft(r.deleted_at) })),
+      recovery_days: RECOVERY_DAYS,
+    });
+  } catch (e) {
+    console.error('[history:deleted] failed:', e.message);
+    res.status(500).json({ error: 'Could not load recently deleted.' });
+  }
+});
+
+app.post('/api/history/restore', verifyJwt, requireNotBanned, async (req, res) => {
+  if (!dbReady()) return res.status(503).json({ error: 'Database not configured.' });
+  const ids = Array.isArray(req.body?.ids) ? req.body.ids.slice(0, 500) : [];
+  if (!ids.length) return res.status(400).json({ error: 'Nothing to restore.' });
+  try {
+    const { rows } = await pool.query(RESTORE_OWN_SQL, [ids, req.user.id]);
+    // Says how many, not just "ok". Asking for 40 and getting 38 back is a
+    // fact the customer needs — the other two aged out.
+    res.json({ restored: rows.length, asked: ids.length });
+  } catch (e) {
+    console.error('[history:restore] failed:', e.message);
+    res.status(500).json({ error: 'Could not restore.' });
+  }
+});
+
+// Bulk delete. Ids only — NEVER "everything matching this filter" evaluated on
+// the server. The browser sends exactly what it counted and showed; a filter
+// re-run here could match a different set by the time it arrives, and the
+// customer would have confirmed a number that was no longer true.
+app.post('/api/history/delete', verifyJwt, requireNotBanned, async (req, res) => {
+  if (!dbReady()) return res.status(503).json({ error: 'Database not configured.' });
+  const ids = Array.isArray(req.body?.ids) ? req.body.ids.slice(0, 500) : [];
+  if (!ids.length) return res.status(400).json({ error: 'Nothing to delete.' });
+  try {
+    const { rows } = await pool.query(SOFT_DELETE_SQL, [ids, req.user.id]);
+    console.log(`[history:delete] user=${req.user.id} deleted ${rows.length} of ${ids.length}`);
+    res.json({ deleted: rows.length, asked: ids.length, recoverable_days: RECOVERY_DAYS });
+  } catch (e) {
+    console.error('[history:delete] failed:', e.message);
+    res.status(500).json({ error: 'Could not delete.' });
   }
 });
 
@@ -7645,6 +7825,55 @@ async function videoJobVerdict(row) {
   return { verdict: 'pending', reason: `fal-status:${status.status || 'none'}` };
 }
 
+// ─── THE 30-DAY PURGE (2026-08-28) ─────────────────────────────────
+// Without this, "after 30 days it is permanently deleted" is not true — the
+// row would sit marked forever and the file would sit with it. A retention
+// promise nobody keeps is worse than no promise, and Amr is about to put this
+// period into his B2B legal documents.
+//
+// ROW FIRST, THEN THE FILE. If the file survives, the result is an orphan
+// costing pennies that nobody can reach. The other order leaves a row that
+// still LOOKS recoverable while its picture is gone — and restoring it would
+// tell the customer their work is back when it is not. The safe failure is
+// the waste, so that is the one this chooses. See soft-delete.js.
+//
+// Daily, and capped per run. There is no hurry: a row one day past its window
+// is no more urgent than one an hour past it, and a slow purge cannot look
+// like an attack on our own bucket.
+async function purgeExpiredDeletions() {
+  if (!dbReady()) return;
+  const { rows } = await pool.query(DUE_FOR_PURGE_SQL, [200]);
+  if (!rows.length) return;
+
+  const report = await purgeRows(rows, {
+    dropRow: async (id) => (await pool.query(PURGE_ROW_SQL, [id])).rowCount,
+    dropFile: async (url) => {
+      // NULL for anything not ours — a provider link left by a failed re-host,
+      // someone else's host. Nothing to delete, and guessing a key here would
+      // delete the wrong object with no undo beneath it.
+      const key = keyFromUrl(url);
+      if (!key || !spacesReady()) return;
+      await deleteKey(key);
+    },
+  });
+
+  console.log(`[purge] ${report.purged} of ${report.considered} removed for good, `
+    + `${report.filesRemoved} file(s) deleted`
+    + (report.problems.length
+      ? ` · ${report.problems.length} problem(s): ${report.problems.slice(0, 3)
+        .map((x) => `${x.id}: ${x.why}`).join('; ')}`
+      : ''));
+}
+
+function schedulePurge() {
+  const run = () => purgeExpiredDeletions().catch((e) =>
+    console.error('[purge] pass failed:', e.message));
+  // Ten minutes after boot rather than immediately: a deploy should not begin
+  // by deleting things while the process is still warming up.
+  setTimeout(run, 10 * 60 * 1000).unref?.();
+  setInterval(run, 24 * 60 * 60 * 1000).unref?.();
+}
+
 function scheduleVideoChargeReconcile() {
   const run = () => reconcilePendingCharges(videoJobVerdict).catch((e) =>
     console.error('[video-reconcile] pass failed:', e.message));
@@ -7817,6 +8046,9 @@ migrate()
     // because a customer waiting two minutes for a picture should not have to
     // wait an hour to find out it arrived.
     scheduleSlowImageSweep();
+    // Makes "after 30 days it is permanently deleted" true. Nothing else in
+    // the app removes a deleted row or its file.
+    schedulePurge();
     // Credit lots (owner's rule, 2026-08-25): date every existing balance
     // from the ledger once — harmless, touches no balances — then sweep
     // hourly. The sweep takes nothing until the owner activates the rule

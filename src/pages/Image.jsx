@@ -8,6 +8,13 @@ import { uploadAllToFal } from '@/lib/uploadToFal';
 import { getImageCredits } from '@/lib/creditPricing';
 import { downloadViaApi } from '@/lib/downloadFile';
 import { waitForImage, waitedLabel } from '@/lib/wait-for-image';
+import HistoryFilterBar, { EMPTY as EMPTY_FILTER, toQuery, isFiltering } from '@/components/history/HistoryFilterBar';
+import SelectionBar from '@/components/history/SelectionBar';
+import RecentlyDeleted from '@/components/history/RecentlyDeleted';
+import {
+  emptySelection, setMode, toggle as toggleSel, selectAll, clear as clearSel,
+  isSelected, afterDelete,
+} from '@/lib/history-selection';
 
 const STYLE_SUFFIXES = {
   Cinematic:    ', cinematic color grading, anamorphic lens flare, film grain, dramatic lighting, movie still',
@@ -292,6 +299,24 @@ export default function Image() {
   // separate from the error state on purpose: this is NOT a failure, and the
   // whole bug was slow images being announced as failed ones.
   const [slowNote, setSlowNote] = useState('');
+  // The filter bar. `filterRef` exists because the feed holds onto fetchPage
+  // and would otherwise search with whatever the filter was when the callback
+  // was created — the classic stale-closure bug, and here it would show the
+  // customer results for a search they had already changed.
+  const [filter, setFilter] = useState(EMPTY_FILTER);
+  const [matchTotal, setMatchTotal] = useState(null);
+  const [myModels, setMyModels] = useState([]);
+  const filterRef = useRef(filter);
+  filterRef.current = filter;
+  const [selection, setSelection] = useState(emptySelection());
+  const [selBusy, setSelBusy] = useState(false);
+  const [undo, setUndo] = useState(null);
+  // Recently deleted — its own small feed. Not part of useHistoryFeed: it is a
+  // short, complete list (120 max, 30 days), not something you page through.
+  const [binItems, setBinItems] = useState(null);
+  const [binErr, setBinErr] = useState(null);
+  const [binSel, setBinSel] = useState([]);
+  const [binNonce, setBinNonce] = useState(0);
   const isGenerating = pending > 0;
   const [imageCount, setImageCount] = useState(1);
   const [expandedImage, setExpandedImage] = useState(null);
@@ -349,13 +374,28 @@ export default function Image() {
   // out then back in re-fetches rather than showing the previous account's
   // rows — and a page still in flight for the old account never lands.
   const historyFeed = useHistoryFeed({
-    fetchPage: useCallback(
-      (limit, offset) => History_.filter({ type: 'image' }, '-created_date', limit, offset),
-      [],
-    ),
+    fetchPage: useCallback(async (limit, offset) => {
+      // No filter means the ORDINARY feed — not a search with empty terms.
+      // Two code paths for the same pictures could disagree with each other,
+      // and the unfiltered case is the one every customer sees every day.
+      if (!isFiltering(filterRef.current)) {
+        if (offset === 0) setMatchTotal(null);
+        return History_.filter({ type: 'image' }, '-created_date', limit, offset);
+      }
+      const r = await base44.functions.invoke('history/search', {
+        ...toQuery(filterRef.current, { type: 'image' }), limit, offset,
+      });
+      // The count comes back with the FIRST page and is the total that
+      // matched, not what fits on screen — the only way to tell "too narrow"
+      // from "not there" in a grid that loads as you scroll.
+      if (offset === 0) setMatchTotal(r.data?.total ?? 0);
+      return r.data?.items || [];
+    }, []),
     map: mapRecord,
     enabled: signedIn,
-    resetKey: user?.id,
+    // The filter is part of the key, so changing it restarts the feed from
+    // page one rather than appending new results underneath the old ones.
+    resetKey: `${user?.id || ''}|${filter.text}|${filter.preset}|${filter.model}`,
   });
 
   // THE SAVED TAB ASKS THE SERVER, and this is the whole reason the change is
@@ -372,6 +412,102 @@ export default function Image() {
     enabled: signedIn && activeTab === 'saved',
     resetKey: user?.id,
   });
+
+  // Their models, not all 28. Loaded once per account; a failure here leaves
+  // the dropdown disabled rather than breaking the page — the filter is a
+  // convenience and must never be able to take the history down with it.
+  useEffect(() => {
+    if (!signedIn) { setMyModels([]); return; }
+    let alive = true;
+    base44.functions.invoke('history/models', {})
+      .then((r) => { if (alive) setMyModels(r.data?.models || []); })
+      .catch(() => { if (alive) setMyModels([]); });
+    return () => { alive = false; };
+  }, [signedIn, user?.id]);
+
+  // ── DELETE ──
+  // Ids go to the server, never a filter. Re-running a filter there could
+  // match a DIFFERENT set by the time it lands, and the customer would have
+  // confirmed a number that was no longer true.
+  const doSelectAll = async () => {
+    setSelBusy(true);
+    try {
+      if (!isFiltering(filter)) {
+        // Nothing is narrowed, so "all" is what is loaded. Selecting the whole
+        // history without a filter is not something to make easy.
+        setSelection((s0) => selectAll(s0, historyFeed.items.map((i) => i.id)));
+      } else {
+        const r = await base44.functions.invoke('history/search/ids', toQuery(filter, { type: 'image' }));
+        setSelection((s0) => selectAll(s0, r.data?.ids || []));
+        // A silent cap is the same lie in a different place.
+        if (r.data?.capped) toast.info(`Selected the first ${r.data.cap}. Delete those, then select again.`);
+      }
+    } catch { toast.error('Could not select everything — try again.'); }
+    finally { setSelBusy(false); }
+  };
+
+  const doDelete = async () => {
+    const ids = selection.ids;
+    if (!ids.length) return;
+    setSelBusy(true);
+    try {
+      const r = await base44.functions.invoke('history/delete', { ids });
+      const deleted = r.data?.deleted || 0;
+      // Removed from view immediately — a delete that leaves the pictures on
+      // screen reads as broken, whatever the server did.
+      setImages((prev) => prev.filter((i) => !ids.includes(i.id)));
+      setSelection(emptySelection());
+      setUndo({ message: afterDelete({ deleted, asked: ids.length }), canUndo: deleted > 0, ids });
+    } catch (e) {
+      toast.error(e?.message || 'Could not delete — nothing was changed.');
+    } finally { setSelBusy(false); }
+  };
+
+  const doUndo = async () => {
+    if (!undo?.ids?.length) return;
+    setSelBusy(true);
+    try {
+      const r = await base44.functions.invoke('history/restore', { ids: undo.ids });
+      const back = r.data?.restored || 0;
+      setUndo(null);
+      toast.success(back === 1 ? '1 picture restored' : `${back} pictures restored`);
+      // Reload rather than splicing them back: their position depends on the
+      // sort and the filter, and guessing where they go would put a picture in
+      // the wrong place in somebody's own history.
+      setFilter((f) => ({ ...f }));
+    } catch (e) {
+      toast.error(e?.message || 'Could not restore — they are still in Recently deleted.');
+    } finally { setSelBusy(false); }
+  };
+
+  useEffect(() => {
+    if (activeTab !== 'deleted' || !signedIn) return;
+    let alive = true;
+    setBinItems(null); setBinErr(null);
+    base44.functions.invoke('history/deleted', {})
+      .then((r) => { if (alive) setBinItems(r.data?.items || []); })
+      // An error here must NOT render as an empty bin — "nothing to recover"
+      // and "I could not look" are indistinguishable to the person reading,
+      // and only one of them is good news.
+      .catch((e) => { if (alive) setBinErr(e?.message || 'Could not load.'); });
+    return () => { alive = false; };
+  }, [activeTab, signedIn, user?.id, binNonce]);
+
+  const restoreFromBin = async () => {
+    if (!binSel.length) return;
+    setSelBusy(true);
+    try {
+      const r = await base44.functions.invoke('history/restore', { ids: binSel });
+      const back = r.data?.restored || 0;
+      toast.success(back === 1 ? '1 picture restored' : `${back} pictures restored`);
+      setBinSel([]);
+      setBinNonce((n) => n + 1);
+      // The history feed is now stale by exactly the rows just restored.
+      setFilter((f) => ({ ...f }));
+    } catch (e) {
+      toast.error(e?.message || 'Could not restore — they are still here.');
+    } finally { setSelBusy(false); }
+  };
 
   const images = historyFeed.items;
   const setImages = historyFeed.setItems;
@@ -707,7 +843,7 @@ export default function Image() {
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          {['history', 'saved', 'community'].map(tab => (
+          {['history', 'saved', 'deleted', 'community'].map(tab => (
             <button key={tab} onClick={() => setActiveTab(tab)} style={{
               padding: '7px 14px', fontSize: 12, fontWeight: 500, borderRadius: 999,
               background: activeTab === tab ? 'rgba(255,255,255,0.1)' : 'rgba(255,255,255,0.04)',
@@ -721,7 +857,7 @@ export default function Image() {
               {tab === 'history' && <History style={{ width: 12, height: 12 }} />}
               {tab === 'saved' && <Heart style={{ width: 12, height: 12 }} />}
               {tab === 'community' && <Globe style={{ width: 12, height: 12 }} />}
-              {tab}
+              {tab === 'deleted' ? 'Recently deleted' : tab}
             </button>
           ))}
         </div>
@@ -731,6 +867,52 @@ export default function Image() {
           content so overflowY actually scrolls; paddingBottom clears the
           fixed prompt bar (bottom:28 + ~204px tall) so the last row shows. */}
       <div style={{ position: 'relative', zIndex: 2, flex: 1, minHeight: 0, overflowY: 'auto', paddingBottom: 248 }}>
+
+        {/* Search your own work. Only on the history tab — the Saved tab is a
+            different server query, and a search box that silently did nothing
+            there would be worse than no search box. */}
+        {activeTab === 'history' && signedIn && (
+          <div style={{ paddingTop: 14 }}>
+            <HistoryFilterBar
+              value={filter}
+              onChange={setFilter}
+              models={myModels}
+              total={isFiltering(filter) ? matchTotal : null}
+              loading={historyFeed.loading && isFiltering(filter)}
+              selecting={selection.on}
+              onSelectMode={() => setSelection((s0) => setMode(s0, !s0.on))}
+            />
+            <SelectionBar
+              selection={selection}
+              filter={filter}
+              total={isFiltering(filter) ? matchTotal : null}
+              loaded={images.length}
+              busy={selBusy}
+              undo={undo}
+              onSelectAll={doSelectAll}
+              onClear={() => setSelection(clearSel)}
+              onDelete={doDelete}
+              onUndo={doUndo}
+              onDismissUndo={() => setUndo(null)}
+            />
+          </div>
+        )}
+
+        {/* THE MOST IMPORTANT SENTENCE ON THIS PAGE.
+            A customer who filters to nothing must never suspect their work was
+            deleted. That fear is the single biggest risk in adding a filter,
+            and it costs one line to remove. */}
+        {activeTab === 'history' && isFiltering(filter)
+          && !historyFeed.loading && images.length === 0 && (
+          <div style={{
+            margin: '4px 28px 0', padding: '14px 16px', borderRadius: 10,
+            border: '1px solid rgba(255,255,255,0.10)', background: 'rgba(255,255,255,0.04)',
+            color: 'rgba(255,255,255,0.72)', fontFamily: font, fontSize: 13, lineHeight: 1.6,
+          }}>
+            Nothing matches that. <strong style={{ color: '#FFF' }}>Your older work is still here</strong>
+            {' '}— widen the date, or clear the search.
+          </div>
+        )}
 
         {/* A handed-off image, still finishing. Deliberately NOT styled like an
             error: the whole bug being fixed here was a slow image being
@@ -746,9 +928,28 @@ export default function Image() {
           </div>
         )}
 
+        {/* Recently deleted — the screen the delete confirmation points at.
+            Its own panel rather than the shared grid: these are not pictures
+            you scroll through, they are decisions with a clock on them. */}
+        {activeTab === 'deleted' && signedIn && (
+          <div style={{ paddingTop: 14 }}>
+            <RecentlyDeleted
+              items={binItems}
+              loading={binItems === null && !binErr}
+              error={binErr}
+              busy={selBusy}
+              selected={binSel}
+              onToggle={(id) => setBinSel((v) => (v.includes(id) ? v.filter((x) => x !== id) : [...v, id]))}
+              onRestore={restoreFromBin}
+              onReload={() => setBinNonce((n) => n + 1)}
+            />
+          </div>
+        )}
+
         {/* Masonry grid (always rendered — when empty, only loading cards / nothing) */}
         <div style={{
-          display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 10, padding: '20px 28px 14px'
+          display: activeTab === 'deleted' ? 'none' : 'grid',
+          gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 10, padding: '20px 28px 14px'
         }}>
             {/* Loading cards — one per in-flight image across all batches */}
             {Array.from({ length: pending }).map((_, i) =>
@@ -758,8 +959,29 @@ export default function Image() {
           )}
             {/* Generated images */}
             {displayImages.map((img, i) =>
-          <div key={img.id} style={{ animation: 'imgFadeIn 0.4s ease forwards' }}>
+          <div
+            key={img.id}
+            style={{ animation: 'imgFadeIn 0.4s ease forwards', position: 'relative' }}
+            onClickCapture={selection.on ? (e) => {
+              // Capture, so a tick never also opens the picture. While
+              // selecting, the card's own click is not what the customer means.
+              e.preventDefault(); e.stopPropagation();
+              setSelection((s0) => toggleSel(s0, img.id));
+            } : undefined}
+          >
                 <ImageCard img={img} index={i} onExpand={setDetailImage} onLoaded={() => {}} isFirst={i === 0} modelBadge={selectedModel.badge} />
+                {selection.on && (
+                  <span
+                    aria-hidden="true"
+                    style={{
+                      position: 'absolute', top: 8, left: 8, width: 24, height: 24, borderRadius: 7,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      background: isSelected(selection, img.id) ? '#E01E1E' : 'rgba(0,0,0,0.55)',
+                      border: `1px solid ${isSelected(selection, img.id) ? '#E01E1E' : 'rgba(255,255,255,0.45)'}`,
+                      color: '#FFF', fontSize: 14, fontWeight: 700, pointerEvents: 'none',
+                    }}
+                  >{isSelected(selection, img.id) ? '✓' : ''}</span>
+                )}
               </div>
           )}
         </div>
