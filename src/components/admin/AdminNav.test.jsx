@@ -250,3 +250,30 @@ describe('the ⌘K jump', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 });
+
+describe('Recovery is where a person would look for it', () => {
+  it('sits under Customers, not System', () => {
+    // The fallback puts an ungrouped tab into System so it cannot vanish —
+    // which is right, and is exactly what happened here. But System is where
+    // you look when a MACHINE is wrong; Recovery is opened when a CUSTOMER is
+    // upset, so it belongs beside Users.
+    const grouped = groupTabs([
+      { id: 'users', label: 'Users' },
+      { id: 'recovery', label: 'Recovery' },
+      { id: 'logs', label: 'Logs' },
+    ]);
+    const customers = grouped.find((g) => g.id === 'customers');
+    expect(customers.items.map((i) => i.id)).toContain('recovery');
+    const system = grouped.find((g) => g.id === 'system');
+    expect(system?.items.map((i) => i.id) || []).not.toContain('recovery');
+  });
+
+  it('and comes straight after the two screens it is used alongside', () => {
+    const grouped = groupTabs([
+      { id: 'users', label: 'Users' }, { id: 'audience', label: 'Audience' },
+      { id: 'recovery', label: 'Recovery' }, { id: 'bulk', label: 'Bulk' },
+    ]);
+    const ids = grouped.find((g) => g.id === 'customers').items.map((i) => i.id);
+    expect(ids.indexOf('recovery')).toBe(ids.indexOf('audience') + 1);
+  });
+});
