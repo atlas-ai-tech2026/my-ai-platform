@@ -16,7 +16,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { VIDEO_CREDITS } from './pricing.js';
+import { VIDEO_CREDITS, getVideoCredits } from './pricing.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.join(here, '..', '..');
@@ -88,6 +88,55 @@ describe('Seedance 2.5 is wired everywhere it needs to be', () => {
   it('records in the source that the cost was measured, and how', () => {
     expect(pricingSrc).toMatch(/COSTS ARE MEASURED, NOT ESTIMATED/);
     expect(pricingSrc).toMatch(/reading the kie\n  \/\/ balance either side/);
+  });
+});
+
+// ─── 2026-08-25, owner: "It must be working like Seedance 2.0" ──────────────
+// 2.5 shipped on 2026-08-17 with its card promising "up to 50 multimodal
+// references" — and the UI switch that turns on the reference screen listed
+// only the three 2.0 models, so 2.5 fell back to start/end-frame-only. The
+// reference route would also have BILLED a 2.5 request as 2.0 had one
+// arrived. (The owner also checked kie directly: there is NO separate
+// "Seedance 2.5 Edit" model — editing is a capability of 2.5 itself.)
+describe('Seedance 2.5 carries the full experience its card promises', () => {
+  const videoPageSrc = read('src/pages/Video.jsx');
+  const panelSrc = read('src/components/video/SeedanceLeftPanel.jsx');
+
+  it('joins the Seedance reference UI — the one-line switch that was missing', () => {
+    expect(videoPageSrc).toMatch(/isSeedance2 = [^;]*'seedance-2-5'/s);
+  });
+
+  it('the reference route knows it BY NAME, so it cannot be billed as 2.0', () => {
+    expect(indexSrc).toMatch(/isV25 = model === 'Seedance 2\.5'/);
+    expect(indexSrc).toMatch(/isV25 \? 'Seedance 2\.5'/);
+  });
+
+  it('runs to THIRTY seconds — kie\'s headline for 2.5 — while 2.0 stays at fifteen', () => {
+    expect(indexSrc).toMatch(/Math\.min\(isV25 \? 30 : 15/);
+    expect(panelSrc).toMatch(/DURATIONS_25 = secondsUpTo\(30\)/);
+    expect(panelSrc).toMatch(/DURATIONS_20 = secondsUpTo\(15\)/);
+    expect(modalSrc).toMatch(/id:'seedance-2-5'[^}]*dur:'4-30s'/);
+  });
+
+  it("carries kie's reference caps — 30 images, 10 videos, 10 audio", () => {
+    expect(indexSrc).toMatch(/refImageUrls\.slice\(0, isV25 \? 30 : 9\)/);
+    expect(indexSrc).toMatch(/video_urls\.slice\(0, isV25 \? 10 : 3\)/);
+    expect(indexSrc).toMatch(/audio_urls\.slice\(0, isV25 \? 10 : 3\)/);
+  });
+
+  it('offers 720p AND 1080p on the route, and never 4k (the API field refuses it)', () => {
+    expect(indexSrc).toMatch(/isV25 \? \['480p', '720p', '1080p'\]/);
+  });
+
+  // The owner's instruction, verbatim: before adding the seconds, go to OUR
+  // calculator. These are the calculator's own answers across the new range —
+  // per-second rate × seconds, the same function the C1 charge gate uses. No
+  // per-second RATE changed anywhere; only the reachable seconds grew.
+  it('the calculator prices every new second correctly, to the top of the range', () => {
+    expect(getVideoCredits('Seedance 2.5', { resolution: '1080p', duration: 30, audio: true })).toBe(465);
+    expect(getVideoCredits('Seedance 2.5', { resolution: '720p', duration: 30, audio: false })).toBe(255);
+    expect(getVideoCredits('Seedance 2.5', { resolution: '720p', duration: 13, audio: true })).toBe(110.5);
+    expect(getVideoCredits('Seedance 2.5', { resolution: '480p', duration: 4, audio: false })).toBe(16);
   });
 });
 
