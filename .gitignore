@@ -59,3 +59,4 @@ SPA_REPORT_README.md
 
 # ffmpeg.wasm core — 32MB, generated from node_modules at build time
 public/ffmpeg/
+public/onnx/
