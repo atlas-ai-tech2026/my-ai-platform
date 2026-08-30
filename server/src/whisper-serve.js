@@ -77,6 +77,21 @@ export const typeFor = (key) => (key.endsWith('.json')
   : 'application/octet-stream');
 
 /**
+ * Is this "the file is not there", rather than "storage is broken"?
+ *
+ * S3 reports a missing object several ways depending on whether the caller may
+ * list the bucket: NoSuchKey, NotFound, or a bare 404. All three mean the same
+ * thing here, and all three must read as "not installed" rather than as an
+ * outage — otherwise an environment that simply has not had the model
+ * installed looks like a site that is down.
+ */
+export function isMissing(err) {
+  const status = err?.$metadata?.httpStatusCode;
+  if (status === 404) return true;
+  return /^(NoSuchKey|NotFound)$/.test(err?.name || err?.Code || '');
+}
+
+/**
  * The route body, with its one dependency injected so it is testable without a
  * bucket.
  *
@@ -112,6 +127,21 @@ export async function serveModelFile(rest, { read, res }) {
   try {
     out = await read(key);
   } catch (e) {
+    // ── "NOT THERE" IS NOT A FAILURE ─────────────────────────────────────
+    // The model lives in each environment's OWN bucket, so an environment
+    // that has never had it installed is a NORMAL, expected state — not an
+    // outage. Production was exactly that on 2026-08-30.
+    //
+    // The first version returned 502 for it, and DigitalOcean's edge replaced
+    // that with its own full-page error at 504 — so the control panel's
+    // "not installed, press this" banner would have been correct while the
+    // network tab said the site was broken. An expected condition must never
+    // look like an incident.
+    if (isMissing(e)) {
+      console.log(`[whisper-serve] ${key} is not installed in this environment`);
+      res.status(404).json({ error: 'The speech model is not installed.' });
+      return { served: false, why: 'missing' };
+    }
     console.error(`[whisper-serve] ${key} failed:`, e?.message || e);
     res.status(502).json({ error: 'The speech model could not be read from storage.' });
     return { served: false, why: 'read failed' };
