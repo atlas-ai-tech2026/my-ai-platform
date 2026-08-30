@@ -8213,7 +8213,18 @@ function scheduleMediaSync() {
         } : null,
       });
       if (r.error) console.error(`[media-sync] ${r.error}`);
-      else if (dbReady()) {
+      // ── COPIED IS NOT BACKED UP ────────────────────────────────────────
+      // The heartbeat below is what the SOP screen and the alerts read. It
+      // used to be written whenever the COPY did not throw — so on 2026-08-30
+      // it recorded "healthy" 111 times in a row while every read-back failed,
+      // and the control panel showed a green offsite backup for eleven days.
+      //
+      // A copy nobody has read back is a claim, not a backup. If the
+      // verification failed, no heartbeat: the sync goes stale, the alert
+      // fires, and somebody finds out.
+      else if (r.verifyFailed) {
+        console.error(`[media-sync] NOT recording a healthy pass — ${r.verifyFailed}`);
+      } else if (dbReady()) {
         // ── THE HEARTBEAT (2026-08-28) ──
         // Recorded ONLY on a clean pass. Tonight the sync failed 22 times in a
         // row while the alerts pass said "0 open" every five minutes, because
