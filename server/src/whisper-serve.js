@@ -47,7 +47,24 @@ export function keyForRequest(rest) {
   // membership test. Anything that does not decode is simply not a match.
   let path;
   try { path = decodeURIComponent(rest); } catch { return null; }
-  const key = `${MODEL_PREFIX}/${path.replace(/^\/+/, '')}`;
+  path = path.replace(/^\/+/, '');
+
+  // ── THE MODEL NAME IS PART OF THE URL transformers.js BUILDS ─────────────
+  // It asks for `<remoteHost><model>/<file>`, so the real request is
+  // `/api/speech/model/whisper-tiny/config.json` — not `/config.json`.
+  //
+  // The first version only accepted the bare form, and I "verified" it by
+  // curling that bare form: a URL shape NO CLIENT EVER REQUESTS. Seven green
+  // 200s against a path nothing asks for, while the actual page failed with
+  // "Could not locate file". Amr found it by pressing the button.
+  //
+  // Both forms are accepted now — the bare one because the bucket-relative
+  // path is the natural way to name these files, and the prefixed one because
+  // it is what actually arrives.
+  const name = MODEL_PREFIX.split('/').pop();          // 'whisper-tiny'
+  if (path.startsWith(`${name}/`)) path = path.slice(name.length + 1);
+
+  const key = `${MODEL_PREFIX}/${path}`;
   return SERVABLE.has(key) ? key : null;
 }
 

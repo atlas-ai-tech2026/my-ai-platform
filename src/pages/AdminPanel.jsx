@@ -3,7 +3,7 @@
 //
 // Wired in src/App.jsx. Uses the adminApi client + sonner toasts.
 
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, lazy, Suspense } from 'react';
 import { toast } from 'sonner';
 import { adminApi, ApiError, readCsrfCookie } from '@/lib/adminApi';
 import StatsCards from '@/components/admin/StatsCards';
@@ -104,7 +104,17 @@ const TABS = [
   // Notifications — manual messages + automatic rules, in-app bell only.
   { id: 'notifications', label: 'Notifications',
     desc: 'Messages to customers — one-off announcements and automatic rules such as "credits running low". In-app only for now; email campaigns are deliberately switched off.' },
+  // A measuring instrument, not a feature. Here rather than on a dev-only URL
+  // because production's boxes, production's CDN and a workshop's wifi are the
+  // conditions the answer depends on — a number measured on dev answers a
+  // question nobody asked.
+  { id: 'speech', label: 'Speech lab',
+    desc: 'Deciding whether the microphone should switch to Whisper. Whisper works out which language you are speaking by itself, so nobody has to choose one — the open question is the WAIT after you stop talking, because it transcribes at the end rather than as you speak. Load it once, say a prompt in Arabic or English or both, and it tells you that wait in seconds. Nothing here touches the microphone customers use.' },
 ];
+
+// Lazy on purpose: this tab pulls in ~540 KB of ONNX runtime, and every
+// other screen in the control panel would have paid for it on load.
+const SpeechLabTab = lazy(() => import('@/components/admin/SpeechLabTab'));
 
 export default function AdminPanel() {
   const [tab, setTab] = useState('users');
@@ -342,6 +352,11 @@ export default function AdminPanel() {
         {tab === 'costing' && <CostingTab onError={handleError} />}
         {tab === 'offers' && <OffersTab onError={handleError} />}
         {tab === 'notifications' && <NotificationsTab onError={handleError} />}
+        {tab === 'speech' && (
+          <Suspense fallback={<div style={{ color: 'var(--crm-w50)', fontSize: 13 }}>Loading the speech lab…</div>}>
+            <SpeechLabTab onError={handleError} />
+          </Suspense>
+        )}
 
         {tab === 'users' && (<>
         <StatsCards stats={stats} />
