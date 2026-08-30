@@ -159,8 +159,17 @@ export async function listOffsiteMedia(env = process.env) {
     // throws and its only output is a log line.
     try {
       const { probeOffsite, diagnose, diagnosisLine } = await import('./offsite-diagnose.js');
+      // ── THE PROBE USED THE SICK CLIENT AND REPORTED ITS ILLNESS AS ──
+      // ── BACKBLAZE BEING DOWN. THAT COST THREE NIGHTS. ───────────────
+      // It ran its HEAD through offsiteReader — the very client whose socket
+      // pool was exhausted — so it could only ever come back "unreachable",
+      // and its advice ("their side, or the network between — NOT our listing
+      // code") was exactly backwards. The writer's client was reaching the
+      // same host in the same second.
+      //
+      // A diagnostic must never share the resource it is diagnosing.
       const probe = await probeOffsite({
-        head: (key) => offsiteReader(env).send(new HeadObjectCommand({
+        head: (key) => offsiteClient(env).send(new HeadObjectCommand({
           Bucket: env.OFFSITE_S3_BUCKET.trim(), Key: key,
         })),
       });
@@ -176,16 +185,66 @@ export async function listOffsiteMedia(env = process.env) {
 /**
  * Read a media object back OUT of the offsite bucket.
  *
- * Only the length is used by the verification — it is what proves a copy is
- * complete — but the body comes back too so a future check can compare content
- * rather than size alone.
+ * ── THIS FUNCTION BROKE THE BACKUP VERIFICATION FOR ELEVEN DAYS ────────────
+ * It used to return `{ body: out.Body, … }` — the live response stream, handed
+ * to a caller that only ever read `contentLength`. The comment said the body
+ * came back "so a future check can compare content". That future check never
+ * arrived, and the stream was never read and never destroyed.
+ *
+ * An unread S3 body PINS ITS KEEP-ALIVE SOCKET FOREVER. Three sampled reads
+ * per cycle, four cycles an hour, against an agent with maxSockets: 50 — so
+ * after exactly 16 cycles the pool is full and every later read queues with no
+ * socket and dies with "the request socket did not establish a connection
+ * within the configured timeout of 10000 ms".
+ *
+ * MEASURED ON PRODUCTION 2026-08-31: deploy at 03:04, 16 clean verify cycles
+ * per instance, last success 06:48, first failure 07:03 — and that first
+ * failure is "1 of 3", the 51st socket, not 3 of 3. Then permanent until
+ * restart. Two instances, identical cycle count.
+ *
+ * Three fixes were aimed at the network, at Backblaze, and at upload volume.
+ * It was never any of them: the writer's client kept working throughout,
+ * pushing 200 MiB to the same host in the gaps between "Backblaze could not be
+ * reached at all". A network cannot tell two agents in one process apart.
+ *
+ * ── SO: ONE BYTE, AND THE STREAM IS ALWAYS DESTROYED ───────────────────────
+ * A Range request proves the object is present and fetchable, and the true
+ * size comes from Content-Range — which is what the verification actually
+ * compares. It is also cheaper: the old code began pulling whole videos and
+ * abandoned them mid-transfer, paying Backblaze egress for bytes nobody read.
  */
 export async function readMediaObject(key, env = process.env) {
   if (!offsiteConfigured(env)) throw new Error('offsite storage is not configured');
-  const out = await offsiteReader(env).send(new GetObjectCommand({
-    Bucket: env.OFFSITE_S3_BUCKET.trim(), Key: key,
-  }));
-  return { body: out.Body, contentLength: Number(out.ContentLength) || 0 };
+  let out;
+  try {
+    out = await offsiteReader(env).send(new GetObjectCommand({
+      Bucket: env.OFFSITE_S3_BUCKET.trim(), Key: key, Range: 'bytes=0-0',
+    }));
+  } catch (e) {
+    // A zero-byte object answers a one-byte Range with 416. The object IS
+    // there; it is simply empty. Reported as present-and-empty so the size
+    // comparison fails honestly rather than the read failing misleadingly.
+    if (e?.$metadata?.httpStatusCode === 416 || /InvalidRange/i.test(e?.name || '')) {
+      return { body: null, contentLength: 0 };
+    }
+    throw e;
+  }
+  try {
+    // "bytes 0-0/1048576" — the total after the slash is the real size.
+    const total = Number(String(out.ContentRange || '').split('/')[1]);
+    return {
+      body: null,
+      // If the provider ignored Range and sent the whole object, ContentLength
+      // is already the true size. Never trust a 206's ContentLength (it is 1).
+      contentLength: Number.isFinite(total) && total > 0
+        ? total
+        : (Number(out.ContentLength) || 0),
+    };
+  } finally {
+    // THE LINE THE WHOLE INCIDENT COMES DOWN TO. Without it the socket never
+    // goes back to the pool.
+    out.Body?.destroy?.();
+  }
 }
 
 /**
@@ -250,6 +309,15 @@ function offsiteReader(env = process.env) {
     // Listing a bucket is not uploading a video to another continent. It
     // should answer quickly or say so.
     connectionTimeout: 10_000, requestTimeout: 30_000, maxAttempts: 3,
+    // Belt and braces after the socket leak above. requestTimeout alone does
+    // NOT reap an abandoned stream — in @smithy/node-http-handler its timer is
+    // cleared the moment response HEADERS arrive, long before a body is
+    // abandoned, so it can only ever log a warning. socketTimeout arms on the
+    // socket itself and does close it. Measured, not assumed.
+    //
+    // NOT applied to the writer: uploads of whole videos legitimately take
+    // minutes, and killing those would break the copy to fix the check.
+    socketTimeout: 60_000,
   });
   return cachedReader;
 }
@@ -262,7 +330,7 @@ function offsiteClient(env = process.env) {
   return cachedClient;
 }
 
-function buildOffsiteClient(env, { connectionTimeout, requestTimeout, maxAttempts }) {
+function buildOffsiteClient(env, { connectionTimeout, requestTimeout, maxAttempts, socketTimeout }) {
   return new S3Client({
     endpoint: env.OFFSITE_S3_ENDPOINT.trim(),
     region: env.OFFSITE_S3_REGION.trim(),
@@ -285,7 +353,9 @@ function buildOffsiteClient(env, { connectionTimeout, requestTimeout, maxAttempt
     // 120s rather than the 8s used for Spaces: these are uploads of whole
     // videos to a different continent, so slow is normal and forever is not.
     maxAttempts,
-    requestHandler: { connectionTimeout, requestTimeout },
+    requestHandler: socketTimeout
+      ? { connectionTimeout, requestTimeout, socketTimeout }
+      : { connectionTimeout, requestTimeout },
     // SDK ≥3.729 defaults to flexible checksums (aws-chunked bodies with
     // trailing CRC), which some S3-compatible providers reject. B2 accepts
     // them today (verified 2026-08-02), but plain signed bodies are the

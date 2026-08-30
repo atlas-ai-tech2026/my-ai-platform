@@ -415,6 +415,19 @@ export async function syncMediaOffsite({
     const shouldBeThere = [...alreadyOffsite, ...(result.copiedObjects || [])]
       .filter((o) => o.size > 0);
     result.verify = await verifyCopies({ readDest, source: shouldBeThere, log });
+    // ── A PASS THAT COULD NOT BE READ BACK IS NOT A GOOD PASS ──────────────
+    // `result.verify` was returned and read by NOBODY — grep found no caller
+    // outside this file. So the caller wrote its "sync is healthy" heartbeat
+    // on every cycle, including the 111 consecutive cycles on 2026-08-30 where
+    // the verification failed every single time. The control panel showed a
+    // healthy offsite backup throughout.
+    //
+    // This is the exact failure the heartbeat itself was written to prevent,
+    // one level up: something that worked as written and told nobody.
+    if (result.verify?.bad?.length) {
+      result.verifyFailed = `${result.verify.bad.length} of ${result.verify.checked} `
+        + 'sampled copies could not be read back';
+    }
   }
   return result;
 }
