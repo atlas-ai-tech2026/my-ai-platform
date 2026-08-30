@@ -23,6 +23,7 @@
 
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { toast } from 'sonner';
+import { chimeStart, chimeStop } from '@/lib/chime';
 import {
   speechSupported, startListening, appendSpeech, defaultLanguage,
   LANGUAGES, MORE_LANGUAGES, ALL_LANGUAGES, rememberLanguage,
@@ -51,6 +52,10 @@ export default function MicButton({
   const available = useMemo(() => speechSupported(), []);
 
   const stop = () => {
+    // Falling tone. You know the microphone has closed without looking at the
+    // screen — which is the point in a room where you are talking to people
+    // rather than watching a button.
+    chimeStop();
     handle.current?.stop();
     handle.current = null;
     setListening(false);
@@ -63,6 +68,9 @@ export default function MicButton({
     setInterim('');
     setListening(true);
     onListeningChange?.(true);
+    // Rising tone, and the click that triggered it is also the user gesture
+    // every browser requires before it will play audio at all.
+    chimeStart();
     handle.current = startListening({
       lang,
       onInterim: setInterim,
@@ -97,11 +105,29 @@ export default function MicButton({
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           background: listening ? '#E01E1E' : 'rgba(255,255,255,0.08)',
           border: `1px solid ${listening ? '#E01E1E' : 'rgba(255,255,255,0.16)'}`,
-          color: '#fff', fontSize: Math.round(size * 0.45), lineHeight: 1, flex: 'none',
+          color: '#fff', lineHeight: 1, flex: 'none', padding: 0,
           animation: listening ? 'micPulse 1.4s ease-in-out infinite' : 'none',
+          transition: 'background 140ms ease, border-color 140ms ease',
           ...style,
         }}
-      >{listening ? '■' : '🎤'}</button>
+      >
+        {/* Drawn, not an emoji. 🎤 renders as a different object on every
+            platform — a karaoke mic on one, a flat glyph on another — and at
+            this size it is the difference between a control and a sticker. */}
+        {listening ? (
+          <svg width={Math.round(size * 0.34)} height={Math.round(size * 0.34)} viewBox="0 0 10 10" aria-hidden="true">
+            <rect width="10" height="10" rx="1.6" fill="currentColor" />
+          </svg>
+        ) : (
+          <svg width={Math.round(size * 0.5)} height={Math.round(size * 0.5)} viewBox="0 0 24 24"
+               fill="none" stroke="currentColor" strokeWidth="2"
+               strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <rect x="9" y="2" width="6" height="11" rx="3" />
+            <path d="M5 10v1a7 7 0 0 0 14 0v-1" />
+            <line x1="12" y1="19" x2="12" y2="22" />
+          </svg>
+        )}
+      </button>
 
       {listening && (
         <span style={{
