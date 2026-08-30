@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
+import MicButton, { MicKeyframes } from '@/components/common/MicButton';
 import { Sparkles, ChevronDown, Minus, Plus, Pencil, Type, X, Check, ImagePlus, ArrowLeftRight } from 'lucide-react';
 import PageSwitcher from '@/components/common/PageSwitcher';
 import { detectCompositionIntent } from '@/lib/enhancePrompt';
@@ -127,6 +128,7 @@ function ModelModal({ selectedId, onSelect, onClose }) {
         animation: 'imgModelSlideUp 0.28s cubic-bezier(0.4,0,0.2,1)',
       }}
     >
+      <MicKeyframes />
       <style>{`
         @keyframes imgModelSlideUp {
           from { opacity:0; transform:translateX(-50%) translateY(16px); }
@@ -891,7 +893,16 @@ export default function ImagePromptBar({
                 resize: 'none', lineHeight: 1.6, caretColor: '#E01E1E',
               }}
             />
+
+            {/* Speak instead of typing — the shared button, so the rule that
+                speech NEVER overwrites what was typed lives in one place
+                rather than in each of the nine prompt boxes. */}
+            <span style={{ position: 'absolute', right: 0, top: 2 }}>
+              <MicButton getValue={() => prompt} onChange={(t) => onPromptChange?.(t)} />
+            </span>
           </div>
+
+
 
           {/* Smart Compose badge */}
           {smartComposeActive && (

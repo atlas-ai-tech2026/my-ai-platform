@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import MicButton, { MicKeyframes } from '@/components/common/MicButton';
 import {
   ImagePlus, ArrowLeftRight, ArrowUp, X, ChevronDown,
   Clock, Volume2, Crosshair, Pencil, Type, Check
@@ -330,6 +331,7 @@ export default function VideoPromptBar({ prompt, onPromptChange, onGenerate, isG
                 <ImagePlus className="w-4 h-4" />
               </button>
 
+              <MicKeyframes />
               {/* Prompt input */}
               <input
                 ref={inputRef}
@@ -341,6 +343,7 @@ export default function VideoPromptBar({ prompt, onPromptChange, onGenerate, isG
                 className="video-prompt-input"
                 style={{ flex: 1, background: 'transparent', border: 'none', outline: 'none', color: '#fff', fontSize: 15, fontFamily: '"DM Sans", sans-serif' }}
               />
+              <MicButton getValue={() => prompt} onChange={(t) => onPromptChange?.(t)} size={30} />
               <Pencil className="w-3 h-3 flex-shrink-0" style={{ color: 'rgba(255,255,255,0.28)' }} />
             </div>
 

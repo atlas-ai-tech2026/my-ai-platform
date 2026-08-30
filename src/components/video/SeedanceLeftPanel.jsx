@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import MicButton, { MicKeyframes } from '@/components/common/MicButton';
 import { Image as ImageIcon, Film, Music, AtSign, Volume2, VolumeX, ChevronDown, Sparkles, BarChart3 } from 'lucide-react';
 import SeedanceMediaGrid from './SeedanceMediaGrid';
 import { getVideoCredits } from '@/lib/creditPricing';
@@ -112,7 +113,13 @@ export default function SeedanceLeftPanel({
         background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.1)',
         borderRadius: 10, padding: 12,
       }}>
-        <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', marginBottom: 4, fontWeight: 600 }}>Prompt</div>
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 4,
+        }}>
+          <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', fontWeight: 600 }}>Prompt</span>
+          <MicKeyframes />
+          <MicButton getValue={() => prompt} onChange={(t) => onPromptChange?.(t)} size={26} />
+        </div>
         <textarea
           value={prompt}
           onChange={e => onPromptChange?.(e.target.value)}

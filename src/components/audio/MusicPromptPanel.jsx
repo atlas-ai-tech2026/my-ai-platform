@@ -1,6 +1,7 @@
 // Glass-shell right column on the Audio page when mode === 'music'.
 // Wired to /api/generate-music → fal-ai/lyria2.
 import React from 'react';
+import MicButton, { MicKeyframes } from '@/components/common/MicButton';
 import { Music, Sparkles } from 'lucide-react';
 
 const RED_HOT = '#FF2A2A';
@@ -91,6 +92,10 @@ export default function MusicPromptPanel({
       </div>
 
       {/* Prompt textarea */}
+      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, alignItems: 'center', marginBottom: 6 }}>
+        <MicKeyframes />
+        <MicButton getValue={() => prompt} onChange={(t) => onPromptChange?.(t)} size={28} />
+      </div>
       <textarea
         value={prompt}
         onChange={e => onPromptChange(e.target.value)}
