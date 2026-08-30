@@ -16,7 +16,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
   appendSpeech, speechSupported, speechErrorMessage, defaultLanguage,
-  startListening, LANGUAGES,
+  startListening, LANGUAGES, MORE_LANGUAGES, ALL_LANGUAGES,
 } from './speech-input.js';
 
 /** A recogniser that behaves like the real one. The first version of these
@@ -213,5 +213,39 @@ describe('stopping', () => {
     const h = startListening({ Recogniser, onError });
     expect(onError).toHaveBeenCalled();
     expect(() => h.stop()).not.toThrow();
+  });
+});
+
+describe('more languages, and why the list is short', () => {
+  it('the two DEFAULTS are Arabic and English, in that order', () => {
+    expect(LANGUAGES.map((l) => l.id)).toEqual(['ar-SA', 'en-US']);
+  });
+
+  it('the extra list covers who actually walks into a Gulf workshop', () => {
+    // Hindi, Urdu and Filipino between them cover a large share of the
+    // workforce in Kuwait and Saudi Arabia. Guessing that from a map of the
+    // world's biggest languages would have given a different, wronger list.
+    const ids = MORE_LANGUAGES.map((l) => l.id);
+    for (const want of ['hi-IN', 'ur-PK', 'tl-PH', 'ar-EG']) expect(ids).toContain(want);
+  });
+
+  it('every entry has a label in its OWN script', () => {
+    // "Hindi" written in English is a label for somebody who already reads
+    // English — which is the person who does not need this list.
+    for (const l of ALL_LANGUAGES) {
+      expect(l.label, l.id).toBeTruthy();
+      expect(l.id).toMatch(/^[a-z]{2}-[A-Z]{2}$/);
+    }
+  });
+
+  it('no duplicates between the defaults and the extras', () => {
+    const ids = ALL_LANGUAGES.map((l) => l.id);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it('and the whole list stays SHORT — a dropdown nobody scrolls is not a feature', () => {
+    // The recogniser supports about a hundred. Offering a hundred means
+    // nobody finds their own.
+    expect(ALL_LANGUAGES.length).toBeLessThanOrEqual(12);
   });
 });

@@ -44,6 +44,31 @@ export const LANGUAGES = [
   { id: 'en-US', label: 'English' },
 ];
 
+/**
+ * Everything the browser can actually hear.
+ *
+ * The recogniser supports around a hundred languages; these are the ones that
+ * plausibly walk into a Gulf workshop room. Adding a language is one line —
+ * the cost is the LIST, not the code: a dropdown of ninety entries is worse
+ * than four, because nobody scrolls to find their own.
+ *
+ * So this is offered as a "more languages" list behind the two defaults, and
+ * anything nobody picks should be deleted rather than left to grow.
+ */
+export const MORE_LANGUAGES = [
+  { id: 'ar-EG', label: 'العربية (مصر)' },
+  { id: 'ar-AE', label: 'العربية (الإمارات)' },
+  { id: 'en-GB', label: 'English (UK)' },
+  { id: 'hi-IN', label: 'हिन्दी' },
+  { id: 'ur-PK', label: 'اردو' },
+  { id: 'tl-PH', label: 'Filipino' },
+  { id: 'fr-FR', label: 'Français' },
+  { id: 'tr-TR', label: 'Türkçe' },
+];
+
+/** Every language on offer, defaults first. */
+export const ALL_LANGUAGES = [...LANGUAGES, ...MORE_LANGUAGES];
+
 /** Which one to start on — the browser's own setting, falling back to Arabic
  *  because that is who this is for. */
 export function defaultLanguage(nav = typeof navigator !== 'undefined' ? navigator : undefined) {

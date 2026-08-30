@@ -11,6 +11,7 @@
 // count stepper, generate handler — is identical to the previous
 // version; we only rewrote the rendering.
 import React, { useState } from 'react';
+import MicButton, { MicKeyframes } from '@/components/common/MicButton';
 import { ArrowLeft, ChevronDown, Minus, Plus, ArrowLeftRight, Zap, Video } from 'lucide-react';
 import { toast } from 'sonner';
 import { OptionChip, PopoverChip } from './videoChipAtoms';
@@ -349,6 +350,13 @@ export default function VideoLeftPanel({
           height: 110, position: 'relative',
           display: 'flex', flexDirection: 'column',
         }}>
+          <div style={{
+            position: 'absolute', right: 8, top: 8, zIndex: 2,
+            display: 'flex', gap: 8, alignItems: 'center',
+          }}>
+            <MicKeyframes />
+            <MicButton getValue={() => prompt} onChange={(t) => onPromptChange?.(t)} size={26} />
+          </div>
           <textarea
             className="vlf-textarea"
             value={prompt}
