@@ -26,7 +26,6 @@ import { toast } from 'sonner';
 import { chimeStart, chimeStop } from '@/lib/chime';
 import {
   speechSupported, startListening, appendSpeech, defaultLanguage,
-  LANGUAGES, MORE_LANGUAGES, ALL_LANGUAGES, rememberLanguage,
 } from '@/lib/speech-input';
 
 /**
@@ -40,11 +39,19 @@ export default function MicButton({
 }) {
   const [listening, setListening] = useState(false);
   const [interim, setInterim] = useState('');
-  const [lang, setLang] = useState(defaultLanguage());
-  // The extra languages stay folded away. A dropdown of ten is worse than two
-  // for the ninety percent who speak one of the two — but the Filipino or
-  // Urdu speaker in the room is exactly who needs this button most.
-  const [showMore, setShowMore] = useState(false);
+  // ── NO LANGUAGE PICKER ON SCREEN (2026-08-30) ──
+  // Amr, twice: "I never think to choose the language" and then "please remove
+  // it, I don't need to see it."
+  //
+  // He is right, and the picker was me exposing a limitation of the browser's
+  // recogniser rather than solving it — it must be TOLD which language to
+  // expect, and cannot detect one. So the choice is now made silently from the
+  // browser's own setting, and the row of chips is gone.
+  //
+  // This does NOT make it multilingual. It makes the limitation invisible,
+  // which is honest only because the real fix — a model that detects the
+  // language — is written down as the next step rather than quietly dropped.
+  const [lang] = useState(defaultLanguage());
   const handle = useRef(null);
 
   // Computed once: the answer cannot change while the page is open, and it
@@ -83,12 +90,6 @@ export default function MicButton({
 
   // Leaving the page with the microphone open would keep it live behind them.
   useEffect(() => () => handle.current?.stop(), []);
-
-  // The recogniser cannot switch language while running, so changing it stops.
-  useEffect(() => {
-    if (listening) stop();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lang]);
 
   // Hidden entirely where the browser cannot listen. A dead button is worse
   // than no button — it looks like the feature is broken rather than absent.
@@ -139,28 +140,7 @@ export default function MicButton({
               reconsiders; committing them would scatter half-heard fragments
               through somebody's prompt. */}
           {interim && <span style={{ fontStyle: 'italic' }}>{interim}</span>}
-          {(showMore ? ALL_LANGUAGES : LANGUAGES).map((l) => (
-            <button
-              key={l.id} type="button" onClick={() => setLang(rememberLanguage(l.id))}
-              style={{
-                padding: '2px 9px', borderRadius: 999, cursor: 'pointer',
-                fontSize: 11.5, fontFamily: 'inherit',
-                background: lang === l.id ? 'rgba(224,30,30,0.2)' : 'transparent',
-                border: `1px solid ${lang === l.id ? '#E01E1E' : 'rgba(255,255,255,0.14)'}`,
-                color: '#fff',
-              }}
-            >{l.label}</button>
-          ))}
-          {!showMore && MORE_LANGUAGES.length > 0 && (
-            <button
-              type="button" onClick={() => setShowMore(true)}
-              style={{
-                padding: '2px 9px', borderRadius: 999, cursor: 'pointer',
-                fontSize: 11.5, fontFamily: 'inherit', background: 'transparent',
-                border: '1px dashed rgba(255,255,255,0.2)', color: 'rgba(255,255,255,0.6)',
-              }}
-            >+{MORE_LANGUAGES.length}</button>
-          )}
+
         </span>
       )}
     </>
