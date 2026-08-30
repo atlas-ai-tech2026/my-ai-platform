@@ -47,6 +47,10 @@ export default function Video() {
   const [selectedVideo, setSelectedVideo] = useState(null);
   const [startFrame, setStartFrame] = useState(null);
   const [endFrame, setEndFrame] = useState(null);
+  // Reference images beyond the frames, for models whose backend pools them
+  // (Gemini Omni first — owner, 2026-08-25). Blob-URL strings, same type the
+  // frames use, so prepareImageForFal handles both identically.
+  const [genericRefs, setGenericRefs] = useState([]);
   const [cameraMotion, setCameraMotion] = useState(null); // { id, label } | null — backend-only injection
   const pollingRef = useRef({});
 
@@ -83,6 +87,9 @@ export default function Video() {
   // here switched off the whole capability.
   const isSeedance2 = model.id === 'seedance-2' || model.id === 'seedance-2-fast'
     || model.id === 'seedance-2-mini' || model.id === 'seedance-2-5';
+  // Total image budget (frames + references) per model on the GENERIC panel.
+  // 0 hides the reference strip. Gemini Omni: kie's documented 7-image pool.
+  const genericRefCapacity = model.id === 'gemini-omni' ? 7 : 0;
   const [seedanceMedia, setSeedanceMedia] = useState({ images: [], videos: [], audios: [] });
   const [seedanceElements, setSeedanceElements] = useState([]);
   const [seedanceAudioOn, setSeedanceAudioOn] = useState(true);
@@ -248,6 +255,11 @@ export default function Video() {
       let tailImageUrl = null;
       if (startFrame) imageUrl = await prepareImageForFal(startFrame, 0);
       if (endFrame) tailImageUrl = await prepareImageForFal(endFrame, 1);
+      let referenceUrls = [];
+      if (genericRefCapacity > 0 && genericRefs.length) {
+        referenceUrls = await Promise.all(
+          genericRefs.map((url, i) => prepareImageForFal(url, 2 + i)));
+      }
 
       // Backend-only camera-motion injection — prompt textarea stays clean
       const finalPrompt = cameraMotion?.label
@@ -265,6 +277,7 @@ export default function Video() {
         credit_cost: creditCost,
         ...(imageUrl ? { image_url: imageUrl } : {}),
         ...(tailImageUrl ? { tail_image_url: tailImageUrl } : {}),
+        ...(referenceUrls.length ? { reference_urls: referenceUrls } : {}),
       };
 
       const N = Math.max(1, Math.min(4, count || 1));
@@ -828,6 +841,8 @@ export default function Video() {
             startFrame={startFrame} endFrame={endFrame}
             onStartFrameChange={setStartFrame} onEndFrameChange={setEndFrame}
             onCameraMotionChange={setCameraMotion}
+            referenceImages={genericRefs} onReferenceImagesChange={setGenericRefs}
+            refCapacity={genericRefCapacity}
           />
         )}
       </div>
