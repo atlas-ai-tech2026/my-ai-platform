@@ -28,7 +28,7 @@ import { RECORD_SQL, CLAIM_SQL, GIVE_UP_SQL, TOUCH_SQL, DUE_SQL, OWNS_SQL,
 // the grid would show two different sizes of "small".
 import { makeThumbnail } from './thumbnail-backfill.js';
 import { SCALE_SQL, SAMPLE_SQL, summariseScale } from './thumbnail-scale.js';
-import { DELETE_SQL as SOFT_DELETE_SQL, RESTORE_OWN_SQL, RECOVERABLE_SQL,
+import { DELETE_SQL as SOFT_DELETE_SQL, RESTORE_OWN_SQL, RESTORE_SQL, RECOVERABLE_SQL,
          DUE_FOR_PURGE_SQL, PURGE_ROW_SQL, purgeRows, daysLeft, RECOVERY_DAYS } from './soft-delete.js';
 import { describePlan as describeExpiryPlan, applyExpiry, NONCURRENT_DAYS } from './version-expiry.js';
 import { RECORD_SQL as LEDGER_RECORD_SQL, SEED_SQL as LEDGER_SEED_SQL,
@@ -5800,6 +5800,52 @@ app.get('/api/admin/thumbnails/survey', adminGate, async (req, res) => {
 //
 // GET, and read-only by construction — thumbnail-scale.js contains no write of
 // any kind and a test proves that by reading the file.
+// ─── RECOVERY (2026-08-29) ─────────────────────────────────────────
+// The screen for when a customer cannot help themselves: a closed account,
+// a bulk mistake, somebody who cannot find "Recently deleted".
+//
+// Their own screen handles the ordinary case, so this stays for the ones that
+// actually need Amr. His three filters — account, words, when — and sorted by
+// TIME REMAINING, because what matters is what is about to be lost for good.
+app.get('/api/admin/recovery', adminGate, async (req, res) => {
+  if (!dbReady()) return res.status(503).json({ error: 'Database not configured.' });
+  const email = String(req.query.email || '').trim().toLowerCase();
+  const text = String(req.query.text || '').trim();
+  const days = Number(req.query.days) || null;
+  try {
+    const { rows } = await pool.query(RECOVERABLE_SQL, [
+      email ? `%${email}%` : null,
+      text ? `%${text.replace(/[\\%_]/g, (c) => `\\${c}`)}%` : null,
+      days && days > 0 ? days : null,
+      200,
+    ]);
+    res.json({ items: rows, recovery_days: RECOVERY_DAYS });
+  } catch (e) {
+    console.error('[recovery] list failed:', e.message);
+    res.status(500).json({ error: `Could not read what is recoverable: ${e.message}` });
+  }
+});
+
+// Unscoped by design — support has to put back a picture for an account that
+// cannot reach it. The statement still refuses anything past the window: a
+// row that has aged out may have no FILE any more, and "restored" would then
+// be a lie told to somebody on the phone.
+app.post('/api/admin/recovery/restore', adminGate, async (req, res) => {
+  if (!dbReady()) return res.status(503).json({ error: 'Database not configured.' });
+  const ids = Array.isArray(req.body?.ids) ? req.body.ids.slice(0, 500) : [];
+  if (!ids.length) return res.status(400).json({ error: 'Nothing to restore.' });
+  try {
+    const { rows } = await pool.query(RESTORE_SQL, [ids]);
+    console.log(`[recovery] restored ${rows.length} of ${ids.length} by ${req.user?.email || 'admin'}`);
+    // Says how many, not just "ok" — asking for 40 and getting 38 back is a
+    // fact somebody on a support call needs.
+    res.json({ restored: rows.length, asked: ids.length });
+  } catch (e) {
+    console.error('[recovery] restore failed:', e.message);
+    res.status(500).json({ error: `Could not restore: ${e.message}` });
+  }
+});
+
 app.get('/api/admin/thumbnails/scale', adminGate, async (req, res) => {
   if (!dbReady()) return res.status(503).json({ error: 'Database not configured.' });
   const sample = Math.max(0, Math.min(60, Number(req.query.sample) || 25));
