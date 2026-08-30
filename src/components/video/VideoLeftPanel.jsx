@@ -85,6 +85,10 @@ export default function VideoLeftPanel({
   startFrame: startFrameProp, endFrame: endFrameProp,
   onStartFrameChange, onEndFrameChange,
   onCameraMotionChange,
+  // Reference images beyond the frames (owner, 2026-08-25 — Gemini Omni
+  // first). refCapacity 0 hides the strip entirely; a positive number is the
+  // model's TOTAL image budget, shared with the start/end frames.
+  referenceImages = [], onReferenceImagesChange, refCapacity = 0,
 }) {
   const [mode, setMode] = useState('frame');
   const [cameraMotion, setCameraMotion] = useState(null);
@@ -314,6 +318,64 @@ export default function VideoLeftPanel({
               dim={!endFrame}
               caption="Add a end"
             />
+          </div>
+        </div>
+      )}
+
+      {/* Reference images — shown only for models whose backend pools them
+          with the frames (Gemini Omni: kie's 7-image budget). Works in text
+          mode too: references-without-frames IS reference-to-video. */}
+      {refCapacity > 0 && (
+        <div>
+          <div style={{ fontSize: 12, fontWeight: 700, color: '#FFF', marginBottom: 6 }}
+            title={`This model reads up to ${refCapacity} images in one request — start/end frames and references share that budget. Mention them in the prompt as @Image1, @Image2 in the order shown.`}>
+            Reference images
+            <span style={{ fontWeight: 400, color: 'rgba(255,255,255,0.45)', marginLeft: 6 }}>
+              {referenceImages.length + (startFrame ? 1 : 0) + (endFrame ? 1 : 0)}/{refCapacity} with frames
+            </span>
+          </div>
+          <div style={{
+            padding: 6, borderRadius: 10,
+            background: 'rgba(255,255,255,0.02)',
+            border: '1px solid rgba(255,255,255,0.07)',
+            display: 'flex', gap: 5, flexWrap: 'wrap', alignItems: 'center',
+          }}>
+            {referenceImages.map((url, i) => (
+              <div key={url} style={{ position: 'relative', width: 44, height: 44, borderRadius: 8, overflow: 'hidden', border: '1px solid rgba(255,255,255,0.12)', flexShrink: 0 }}>
+                <img src={url} alt={`reference ${i + 1}`} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                <button type="button" title="Remove this reference" aria-label={`Remove reference ${i + 1}`}
+                  onClick={() => onReferenceImagesChange(referenceImages.filter((_, j) => j !== i))}
+                  style={{
+                    position: 'absolute', top: 1, right: 1, width: 16, height: 16,
+                    borderRadius: 8, border: 'none', background: 'rgba(0,0,0,0.65)',
+                    color: '#FFF', fontSize: 10, lineHeight: '16px', cursor: 'pointer', padding: 0,
+                  }}>×</button>
+              </div>
+            ))}
+            {(referenceImages.length + (startFrame ? 1 : 0) + (endFrame ? 1 : 0)) < refCapacity ? (
+              <label title="Add a reference image" style={{
+                width: 44, height: 44, borderRadius: 8,
+                border: '1px dashed rgba(255,255,255,0.25)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                color: 'rgba(255,255,255,0.6)', fontSize: 18, cursor: 'pointer', flexShrink: 0,
+              }}>
+                +
+                <input type="file" accept="image/*" hidden multiple
+                  onChange={(e) => {
+                    const used = referenceImages.length + (startFrame ? 1 : 0) + (endFrame ? 1 : 0);
+                    const picked = [...(e.target.files || [])]
+                      .slice(0, Math.max(0, refCapacity - used))
+                      .map((file) => URL.createObjectURL(file));
+                    if (picked.length) onReferenceImagesChange([...referenceImages, ...picked]);
+                    e.target.value = '';
+                  }} />
+              </label>
+            ) : (
+              <span style={{ fontSize: 10.5, color: 'rgba(255,255,255,0.4)' }}
+                title="Remove a reference or a frame to add another — the budget is shared.">
+                budget full
+              </span>
+            )}
           </div>
         </div>
       )}

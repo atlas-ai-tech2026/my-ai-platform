@@ -1083,7 +1083,7 @@ function buildKieImageInput(cfg, { prompt, ratio, quality, imageUrls }) {
 // hit, the POST body, and the 'kie:'-prefixed model_id the status routes
 // parse ('kie:jobs:' → Jobs API, plain 'kie:' → dedicated Veo endpoints).
 // Shared by /api/generate-video and the legacy /api/generate video branch.
-function buildKieVideoSubmission(mapping, { prompt, frames, duration, aspectRatio, resolution, audio = false, multiShots = false }) {
+function buildKieVideoSubmission(mapping, { prompt, frames, duration, aspectRatio, resolution, audio = false, multiShots = false, refs = [] }) {
   if (mapping.family === 'jobs' && mapping.kieModel === 'kling-3.0/video') {
     // Kling 3.0: one model for t2v + i2v; quality via mode (std 720p /
     // pro 1080p / 4K); duration string "3"-"15".
@@ -1177,11 +1177,16 @@ function buildKieVideoSubmission(mapping, { prompt, frames, duration, aspectRati
     // the nearest allowed value, never passed through raw. resolution accepts
     // lowercase '4k'. Reference images ride in image_urls (max 7, and kie
     // enforces a 7-unit budget where each image counts 1).
+    //
+    // 2026-08-25 (owner): start/end frames AND reference images together —
+    // Omni is anything-from-anything, so kie reads them all as one image_urls
+    // pool; frames go first so "@Image1" in a prompt stays the start frame.
     const ALLOWED = [4, 6, 8, 10];
     const want = parseInt(duration, 10) || 6;
     const dur = ALLOWED.reduce((a, b) => (Math.abs(b - want) < Math.abs(a - want) ? b : a));
     const r = String(resolution).toLowerCase();
     const res = r.includes('4k') ? '4k' : r.includes('1080') ? '1080p' : '720p';
+    const pool = [...frames, ...refs].slice(0, 7);
     return {
       family: 'jobs',
       body: {
@@ -1191,7 +1196,7 @@ function buildKieVideoSubmission(mapping, { prompt, frames, duration, aspectRati
           duration: String(dur),
           resolution: res,
           aspect_ratio: aspectRatio === '9:16' ? '9:16' : '16:9',
-          ...(frames.length ? { image_urls: frames.slice(0, 7) } : {}),
+          ...(pool.length ? { image_urls: pool } : {}),
         },
       },
       modelIdTag: 'kie:jobs:' + mapping.kieModel,
@@ -1844,7 +1849,7 @@ app.post('/api/checkStatus', verifyJwt, requireNotBanned, statusLimiter, async (
 
 // ─── GENERATE VIDEO (new endpoint with polling) ───────────────────
 app.post('/api/generate-video', verifyJwt, requireNotBanned, noDoubleCharge, requireModelProviderKey, async (req, res) => {
-  const { model, prompt, image_url, tail_image_url, duration, aspect_ratio, resolution, audio, multi_shots } = req.body;
+  const { model, prompt, image_url, tail_image_url, reference_urls, duration, aspect_ratio, resolution, audio, multi_shots } = req.body;
 
   if (!model) return res.status(400).json({ error: 'model name required' });
   if (!prompt) return res.status(400).json({ error: 'prompt required' });
@@ -1909,9 +1914,16 @@ app.post('/api/generate-video', verifyJwt, requireNotBanned, noDoubleCharge, req
       // (Production bug, 2026-08-02.)
       const rawFrames = image_url ? (tail_image_url ? [image_url, tail_image_url] : [image_url]) : [];
       const frames = await resolveReferenceUrls(rawFrames, { forKie: true, tag: 'REFS-VIDEO' });
+      // Reference images beyond the frames (owner, 2026-08-25 — Gemini Omni
+      // first). Re-hosted exactly like the frames; each style decides whether
+      // it uses them (geminiOmni pools them with the frames, capped at kie's
+      // 7-image budget; every other style ignores them).
+      const rawRefs = Array.isArray(reference_urls) ? reference_urls.slice(0, 7) : [];
+      const refs = rawRefs.length
+        ? await resolveReferenceUrls(rawRefs, { forKie: true, tag: 'REFS-VIDEO' }) : [];
       const { family, body, modelIdTag } = buildKieVideoSubmission(mapping, {
         prompt, frames, duration, aspectRatio: aspect_ratio, resolution, audio,
-        multiShots: multi_shots,
+        multiShots: multi_shots, refs,
       });
       // Full payload log — the ground truth of what kie was asked to do
       // (verifiable against kie.ai/logs when debugging output complaints).
