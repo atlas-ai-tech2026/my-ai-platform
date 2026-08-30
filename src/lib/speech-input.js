@@ -69,12 +69,43 @@ export const MORE_LANGUAGES = [
 /** Every language on offer, defaults first. */
 export const ALL_LANGUAGES = [...LANGUAGES, ...MORE_LANGUAGES];
 
-/** Which one to start on — the browser's own setting, falling back to Arabic
- *  because that is who this is for. */
-export function defaultLanguage(nav = typeof navigator !== 'undefined' ? navigator : undefined) {
+export const LANG_KEY = 'voxel.speech.lang';
+
+/**
+ * Which one to start on.
+ *
+ * ── WHY THIS IS REMEMBERED ─────────────────────────────────────────────────
+ * Amr, comparing it to dictating to an assistant that just understands you:
+ * *"I never think to choose the language."* He is right, and the browser
+ * recogniser genuinely cannot detect it — you must tell it which language to
+ * expect. That is the API, not a decision.
+ *
+ * So the next best thing: ask ONCE. Almost nobody switches language between
+ * prompts, so a remembered choice makes the picker invisible after the first
+ * use, which is most of the way to not choosing at all.
+ *
+ * Order: what they chose last → what their browser is set to → Arabic, because
+ * that is who this button is for.
+ */
+export function defaultLanguage(
+  nav = typeof navigator !== 'undefined' ? navigator : undefined,
+  storage = typeof localStorage !== 'undefined' ? localStorage : undefined,
+) {
+  try {
+    const saved = storage?.getItem(LANG_KEY);
+    // Only a language we actually offer. A stale id from an older list would
+    // otherwise be handed to the recogniser and fail on every attempt.
+    if (saved && ALL_LANGUAGES.some((l) => l.id === saved)) return saved;
+  } catch { /* private mode — not worth breaking over */ }
   const tag = String(nav?.language || '').toLowerCase();
   if (tag.startsWith('en')) return 'en-US';
   return 'ar-SA';
+}
+
+/** Remember it, so the choice is made once rather than every time. */
+export function rememberLanguage(id, storage = typeof localStorage !== 'undefined' ? localStorage : undefined) {
+  try { storage?.setItem(LANG_KEY, id); } catch { /* no storage */ }
+  return id;
 }
 
 /**
@@ -154,11 +185,18 @@ export function startListening({
       // ONLY final results are appended. Interim text changes as the recogniser
       // reconsiders, and appending it would scatter half-heard words through
       // the prompt.
-      if (r.isFinal) onFinal?.(text);
+      if (r.isFinal) { onFinal?.(text); pending = ''; }
       else interim += text;
     }
+    pending = interim;
     onInterim?.(interim);
   };
+
+  // What has been heard but not yet finalised. Pressing stop should give you
+  // the words immediately rather than discarding the tail — the recogniser can
+  // sit on a final phrase for a second or more, and that pause is most of what
+  // "it is not fast" actually means.
+  let pending = '';
 
   rec.onerror = (e) => {
     const msg = speechErrorMessage(e?.error);
@@ -179,6 +217,10 @@ export function startListening({
     stop() {
       if (stopped) return;
       stopped = true;
+      // Commit the tail BEFORE stopping. Otherwise a sentence spoken and then
+      // ended by pressing the button is simply lost, and the customer has to
+      // say it again — which is the worst possible response to "it is slow".
+      if (pending.trim()) { onFinal?.(pending); pending = ''; }
       try { rec.stop(); } catch { /* already ended */ }
     },
   };

@@ -16,7 +16,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
   appendSpeech, speechSupported, speechErrorMessage, defaultLanguage,
-  startListening, LANGUAGES, MORE_LANGUAGES, ALL_LANGUAGES,
+  startListening, LANGUAGES, MORE_LANGUAGES, ALL_LANGUAGES, rememberLanguage,
 } from './speech-input.js';
 
 /** A recogniser that behaves like the real one. The first version of these
@@ -247,5 +247,72 @@ describe('more languages, and why the list is short', () => {
     // The recogniser supports about a hundred. Offering a hundred means
     // nobody finds their own.
     expect(ALL_LANGUAGES.length).toBeLessThanOrEqual(12);
+  });
+});
+
+describe('the language is chosen ONCE, not every time', () => {
+  const store = (initial) => {
+    let v = initial;
+    return { getItem: () => v, setItem: (_k, next) => { v = next; }, read: () => v };
+  };
+
+  it('remembers what was picked last', () => {
+    // Amr: "I never think to choose the language." The recogniser genuinely
+    // cannot detect it, so the next best thing is to ask once.
+    const st = store(null);
+    rememberLanguage('ur-PK', st);
+    expect(defaultLanguage({ language: 'en-US' }, st)).toBe('ur-PK');
+  });
+
+  it('ignores a remembered language we no longer offer', () => {
+    // A stale id from an older list would be handed to the recogniser and fail
+    // on every single attempt, with nothing on screen explaining why.
+    expect(defaultLanguage({ language: 'en-US' }, store('kl-GL'))).toBe('en-US');
+    expect(defaultLanguage({ language: 'ar-KW' }, store('nonsense'))).toBe('ar-SA');
+  });
+
+  it('falls back to the browser, then to Arabic', () => {
+    expect(defaultLanguage({ language: 'en-GB' }, store(null))).toBe('en-US');
+    expect(defaultLanguage({ language: 'ar-KW' }, store(null))).toBe('ar-SA');
+  });
+
+  it('survives storage that throws — private mode is not worth breaking over', () => {
+    const bad = { getItem: () => { throw new Error('denied'); }, setItem: () => { throw new Error('denied'); } };
+    expect(() => defaultLanguage({ language: 'en-US' }, bad)).not.toThrow();
+    expect(defaultLanguage({ language: 'en-US' }, bad)).toBe('en-US');
+    expect(() => rememberLanguage('ar-SA', bad)).not.toThrow();
+  });
+});
+
+describe('pressing stop does not lose the sentence you just said', () => {
+  it('commits what was heard but not yet finalised', () => {
+    // The recogniser can sit on a phrase for a second or more before calling
+    // it final. Discarding it on stop means saying it all again — the worst
+    // possible answer to "it feels slow".
+    const f = fakeRecogniser();
+    const onFinal = vi.fn();
+    const h = startListening({ Recogniser: f.Recogniser, onFinal });
+    f.rec.onresult({ resultIndex: 0, results: [{ 0: { transcript: 'a cat on a wall' }, isFinal: false }] });
+    expect(onFinal).not.toHaveBeenCalled();
+    h.stop();
+    expect(onFinal).toHaveBeenCalledWith('a cat on a wall');
+  });
+
+  it('does not commit an empty tail', () => {
+    const f = fakeRecogniser();
+    const onFinal = vi.fn();
+    const h = startListening({ Recogniser: f.Recogniser, onFinal });
+    f.rec.onresult({ resultIndex: 0, results: [{ 0: { transcript: '   ' }, isFinal: false }] });
+    h.stop();
+    expect(onFinal).not.toHaveBeenCalled();
+  });
+
+  it('does not commit a phrase twice when it was already final', () => {
+    const f = fakeRecogniser();
+    const onFinal = vi.fn();
+    const h = startListening({ Recogniser: f.Recogniser, onFinal });
+    f.rec.onresult({ resultIndex: 0, results: [{ 0: { transcript: 'a cat' }, isFinal: true }] });
+    h.stop();
+    expect(onFinal).toHaveBeenCalledTimes(1);
   });
 });

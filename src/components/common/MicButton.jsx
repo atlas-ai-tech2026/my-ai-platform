@@ -25,7 +25,7 @@ import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { toast } from 'sonner';
 import {
   speechSupported, startListening, appendSpeech, defaultLanguage,
-  LANGUAGES, MORE_LANGUAGES, ALL_LANGUAGES,
+  LANGUAGES, MORE_LANGUAGES, ALL_LANGUAGES, rememberLanguage,
 } from '@/lib/speech-input';
 
 /**
@@ -115,7 +115,7 @@ export default function MicButton({
           {interim && <span style={{ fontStyle: 'italic' }}>{interim}</span>}
           {(showMore ? ALL_LANGUAGES : LANGUAGES).map((l) => (
             <button
-              key={l.id} type="button" onClick={() => setLang(l.id)}
+              key={l.id} type="button" onClick={() => setLang(rememberLanguage(l.id))}
               style={{
                 padding: '2px 9px', borderRadius: 999, cursor: 'pointer',
                 fontSize: 11.5, fontFamily: 'inherit',
