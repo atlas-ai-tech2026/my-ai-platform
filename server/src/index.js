@@ -17,6 +17,7 @@ import { persistOrFallback, persistBuffer, isReady as spacesReady, uploadPrivate
          listAllMedia, readObject, primaryObjectExists, cdnifyDeep, mediaCdnBase,
          ensureMediaCors, uploadPublicAt, objectSize, persistWithThumb , keyFromUrl , getLifecycleRules, putLifecycleRules } from './storage.js';
 import { installModel, modelReady, MODEL_PREFIX } from './whisper-model.js';
+import { serveModelFile } from './whisper-serve.js';
 import { SURVEY_SQL, surveyRows } from './thumbnail-survey.js';
 import { SET_THUMB_SQL, backfillRows } from './thumbnail-backfill.js';
 import { RESCUE_SQL, RESCUE_QUEUE_SQL, MARK_GONE_SQL, REMAINING_SQL, rescueRows } from './media-rescue.js';
@@ -5640,6 +5641,38 @@ app.post('/api/admin/whisper-model', adminGate, async (req, res) => {
     console.error('[whisper-model] failed:', e.message);
     res.status(500).json({ complete: false, error: e.message });
   }
+});
+
+// ── SERVING THE SPEECH MODEL FROM OUR OWN ORIGIN (2026-08-30) ───────────────
+// The browser should fetch it straight from the CDN — that is why it is in the
+// bucket. But a cross-origin fetch is only READABLE if the bucket answers with
+// Access-Control-Allow-Origin, and on 2026-08-30 the dev bucket answered with
+// none: `Vary: Origin` present, allow-origin absent, preflight 403. One press
+// of /api/admin/media-cors fixes it.
+//
+// This route exists so that press is an OPTIMISATION rather than a
+// precondition. A feature that is silently dead until somebody remembers a
+// button in a control panel is the exact shape of failure this project keeps
+// producing; the lab page reports which of the two paths answered, so falling
+// back can never pass unnoticed.
+//
+// NO adminGate: these seven files are already public in the bucket and are a
+// published open-source model. The gate that matters is the allow-list in
+// whisper-serve.js, which can reach the model and nothing else in a bucket
+// that also holds every customer's media.
+//
+// `*splat`, not `*`. Express 5 uses path-to-regexp v8, where a bare `*` is not
+// a wildcard but an unnamed parameter — and the server REFUSES TO BOOT with
+// "Missing parameter name at index 19". Found by the existing test suite,
+// which imports index.js; without it this would have been a dev deploy that
+// crash-looped on start.
+app.get('/api/speech/model/*splat', async (req, res) => {
+  if (!spacesReady()) return res.status(503).json({ error: 'Storage not configured.' });
+  // Express 5 hands a splat back as an ARRAY of segments, so the model's
+  // `onnx/encoder_model_quantized.onnx` arrives as ['onnx', 'encoder…'].
+  const raw = req.params.splat;
+  const rest = Array.isArray(raw) ? raw.join('/') : String(raw || '');
+  await serveModelFile(rest, { read: (key) => readObject(key), res });
 });
 
 // ── OLD VERSIONS OF DELETED FILES (2026-08-29) ──────────────────────────────

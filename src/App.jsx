@@ -15,6 +15,11 @@ import ResetPassword from '@/pages/ResetPassword';
 const AdminPanel = lazy(() => import('@/pages/AdminPanel'));
 const NodeLanding = lazy(() => import('@/pages/NodeLanding'));
 const NodeCanvas = lazy(() => import('@/pages/NodeCanvas'));
+// Dev-only measuring instrument for the Whisper decision (#82). Lazy so the
+// 1 MB of onnxruntime it pulls in NEVER lands in a chunk a customer loads —
+// the page itself also returns null off a dev host, so the two are belt and
+// braces rather than one gate.
+const SpeechLab = lazy(() => import('@/pages/SpeechLab'));
 
 // Route-chunk loading state: plain dark screen, matches the app background
 // so navigation feels like a beat of black rather than a flash of white.
@@ -82,6 +87,7 @@ const AuthenticatedApp = () => {
       <Route path="/reset-password" element={<ResetPassword />} />
       <Route path="/node" element={<NodeLanding />} />
       <Route path="/node/:spaceId" element={<NodeCanvas />} />
+      <Route path="/speech-lab" element={<SpeechLab />} />
       {Object.entries(Pages).map(([path, Page]) => (
         <Route
           key={path}
