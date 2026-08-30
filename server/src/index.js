@@ -2341,8 +2341,8 @@ app.post('/api/tts/preview', previewLimiter, requireFalKey, async (req, res) => 
   }
 });
 
-// ─── SEEDANCE 2.0 SMART ROUTING ──────────────────────────────────
-// Routes to the correct Seedance 2.0 endpoint based on image roles:
+// ─── SEEDANCE 2.x SMART ROUTING (2.0 family + 2.5) ───────────────
+// Routes to the correct Seedance endpoint based on image roles:
 //   - No images → text-to-video
 //   - Images as reference → reference-to-video (image_urls[])
 //   - Image as start/end frame → image-to-video
@@ -2356,6 +2356,12 @@ app.post('/api/generate-video-ref', verifyJwt, requireNotBanned, noDoubleCharge,
 
   const isFast = model === 'Seedance 2.0 Fast';
   const isMini = model === 'Seedance 2.0 Mini';
+  // 2.5 joined this route 2026-08-25 (owner). Before that it could only reach
+  // the generic route with start/end frames — the model whose card promises
+  // 50 multimodal references had no way to receive one. Worse, had a 2.5
+  // request landed here, the fallback label below would have ROUTED AND
+  // BILLED it as Seedance 2.0.
+  const isV25 = model === 'Seedance 2.5';
   const endpointBase = isFast ? 'bytedance/seedance-2.0/fast'
                      : isMini ? 'bytedance/seedance-2.0/mini'
                      : 'bytedance/seedance-2.0';
@@ -2366,7 +2372,9 @@ app.post('/api/generate-video-ref', verifyJwt, requireNotBanned, noDoubleCharge,
   // because the required image_url was missing.
   const frameField    = 'image_url';
   const endFrameField = 'end_image_url';
-  const modelLabel = isFast ? 'Seedance 2.0 Fast' : isMini ? 'Seedance 2.0 Mini' : 'Seedance 2.0';
+  const modelLabel = isV25 ? 'Seedance 2.5'
+                   : isFast ? 'Seedance 2.0 Fast'
+                   : isMini ? 'Seedance 2.0 Mini' : 'Seedance 2.0';
 
   if (!modelAllowedForUser(req, modelLabel)) return res.status(403).json(MODEL_BLOCKED(modelLabel));
 
@@ -2445,9 +2453,14 @@ app.post('/api/generate-video-ref', verifyJwt, requireNotBanned, noDoubleCharge,
   const seedanceMapping = VIDEO_DIRECT_MAP[modelLabel];
   if (seedanceMapping?.provider === 'kie') {
     try {
-      const durInt = Math.min(15, Math.max(4, parseInt(duration, 10) || 5));
+      // 2.5 generates up to THIRTY seconds — kie's headline for it — and its
+      // API resolution field stops at 1080p (marketing says 4K, the field
+      // does not; same finding as the pricing note). 2.0 stays 4–15s.
+      const durInt = Math.min(isV25 ? 30 : 15, Math.max(4, parseInt(duration, 10) || 5));
       // kie standard supports up to 4k; fast/mini top out at 720p.
-      const allowedRes = (isFast || isMini) ? ['480p', '720p'] : ['480p', '720p', '1080p', '4k'];
+      const allowedRes = (isFast || isMini) ? ['480p', '720p']
+                       : isV25 ? ['480p', '720p', '1080p']
+                       : ['480p', '720p', '1080p', '4k'];
       const res_ = allowedRes.includes(String(resolution).toLowerCase()) ? String(resolution).toLowerCase() : '720p';
       const body = {
         model: seedanceMapping.kieModel,
@@ -2459,9 +2472,12 @@ app.post('/api/generate-video-ref', verifyJwt, requireNotBanned, noDoubleCharge,
           generate_audio: generate_audio !== false,
           ...(hasStartFrame ? { first_frame_url: startFrameUrl } : {}),
           ...(hasEndFrame ? { last_frame_url: endFrameUrl } : {}),
-          ...(hasRefImages ? { reference_image_urls: refImageUrls.slice(0, 9) } : {}),
-          ...(hasRefVideos ? { reference_video_urls: video_urls.slice(0, 3) } : {}),
-          ...(hasRefAudios ? { reference_audio_urls: audio_urls.slice(0, 3) } : {}),
+          // Reference caps are the provider's, per model: 2.5 takes up to 30
+          // images, 10 videos and 10 audio clips (50 multimodal assets —
+          // kie's published limits); 2.0-family keeps its 9 / 3 / 3.
+          ...(hasRefImages ? { reference_image_urls: refImageUrls.slice(0, isV25 ? 30 : 9) } : {}),
+          ...(hasRefVideos ? { reference_video_urls: video_urls.slice(0, isV25 ? 10 : 3) } : {}),
+          ...(hasRefAudios ? { reference_audio_urls: audio_urls.slice(0, isV25 ? 10 : 3) } : {}),
         },
       };
       console.log(`[SEEDANCE] [KIE] Variant: ${modelLabel} →`, seedanceMapping.kieModel);

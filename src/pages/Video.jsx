@@ -76,8 +76,13 @@ export default function Video() {
   const [motionSceneControl, setMotionSceneControl] = useState(true);
   const [motionModel, setMotionModel] = useState('Kling 3.0 Motion Control');
 
-  // ─── Seedance 2.0 specific state ───
-  const isSeedance2 = model.id === 'seedance-2' || model.id === 'seedance-2-fast' || model.id === 'seedance-2-mini';
+  // ─── Seedance 2.x specific state ───
+  // 2.5 included 2026-08-25 (owner): it was left off this list when added on
+  // 2026-08-17, so the model whose own card advertises "up to 50 multimodal
+  // references" fell back to the start/end-frame-only panel. One missing id
+  // here switched off the whole capability.
+  const isSeedance2 = model.id === 'seedance-2' || model.id === 'seedance-2-fast'
+    || model.id === 'seedance-2-mini' || model.id === 'seedance-2-5';
   const [seedanceMedia, setSeedanceMedia] = useState({ images: [], videos: [], audios: [] });
   const [seedanceElements, setSeedanceElements] = useState([]);
   const [seedanceAudioOn, setSeedanceAudioOn] = useState(true);

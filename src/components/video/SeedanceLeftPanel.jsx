@@ -4,7 +4,12 @@ import SeedanceMediaGrid from './SeedanceMediaGrid';
 import { getVideoCredits } from '@/lib/creditPricing';
 
 const S = { font: '"DM Sans", sans-serif' };
-const DURATIONS = ['auto', '4', '5', '6', '7', '8', '9', '10', '11', '12', '13', '14', '15'];
+// Seedance 2.0 generates 4–15s; 2.5 goes to 30s (kie's headline feature —
+// their page title is literally "30s AI Video"). Owner asked for the full
+// per-second range, 2026-08-25.
+const secondsUpTo = (max) => ['auto', ...Array.from({ length: max - 3 }, (_, i) => String(i + 4))];
+const DURATIONS_20 = secondsUpTo(15);
+const DURATIONS_25 = secondsUpTo(30);
 const ASPECTS = ['auto', '21:9', '16:9', '4:3', '1:1', '3:4', '9:16'];
 // Regular Seedance 2.0 supports 480/720/1080p; Fast and Mini only 480/720p per FAL docs.
 const RESOLUTIONS_REGULAR = ['480p', '720p', '1080p'];
@@ -30,6 +35,7 @@ export default function SeedanceLeftPanel({
   // Resolution options depend on the model variant
   const isCapped720 = model?.id === 'seedance-2-fast' || model?.id === 'seedance-2-mini';
   const RESOLUTIONS = isCapped720 ? RESOLUTIONS_FAST : RESOLUTIONS_REGULAR;
+  const DURATIONS = model?.id === 'seedance-2-5' ? DURATIONS_25 : DURATIONS_20;
 
   // If user switches to Fast/Mini while on 1080p, bump down to 720p
   // (neither supports 1080p per FAL schema)
