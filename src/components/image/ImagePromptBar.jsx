@@ -887,6 +887,10 @@ export default function ImagePromptBar({
               placeholder="Describe the image you want to create"
               className="img-prompt-textarea"
               style={{
+                // Room for the microphone pinned at right:0. The placeholder is
+                // short enough to look fine, but a typed first line runs under
+                // the button — the same fault Amr photographed on Video.
+                paddingRight: 44,
                 width: '100%', height: promptHeight, minHeight: MIN_HEIGHT,
                 background: 'transparent', border: 'none', outline: 'none',
                 color: '#fff', fontSize: 15, fontFamily: '"DM Sans", sans-serif',

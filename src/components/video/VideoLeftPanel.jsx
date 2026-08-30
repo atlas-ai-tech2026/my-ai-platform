@@ -350,6 +350,15 @@ export default function VideoLeftPanel({
           height: 110, position: 'relative',
           display: 'flex', flexDirection: 'column',
         }}>
+          {/* ── THE MICROPHONE SITS OVER THE TEXT, SO THE TEXT MAKES ROOM ──
+              Amr, from a screenshot: "it's up onto the text". It was — the
+              placeholder wraps onto a second line and ran straight underneath
+              the button.
+
+              The button STAYS top-right (where every dictation control is, and
+              where the eye looks for it); the textarea below reserves the space
+              instead. Moving the button down would have solved the overlap and
+              hidden the control under the ⚡ corner. */}
           <div style={{
             position: 'absolute', right: 8, top: 8, zIndex: 2,
             display: 'flex', gap: 8, alignItems: 'center',
@@ -366,6 +375,9 @@ export default function VideoLeftPanel({
               width: '100%',
               height: '100%',
               minHeight: 0,
+              // Room for the 26px microphone at right:8. Without it the first
+              // two lines run under the button.
+              paddingRight: 40,
               background: 'transparent',
               border: 'none',
               outline: 'none',
