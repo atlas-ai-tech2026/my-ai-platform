@@ -147,7 +147,7 @@ export const SEED = [
     detail: 'Standing rule: I ask before ANY 2FA change reaches production.' },
 
   // ── MINE, outstanding, priority order ────────────────────────────────────
-  { ref: '82', owner: 'claude', status: 'in_progress', priority: 2,
+  { ref: '92', owner: 'claude', status: 'in_progress', priority: 2,
     title: 'Seedance 2.5 — the full reference experience its card already promised',
     why: 'Owner, 2026-08-25: "In voxel it\'s only start frame and end frame. It must be working like Seedance 2.0 — I can give him many reference images and videos." They were right, and the cause was one line: 2.5 was left off the isSeedance2 switch when added on 2026-08-17, so the model whose own card says "up to 50 multimodal references" fell back to the start/end-frame-only panel.',
     detail: 'BUILT 2026-08-25, ON THE BRANCH. (1) 2.5 joins the Seedance reference UI — media grid, roles, videos and audio references, same screen as 2.0. (2) The reference route now knows 2.5 BY NAME: before this, a 2.5 request reaching it would have been routed AND BILLED as Seedance 2.0 — caught in code review, never happened live. (3) Duration runs 4–30 SECONDS (kie\'s headline for 2.5; 2.0 stays 4–15). The owner\'s "thirteen" was read as THIRTY, matching kie\'s own page — flagged to them explicitly. (4) Resolutions 480p / 720p / 1080p (their 720p+1080p requirement; no 4K — kie\'s API field refuses it despite the marketing, already documented in pricing.js). (5) Reference caps per kie\'s limits: 30 images / 10 videos / 10 audio for 2.5; 2.0 keeps 9/3/3. '
