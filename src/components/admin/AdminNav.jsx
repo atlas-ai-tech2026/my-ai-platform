@@ -91,7 +91,11 @@ function writeCollapsed(v) {
 
 export const GROUPS = [
   { id: 'daily',     label: 'Daily',     tabs: ['sop', 'alerts', 'tasks', 'live'] },
-  { id: 'customers', label: 'Customers', tabs: ['users', 'audience', 'promos', 'gifts', 'bulk'] },
+  // Recovery sits here, not in System: it is opened because a PERSON emailed
+  // saying they lost something — the same reason Users is opened. It was left
+  // out of this list once and the fallback put it in System, which is where
+  // you look when a machine is wrong, not when a customer is upset.
+  { id: 'customers', label: 'Customers', tabs: ['users', 'audience', 'recovery', 'promos', 'gifts', 'bulk'] },
   { id: 'money',     label: 'Money',     tabs: ['costing', 'offers', 'expenses'] },
   { id: 'system',    label: 'System',    tabs: ['logs', 'usage', 'security', 'notifications'] },
 ];

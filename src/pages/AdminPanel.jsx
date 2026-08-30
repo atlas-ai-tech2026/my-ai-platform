@@ -29,6 +29,7 @@ import AlertsTab from '@/components/admin/AlertsTab';
 import CustomerPanel from '@/components/admin/CustomerPanel';
 import SopTab from '@/components/admin/SopTab';
 import TasksTab from '@/components/admin/TasksTab';
+import RecoveryTab from '@/components/admin/RecoveryTab';
 import AdminNav, { CommandPalette } from '@/components/admin/AdminNav';
 import LiveTab from '@/components/admin/LiveTab';
 import { ThemedToaster } from '@/components/admin/crmTheme';
@@ -72,6 +73,10 @@ const TABS = [
   // Users means accounts, Audience means everyone who reaches the site.
   { id: 'audience', label: 'Audience',
     desc: 'Everyone who reaches the site, signed in or not — how many arrived, where they came from, which pages they opened, and how long people actually worked. Arrivals are counted here from the day tracking started; the account and activity history goes back to your first customer, rebuilt from dates that were always kept. Clicks and session replays are in Microsoft Clarity, which never runs on this control panel.' },
+  { id: 'recovery', label: 'Recovery',
+    desc: 'Put back a customer\'s deleted work when they cannot do it themselves. They have 30 days; '
+      + 'this is for the cases that need you — a closed account, a bulk mistake, somebody who cannot '
+      + 'find their own "Recently deleted".' },
   // #59. Under Money, beside Costing and Offers: those two are about what
   // customers pay you; this is what you pay everyone else.
   { id: 'expenses', label: 'Expenses',
@@ -328,6 +333,7 @@ export default function AdminPanel() {
 
         {tab === 'sop' && <SopTab onError={handleError} />}
         {tab === 'tasks' && <TasksTab onError={handleError} />}
+        {tab === 'recovery' && <RecoveryTab onError={handleError} />}
         {tab === 'alerts' && <AlertsTab onError={handleError} />}
 
         {tab === 'live' && <LiveTab onError={handleError} />}

@@ -299,6 +299,12 @@ export const adminApi = {
   // file is one word in a JSON body.
   versionExpiryPlan:()           => request('GET',  '/api/admin/version-expiry'),
   versionExpiryApply:()          => request('POST', '/api/admin/version-expiry', {}),
+
+  // ─── Recovery ─────────────────────────────────────────────────────
+  // Putting back a customer's deleted work when they cannot do it themselves.
+  recoveryList: ({ email = '', text = '', days = '' } = {}) => request('GET',
+    `/api/admin/recovery?email=${encodeURIComponent(email)}&text=${encodeURIComponent(text)}&days=${days}`),
+  recoveryRestore: (ids) => request('POST', '/api/admin/recovery/restore', { ids }),
 };
 
 // Decode a JWT payload WITHOUT verifying its signature. Used only for
