@@ -63,7 +63,23 @@ export const typeFor = (key) => (key.endsWith('.json')
  * The route body, with its one dependency injected so it is testable without a
  * bucket.
  *
- * @param read (key) => Promise<Buffer|null>
+ * ── `read` RETURNS A STREAM, NOT A BUFFER, AND THAT IS THE WHOLE POINT ──────
+ * The first version of this took `Promise<Buffer>` and checked `buf.length`.
+ * storage.readObject actually returns `{ body, contentLength, contentType }`
+ * where body is a Readable — so `.length` was undefined, every valid file read
+ * as empty, and the route answered "the speech model is not installed" for a
+ * model that was sitting right there.
+ *
+ * Eleven unit tests passed while it did that, because they injected a fake
+ * that returned a Buffer. THEY TESTED THIS FUNCTION, NOT ITS CALL SITE. It was
+ * found by curling the route on dev after deploying, which is the only thing
+ * that was ever going to find it.
+ *
+ * Streaming is also the right answer on its own merits: the decoder file is
+ * 29 MB, production is two 1-vCPU boxes, and buffering that per request while
+ * a workshop starts at once is how a box falls over.
+ *
+ * @param read (key) => Promise<{body, contentLength, contentType}>
  */
 export async function serveModelFile(rest, { read, res }) {
   const key = keyForRequest(rest);
@@ -75,16 +91,17 @@ export async function serveModelFile(rest, { read, res }) {
     return { served: false, why: 'not a model file' };
   }
 
-  let buf;
+  let out;
   try {
-    buf = await read(key);
+    out = await read(key);
   } catch (e) {
     console.error(`[whisper-serve] ${key} failed:`, e?.message || e);
     res.status(502).json({ error: 'The speech model could not be read from storage.' });
     return { served: false, why: 'read failed' };
   }
 
-  if (!buf || !buf.length) {
+  const body = out?.body;
+  if (!body) {
     // An installed-but-empty file is the failure mode that produces an
     // unreadable error inside a web worker. Say it here instead.
     console.error(`[whisper-serve] ${key} is missing or empty — the model is incomplete`);
@@ -94,8 +111,23 @@ export async function serveModelFile(rest, { read, res }) {
 
   res.setHeader('Content-Type', typeFor(key));
   res.setHeader('Cache-Control', CACHE_HEADER);
+  // Content-Length so the browser can show real progress on a 29 MB file
+  // rather than an indeterminate spinner. Omitted rather than guessed if
+  // storage did not report one — a WRONG length truncates the download and
+  // produces a corrupt model, which fails inside a worker.
+  const len = Number(out.contentLength);
+  if (Number.isFinite(len) && len > 0) res.setHeader('Content-Length', String(len));
   // Same-origin, so no CORS header is needed — which is the entire reason this
   // path works when the bucket's does not.
-  res.send(buf);
-  return { served: true, key, bytes: buf.length };
+
+  // A stream that dies after the headers are out cannot be turned into a
+  // status code. Destroy the response so the browser sees a truncated transfer
+  // and retries, rather than caching 4 MB of a 29 MB file for a year.
+  body.on?.('error', (e) => {
+    console.error(`[whisper-serve] ${key} stream broke mid-send:`, e?.message || e);
+    res.destroy(e);
+  });
+
+  body.pipe(res);
+  return { served: true, key, bytes: Number.isFinite(len) ? len : null };
 }
