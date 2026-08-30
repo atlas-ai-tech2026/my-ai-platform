@@ -1,4 +1,7 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
+import { toast } from 'sonner';
+import { speechSupported, startListening, appendSpeech, defaultLanguage, LANGUAGES }
+  from '@/lib/speech-input';
 import { Sparkles, ChevronDown, Minus, Plus, Pencil, Type, X, Check, ImagePlus, ArrowLeftRight } from 'lucide-react';
 import PageSwitcher from '@/components/common/PageSwitcher';
 import { detectCompositionIntent } from '@/lib/enhancePrompt';
@@ -434,6 +437,52 @@ export default function ImagePromptBar({
   onNegativePromptChange,
   cameraSelection, onCameraChange,
 }) {
+  // ── SPEAK THE PROMPT ──
+  // `promptRef` is not defensive noise: the recogniser holds onto its
+  // callbacks, so without it a spoken phrase would be appended to whatever the
+  // prompt was when listening STARTED — silently discarding anything typed
+  // while the microphone was open.
+  const [listening, setListening] = useState(false);
+  const [interim, setInterim] = useState('');
+  const [micLang, setMicLang] = useState(defaultLanguage());
+  const micRef = useRef(null);
+  const promptRef = useRef(prompt);
+  promptRef.current = prompt;
+  const micAvailable = useMemo(() => speechSupported(), []);
+
+  const stopMic = () => {
+    micRef.current?.stop();
+    micRef.current = null;
+    setListening(false);
+    setInterim('');
+  };
+
+  const toggleMic = () => {
+    if (listening) { stopMic(); return; }
+    setInterim('');
+    setListening(true);
+    micRef.current = startListening({
+      lang: micLang,
+      onInterim: setInterim,
+      // APPENDS. Never replaces — see speech-input.js. Somebody who has typed
+      // three careful lines and then speaks must not lose the three lines.
+      onFinal: (text) => onPromptChange?.(appendSpeech(promptRef.current, text)),
+      onError: (msg) => { toast.error(msg); stopMic(); },
+      onEnd: () => { micRef.current = null; setListening(false); setInterim(''); },
+    });
+  };
+
+  // Leaving the page with the microphone open would keep it live behind them.
+  useEffect(() => () => micRef.current?.stop(), []);
+
+  // Changing language mid-sentence restarts the recogniser, because it cannot
+  // switch while running.
+  useEffect(() => {
+    if (!listening) return;
+    stopMic();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [micLang]);
+
   const [model, setModel] = useState(IMAGE_MODELS[0]);
   const [aspectRatio, setAspectRatio] = useState('16:9');
   const [quality, setQuality] = useState('2K');
@@ -627,6 +676,12 @@ export default function ImagePromptBar({
           100% { transform: scale(1); }
         }
         @keyframes imgSpin { to { transform: rotate(360deg); } }
+        /* The microphone, while it is listening. A still red button is
+           indistinguishable from a red button that has stopped. */
+        @keyframes micPulse {
+          0%, 100% { box-shadow: 0 0 0 0 rgba(224,30,30,0.55); }
+          50%      { box-shadow: 0 0 0 7px rgba(224,30,30,0); }
+        }
         @keyframes imgFadeIn { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: translateY(0); } }
 
         /* ─── Generate button — spec chrome + truly-smooth halo ───
@@ -891,7 +946,63 @@ export default function ImagePromptBar({
                 resize: 'none', lineHeight: 1.6, caretColor: '#E01E1E',
               }}
             />
+
+            {/* ── SPEAK THE PROMPT (2026-08-30) ──
+                The workshops are Arabic-speaking and most laptops in those
+                rooms have English keyboards, so a long Arabic prompt is slow
+                enough to type that people shorten what they ask for.
+
+                Hidden entirely where the browser cannot listen — a dead
+                button is worse than no button. */}
+            {micAvailable && (
+              <button
+                type="button"
+                onClick={toggleMic}
+                aria-label={listening ? 'Stop listening' : 'Speak your prompt'}
+                title={listening ? 'Stop listening' : 'Speak your prompt'}
+                style={{
+                  position: 'absolute', right: 0, top: 2,
+                  width: 34, height: 34, borderRadius: '50%', cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  background: listening ? '#E01E1E' : 'rgba(255,255,255,0.08)',
+                  border: `1px solid ${listening ? '#E01E1E' : 'rgba(255,255,255,0.16)'}`,
+                  color: '#fff', fontSize: 15, lineHeight: 1,
+                  animation: listening ? 'micPulse 1.4s ease-in-out infinite' : 'none',
+                }}
+              >
+                {listening ? '\u25A0' : '\uD83C\uDFA4'}
+              </button>
+            )}
           </div>
+
+          {/* What is being heard, before it is committed. Interim words change
+              as the recogniser reconsiders, so they are SHOWN but never written
+              into the prompt — that would scatter half-heard words through
+              somebody's work. */}
+          {listening && (
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
+              marginTop: 6, fontSize: 12.5, color: 'rgba(255,255,255,0.6)',
+              fontFamily: '"DM Sans", sans-serif',
+            }}>
+              <span style={{ color: '#E01E1E', fontWeight: 700 }}>Listening…</span>
+              {interim && <span style={{ fontStyle: 'italic' }}>{interim}</span>}
+              <span style={{ marginLeft: 'auto', display: 'inline-flex', gap: 6 }}>
+                {LANGUAGES.map((l) => (
+                  <button
+                    key={l.id} type="button" onClick={() => setMicLang(l.id)}
+                    style={{
+                      padding: '2px 9px', borderRadius: 999, cursor: 'pointer',
+                      fontSize: 11.5, fontFamily: 'inherit',
+                      background: micLang === l.id ? 'rgba(224,30,30,0.2)' : 'transparent',
+                      border: `1px solid ${micLang === l.id ? '#E01E1E' : 'rgba(255,255,255,0.14)'}`,
+                      color: '#fff',
+                    }}
+                  >{l.label}</button>
+                ))}
+              </span>
+            </div>
+          )}
 
           {/* Smart Compose badge */}
           {smartComposeActive && (

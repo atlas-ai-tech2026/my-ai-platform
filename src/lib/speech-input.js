@@ -1,0 +1,160 @@
+// ─── speech-input.js ─────────────────────────────────────────────────────────
+// Speak the prompt instead of typing it.
+//
+// ── WHY THIS MATTERS HERE SPECIFICALLY ─────────────────────────────────────
+// The workshops are Arabic-speaking, and most laptops in those rooms have
+// English keyboards. Typing a long Arabic prompt on one is genuinely slow —
+// slow enough that people shorten what they ask for, and get a worse picture
+// because of the keyboard rather than the idea.
+//
+// ── WHY THE BROWSER'S OWN RECOGNISER, AND WHAT IT COSTS ────────────────────
+// We already host Whisper in our own bucket for Edit Cut, and it is better on
+// privacy: the audio never leaves the machine. It is the wrong choice HERE.
+//
+//   · ~40 MB downloaded on first use — in a workshop, on shared wifi, with
+//     twenty people starting at once
+//   · record-then-transcribe, so nothing appears until you stop speaking
+//
+// The browser's recogniser is instant and shows words AS THEY ARE SPOKEN,
+// which is what makes dictation feel worth using. The cost is real and stated
+// in the UI rather than hidden: in Chrome the audio is sent to Google for
+// recognition. For a PROMPT — a description of a picture somebody is about to
+// publish — that is a reasonable trade. It would not be for the transcript of
+// a customer's private video, which is exactly why Edit Cut uses Whisper.
+//
+// ── AND THE ONE RULE ───────────────────────────────────────────────────────
+// IT NEVER OVERWRITES WHAT THEY TYPED. Speech APPENDS. Somebody who has
+// written three careful lines and then adds a spoken sentence must not lose
+// the three lines — and there is no undo on a textarea somebody else cleared.
+
+/** Chrome and Safari expose it under different names; Firefox not at all. */
+export function speechSupported(win = typeof window !== 'undefined' ? window : undefined) {
+  if (!win) return false;
+  return Boolean(win.SpeechRecognition || win.webkitSpeechRecognition);
+}
+
+/**
+ * The languages offered.
+ *
+ * Arabic first, deliberately: it is the harder one to type on the keyboards
+ * these customers actually have, so it is the reason the button exists.
+ */
+export const LANGUAGES = [
+  { id: 'ar-SA', label: 'العربية' },
+  { id: 'en-US', label: 'English' },
+];
+
+/** Which one to start on — the browser's own setting, falling back to Arabic
+ *  because that is who this is for. */
+export function defaultLanguage(nav = typeof navigator !== 'undefined' ? navigator : undefined) {
+  const tag = String(nav?.language || '').toLowerCase();
+  if (tag.startsWith('en')) return 'en-US';
+  return 'ar-SA';
+}
+
+/**
+ * Join spoken text onto whatever is already in the box.
+ *
+ * PURE, and the most important function here — it is the one that can destroy
+ * work. Every case returns something containing the original text.
+ */
+export function appendSpeech(existing, spoken) {
+  const had = String(existing ?? '');
+  const said = String(spoken ?? '').trim();
+  if (!said) return had;              // nothing heard — never clear the box
+  if (!had.trim()) return said;
+  // A space unless the text already ends in one, so speaking twice does not
+  // run two sentences together.
+  return /\s$/.test(had) ? had + said : `${had} ${said}`;
+}
+
+/**
+ * What went wrong, in words a customer can act on.
+ *
+ * The raw errors are single tokens — "not-allowed", "no-speech" — and showing
+ * those would be the platform blaming the person.
+ */
+export function speechErrorMessage(code) {
+  switch (String(code || '')) {
+    case 'not-allowed':
+    case 'service-not-allowed':
+      return 'Voxel needs permission to use your microphone. Allow it in your browser, then try again.';
+    case 'no-speech':
+      return 'Nothing was heard. Check the microphone is not muted and try again.';
+    case 'audio-capture':
+      return 'No microphone was found on this computer.';
+    case 'network':
+      return 'Speech recognition needs a connection and could not reach it.';
+    case 'aborted':
+      return null;                    // the customer stopped it — not an error
+    default:
+      return 'The microphone stopped unexpectedly. Try again.';
+  }
+}
+
+/**
+ * Start listening.
+ *
+ * Everything injected so this is testable without a browser. Returns a handle
+ * with stop(); calling stop twice is harmless.
+ *
+ * @param onInterim (text) => void   words as they are spoken, not yet final
+ * @param onFinal   (text) => void   a finished phrase — the only thing appended
+ * @param onError   (message|null) => void
+ * @param onEnd     () => void
+ */
+export function startListening({
+  lang, onInterim, onFinal, onError, onEnd,
+  Recogniser = typeof window !== 'undefined'
+    ? (window.SpeechRecognition || window.webkitSpeechRecognition)
+    : null,
+} = {}) {
+  if (!Recogniser) {
+    onError?.('This browser cannot listen. Chrome or Safari can.');
+    return { stop() {} };
+  }
+
+  const rec = new Recogniser();
+  rec.lang = lang || 'ar-SA';
+  // Keeps going between sentences, so a long prompt is not cut off after the
+  // first pause for breath.
+  rec.continuous = true;
+  rec.interimResults = true;
+
+  rec.onresult = (event) => {
+    let interim = '';
+    for (let i = event.resultIndex; i < event.results.length; i += 1) {
+      const r = event.results[i];
+      const text = r[0]?.transcript || '';
+      // ONLY final results are appended. Interim text changes as the recogniser
+      // reconsiders, and appending it would scatter half-heard words through
+      // the prompt.
+      if (r.isFinal) onFinal?.(text);
+      else interim += text;
+    }
+    onInterim?.(interim);
+  };
+
+  rec.onerror = (e) => {
+    const msg = speechErrorMessage(e?.error);
+    if (msg) onError?.(msg);
+  };
+  rec.onend = () => onEnd?.();
+
+  try {
+    rec.start();
+  } catch (e) {
+    // Already running, or blocked before it began.
+    onError?.(speechErrorMessage(e?.name) || 'The microphone could not be started.');
+    return { stop() {} };
+  }
+
+  let stopped = false;
+  return {
+    stop() {
+      if (stopped) return;
+      stopped = true;
+      try { rec.stop(); } catch { /* already ended */ }
+    },
+  };
+}
