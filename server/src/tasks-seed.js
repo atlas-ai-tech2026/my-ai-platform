@@ -564,23 +564,39 @@ export const SEED = [
       + 'DEV — the half that had FAILED OPEN, and that I only found because the owner asked whether dev needed backups at all: 19:28:03Z [auto-backup] skipped — … already exists (PRIMARY). The word primary is the proof. Dev has no offsite bucket by design (#51), so the first guard asked a question dev could not answer and backed up on every boot. It now asks the destination the environment actually writes to, and BOTH branches are now exercised in production conditions rather than only the one with an offsite bucket. '
       + '⚠️ WHAT THE LOGS STILL CANNOT SAY, so it is not claimed: the VERSION COUNT of today\'s object. The skip line proves the archive exists and that nothing overwrote it since; counting versions needs a LISTING, which is precisely what #70 is about. If the owner is in Backblaze anyway, one look at today\'s file closes it completely — optional, not required.' },
   // ── ADDED 2026-08-28, raised by Amr ─────────────────────────────────────
-  { ref: '82', owner: 'claude', status: 'pending', priority: 4,
+  { ref: '82', owner: 'claude', status: 'done', priority: 4,
     title: 'A microphone on the prompt box — speak the prompt instead of typing it',
     why: 'Amr raised this while dictating to me by voice, which is the argument: '
       + 'describing a scene out loud is far faster than typing it, and for an '
       + 'Arabic-speaking workshop room being asked to type detailed English, '
       + 'the keyboard is the barrier — not the idea. A beginner who cannot '
       + 'phrase a prompt in English can usually say what they want.',
-    detail: 'Browser SpeechRecognition, which is BUILT IN to Chrome, Edge and '
-      + 'Safari — no provider, no per-minute cost, and it supports Arabic. It '
-      + 'fills the prompt box as dictated text the customer can then edit, '
-      + 'never sending anything straight to a model. '
-      + 'CAVEAT to decide before building: Chrome sends the audio to Google to '
-      + 'transcribe it, which is a question worth answering for a B2B customer '
-      + 'before the button ships. Firefox does not support it, so the mic must '
-      + 'be HIDDEN where unsupported rather than shown and dead. '
-      + 'NOT related to the Edit Cut transcript tab: that needs a file '
-      + 'transcribed, which this cannot do.' },
+    detail: 'ON PRODUCTION 2026-08-30, on FIVE prompt boxes — image, video, '
+      + 'Seedance, the video side panel and music. Browser SpeechRecognition: '
+      + 'no provider, no per-minute cost. Words go straight into the box as '
+      + 'they are spoken and are rewritten in place as the recogniser firms '
+      + 'them up; text typed BEFORE speaking is never touched. A rising tone '
+      + 'when it opens and a falling one when it closes, so you know it is on '
+      + 'without looking. Hidden entirely on Firefox rather than shown dead. '
+      + 'THREE THINGS AMR CORRECTED, all of them visible on screen and '
+      + 'invisible in the code: it was built on one prompt box out of nine; '
+      + 'it swapped its icon for a square he read as a play button; and it '
+      + 'asked him to pick a language. '
+      + 'WHAT IS STILL NOT SOLVED: the browser recogniser cannot DETECT a '
+      + 'language — it must be told one. The picker is off the screen, so the '
+      + 'language is now whatever was remembered or whatever the browser is '
+      + 'set to, chosen silently. Somebody who speaks Arabic on an '
+      + 'English-set browser will get poor results and no way to see why. '
+      + 'The only real cure is a model that detects it, and kie has no '
+      + 'speech-to-text model — CHECKED, not assumed. That leaves Whisper in '
+      + 'the browser (free, we already host it, but ~40 MB on first use and '
+      + 'nothing appears until you stop speaking) or a paid provider (fast '
+      + 'AND auto-detecting, but costs per minute and the audio leaves the '
+      + 'machine). Amr to choose — it is a change of technology, not of screen. '
+      + 'The Chrome caveat stands and is unchanged: Chrome sends the audio to '
+      + 'Google to transcribe it. Reasonable for a PROMPT, which is a '
+      + 'description of a picture about to be published; it would not be for '
+      + 'a customer\u2019s private video, which is why Edit Cut uses Whisper.' },
 
   // ── ADDED 2026-08-28, found by the media-health check ────────────────────
   // ── 2026-08-29/30 — one long session. Every entry below was built, tested,
