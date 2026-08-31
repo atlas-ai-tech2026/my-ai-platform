@@ -5690,7 +5690,15 @@ app.post('/api/admin/whisper-model', adminGate, async (req, res) => {
 /** Is this host one of ours? Dev shows the flow to EVERYONE, every time, so
  *  Amr can test it without making a new account for each attempt. */
 function onboardingDevHost(req) {
-  const host = String(req.get('host') || '').toLowerCase().split(':')[0];
+  // req.hostname, NOT req.get('host'). `trust proxy` is on (index.js:253) and
+  // DigitalOcean's edge sits in front, so req.hostname is the value that has
+  // been through the proxy — and it is the one the www→apex redirect at
+  // index.js:260 already uses, which demonstrably works on production every
+  // day. The raw Host header is not proven here and this is the single switch
+  // that decides whether Amr sees the flow at all.
+  //
+  // Exact matches only: a substring test would accept dev.voxel-ai.ai.evil.com.
+  const host = String(req.hostname || '').toLowerCase().split(':')[0];
   return host === 'dev.voxel-ai.ai' || host === 'localhost' || host === '127.0.0.1';
 }
 
