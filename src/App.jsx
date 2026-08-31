@@ -20,6 +20,9 @@ const NodeCanvas = lazy(() => import('@/pages/NodeCanvas'));
 // the page itself also returns null off a dev host, so the two are belt and
 // braces rather than one gate.
 const SpeechLab = lazy(() => import('@/pages/SpeechLab'));
+// The first-run questions. Lazy, because it must never be part of what a
+// RETURNING customer downloads — they will never see it again.
+const FirstRunGate = lazy(() => import('@/components/onboarding/FirstRunGate'));
 
 // Route-chunk loading state: plain dark screen, matches the app background
 // so navigation feels like a beat of black rather than a flash of white.
@@ -63,6 +66,12 @@ const AuthenticatedApp = () => {
   // sign-up wall fires only when they try to actually generate.
   return (
     <Suspense fallback={<RouteFallback />}>
+    {/* ── FIRST RUN ────────────────────────────────────────────────────
+        Outside <Routes> on purpose: the questions are asked once, wherever
+        the customer happens to land, and are not a page you can navigate to
+        or link somebody to. It decides for itself whether to render, and
+        renders nothing at all for anyone who has already answered. */}
+    <FirstRunGate />
     <Routes>
       <Route path="/" element={
         <LayoutWrapper currentPageName={mainPageKey}>

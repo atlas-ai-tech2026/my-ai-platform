@@ -19,6 +19,11 @@ import { persistOrFallback, persistBuffer, isReady as spacesReady, uploadPrivate
 import { installModel, modelReady, MODEL_PREFIX } from './whisper-model.js';
 import { serveModelFile } from './whisper-serve.js';
 import {
+  READ_SQL as ONB_READ_SQL, SAVE_STEP_SQL as ONB_SAVE_SQL, FINISH_SQL as ONB_FINISH_SQL,
+  STATS_SQL as ONB_STATS_SQL, stepPatch, merge as onbMerge, shouldShow as onbShouldShow,
+  summarise as onbSummarise,
+} from './onboarding.js';
+import {
   WITNESS_FLAG, RECORD_SQL as WITNESS_RECORD_SQL, READ_SQL as WITNESS_READ_SQL,
   looksInternal, shouldAnnounce,
 } from './uptime-witness.js';
@@ -5676,6 +5681,84 @@ app.post('/api/admin/whisper-model', adminGate, async (req, res) => {
   } catch (e) {
     console.error('[whisper-model] failed:', e.message);
     res.status(500).json({ complete: false, error: e.message });
+  }
+});
+
+// ═══ FIRST RUN (#95) ════════════════════════════════════════════════════════
+// The questions a new customer answers once, and nothing else ever asks again.
+
+/** Is this host one of ours? Dev shows the flow to EVERYONE, every time, so
+ *  Amr can test it without making a new account for each attempt. */
+function onboardingDevHost(req) {
+  const host = String(req.get('host') || '').toLowerCase().split(':')[0];
+  return host === 'dev.voxel-ai.ai' || host === 'localhost' || host === '127.0.0.1';
+}
+
+// app.POST, not app.get. The browser reaches this through base44's `invoke`,
+// which ALWAYS posts — a GET here would 404 exactly the way
+// /api/history/models did on 2026-08-30, invisibly, because the client
+// swallows the failure into an empty result.
+//
+// app.all was the first attempt and the reachability guard rejected it,
+// correctly: `app.all` with no method branch cannot be distinguished from one
+// that silently ignores POST. A plain app.post says what it means.
+app.post('/api/onboarding', verifyJwt, async (req, res) => {
+  if (!dbReady()) return res.json({ show: false });
+  try {
+    const { rows } = await pool.query(ONB_READ_SQL, [req.user.id]);
+    res.json({
+      show: onbShouldShow(rows?.[0], onboardingDevHost(req)),
+      answers: rows?.[0]?.onboarding?.answers || {},
+    });
+  } catch (e) {
+    // NEVER let this block. A survey that cannot load must not keep a paying
+    // customer out of the thing they paid for.
+    console.error('[onboarding] could not read:', e.message);
+    res.json({ show: false });
+  }
+});
+
+app.post('/api/onboarding/step', verifyJwt, async (req, res) => {
+  if (!dbReady()) return res.json({ ok: false });
+  const { screenId, answers, index, ms } = req.body || {};
+  try {
+    // Read-modify-write rather than a bare `||`: Postgres's jsonb merge is
+    // SHALLOW, so it would replace the whole answers object and silently drop
+    // every earlier screen.
+    const { rows } = await pool.query(ONB_READ_SQL, [req.user.id]);
+    const next = onbMerge(rows?.[0]?.onboarding, stepPatch({ screenId, answers, index, ms }));
+    await pool.query(ONB_SAVE_SQL, [req.user.id, JSON.stringify(next)]);
+    res.json({ ok: true });
+  } catch (e) {
+    console.error('[onboarding] could not save a step:', e.message);
+    res.json({ ok: false });   // 200 on purpose — see above
+  }
+});
+
+app.post('/api/onboarding/done', verifyJwt, async (req, res) => {
+  if (!dbReady()) return res.json({ ok: false });
+  try {
+    const { rows } = await pool.query(ONB_READ_SQL, [req.user.id]);
+    const next = onbMerge(rows?.[0]?.onboarding, stepPatch({
+      screenId: 'done', answers: req.body?.answers || {}, index: 3, ms: req.body?.ms,
+    }));
+    await pool.query(ONB_FINISH_SQL, [req.user.id, JSON.stringify(next)]);
+    res.json({ ok: true });
+  } catch (e) {
+    console.error('[onboarding] could not finish:', e.message);
+    res.json({ ok: false });
+  }
+});
+
+// The statistics, for the Audience tab.
+app.get('/api/admin/onboarding-stats', adminGate, async (req, res) => {
+  if (!dbReady()) return res.status(503).json({ error: 'Database not configured.' });
+  try {
+    const { rows } = await pool.query(ONB_STATS_SQL);
+    res.json(onbSummarise(rows));
+  } catch (e) {
+    console.error('[onboarding-stats] failed:', e.message);
+    res.status(500).json({ error: e.message });
   }
 });
 

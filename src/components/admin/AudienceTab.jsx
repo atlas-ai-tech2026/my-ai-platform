@@ -17,6 +17,7 @@
 // provenance line. That is the most important thing on this tab.
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import FirstRunStats from './FirstRunStats';
 import { adminApi } from '@/lib/adminApi';
 
 const panel = {
@@ -182,7 +183,27 @@ export default function AudienceTab({ onError }) {
         </div>
       </div>
 
-      <div style={{ fontSize: 11.5, color: 'var(--crm-w35)', lineHeight: 1.6 }}>
+      {/* ── FIRST RUN ───────────────────────────────────────────────────
+          Here rather than in a tab of its own because this tab is already
+          "where they came from". The two halves belong together: everything
+          above is what the BROWSER reported, this is what the CUSTOMER said.
+          Most referrers arrive empty because links get stripped, so the
+          answers fill a gap the technical data cannot. */}
+      <div style={{
+        marginTop: 30, paddingTop: 26, borderTop: '1px solid var(--crm-w08)',
+      }}>
+        <h3 style={{ fontSize: 15, fontWeight: 700, color: 'var(--crm-ink)', margin: '0 0 4px' }}>
+          What new customers tell us
+        </h3>
+        <div style={{ fontSize: 11.5, color: 'var(--crm-w35)', marginBottom: 18, lineHeight: 1.6 }}>
+          Answered once, the first time somebody signs in. Above is what the browser
+          reported; this is what the person said — and most referrers arrive empty,
+          so this is often the only account of where they came from.
+        </div>
+        <FirstRunStats onError={onError} />
+      </div>
+
+      <div style={{ fontSize: 11.5, color: 'var(--crm-w35)', lineHeight: 1.6, marginTop: 26 }}>
         Clicks, scrolling and session replays live in <b>Microsoft Clarity</b>, which the site
         loads on customer pages only — never on this control panel.
       </div>

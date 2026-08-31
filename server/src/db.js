@@ -17,6 +17,7 @@
 // FAL-only deploys keep working. Auth routes check isReady() and return 503.
 
 import pg from 'pg';
+import { MIGRATION_SQL as ONBOARDING_MIGRATION } from './onboarding.js';
 import { COSTING_SEED as COSTING_MODELS_SEED, SEED_PLANS as COSTING_PLANS_SEED } from './costing-seed.js';
 import { SLOW_IMAGE_DDL } from './slow-image.js';
 import { SOFT_DELETE_DDL } from './soft-delete.js';
@@ -1169,6 +1170,19 @@ export async function migrate() {
     // Microsoft. Stored separately from google_sub: a person may legitimately
     // hold both, and the two id spaces are unrelated.
     await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS microsoft_sub VARCHAR(64);`);
+
+    // ── FIRST RUN (#95) ────────────────────────────────────────────────
+    // A COLUMN, not the browser. There are four signup paths — email, Google,
+    // Microsoft and admin-created — and a column that defaults to NULL covers
+    // every one of them, so no path can forget to flag a new customer. If each
+    // had to set something, the Microsoft one would eventually miss it and
+    // nobody would notice.
+    //
+    // The UPDATE marks the ~600 EXISTING customers as already done. Asking
+    // somebody who has used Voxel for months how they found it gets a guess,
+    // not a fact, and it would poison the statistics this exists to produce.
+    // Safe to re-run: afterwards every row is non-NULL, so it matches nothing.
+    for (const sql of ONBOARDING_MIGRATION) await client.query(sql);
     await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS users_microsoft_sub_idx ON users (microsoft_sub) WHERE microsoft_sub IS NOT NULL;`);
     await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS users_google_sub_idx ON users (google_sub) WHERE google_sub IS NOT NULL;`);
     // Google-only accounts have no password at all. Storing a fake hash would
