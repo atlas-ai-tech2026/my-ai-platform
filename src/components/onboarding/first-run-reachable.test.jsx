@@ -44,6 +44,21 @@ describe('☠ THE CHAIN IS COMPLETE', () => {
     expect(mounted).toBeLessThan(routes);
   });
 
+  it('☠ but NOT over the control panel', () => {
+    // This guard was GREEN while the defect was live, which is the lesson:
+    // it asserted the gate is mounted outside <Routes>, and that is exactly
+    // what caused the bug. A test can be satisfied by the thing it exists to
+    // prevent.
+    //
+    // On dev the flow is forced open on every page load. The admin route is
+    // inside <Routes>, so the survey painted over the whole control panel at
+    // zIndex 9000 against its 1000 — and the only way past was Skip, which
+    // writes __skipped over the real answers the owner had come to read.
+    const app = code('src/App.jsx');
+    expect(app).toMatch(/pathname !== ADMIN_ROUTE && <FirstRunGate \/>/);
+    expect(app, 'the pathname has to come from somewhere').toMatch(/useLocation/);
+  });
+
   it('the gate asks the SERVER, not the browser', () => {
     // localStorage would ask twice: sign up on a phone, open a laptop.
     const gate = code('src/components/onboarding/FirstRunGate.jsx');

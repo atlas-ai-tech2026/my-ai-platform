@@ -3,7 +3,7 @@ import { Toaster } from "@/components/ui/toaster"
 import { QueryClientProvider } from '@tanstack/react-query'
 import { queryClientInstance } from '@/lib/query-client'
 import { pagesConfig } from './pages.config'
-import { BrowserRouter as Router, Route, Routes } from 'react-router-dom';
+import { BrowserRouter as Router, Route, Routes, useLocation } from 'react-router-dom';
 import PageNotFound from './lib/PageNotFound';
 import { AuthProvider, useAuth } from '@/lib/AuthContext';
 import LoginModal from '@/components/auth/LoginModal';
@@ -61,6 +61,10 @@ const GlobalAuthModal = () => {
 };
 
 const AuthenticatedApp = () => {
+  // Read here rather than inside FirstRunGate: this component is already
+  // inside <Router>, and keeping the decision at the mount point means the
+  // gate itself stays a plain "should this customer be asked" question.
+  const { pathname } = useLocation();
   // Note: we intentionally do NOT block the public site on auth state.
   // Unauthenticated visitors can browse Explore/Image/Video/etc.; the
   // sign-up wall fires only when they try to actually generate.
@@ -70,8 +74,26 @@ const AuthenticatedApp = () => {
         Outside <Routes> on purpose: the questions are asked once, wherever
         the customer happens to land, and are not a page you can navigate to
         or link somebody to. It decides for itself whether to render, and
-        renders nothing at all for anyone who has already answered. */}
-    <FirstRunGate />
+        renders nothing at all for anyone who has already answered.
+
+        ── EXCEPT THE CONTROL PANEL, AND THAT IS NOT A DETAIL ─────────────
+        On dev the flow is forced open on EVERY page load so it can be tested
+        repeatedly. The admin route lives inside <Routes>, so without this
+        the survey painted over the whole control panel — zIndex 9000 against
+        the panel's 1000 — and the only way past it was to press Skip.
+
+        Which would have DESTROYED the answers being looked at: a skip writes
+        __skipped for every question on that screen, and the merge is keyed by
+        question id, so a real "A Voxel workshop" became "__skipped". The
+        Audience tab would then have read "0 answered · 1 skipped (100%)" and
+        the only sane conclusion from that screen is that the feature records
+        nothing. The act of going to read the results would have erased them.
+
+        Found by attacking the flow before Amr tested it. Note that
+        first-run-reachable.test.jsx was GREEN throughout — it asserts the gate
+        is mounted outside <Routes>, which is exactly what caused this. A guard
+        can be satisfied by the thing it was meant to prevent. */}
+    {pathname !== ADMIN_ROUTE && <FirstRunGate />}
     <Routes>
       <Route path="/" element={
         <LayoutWrapper currentPageName={mainPageKey}>
