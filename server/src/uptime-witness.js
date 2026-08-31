@@ -44,14 +44,23 @@ export const READ_SQL = `SELECT value FROM app_flags WHERE key = $1`;
 /**
  * How long silence is allowed.
  *
- * The recommended monitor interval is 2 minutes. Twenty is ten missed checks —
- * far past any free-tier jitter, so this cannot cry wolf, and still the same
- * morning rather than the same week.
+ * ── SET FROM THE INTERVAL THAT IS ACTUALLY AVAILABLE, NOT THE IDEAL ONE ────
+ * I wrote these for the 2-minute interval I recommended. UptimeRobot's free
+ * plan does not offer it — 15s, 30s and 1m all require a paid plan, and the
+ * fastest free check is FIVE minutes. Amr's monitor runs at 5.
+ *
+ * So 20 minutes would have been four missed checks, and free-tier scheduling
+ * wobbles by design. Forty-five is nine missed checks: far past any jitter, so
+ * this cannot cry wolf, and still the same morning rather than the same week.
+ *
+ * An alert you learn to ignore is worse than no alert — which is the whole
+ * reason this number is derived from the real interval instead of the one I
+ * would have preferred.
  */
-export const STALE_AFTER_MIN = 20;
+export const STALE_AFTER_MIN = 45;
 
-/** Past this it is not late, it is gone. */
-export const GONE_AFTER_MIN = 60;
+/** Past this it is not late, it is gone. Twenty-four missed checks at 5m. */
+export const GONE_AFTER_MIN = 2 * 60;
 
 /**
  * Anything that is plainly our own infrastructure rather than a monitor.

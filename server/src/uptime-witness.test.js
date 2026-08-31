@@ -68,10 +68,17 @@ describe('☠ LOSING A MONITOR IS WORSE THAN NEVER HAVING ONE', () => {
     expect(v.detail).toMatch(/UptimeRobot/);
   });
 
-  it('the thresholds leave room for free-tier jitter', () => {
-    // Recommended interval is 2 minutes. Anything under ~10 missed checks
-    // would cry wolf, and an alert you learn to ignore is worse than none.
-    expect(STALE_AFTER_MIN).toBeGreaterThanOrEqual(10);
+  it('the thresholds are set from the interval that ACTUALLY exists', () => {
+    // I wrote these for a 2-minute interval. UptimeRobot's free plan does not
+    // sell one — 15s, 30s and 1m are all paid, and the fastest free check is
+    // FIVE minutes, which is what Amr's monitor runs at.
+    //
+    // So the floor is expressed in MISSED CHECKS at the real interval, not in
+    // minutes: anything under about eight missed checks would cry wolf on
+    // ordinary free-tier scheduling wobble, and an alert you learn to ignore
+    // is worse than no alert.
+    const REAL_INTERVAL_MIN = 5;
+    expect(STALE_AFTER_MIN / REAL_INTERVAL_MIN).toBeGreaterThanOrEqual(8);
     expect(GONE_AFTER_MIN).toBeGreaterThan(STALE_AFTER_MIN);
   });
 });
