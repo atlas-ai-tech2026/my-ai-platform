@@ -87,8 +87,8 @@ See the recommendation in §10.
 |---|---|---|
 | Tabs `MY ASSETS` / `LIBRARY` / `TRANSCRIPT` | `From Voxel` / `Uploads` / `Transcript` | ✅ three tabs reserved |
 | `Search` box | searches the PROMPT and model | ✅ 2026-08-23 |
-| `Upload` | — | ⬜ |
-| `New Bin` | — | ⬜ |
+| `Upload` | Uploads tab — drop or choose, per-file state | ✅ 2026-08-31 — UploadsPanel, rendered in EditCut |
+| `New Bin` | bins with create/remove/add, MAX_BINS | ✅ 2026-08-31 — lib/library-bins.js, wired in MediaLibrary |
 | `Switch to list view` | grid only | ⬜ |
 | `Sort media` | newest / oldest / longest / by model | ✅ 2026-08-23 |
 | `Filter media` | by model chip + Ready only | ✅ 2026-08-23 |
@@ -99,7 +99,7 @@ See the recommendation in §10.
 | ChatCut | Ours | Status |
 |---|---|---|
 | `VIEWER` label | `VIEWER` | ✅ |
-| `Drop media here` drag-drop | click-to-add from library | 🟡 no drag-drop |
+| `Drop media here` drag-drop | click-to-add AND drag-drop | ✅ 2026-08-31 — Viewer.jsx has real onDragOver/onDrop |
 
 ## 5. Timeline toolbar (left→right, exactly as read)
 
@@ -267,3 +267,41 @@ is closed.
 A specification that lives only in chat images is a specification that
 evaporates. Anything the owner explains about a control gets written HERE, in
 the same commit as the code that implements it.
+
+
+---
+
+## ⚠️ 2026-08-31 — THIS FILE WAS STALE, AND SO WAS THE TASK CARD
+
+Amr asked whether Edit Cut was finished, so that he could test all of it. The
+honest answer was that neither this document nor task #31 could be trusted to
+say — and both were wrong in the SAME direction: they undersold what exists.
+
+Task #31's "NOT BUILT YET" list named six things. Every one of them is built
+and WIRED, checked by grepping the render tree rather than by reading the card:
+
+| #31 claimed missing | Actually |
+|---|---|
+| the real /edit page | built — signed in on dev goes ProjectPicker → EditCut |
+| bring your own generations from history | built — MediaLibrary "From Voxel" |
+| the agent chat | built — AgentChat + live route POST /api/edit-agent |
+| projects stored server-side | built — `EditProject` entity, server authoritative |
+| regenerate a shot in place | built — RegeneratePanel, rendered |
+| text and captions rendering | renders in viewer AND export; only the CC toggle is absent |
+
+WHY IT DRIFTED, because the mechanism matters more than the list: a checklist
+is a RECORD, not a check. It cannot go stale loudly. Every automated guard in
+this repo exists because somebody noticed that a particular claim could rot in
+silence — and this file is a claim about sixty-odd controls with nothing
+watching it at all.
+
+VERIFIED STILL MISSING on 2026-08-31 (grepped, not remembered):
+· `Video Gen` mode in the composer — the only gap that changes what the product
+  IS, and a decision before it is work
+· CC on/off toggle (the captions LAYER exists and renders)
+· list view for the media column
+· Voices · Design Style · Skills · Thinking Mode · Motion Graphics Quality —
+  ChatCut's agent furniture; we may want none of it
+· collaborators/share · report-a-bug
+
+580 tests pass across 26 Edit Cut files.
