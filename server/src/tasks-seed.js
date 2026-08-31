@@ -188,20 +188,42 @@ export const SEED = [
       + 'IF NONE OF THE FOUR IS TRUE, REVIEW ONCE A QUARTER AND DO NOTHING. Rebuilding from the Backblaze backups is the plan until then, and #34 already proved it works. '
       + 'AND WHEN IT DOES START, IT IS THIS ORDER: #54 first, then a written redeploy procedure, then REHEARSE it — an untested standby is a story people tell themselves, exactly what the backups were before #34 restored one for real.' },
 
-  { ref: '79', owner: 'claude', status: 'pending', priority: 1,
-    title: 'Nothing TELLS YOU when the site is down — detection exists, notification does not',
-    why: 'The owner asked on 2026-08-23, after DigitalOcean\'s API returned 504 for several minutes: is there a check every minute or two that confirms everything is working? Good question, and the answer is half yes.',
-    detail: 'VERIFIED 2026-08-23 by reading .do/app.yaml and the SOP schedule, not from memory. '
-      + '── WHAT ALREADY EXISTS, and it is better than it might look ── DigitalOcean pings /api/health every 10 SECONDS (health_check period_seconds: 10, failure_threshold: 6), so an unhealthy container is restarted after about a minute. Production also runs TWO instances, so one dying does not take the site with it. That is real protection and it is already on. '
-      + '── CORRECTED SAME DAY, BY EVIDENCE ── I wrote that nobody is told. That was too strong, and the owner disproved it within the hour: DigitalOcean\'s DEFAULT alerts emailed them four times during the 2026-08-24 control-plane outage ("Deployment failed — voxel-app-dev, 17:42:25 UTC"). So deployment failure IS already reported without any alerts block. What is genuinely missing is narrower and still worth having: nothing tells you the SITE is unreachable, only that a DEPLOY failed. Those are different events — a deploy can fail while the site runs perfectly, which is exactly what happened, and the site can die with no deploy in sight. '
-      + '── AND A DESIGN LIMIT WORTH STATING PLAINLY ── the SOP checks (smoke daily, integrity weekly, restore monthly) run INSIDE the app. A dead app runs no checks. They cannot report a total outage BY CONSTRUCTION — they are checks on correctness, not on being alive, and it would be a mistake to read a green SOP tab as "the site is up". '
-      + '── THE FIX, cheap and additive ── add an alerts block to .do/app.yaml: DEPLOYMENT_FAILED and DOMAIN_FAILED at the app level, plus per-service restart-count and memory rules. The alert address is already set (#38). That covers "DigitalOcean noticed". '
-      + 'SECOND, and it is the one that catches what DO cannot: an EXTERNAL ping from outside our own infrastructure, every 1–5 minutes, on voxel-ai.ai. If the whole app is down, nothing inside it can tell you — only something outside can. UptimeRobot or BetterStack free tiers do this and cost nothing. '
-      + '── ⚠️ THE CHECK THAT RUNS EVERY 10 SECONDS CANNOT SEE THE MOST LIKELY OUTAGE ── /api/health returns in-memory booleans and nothing else. `db_configured` is dbReady(), which is `pool !== null` — it proves a pool OBJECT was constructed at boot, never that Postgres answers. So with the database completely unreachable, /api/health still returns status: ok, db_configured: true. DigitalOcean keeps the container alive, an external monitor shows green, and every customer sees errors. Verified 2026-08-23 by reading index.js:6613 and db.js:64. '
-      + 'THE FIX IS TWO ENDPOINTS, NOT A DEEPER ONE. Keep /api/health shallow — it is the platform\'s LIVENESS probe, asking only "is this process alive", and making it query the database would let a slow database trigger container restarts and turn a degradation into an outage. Add a separate deep check (SELECT 1, plus a Spaces reachability ping) for the EXTERNAL monitor to call. Different questions, different endpoints. '
-      + '── RECOMMENDED INTERVAL: EVERY 2 MINUTES, ALERT AFTER 2 CONSECUTIVE FAILURES ── The threshold matters more than the interval, and it must sit BEYOND DigitalOcean\'s own recovery window. DO restarts an unhealthy container after ~60s; alerting faster than that pages the owner for things that fixed themselves, and an alert you learn to ignore is worse than no alert. Two failures two minutes apart means you are told at ~4 minutes, and only about outages the platform could NOT repair. One minute is noise; five minutes is a workshop already going wrong in front of a room. '
-      + 'IT COSTS NOTHING. /api/health does no work at all, and DigitalOcean ALREADY calls it every 10 seconds — 8,640 times a day. An external check every 2 minutes adds 720, about 8% on top of traffic that is already happening and unmeasurable next to real page loads. There is no buffer, memory or bandwidth concern here; the only real cost of checking too often is false alarms, which the threshold above handles. '
-      + '── NOT DONE YET ON PURPOSE ── .do/app.yaml IS production infrastructure and changing it redeploys the live site. That is the owner\'s call to make, not something to slip in. Ask before applying.' },
+  { ref: '79', owner: 'claude', status: 'done', priority: 1,
+    title: 'Nothing TELLS YOU when the site is down — now something outside does',
+    why: 'Amr asked on 2026-08-23, after DigitalOcean returned 504 for several minutes: is there a '
+      + 'check every minute or two that confirms everything is working? The answer was half yes.',
+    detail: 'DONE 2026-08-31, both halves, and verified from BOTH SIDES. '
+      + 'THE HOLE: /api/health returns in-memory booleans — db_configured is `pool !== null`, which '
+      + 'proves an object was constructed at boot and never that Postgres answers. With the database '
+      + 'completely unreachable it still returned status: ok. DigitalOcean would keep the container '
+      + 'alive, any monitor would show green, and every customer would see errors. '
+      + '/api/ready is the deep check built for that — it queries Postgres, pings Spaces, and '
+      + 'answers 503 when either is gone, because an uptime monitor reads the STATUS CODE and a body '
+      + 'saying ok:false with a 200 on it is a check that never fires. '
+      + 'IT HAD BEEN LIVE FOR DAYS WITH ZERO CALLERS. Built, and unreachable in the way that '
+      + 'matters. So the remaining work was never another endpoint: '
+      + '(1) /api/ready now RECORDS that an outside caller asked, and the SOP tab shows it, so the '
+      + 'setup is verifiable rather than trusted; '
+      + '(2) never-had-a-monitor is a WARNING, had-one-and-lost-it is CRITICAL — the second is a '
+      + 'false sense of safety, which is worse than a known gap; '
+      + '(3) our own traffic cannot tick it (the platform probe, curl, wget, python-requests are '
+      + 'ignored), so a browser tab left open cannot green the one line whose job is to say nobody '
+      + 'is watching; '
+      + '(4) the log announces the first sighting per process, because when Amr asked me to check '
+      + 'whether his monitor had arrived the only answer available was "please open the control '
+      + 'panel and tell me" — which is precisely the answer this project keeps giving and should not. '
+      + 'AMR CREATED THE MONITOR: UptimeRobot, free tier, one on production and one on dev, every '
+      + '5 MINUTES — not the 2 I recommended, because 15s/30s/1m are all paid. My thresholds were '
+      + 'rewritten to match the interval that actually exists rather than the one I preferred: quiet '
+      + 'for 45 min (9 missed checks) warns, 2 hours (24 missed) is critical. '
+      + 'PROVED, not assumed: production and dev logs both show '
+      + '"external check received — Mozilla/5.0+(compatible; UptimeRobot/2.0…)". '
+      + 'STILL TRUE AND WORTH REMEMBERING: this cannot tell you the site is down. A dead app runs no '
+      + 'checks, by construction. It watches the watchman; only the watchman watches the site. '
+      + 'NOT DONE, and deliberately: the alerts block in .do/app.yaml (DEPLOYMENT_FAILED, '
+      + 'DOMAIN_FAILED, restart-count). DigitalOcean already emails on deploy failure by default — '
+      + 'confirmed by Amr receiving four such emails during the 2026-08-24 outage — so the gap that '
+      + 'mattered is now closed by the external monitor.' },
 
   { ref: '76', owner: 'claude', status: 'done', priority: 1,
     was_blocked_by: 'RESOLVED 2026-08-24. This said "our KIE wrapper has no text endpoint" — true of OUR WRAPPER, written as though it were true of KIE. kie.ai has 27 chat models. Kept as a reminder: I recorded a limit of my own integration as a limit of the provider, which is the same mistake I made about kie having no public catalogue.',
