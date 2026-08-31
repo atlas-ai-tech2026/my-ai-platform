@@ -19,7 +19,8 @@ import { persistOrFallback, persistBuffer, isReady as spacesReady, uploadPrivate
 import { installModel, modelReady, MODEL_PREFIX } from './whisper-model.js';
 import { serveModelFile } from './whisper-serve.js';
 import {
-  WITNESS_FLAG, RECORD_SQL as WITNESS_RECORD_SQL, looksInternal,
+  WITNESS_FLAG, RECORD_SQL as WITNESS_RECORD_SQL, READ_SQL as WITNESS_READ_SQL,
+  looksInternal, shouldAnnounce,
 } from './uptime-witness.js';
 import {
   auditSample, verdict as auditVerdict, SAMPLE_SQL as AUDIT_SAMPLE_SQL,
@@ -7416,6 +7417,10 @@ const readyLimiter = rateLimit({
   message: { ok: false, error: 'Too many readiness checks.' },
 });
 
+/** Reset by every deploy, which is the point: it makes "is the monitor still
+ *  calling?" answerable from the logs after a restart, without an admin login. */
+let seenExternalThisBoot = false;
+
 app.get('/api/ready', readyLimiter, async (req, res) => {
   const result = await deepHealth({
     pool: dbReady() ? pool : null,
@@ -7445,7 +7450,39 @@ app.get('/api/ready', readyLimiter, async (req, res) => {
   // be a check causing the outage it reports.
   const agent = req.get('user-agent') || '';
   if (dbReady() && !looksInternal(agent)) {
-    pool.query(WITNESS_RECORD_SQL, [WITNESS_FLAG, agent])
+    // ── ONE LINE PER BOOT, SO THIS IS CHECKABLE WITHOUT THE OWNER ─────────
+    // Amr asked me to check whether his monitor had arrived, and I could not:
+    // the flag lives in the database, readable only through the admin screen
+    // behind his login. "Please open the control panel and tell me" is exactly
+    // the answer this project keeps having to give and should not.
+    //
+    // The flag SURVIVES restarts, so the first-ever announcement below fires
+    // once and is gone forever — useless for confirming a deploy. This fires
+    // once per process instead: at most two lines per deploy, and anyone with
+    // the logs can see the monitor is alive.
+    if (!seenExternalThisBoot) {
+      seenExternalThisBoot = true;
+      console.log(`[uptime-witness] external check received — "${agent}". `
+        + 'Something outside is watching this site.');
+    }
+    // Read-then-write so a TRANSITION can be announced. Not every visit: a
+    // 5-minute monitor is 288 a day and a line for each would bury the log.
+    // Only the first one ever, and any that ends a silence long enough to have
+    // been reported as a problem — the two moments somebody wants to read
+    // about. Without this, the only way to know the monitor had arrived was to
+    // ask the owner to open the admin screen, which is precisely the answer
+    // this project keeps having to give and should not.
+    pool.query(WITNESS_READ_SQL, [WITNESS_FLAG])
+      .then(({ rows }) => {
+        const why = shouldAnnounce(rows?.[0]?.value || null);
+        if (why === 'first') {
+          console.log(`[uptime-witness] FIRST external check ever received — "${agent}". `
+            + 'Something outside is now watching this site.');
+        } else if (why === 'returned') {
+          console.log(`[uptime-witness] external checks have RESUMED after a silence — "${agent}"`);
+        }
+        return pool.query(WITNESS_RECORD_SQL, [WITNESS_FLAG, agent]);
+      })
       .catch((e) => console.error('[uptime-witness] could not record the visit:', e.message));
   }
 });

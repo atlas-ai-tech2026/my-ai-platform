@@ -77,6 +77,30 @@ export function looksInternal(agent = '') {
 }
 
 /**
+ * Should this visit be announced in the log?
+ *
+ * ── WHY NOT JUST LOG EVERY VISIT ───────────────────────────────────────────
+ * A 5-minute monitor is 288 visits a day, per monitor. A line for each would
+ * bury the log it lives in, and a log nobody can read is a log nobody reads.
+ *
+ * ── AND WHY LOG ANYTHING AT ALL ────────────────────────────────────────────
+ * Because on the day the monitor was created, NOBODY COULD TELL WHETHER IT HAD
+ * ARRIVED. The flag is readable only through the admin screen, so verifying it
+ * needed the owner's login — and "ask the owner to look" is exactly the answer
+ * this project keeps having to give and should not.
+ *
+ * So: announce the TRANSITION, and nothing else. The first visit ever, and any
+ * visit that ends a silence long enough to have been reported as a problem.
+ * Those are the two moments somebody actually wants to read about.
+ */
+export function shouldAnnounce(previous, now = new Date()) {
+  const at = previous?.at ? new Date(previous.at) : null;
+  if (!at || Number.isNaN(at.getTime())) return 'first';
+  const minutes = (now - at) / 60000;
+  return minutes >= STALE_AFTER_MIN ? 'returned' : null;
+}
+
+/**
  * Is something outside actually checking?
  *
  * @param last  the stored row's value, or null if nothing has ever called

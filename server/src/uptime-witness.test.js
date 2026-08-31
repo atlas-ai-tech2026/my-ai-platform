@@ -12,7 +12,7 @@
 
 import { describe, it, expect } from 'vitest';
 import {
-  judgeWitness, looksInternal, RECORD_SQL, READ_SQL,
+  judgeWitness, looksInternal, shouldAnnounce, RECORD_SQL, READ_SQL,
   STALE_AFTER_MIN, GONE_AFTER_MIN, WITNESS_FLAG,
 } from './uptime-witness.js';
 
@@ -124,5 +124,38 @@ describe('what gets stored', () => {
 
   it('the read is a read', () => {
     expect(READ_SQL).not.toMatch(/\b(UPDATE|DELETE|INSERT)\b/i);
+  });
+});
+
+// ─── ADDED the day the monitor was created ───────────────────────────────────
+// On that day nobody could tell whether it had ARRIVED. The flag is readable
+// only through the admin screen, so verifying it needed the owner's login —
+// "ask the owner to look" is exactly the answer this project keeps having to
+// give and should not.
+describe('☠ ARRIVAL IS ANNOUNCED, SILENCE IS NOT SPAMMED', () => {
+  it('the very first check ever is announced', () => {
+    expect(shouldAnnounce(null)).toBe('first');
+    expect(shouldAnnounce({ at: 'nonsense' })).toBe('first');
+    expect(shouldAnnounce({})).toBe('first');
+  });
+
+  it('a check that ends a long silence is announced as RETURNED', () => {
+    // Distinguished from 'first' on purpose: "it started working" and "it
+    // started working AGAIN" are different stories, and the second one means
+    // something was wrong that nobody was told about.
+    expect(shouldAnnounce({ at: ago(STALE_AFTER_MIN + 1) })).toBe('returned');
+  });
+
+  it('☠ but ordinary visits say NOTHING — 288 a day would bury the log', () => {
+    for (const m of [0, 1, 5, 10, STALE_AFTER_MIN - 1]) {
+      expect(shouldAnnounce({ at: ago(m) }), `${m} minutes ago`).toBeNull();
+    }
+  });
+
+  it('the announcement threshold is the same one the SOP line warns at', () => {
+    // If they drifted apart, the log would go quiet about a gap the screen was
+    // calling a problem, or announce a return to something never reported.
+    expect(shouldAnnounce({ at: ago(STALE_AFTER_MIN) })).toBe('returned');
+    expect(shouldAnnounce({ at: ago(STALE_AFTER_MIN - 0.5) })).toBeNull();
   });
 });
