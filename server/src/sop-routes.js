@@ -26,6 +26,7 @@ import { measureUsage as spacesUsage, measureMedia as spacesMedia,
          versioningStatus, listKeys } from './storage.js';
 import { measureOffsiteUsage as offsiteUsage, measureOffsiteMedia as offsiteMedia,
          listOffsite } from './backup-offsite.js';
+import { describeCoverage, COUNT_SQL as LEDGER_COUNT_SQL } from './offsite-ledger.js';
 import { judgeBackups } from './backup-freshness.js';
 import { recordUsage, usageHistory, judgeUsage, judgeMediaBackup, ALLOWANCES,
          measureDatabase, describeTables, fmtScaled, GB } from './storage-usage.js';
@@ -262,12 +263,54 @@ export function registerSopRoutes(app, {
         action: v.action || '',
       }));
     } catch (e) {
+      // ── THE LISTING FAILED. FALL BACK TO OUR OWN RECORD. ─────────────────
+      // This line read "not checked" for ELEVEN DAYS while the backup was
+      // copying perfectly, because counting the far side is the only way it
+      // knew how to answer. offsite-ledger.js was built precisely for this,
+      // describeCoverage() was written and tested for precisely this — and
+      // nothing ever called it. The fallback existed and could not be reached.
+      //
+      // The ledger is a WEAKER claim and says so in its own wording: "we
+      // copied and verified N files", not "N files are there right now". A
+      // weaker true answer beats "not checked", which is indistinguishable
+      // from a backup that has stopped.
+      let fallback = null;
+      try {
+        const [srcAgain, ledgerRow] = await Promise.all([
+          spacesMedia(),
+          pool.query(LEDGER_COUNT_SQL).then((r) => r.rows?.[0]),
+        ]);
+        fallback = describeCoverage({
+          sourceCount: srcAgain?.objects ?? null,
+          ledgerCount: ledgerRow?.n ?? null,
+          listingWorked: false,
+        });
+      } catch (inner) {
+        // Both the far side AND our own record are unreadable. That is a
+        // genuine "not checked", and it must stay one.
+        console.error(`[sop] media-backup fallback also failed: ${inner.message}`);
+      }
+
       today.push(line({
         key: 'media-backup', zone: 'today', label: 'Customer media backed up',
-        state: STATE.UNKNOWN, value: 'not checked', checkedAt: new Date().toISOString(),
-        info: 'Counts how much customer media has reached the offsite bucket.',
-        detail: e.message,
-        action: 'An unverified backup is not a backup — find out why this could not be read.',
+        state: fallback && fallback.state !== 'unknown'
+          ? (fallback.state === 'critical' ? STATE.CRITICAL
+            : fallback.state === 'warn' ? STATE.WARN : STATE.OK)
+          : STATE.UNKNOWN,
+        value: fallback && fallback.state !== 'unknown'
+          ? (fallback.state === 'ok' ? 'protected (from our own record)' : fallback.state)
+          : 'not checked',
+        checkedAt: new Date().toISOString(),
+        info: 'Counts how much customer media has reached the offsite bucket. When the offsite '
+          + 'bucket cannot be listed, this falls back to our own record of what has been copied '
+          + 'AND read back — a weaker claim, and it says which one it is using.',
+        detail: fallback && fallback.state !== 'unknown'
+          ? `${fallback.detail} · the offsite bucket could not be listed: ${e.message}`
+          : e.message,
+        action: fallback && fallback.state !== 'unknown'
+          ? 'The copy is still running and our own record answers for it, but the far side has not '
+            + 'been counted. Find out why the listing fails.'
+          : 'An unverified backup is not a backup — find out why this could not be read.',
       }));
     }
 
