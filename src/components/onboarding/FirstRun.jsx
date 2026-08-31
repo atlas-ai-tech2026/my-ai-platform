@@ -80,19 +80,17 @@ export default function FirstRun({ userId, onFinish, api }) {
   const pct = Math.round(((i + 1) / SCREENS.length) * 100);
 
   return (
-    <div style={{
+    <div className="fr-wrap" style={{
       position: 'fixed', inset: 0, zIndex: 9000, background: C.ground,
       display: 'flex', alignItems: 'center', justifyContent: 'center',
-      padding: 20, overflowY: 'auto', fontFamily: '"DM Sans", sans-serif',
+      fontFamily: '"DM Sans", sans-serif',
     }}>
-      <div style={{
+      <div className="fr-shell" style={{
         width: '100%', maxWidth: 1000, background: C.panel,
         border: `1px solid ${C.line}`, borderRadius: 18, overflow: 'hidden',
         boxShadow: '0 40px 90px -20px rgba(0,0,0,.7)',
-        display: 'grid', gridTemplateColumns: 'minmax(0,1.12fr) minmax(0,1fr)',
-        minHeight: 520,
-      }} className="firstrun-shell">
-        <div style={{ padding: '44px 44px 40px', display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+      }}>
+        <div className="fr-side">
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 38 }}>
             <b style={{ fontFamily: MONO, fontSize: 11.5, fontWeight: 500, letterSpacing: '0.14em', color: C.ink3 }}>
@@ -103,12 +101,14 @@ export default function FirstRun({ userId, onFinish, api }) {
             </span>
           </div>
 
-          <h2 style={{ fontSize: 32, fontWeight: 700, letterSpacing: '-0.035em', lineHeight: 1.1, margin: '0 0 10px', color: C.ink }}>
-            {screen.title}
-          </h2>
-          <p style={{ fontSize: 14.5, color: C.ink3, margin: '0 0 30px', maxWidth: '44ch' }}>{screen.sub}</p>
+          <div key={screen.id} className="fr-enter" style={{ display: 'contents' }}>
+            <h2 className="fr-q" style={{ fontWeight: 700, letterSpacing: '-0.035em', lineHeight: 1.1, margin: '0 0 10px', color: C.ink }}>
+              {screen.title}
+            </h2>
+            <p style={{ fontSize: 14.5, color: C.ink3, margin: '0 0 26px', maxWidth: '44ch' }}>{screen.sub}</p>
+          </div>
 
-          <div style={{ flex: 1 }}>
+          <div className="fr-body" key={`b-${screen.id}`}>
             {screen.questions.map((q) => (
               <div key={q.id} style={{ marginBottom: 24 }}>
                 {q.label && (
@@ -121,11 +121,12 @@ export default function FirstRun({ userId, onFinish, api }) {
                 )}
 
                 {q.kind === 'cards' && (
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,1fr)', gap: 10 }}>
+                  <div className="fr-cards">
                     {q.options.map((o) => {
                       const on = chosen(q.id, o.value, q.multi);
                       return (
-                        <button key={o.value} type="button" onClick={() => pick(q.id, o.value, q.multi)}
+                        <button key={o.value} type="button" className="fr-card"
+                          aria-pressed={on} onClick={() => pick(q.id, o.value, q.multi)}
                           style={{
                             textAlign: 'left', cursor: 'pointer', background: on ? 'rgba(224,30,30,0.13)' : C.panel2,
                             border: `1px solid ${on ? C.accent : C.line}`, borderRadius: 13, padding: '16px 16px 15px', color: C.ink,
@@ -143,7 +144,8 @@ export default function FirstRun({ userId, onFinish, api }) {
                     {q.options.map((o) => {
                       const v = valueOf(o); const on = chosen(q.id, v, q.multi);
                       return (
-                        <button key={v} type="button" onClick={() => pick(q.id, v, q.multi)}
+                        <button key={v} type="button" className="fr-chip"
+                          aria-pressed={on} onClick={() => pick(q.id, v, q.multi)}
                           style={{
                             cursor: 'pointer', fontSize: 13, fontFamily: 'inherit',
                             color: on ? C.ink : C.ink2, background: on ? 'rgba(224,30,30,0.15)' : C.panel2,
@@ -161,6 +163,7 @@ export default function FirstRun({ userId, onFinish, api }) {
 
                 {q.kind === 'text' && (
                   <input
+                    className="fr-input"
                     type="text" maxLength={q.max || 120} placeholder={q.placeholder}
                     value={answers[q.id] || ''} onChange={(e) => setAnswers((a) => ({ ...a, [q.id]: e.target.value }))}
                     style={{
@@ -183,8 +186,11 @@ export default function FirstRun({ userId, onFinish, api }) {
             )}
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: 20, marginTop: 'auto', paddingTop: 34 }}>
-            <button type="button" onClick={() => advance(false)} disabled={busy}
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 20, flex: 'none',
+            paddingTop: 26, marginTop: 20, borderTop: `1px solid ${C.line}`,
+          }}>
+            <button type="button" className="fr-btn" onClick={() => advance(false)} disabled={busy}
               style={{
                 background: C.accent, color: '#fff', border: 0, borderRadius: 10, padding: '12px 26px',
                 fontFamily: 'inherit', fontSize: 14.5, fontWeight: 700, cursor: busy ? 'wait' : 'pointer', opacity: busy ? 0.6 : 1,
@@ -192,7 +198,7 @@ export default function FirstRun({ userId, onFinish, api }) {
               {screen.generate ? 'Generate' : 'Continue'}
             </button>
             {screen.skippable && (
-              <button type="button" onClick={() => advance(true)} disabled={busy}
+              <button type="button" className="fr-ghost" onClick={() => advance(true)} disabled={busy}
                 style={{ background: 'none', border: 0, color: C.ink3, fontFamily: 'inherit', fontSize: 14.5, fontWeight: 500, cursor: 'pointer', padding: '12px 0' }}>
                 {screen.generate ? 'I’ll do it myself' : 'Skip'}
               </button>
@@ -200,14 +206,108 @@ export default function FirstRun({ userId, onFinish, api }) {
           </div>
         </div>
 
-        <FirstRunArt name={screen.art} caption={screen.caption}
-          tagline={screen.generate ? 'Yours, in a moment' : 'Made in Voxel'} />
+        {/* key + class: React remounts it per screen, and the fade runs a beat
+            longer than the question's so the eye lands on the words first. */}
+        <div key={`art-${screen.id}`} className="fr-art fr-art-enter"
+          style={{ minHeight: 0, borderLeft: `1px solid ${C.line}`, overflow: 'hidden' }}>
+          <FirstRunArt name={screen.art} caption={screen.caption}
+            tagline={screen.generate ? 'Yours, in a moment' : 'Made in Voxel'} />
+        </div>
       </div>
 
       <style>{`
-        @media (max-width: 860px) {
-          .firstrun-shell { grid-template-columns: 1fr !important; }
-          .firstrun-shell > div:last-child { min-height: 200px; border-left: 0 !important; border-top: 1px solid rgba(255,255,255,.08); }
+        /* ══ RESPONSIVE ══════════════════════════════════════════════════
+           Three things have to survive a small window, and only the first is
+           obvious:
+             1. the two columns become one
+             2. the QUESTIONS scroll while the buttons stay put — screen 3 has
+                four questions and on a short laptop the Continue button was
+                pushed below the fold, which is unreachable, not merely ugly
+             3. the artwork gives up its space rather than squeezing the
+                questions, because on a phone the questions are the product
+                and the picture is the argument for it                       */
+        .fr-wrap { padding: 20px; }
+        .fr-shell {
+          display: grid;
+          grid-template-columns: minmax(0, 1.12fr) minmax(0, 1fr);
+          /* minmax(0,1fr), not auto. A grid ROW sized by its content grows
+             straight past a max-height on the container — which put the
+             Continue button below the fold on a 1280x800 laptop, and a button
+             you cannot reach is not a cosmetic problem. */
+          grid-template-rows: minmax(0, 1fr);
+          max-height: calc(100vh - 40px);
+          overflow: hidden;
+        }
+        .fr-side {
+          padding: clamp(26px, 3.4vw, 44px);
+          display: flex; flex-direction: column; min-width: 0; min-height: 0;
+        }
+        /* the scrolling part, so the actions below it never move */
+        .fr-body {
+          flex: 1; min-height: 0;
+          overflow-y: auto;
+          /* hidden, not auto: a chip one pixel too wide produced a horizontal
+             scrollbar across the whole question list. They wrap; they never
+             need to scroll sideways. */
+          overflow-x: hidden;
+          overscroll-behavior: contain;
+          padding-right: 4px;   /* so the scrollbar never sits on a chip */
+        }
+        .fr-body::-webkit-scrollbar { width: 6px; }
+        .fr-body::-webkit-scrollbar-thumb { background: rgba(255,255,255,.14); border-radius: 3px; }
+        .fr-q { font-size: clamp(22px, 2.6vw, 32px); }
+        .fr-cards { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+
+        @media (max-width: 900px) {
+          .fr-shell { grid-template-columns: 1fr; }
+          .fr-art { min-height: 150px; max-height: 22vh; border-left: 0; border-top: 1px solid rgba(255,255,255,.08); }
+        }
+        /* Below this the picture is costing more than it gives: the window is
+           too short for both, and a half-visible question is worse than no
+           artwork. */
+        @media (max-width: 640px), (max-height: 620px) {
+          .fr-art { display: none; }
+          .fr-wrap { padding: 0; }
+          .fr-shell {
+            max-height: 100vh; height: 100vh; border-radius: 0; border: 0;
+            /* Collapse to ONE column too. Hiding the artwork without this left
+               its grid column standing — an empty half-screen on a short
+               laptop, with the questions crammed into the other half. */
+            grid-template-columns: 1fr;
+          }
+        }
+        @media (max-width: 460px) {
+          .fr-cards { grid-template-columns: 1fr; }
+        }
+
+        /* ══ MOTION ══════════════════════════════════════════════════════
+           One orchestrated move, not four scattered ones: the panel lifts and
+           fades as a whole, and the artwork follows a beat later so the eye
+           lands on the question first. Keyed on the screen id, so React
+           replays it on every change.                                       */
+        @keyframes frIn {
+          from { opacity: 0; transform: translateY(10px); }
+          to   { opacity: 1; transform: none; }
+        }
+        @keyframes frArt { from { opacity: 0; } to { opacity: 1; } }
+        .fr-enter { animation: frIn 360ms cubic-bezier(.22,.61,.36,1) both; }
+        .fr-art-enter { animation: frArt 620ms ease both; }
+
+        .fr-chip, .fr-card, .fr-btn { transition: background .16s ease, border-color .16s ease, transform .12s ease; }
+        .fr-chip:hover, .fr-card:hover { border-color: rgba(255,255,255,.28); }
+        .fr-chip:active, .fr-card:active, .fr-btn:active { transform: scale(.985); }
+        .fr-btn:hover { filter: brightness(1.08); }
+        .fr-ghost:hover { color: rgba(255,255,255,.8); }
+        /* Keyboard users get a visible ring; mouse users never see it. */
+        .fr-chip:focus-visible, .fr-card:focus-visible, .fr-btn:focus-visible,
+        .fr-ghost:focus-visible, .fr-input:focus-visible {
+          outline: 2px solid #ff5555; outline-offset: 2px;
+        }
+        .fr-input:focus { border-color: rgba(255,255,255,.3); }
+
+        @media (prefers-reduced-motion: reduce) {
+          .fr-enter, .fr-art-enter { animation: none; }
+          .fr-chip, .fr-card, .fr-btn { transition: none; }
         }
       `}</style>
     </div>

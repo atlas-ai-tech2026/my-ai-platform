@@ -98,7 +98,7 @@ export default function FirstRunArt({ name = 'dune', caption, tagline = 'Made in
   return (
     <div style={{
       position: 'relative', overflow: 'hidden', background: '#0b0b0e',
-      borderLeft: '1px solid rgba(255,255,255,0.08)', minHeight: 0,
+      width: '100%', height: '100%', minHeight: 0,
     }}>
       <canvas ref={ref} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', display: 'block' }} />
       <div style={{
