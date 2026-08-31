@@ -19,6 +19,9 @@ import { persistOrFallback, persistBuffer, isReady as spacesReady, uploadPrivate
 import { installModel, modelReady, MODEL_PREFIX } from './whisper-model.js';
 import { serveModelFile } from './whisper-serve.js';
 import {
+  WITNESS_FLAG, RECORD_SQL as WITNESS_RECORD_SQL, looksInternal,
+} from './uptime-witness.js';
+import {
   auditSample, verdict as auditVerdict, SAMPLE_SQL as AUDIT_SAMPLE_SQL,
   COUNT_SQL as AUDIT_COUNT_SQL, BLIND_FROM, BLIND_UNTIL, DEFAULT_SAMPLE,
 } from './ledger-audit.js';
@@ -7428,6 +7431,23 @@ app.get('/api/ready', readyLimiter, async (req, res) => {
     started_at: SERVER_STARTED_AT,
     checks: result.checks,
   });
+
+  // ── REMEMBER THAT SOMETHING OUTSIDE ASKED (#79) ─────────────────────────
+  // This endpoint has been live on production for days with ZERO callers from
+  // outside our own infrastructure. Recording the visit does two things a new
+  // endpoint could not: it makes the owner's five-minute monitor setup
+  // VERIFIABLE — he can watch it arrive rather than trust he did it right —
+  // and it notices later, when a free-tier monitor lapses or is paused and
+  // nothing else would ever say so.
+  //
+  // AFTER the response is sent. A monitor must never wait on our bookkeeping,
+  // and a failed write must never turn a healthy site into a 503 — that would
+  // be a check causing the outage it reports.
+  const agent = req.get('user-agent') || '';
+  if (dbReady() && !looksInternal(agent)) {
+    pool.query(WITNESS_RECORD_SQL, [WITNESS_FLAG, agent])
+      .catch((e) => console.error('[uptime-witness] could not record the visit:', e.message));
+  }
 });
 
 // ─── STATIC FRONTEND (production / DO buildpack) ──────────────────

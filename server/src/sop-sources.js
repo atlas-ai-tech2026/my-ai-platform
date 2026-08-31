@@ -81,6 +81,17 @@ export const LINE_SOURCES = {
       + 'this watches for it happening again.',
   },
   versioning: { kind: KIND.BUCKET, why: 'Reads the bucket’s versioning setting on every load.' },
+  // The only line on the screen about the screen's own blind spot. It is a
+  // DATABASE source and not a live call on purpose: the fact being reported is
+  // "somebody outside called us", which is a thing that already happened and
+  // was written down. Asking anything at request time would only prove that WE
+  // are alive, which is exactly the question this line refuses to answer.
+  'external-monitor': {
+    kind: KIND.DATABASE,
+    why: 'One row, written when an outside caller hits /api/ready. It cannot be ticked by '
+      + 'anything inside the app, which is the entire point — a dead app runs no checks, so no '
+      + 'check in here can report an outage.',
+  },
   'media-backup': {
     kind: KIND.BUCKET,
     why: 'Counts objects in both buckets. Deliberately not a flag anybody can tick — it goes '

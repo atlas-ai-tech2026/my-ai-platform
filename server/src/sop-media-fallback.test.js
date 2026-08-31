@@ -87,3 +87,33 @@ describe('when BOTH sides are unreadable it must still say "not checked"', () =>
     expect(after).toMatch(/not checked/);
   });
 });
+
+// ─── ADDED with #79 ──────────────────────────────────────────────────────────
+// The SOP screen's own blind spot. Every other line runs INSIDE the app, so
+// none can report an outage — a dead app runs no checks. This one reports
+// whether anything OUTSIDE is watching.
+describe('☠ THE "SOMETHING OUTSIDE IS WATCHING" LINE IS WIRED', () => {
+  it('sop-routes imports judgeWitness AND calls it', () => {
+    expect(SRC).toMatch(/import \{[^}]*judgeWitness[^}]*\} from '\.\/uptime-witness\.js'/);
+    expect(SRC).toMatch(/judgeWitness\(/);
+  });
+
+  it('the line is actually pushed onto the screen', () => {
+    // Importing and computing without pushing is a check nobody can see —
+    // this project's most repeated failure.
+    expect(SRC).toMatch(/key: 'external-monitor'/);
+  });
+
+  it('reads the flag rather than asking anything at request time', () => {
+    // Asking anything live would only prove WE are alive, which is exactly
+    // the question this line refuses to answer.
+    expect(SRC).toMatch(/WITNESS_READ_SQL/);
+  });
+
+  it('and if the read fails it says "not checked", never that a monitor exists', () => {
+    const at = SRC.indexOf("key: 'external-monitor'");
+    const after = SRC.slice(at, at + 2600);
+    expect(after).toMatch(/STATE\.UNKNOWN/);
+    expect(after).toMatch(/not checked/);
+  });
+});

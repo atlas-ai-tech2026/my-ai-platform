@@ -27,6 +27,9 @@ import { measureUsage as spacesUsage, measureMedia as spacesMedia,
 import { measureOffsiteUsage as offsiteUsage, measureOffsiteMedia as offsiteMedia,
          listOffsite } from './backup-offsite.js';
 import { describeCoverage, COUNT_SQL as LEDGER_COUNT_SQL } from './offsite-ledger.js';
+import {
+  WITNESS_FLAG, READ_SQL as WITNESS_READ_SQL, judgeWitness,
+} from './uptime-witness.js';
 import { judgeBackups } from './backup-freshness.js';
 import { recordUsage, usageHistory, judgeUsage, judgeMediaBackup, ALLOWANCES,
          measureDatabase, describeTables, fmtScaled, GB } from './storage-usage.js';
@@ -311,6 +314,41 @@ export function registerSopRoutes(app, {
           ? 'The copy is still running and our own record answers for it, but the far side has not '
             + 'been counted. Find out why the listing fails.'
           : 'An unverified backup is not a backup — find out why this could not be read.',
+      }));
+    }
+
+    // ── IS ANYTHING OUTSIDE WATCHING THE SITE? (#79) ─────────────────────
+    // Deliberately the last line, because it is the only one that is about
+    // this screen's own blind spot: every other check here runs INSIDE the
+    // app, and a dead app runs no checks. A green SOP tab has never meant
+    // "the site is up" and never can.
+    try {
+      const { rows } = await pool.query(WITNESS_READ_SQL, [WITNESS_FLAG]);
+      const w = judgeWitness(rows?.[0]?.value || null);
+      today.push(line({
+        key: 'external-monitor', zone: 'today', label: 'Something outside is watching',
+        state: w.state === 'critical' ? STATE.CRITICAL
+          : w.state === 'warn' ? STATE.WARN
+          : w.state === 'unknown' ? STATE.UNKNOWN : STATE.OK,
+        value: w.state === 'ok' ? `${w.minutes}m ago` : w.state === 'warn' && w.minutes === null
+          ? 'nobody is watching' : w.state,
+        checkedAt: new Date().toISOString(),
+        info: 'Every other check on this screen runs inside the app, so none of them can tell you '
+          + 'the site is DOWN — a dead app runs no checks. Only something outside can. This line '
+          + 'says whether that outside monitor is actually calling /api/ready, which is the deep '
+          + 'check that queries the database and storage and answers 503 when either is gone. '
+          + 'It cannot tell you the site is up; it tells you whether anyone would notice if it '
+          + 'were not.',
+        detail: w.detail,
+        action: w.action || '',
+      }));
+    } catch (e) {
+      today.push(line({
+        key: 'external-monitor', zone: 'today', label: 'Something outside is watching',
+        state: STATE.UNKNOWN, value: 'not checked', checkedAt: new Date().toISOString(),
+        info: 'Whether an external uptime monitor is calling /api/ready.',
+        detail: e.message,
+        action: 'This could not be read — it is not a statement that a monitor exists.',
       }));
     }
 
