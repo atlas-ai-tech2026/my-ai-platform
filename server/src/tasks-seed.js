@@ -557,14 +557,29 @@ export const SEED = [
   // ── FOUND 2026-08-22, BOTH FROM THE OWNER'S SCREENSHOTS ──────────────────
   // Neither was found by a check, a test or an alert. Both were found because
   // the owner photographed a screen and asked me to look at it.
-  { ref: '70', owner: 'claude', status: 'pending', priority: 6,
-    title: 'Three SOP lines are blind for ONE reason — Backblaze cannot be listed',
-    why: 'The only three non-green checks on the whole SOP screen — daily backup, Backblaze storage, customer media backed up — all fail with the SAME error: a 10-second connection timeout. "Customer media backed up" has NEVER once succeeded. That silence is why both of us concluded the media was not backed up at all; the owner\'s Backblaze screenshot then showed 72.2 GB sitting there. A check that cannot run is worse than no check, because the screen still implies coverage.',
-    detail: 'WRITES TO THAT BUCKET WORK — the daily archive landed at 14:04 today and the media sync has copied 72.2 GB. It is LISTING that fails. '
-      + 'backup-offsite.js:224 sets connectionTimeout 10s / requestTimeout 120s, and the error is the CONNECTION one, so it never reaches a slow response — sockets are not being established at all. '
-      + 'HYPOTHESIS, NOT YET PROVEN: the three checks each run their own full listing of ~11,744 objects concurrently, possibly alongside the media sync doing the same. That is dozens of simultaneous connections against a default socket pool; they queue, and a queued connection blows the 10s budget. Writes succeed because they go one at a time. '
-      + 'VERIFY BEFORE FIXING: run the three checks serially. If serial passes and parallel fails, the fix is SHARING one listing between them — not a longer timeout, which would only hide a contention bug behind a slower screen. '
-      + 'LIKELY ALSO FIXES POST /api/admin/backup/passphrase-check, which lists the bucket to find the oldest archive, and which task #60 depends on.' },
+  { ref: '70', owner: 'claude', status: 'done', priority: 6,
+    title: 'Three SOP lines were blind for ONE reason — and it was never Backblaze',
+    why: 'Daily backup, Backblaze storage and customer media all read "not checked" for eleven '
+      + 'days while the backup was copying perfectly. Writes worked throughout; only READING '
+      + 'failed. Three fixes assumed three different causes and none held.',
+    detail: 'CAUSE FOUND AND FIXED 2026-08-31, on production. readMediaObject returned the live S3 '
+      + 'response stream and verifyCopies read only its length — an unread S3 body PINS ITS SOCKET '
+      + 'FOREVER. Three sampled reads per cycle against maxSockets:50 fills the pool after exactly '
+      + '16 cycles, and every read afterwards queues and dies with a 10-second CONNECT timeout, '
+      + 'which is indistinguishable from a dead network. '
+      + 'PROVED BY ARITHMETIC, not argument: deploy 03:04 → 32 clean verifies (16 per instance, two '
+      + 'instances) → last success 06:48 → first failure 07:03, and that first failure is "1 of 3", '
+      + 'the 51st socket. Two containers died at the identical cycle count. '
+      + 'AND THE DIAGNOSTIC WAS CAPTURED BY THE FAULT IT DIAGNOSED: its probe ran through the same '
+      + 'exhausted client, so it could only ever answer "Backblaze unreachable" — which is what sent '
+      + 'three nights in the wrong direction. A diagnostic must never share the resource it is '
+      + 'diagnosing. '
+      + 'AFTER THE FIX: 68 consecutive clean verifies over 8h14m, past cycle 34 — double the point '
+      + 'where it died every time. Listing works again too. '
+      + 'SECOND HALF, also shipped: describeCoverage() existed and was fully tested and NOTHING '
+      + 'CALLED IT, so the SOP line had no fallback. Now wired — if the listing ever fails again the '
+      + 'line answers from our own record of verified copies and says which source it used, instead '
+      + 'of going dark.' },
   { ref: '71', owner: 'claude', status: 'done', priority: 20,
     title: 'The daily backup runs on every boot — 16 copies of one day',
     why: 'The bucket holds one 7.6 MB archive per day, then 2026-08-21 at 122.4 MB across SIXTEEN versions and 2026-08-22 across two. Each copy is healthy; the job simply ran sixteen times. It was invisible until bucket versioning was switched on 19 August — before that each upload silently overwrote the last, so this has probably been happening since the feature shipped and left no trace.',
@@ -614,6 +629,32 @@ export const SEED = [
   // ── ADDED 2026-08-28, found by the media-health check ────────────────────
   // ── 2026-08-29/30 — one long session. Every entry below was built, tested,
   // deployed and (where it could be) WATCHED WORKING, not assumed. ──
+  { ref: '94', owner: 'claude', status: 'done', priority: 1,
+    title: 'The backup said it was healthy while every check failed — 111 times',
+    why: 'Amr asked what was happening with the backup. The honest answer was worse than the '
+      + 'symptom: the control panel reported a healthy offsite backup through 111 consecutive '
+      + 'FAILED verifications, because the "sync is healthy" signal was recorded whenever the COPY '
+      + 'did not throw. A copy nobody has read back is a claim, not a backup.',
+    detail: 'THREE THINGS SHIPPED TO PRODUCTION 2026-08-31. '
+      + '(1) The socket leak that broke every read — see #70. '
+      + '(2) The heartbeat now requires a VERIFIED pass. result.verify was returned and read by '
+      + 'nobody, so a failed check could never reach a screen. If verification fails now, Alerts '
+      + 'goes red. '
+      + '(3) The ledger records ONLY what it has read back. It was recording from "the PUT did not '
+      + 'throw", and the ledger is what decides whether a file gets copied — so a row claiming a '
+      + 'file arrived when it had not meant that file was skipped FOREVER, silently. '
+      + 'offsite-ledger.js exports copyAndRecord() which implements the contract correctly and is '
+      + 'fully tested, and nothing called it. Rule 2, in the same file as the comment describing '
+      + 'the rule. '
+      + 'THE ELEVEN BLIND DAYS WERE THEN CHECKED, not assumed: a new maintenance job sampled 200 of '
+      + 'the 24,636 files recorded in that window and read every one back from Backblaze. '
+      + '200 of 200 present at the recorded size. Widespread loss ruled out. It writes nothing — a '
+      + 'failing row is reported, never deleted, because a repair is a decision made looking at '
+      + 'evidence, not a side effect of looking. '
+      + 'INDEPENDENTLY CONFIRMED by Amr opening the Backblaze console: 201.5 GB, media last written '
+      + 'that morning, and an unbroken daily archive 2–31 August with no version counts — which '
+      + 'also discharges the 24 August watch on #71.' },
+
   { ref: '84', owner: 'claude', status: 'done', priority: 1,
     title: 'Deleting a picture used to destroy it permanently — now 30 days to change your mind',
     why: 'The delete route removed the row outright. A customer who deleted by mistake had lost it, and nobody — not support, not the owner — could get it back. That was live the whole time.',
