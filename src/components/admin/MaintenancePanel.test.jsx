@@ -9,7 +9,7 @@ import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import MaintenancePanel, { MAX_BATCH } from './MaintenancePanel';
+import MaintenancePanel, { MAX_BATCH, JOBS } from './MaintenancePanel';
 import { adminApi } from '@/lib/adminApi';
 
 vi.mock('sonner', () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
@@ -23,7 +23,11 @@ const runner = (title) => screen.getByRole('button', { name: new RegExp(`^Run(?:
 describe('the buttons exist at all', () => {
   it('renders one Run button per job', () => {
     render(<MaintenancePanel />);
-    expect(screen.getAllByRole('button', { name: /^Run(?: again)?: / })).toHaveLength(6);
+    // Counted from the real list, not a literal. Every job must be pressable —
+    // "built and unreachable" is this project's most repeated failure, and a
+    // hard-coded 6 only ever catches it by breaking and being edited away.
+    expect(screen.getAllByRole('button', { name: /^Run(?: again)?: / })).toHaveLength(JOBS.length);
+    expect(JOBS.length).toBeGreaterThan(5);
   });
 
   it('the bucket-rule job offers a PREVIEW, because that one is irreversible', async () => {

@@ -120,3 +120,76 @@ describe('the caller must act on it — the bug was one level up', () => {
     expect(write).toBeGreaterThan(guard);
   });
 });
+
+// ─── ADDED 2026-08-31 — the other half of the same bug ───────────────────────
+// The ledger decides what gets copied. It was recording from "the PUT did not
+// throw", so a file that never arrived would be marked done and skipped
+// FOREVER, silently, while every screen reported a complete backup.
+//
+// The comment above that code said "Record ONLY what has been read back at the
+// right size" the whole time, and offsite-ledger.js exports copyAndRecord()
+// which implements exactly that and is fully tested — and nothing called it.
+describe('☠ THE LEDGER RECORDS ONLY WHAT IT HAS READ BACK', () => {
+  const one = [{ key: 'generations/image/a.png', size: 10 }];
+
+  const run = (readDest, recorded) => syncMediaOffsite({
+    listSource: async () => ({ objects: one, truncated: false }),
+    listDest: async () => ({ objects: [], truncated: false }),
+    read: async () => ({ body: 'x', contentLength: 10, contentType: 'image/png' }),
+    write: async () => {},
+    readDest,
+    ledger: {
+      missing: async (src) => src,
+      record: async (k, b) => { recorded.push([k, b]); },
+    },
+    env: { MEDIA_SYNC_ENABLED: 'true' },
+    log: { log() {}, warn() {}, error() {} },
+  });
+
+  it('records a copy it could read back at the right size', async () => {
+    const recorded = [];
+    await run(async () => ({ body: null, contentLength: 10 }), recorded);
+    expect(recorded).toEqual([['generations/image/a.png', 10]]);
+  });
+
+  it('☠ does NOT record a copy it could not read back', async () => {
+    // This is the row that would have skipped the file forever.
+    const recorded = [];
+    const r = await run(async () => { throw new Error('connect timeout'); }, recorded);
+    expect(recorded).toEqual([]);
+    expect(r.unrecorded).toBe(1);
+  });
+
+  it('☠ does NOT record a TRUNCATED copy, even though the upload succeeded', async () => {
+    // 3 bytes arrived where 10 were sent. The PUT returned success.
+    const recorded = [];
+    const r = await run(async () => ({ body: null, contentLength: 3 }), recorded);
+    expect(recorded).toEqual([]);
+    expect(r.unrecorded).toBe(1);
+  });
+
+  it('an unrecorded file is left MISSING, so the next pass copies it again', async () => {
+    // The failure direction that matters: given the choice between copying
+    // twice and not copying at all, always choose twice.
+    const recorded = [];
+    await run(async () => { throw new Error('nope'); }, recorded);
+    // Nothing recorded ⇒ the ledger still reports it missing ⇒ recopied.
+    expect(recorded.map(([k]) => k)).not.toContain('generations/image/a.png');
+  });
+
+  it('records nothing at all when there is no way to read anything back', async () => {
+    const recorded = [];
+    const r = await syncMediaOffsite({
+      listSource: async () => ({ objects: one, truncated: false }),
+      listDest: async () => ({ objects: [], truncated: false }),
+      read: async () => ({ body: 'x', contentLength: 10, contentType: 'image/png' }),
+      write: async () => {},
+      readDest: null,                       // nothing can be proven
+      ledger: { missing: async (s) => s, record: async (k, b) => { recorded.push([k, b]); } },
+      env: { MEDIA_SYNC_ENABLED: 'true' },
+      log: { log() {}, warn() {}, error() {} },
+    });
+    expect(recorded).toEqual([]);
+    expect(r.unrecorded).toBe(1);
+  });
+});

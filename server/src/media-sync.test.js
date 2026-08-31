@@ -420,6 +420,20 @@ describe('a failed offsite listing no longer stops the backup', () => {
     listDest: async () => ({ error: 'the request socket did not establish a connection' }),
     read: async (k) => ({ body: Buffer.from('x'), size: 1, contentType: 'image/png', key: k }),
     write: async () => {},
+    // ── ADDED 2026-08-31 ──────────────────────────────────────────────────
+    // The ledger now records ONLY what it has read back, so a sync given no
+    // way to read the destination can prove nothing and records nothing. That
+    // is deliberate: the old code recorded on "the PUT did not throw", and a
+    // row claiming a file arrived when it did not means that file is skipped
+    // FOREVER while every screen says the backup is complete.
+    //
+    // Production has always passed this (index.js: `readDest: readMediaObject`).
+    // Its absence here was an omission in the fixture, not a scenario.
+    //
+    // The property THIS describe block exists to protect is untouched: the
+    // listing still fails, and the copy still runs. Only the recording now
+    // requires evidence.
+    readDest: async () => ({ body: null, contentLength: 10 }),
     env: { MEDIA_SYNC_ENABLED: '1' },
     log: { warn: () => {}, error: () => {}, log: () => {} },
     ...over,

@@ -57,7 +57,10 @@ const TONE = {
  * blunt about customer data, because two of these do write to it and a vague
  * description of that is worse than none.
  */
-const JOBS = [
+// Exported so a test can count the REAL list. It used to assert a literal 6,
+// which is a number that is wrong the moment a job is added — and a test that
+// has to be edited to add a feature teaches people to edit tests.
+export const JOBS = [
   {
     id: 'rescue',
     title: 'Rescue expiring files',
@@ -128,6 +131,25 @@ const JOBS = [
       + 'writes nothing and shows exactly what would change.',
     preview: () => adminApi.versionExpiryPlan(),
     run: () => adminApi.versionExpiryApply(),
+  },
+  {
+    // Added 2026-08-31, the day the backup verification was fixed. It answers
+    // the question the fix leaves behind rather than assuming the answer.
+    id: 'ledgerAudit',
+    title: 'Check the files copied while the backup was blind',
+    blurb: 'For eleven days the backup recorded a file as safe because the upload did not fail — '
+      + 'nothing was ever read back. This reads a random sample of those files back from '
+      + 'Backblaze and reports whether they are really there, at the right size.',
+    writes: 'Writes NOTHING. It only reads files back. A file that fails is reported, never '
+      + 'deleted and never re-copied — that would be a repair, and a repair is your decision.',
+    info: 'Between 20 August and 31 August the check that reads copies back was broken by a '
+      + 'connection leak in our own code, so every file copied in that window was marked backed '
+      + 'up on the strength of the upload alone. The copies are very probably fine — Backblaze\u2019s '
+      + 'own console showed the media arriving throughout — but "very probably" is not the '
+      + 'standard for a backup. A sample of 200 rather than all ~17,000: if 200 random files all '
+      + 'read back correctly, widespread loss did not happen. If even one fails, that is a '
+      + 'finding, and every file from that window needs reading back.',
+    run: () => adminApi.ledgerAudit(),
   },
   {
     id: 'passphrase',

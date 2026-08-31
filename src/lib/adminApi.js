@@ -283,6 +283,7 @@ export const adminApi = {
   mediaHealth:    (sample = 60)  => request('GET',  `/api/admin/media-health?sample=${sample}`),
   mediaRescue:    (body)         => request('POST', '/api/admin/media-rescue', body),
   mediaCors:      ()             => request('POST', '/api/admin/media-cors', {}),
+  ledgerAudit:      ()             => request('POST', '/api/admin/ledger-audit', {}),
   whisperModel:   (force = false)=> request('POST', '/api/admin/whisper-model', { force }),
   thumbsSurvey:   (email)        => request('GET',  `/api/admin/thumbnails/survey?email=${encodeURIComponent(email)}`),
   thumbsBackfill: (body)         => request('POST', '/api/admin/thumbnails/backfill', body),

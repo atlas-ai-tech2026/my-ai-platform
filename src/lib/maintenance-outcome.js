@@ -75,6 +75,15 @@ export function outcomeOf(action, result) {
     case 'thumbs':  return thumbs(result);
     case 'passphrase': return passphrase(result);
     case 'expiry':  return expiry(result);
+    // The server already produced the sentence — it holds the numbers and the
+    // failing keys. Repeating that judgement here would be a second place for
+    // it to disagree with itself.
+    case 'ledgerAudit': return {
+      tone: result.tone === 'ok' ? 'ok' : (result.tone === 'bad' ? 'bad' : 'idle'),
+      headline: result.headline || 'No answer came back.',
+      detail: result.detail || '',
+      again: false,
+    };
     default:        return { tone: 'bad', headline: 'Unknown job.', detail: '', again: false };
   }
 }
