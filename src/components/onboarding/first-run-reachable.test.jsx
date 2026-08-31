@@ -141,3 +141,64 @@ describe('the questions themselves', () => {
     expect(SKIPPED).toBe('__skipped');
   });
 });
+
+// ─── ADDED after Amr tested it ───────────────────────────────────────────────
+// Two things he reported, and one of them was a genuine bug rather than a
+// preference: "the transition when I click continue must be smooth — this has
+// not happened", and "if I did not check anything, you cannot move".
+describe('☠ THE TRANSITION MUST ACTUALLY RUN', () => {
+  const run = () => code('src/components/onboarding/FirstRun.jsx');
+
+  it('the animated element is a real box, never display:contents', () => {
+    // THE BUG. The first version put `.fr-enter` on a display:contents
+    // wrapper. Such an element generates NO BOX, so opacity and transform have
+    // nothing to act on — the animation never ran, and Amr saw the screens
+    // snap. It looked perfectly correct in the source.
+    const s = run();
+    const at = s.indexOf('fr-content');
+    expect(at, 'the content wrapper is gone').toBeGreaterThan(-1);
+    expect(s).not.toMatch(/className=\{?`?fr-enter[^`"]*`?\}?\s+style=\{\{\s*display:\s*'contents'/);
+    expect(s).toMatch(/\.fr-content\s*\{[^}]*display:\s*flex/);
+  });
+
+  it('leaves before it enters, so the change is not instant', () => {
+    const s = run();
+    expect(s).toMatch(/@keyframes frOut/);
+    expect(s).toMatch(/fr-leave/);
+    expect(s, 'nothing sets the leaving state').toMatch(/setLeaving\(true\)/);
+  });
+
+  it('and waits for the fade-out rather than swapping under it', () => {
+    // A swap faster than the animation is the same as no animation.
+    const s = run();
+    expect(s).toMatch(/190/);
+  });
+
+  it('the whole thing still stops under reduced motion', () => {
+    expect(run()).toMatch(/prefers-reduced-motion[\s\S]{0,220}fr-enter/);
+  });
+});
+
+describe('☠ CONTINUE WILL NOT MOVE ON NOTHING', () => {
+  const run = () => code('src/components/onboarding/FirstRun.jsx');
+
+  it('every non-optional question must be answered first', () => {
+    const s = run();
+    expect(s).toMatch(/const canContinue = screen\.questions\.every\(\(q\) => q\.optional \|\| filled\(q\)\)/);
+  });
+
+  it('and the button is genuinely disabled, not merely faded', () => {
+    expect(run()).toMatch(/disabled=\{busy \|\| !canContinue\}/);
+  });
+
+  it('☠ a disabled button says WHY — a dead control reads as broken', () => {
+    const s = run();
+    expect(s).toMatch(/Choose an answer, or Skip/);
+    expect(s).toMatch(/Choose an answer to continue/);
+  });
+
+  it('the optional company field never blocks it', () => {
+    // Marked optional in onboarding-questions.js, and canContinue honours that.
+    expect(run()).toMatch(/q\.optional \|\| filled\(q\)/);
+  });
+});

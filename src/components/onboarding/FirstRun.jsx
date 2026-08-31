@@ -39,6 +39,9 @@ export default function FirstRun({ userId, onFinish, api }) {
   const [i, setI] = useState(0);
   const [answers, setAnswers] = useState({});
   const [busy, setBusy] = useState(false);
+  // The screen fades OUT before the next one fades in. Without this the
+  // change was instant however long the enter animation was.
+  const [leaving, setLeaving] = useState(false);
   const startedAt = useRef(Date.now());
   const screen = SCREENS[i];
 
@@ -52,6 +55,28 @@ export default function FirstRun({ userId, onFinish, api }) {
     });
   };
 
+  /** Has this question been answered at all? */
+  const filled = (q) => {
+    const v = answers[q.id];
+    if (Array.isArray(v)) return v.length > 0;
+    return v !== undefined && String(v).trim() !== '';
+  };
+
+  /**
+   * Continue is only live once every question on this screen has an answer.
+   *
+   * ── WHY, AND WHY SKIP IS THE ONLY WAY PAST ───────────────────────────
+   * Amr: "if I did not check anything, you cannot move from this page." He is
+   * right, and it makes the DATA honest as well as the screen: a Continue
+   * that advances on nothing produces rows that are neither answered nor
+   * skipped, and those are exactly the rows that make a skip rate meaningless.
+   *
+   * Declining is a deliberate act — the Skip button — not something you fall
+   * into by clicking the wrong one. Questions marked optional (the company
+   * name) never hold it back.
+   */
+  const canContinue = screen.questions.every((q) => q.optional || filled(q));
+
   const chosen = (qid, value, multi) => {
     const a = answers[qid];
     return multi ? (Array.isArray(a) && a.includes(value)) : a === value;
@@ -60,6 +85,9 @@ export default function FirstRun({ userId, onFinish, api }) {
   /** Send this screen and move on. Never throws, never blocks. */
   const advance = useCallback(async (skipped) => {
     setBusy(true);
+    // Start the fade the instant they click, so the screen answers the press
+    // rather than waiting on the network. The save runs underneath it.
+    setLeaving(true);
     const ms = Date.now() - startedAt.current;
     const payload = {};
     for (const q of screen.questions) {
@@ -72,7 +100,12 @@ export default function FirstRun({ userId, onFinish, api }) {
       const last = i === SCREENS.length - 1;
       await api[last ? 'done' : 'step']({ screenId: screen.id, answers: payload, index: i, ms });
     } catch { /* a survey must never keep somebody out */ }
+    // Hold until the fade-out has actually played. 190ms matches .fr-leave;
+    // a swap faster than the animation is the same as no animation at all.
+    const held = Date.now() - startedAt.current;
+    if (held < 190) await new Promise((r) => setTimeout(r, 190 - held));
     setBusy(false);
+    setLeaving(false);
     if (i === SCREENS.length - 1) onFinish?.(answers);
     else setI(i + 1);
   }, [i, screen, answers, api, onFinish]);
@@ -101,14 +134,18 @@ export default function FirstRun({ userId, onFinish, api }) {
             </span>
           </div>
 
-          <div key={screen.id} className="fr-enter" style={{ display: 'contents' }}>
+          {/* ── ONE REAL BOX, NOT display:contents ─────────────────────────
+              The first version put the animation on a display:contents
+              wrapper. Such an element generates no box, so transform and
+              opacity have nothing to act on and the animation NEVER RAN —
+              which is exactly what Amr reported: no transition at all. */}
+          <div key={screen.id} className={`fr-content ${leaving ? 'fr-leave' : 'fr-enter'}`}>
             <h2 className="fr-q" style={{ fontWeight: 700, letterSpacing: '-0.035em', lineHeight: 1.1, margin: '0 0 10px', color: C.ink }}>
               {screen.title}
             </h2>
             <p style={{ fontSize: 14.5, color: C.ink3, margin: '0 0 26px', maxWidth: '44ch' }}>{screen.sub}</p>
-          </div>
 
-          <div className="fr-body" key={`b-${screen.id}`}>
+            <div className="fr-body">
             {screen.questions.map((q) => (
               <div key={q.id} style={{ marginBottom: 24 }}>
                 {q.label && (
@@ -184,16 +221,23 @@ export default function FirstRun({ userId, onFinish, api }) {
                 </div>
               </div>
             )}
+            </div>
           </div>
 
           <div style={{
             display: 'flex', alignItems: 'center', gap: 20, flex: 'none',
             paddingTop: 26, marginTop: 20, borderTop: `1px solid ${C.line}`,
           }}>
-            <button type="button" className="fr-btn" onClick={() => advance(false)} disabled={busy}
+            <button type="button" className="fr-btn" onClick={() => advance(false)}
+              disabled={busy || !canContinue}
               style={{
-                background: C.accent, color: '#fff', border: 0, borderRadius: 10, padding: '12px 26px',
-                fontFamily: 'inherit', fontSize: 14.5, fontWeight: 700, cursor: busy ? 'wait' : 'pointer', opacity: busy ? 0.6 : 1,
+                background: canContinue ? C.accent : C.panel2,
+                color: canContinue ? '#fff' : C.ink3,
+                border: `1px solid ${canContinue ? C.accent : C.line}`,
+                borderRadius: 10, padding: '12px 26px', fontFamily: 'inherit',
+                fontSize: 14.5, fontWeight: 700,
+                cursor: busy ? 'wait' : (canContinue ? 'pointer' : 'not-allowed'),
+                opacity: busy ? 0.6 : 1,
               }}>
               {screen.generate ? 'Generate' : 'Continue'}
             </button>
@@ -202,6 +246,14 @@ export default function FirstRun({ userId, onFinish, api }) {
                 style={{ background: 'none', border: 0, color: C.ink3, fontFamily: 'inherit', fontSize: 14.5, fontWeight: 500, cursor: 'pointer', padding: '12px 0' }}>
                 {screen.generate ? 'I’ll do it myself' : 'Skip'}
               </button>
+            )}
+            {/* A disabled button with no explanation is the worst control on
+                any screen — it reads as broken. This says what is missing,
+                and only once something is actually missing. */}
+            {!canContinue && !busy && (
+              <span style={{ fontSize: 12.5, color: C.ink3, marginLeft: 'auto', textAlign: 'right' }}>
+                {screen.skippable ? 'Choose an answer, or Skip' : 'Choose an answer to continue'}
+              </span>
             )}
           </div>
         </div>
@@ -285,13 +337,24 @@ export default function FirstRun({ userId, onFinish, api }) {
            fades as a whole, and the artwork follows a beat later so the eye
            lands on the question first. Keyed on the screen id, so React
            replays it on every change.                                       */
+        /* The content is a real flex box now — the previous version animated a
+           display:contents wrapper, which generates NO BOX, so opacity and
+           transform had nothing to act on and the animation never ran. */
+        .fr-content { flex: 1; min-height: 0; display: flex; flex-direction: column; }
         @keyframes frIn {
-          from { opacity: 0; transform: translateY(10px); }
+          from { opacity: 0; transform: translateY(12px); }
           to   { opacity: 1; transform: none; }
         }
+        @keyframes frOut {
+          from { opacity: 1; transform: none; }
+          to   { opacity: 0; transform: translateY(-8px); }
+        }
         @keyframes frArt { from { opacity: 0; } to { opacity: 1; } }
-        .fr-enter { animation: frIn 360ms cubic-bezier(.22,.61,.36,1) both; }
-        .fr-art-enter { animation: frArt 620ms ease both; }
+        /* Out is quicker than in: leaving should feel decisive, arriving
+           should feel settled. Matched to the 190ms hold in advance(). */
+        .fr-enter { animation: frIn 380ms cubic-bezier(.22,.61,.36,1) both; }
+        .fr-leave { animation: frOut 190ms ease-in both; pointer-events: none; }
+        .fr-art-enter { animation: frArt 640ms ease both; }
 
         .fr-chip, .fr-card, .fr-btn { transition: background .16s ease, border-color .16s ease, transform .12s ease; }
         .fr-chip:hover, .fr-card:hover { border-color: rgba(255,255,255,.28); }
