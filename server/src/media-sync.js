@@ -378,16 +378,61 @@ export async function syncMediaOffsite({
     read, write, source: srcList.objects, dest, limits, log,
   });
 
-  // Record ONLY what has been read back at the right size. A ledger that
-  // remembers a copy which did not happen skips that file FOREVER, silently,
-  // while every screen says the backup is complete — worse than the listing
-  // failure this replaces, which at least announces itself.
+  // ── RECORD ONLY WHAT HAS BEEN READ BACK ──────────────────────────────────
+  // The comment here said exactly that from the day it was written. The code
+  // underneath it did not: it recorded from `copiedObjects`, which means "the
+  // PUT did not throw". offsite-ledger.js even exports copyAndRecord(), which
+  // implements the contract properly and is fully tested — and NOTHING CALLED
+  // IT. Rule 2, in the same file as the comment describing the rule.
+  //
+  // It matters because the ledger is now what decides whether a file gets
+  // copied. A row that says "done" for a file that never arrived means that
+  // file is skipped FOREVER, silently, while every screen reports a complete
+  // backup. That is strictly worse than the listing failure it replaced, which
+  // at least announced itself.
+  //
+  // Not fixed until 2026-08-31 ON PURPOSE: while the read path was broken by
+  // the socket leak, gating on a read-back would have recorded nothing and
+  // re-copied every object every 15 minutes — turning a silent problem into a
+  // billing one. Reads have now run 68 clean cycles, so it is safe.
+  //
+  // ── AND THE FAILURE DIRECTION IS DELIBERATE ──────────────────────────────
+  // A file that cannot be verified is NOT recorded, so the next pass copies it
+  // again. Given the choice between copying twice and not copying at all, this
+  // always chooses twice. If reads break again the heartbeat goes red within
+  // one cycle now, so the churn cannot run unnoticed for eleven days.
   if (ledger?.record && result.copiedObjects?.length) {
+    const unrecorded = [];
     for (const o of result.copiedObjects) {
-      if (o?.key && o?.size > 0) {
-        await ledger.record(o.key, o.size)
-          .catch((e) => log.error?.(`[media-sync] copied ${o.key} but could not record it: ${e.message}`));
+      if (!o?.key || !(o.size > 0)) continue;
+
+      let found = null;
+      if (readDest) {
+        try {
+          found = Number((await readDest(destKeyFor(o.key)))?.contentLength);
+          if (!Number.isFinite(found)) found = null;
+        } catch (e) {
+          unrecorded.push(`${o.key} (${e.message})`);
+          continue;
+        }
       }
+      // No readDest at all: nothing can be proven, so nothing is claimed.
+      if (found === null) { unrecorded.push(`${o.key} (could not be read back)`); continue; }
+      if (found !== Number(o.size)) {
+        unrecorded.push(`${o.key} (stored ${found} bytes, sent ${o.size})`);
+        continue;
+      }
+
+      await ledger.record(o.key, found)
+        .catch((e) => log.error?.(`[media-sync] verified ${o.key} but could not record it: ${e.message}`));
+    }
+    if (unrecorded.length) {
+      // Loud, and counted. These WILL be re-copied next pass — that is the
+      // point — but a pass where most copies cannot be read back is a fault,
+      // not housekeeping.
+      result.unrecorded = unrecorded.length;
+      log.error?.(`[media-sync] ${unrecorded.length} copy/copies could not be read back and were `
+        + `NOT recorded — they will be copied again: ${unrecorded.slice(0, 3).join(' · ')}`);
     }
   }
 

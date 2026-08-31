@@ -210,3 +210,46 @@ describe('the bucket rule — where a preview must never read as done', () => {
       .toBe('idle');
   });
 });
+
+
+// ─── ADDED 2026-08-31, after Amr pressed Preview ─────────────────────────────
+describe('☠ A REFUSAL BY DESIGN MUST NOT LOOK LIKE A MALFUNCTION', () => {
+  // He pressed Preview on "Stop keeping deleted files forever" and got
+  // "It did not run. Could not read the bucket rules: Access Denied."
+  // Nothing broke. The app's key is deliberately Limited Access and cannot
+  // change bucket rules — and the screen left him at a dead end on a job I had
+  // told him was one press away.
+  const denied = (msg) => outcomeOf('expiry', { error: msg });
+
+  it('says the key is not ALLOWED, rather than that it failed', () => {
+    const o = denied('Could not read the bucket rules: Access Denied');
+    expect(o.headline).not.toMatch(/did not run/i);
+    expect(o.headline).toMatch(/not allowed|by design/i);
+  });
+
+  it('is not painted as a fault', () => {
+    // 'bad' is the red treatment. This is not a fault, so it must not be red.
+    expect(denied('Access Denied').tone).not.toBe('bad');
+  });
+
+  it('tells him what would actually fix it', () => {
+    const o = denied('AccessDenied');
+    expect(o.detail).toMatch(/full access/i);
+    expect(o.detail).toMatch(/temporary/i);
+  });
+
+  it('recognises the other wordings providers use', () => {
+    for (const msg of ['Access Denied', 'AccessDenied', 'Forbidden',
+      'User is not authorized to perform: s3:GetLifecycleConfiguration']) {
+      expect(denied(msg).headline, msg).toMatch(/not allowed|by design/i);
+    }
+  });
+
+  it('but a REAL failure is still reported as one', () => {
+    // If every error became a polite explanation, a genuinely broken bucket
+    // would read as "just use a different key" forever.
+    const o = outcomeOf('expiry', { error: 'connect ETIMEDOUT' });
+    expect(o.tone).toBe('bad');
+    expect(o.headline).toMatch(/did not run/i);
+  });
+});

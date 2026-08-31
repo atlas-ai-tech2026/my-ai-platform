@@ -33,6 +33,38 @@ export function outcomeOf(action, result) {
     // write was refused" and "the write worked and reading it back did not",
     // and only the second means the bucket may already have changed.
     const where = result.stage ? `Failed while ${result.stage}. ` : '';
+
+    // ── "ACCESS DENIED" IS NOT A FAULT, IT IS A DESIGN DECISION ────────────
+    // Amr pressed Preview on 2026-08-31 and got "It did not run. Could not
+    // read the bucket rules: Access Denied." — which reads like something
+    // broke. Nothing broke. The app's storage key is deliberately LIMITED
+    // ACCESS (the security work of 2026-08-19, after three keys with full
+    // access to every bucket were found), and DigitalOcean grants bucket
+    // CONFIGURATION — lifecycle, versioning, CORS, policies — only to FULL
+    // ACCESS keys.
+    //
+    // The versioning path has said this since it was written, and pointed at
+    // a script. The lifecycle path shipped without it, so the owner was left
+    // at a dead end on a job I had told him was one press away.
+    //
+    // An expected refusal must never look like a malfunction.
+    // `access\s*denied`, not `access denied`: the S3 SDK's error NAME is
+    // "AccessDenied" with no space, and that is the form that actually
+    // arrives. The spaced-only version was caught by the test below, not by
+    // reading it back.
+    if (/access\s*denied|forbidden|not authoriz/i.test(String(result.error))) {
+      return {
+        tone: 'partial',
+        headline: 'This key is not allowed to change bucket settings — by design.',
+        detail: 'The app runs on a Limited Access key that can read and write FILES but '
+          + 'not bucket rules. That is deliberate: giving the running app permanent '
+          + 'authority to reconfigure or delete any bucket, for a setting used once, '
+          + 'would undo the key cleanup of 19 August. It needs a temporary Full Access '
+          + 'key run from a laptop — ask Claude for the steps.',
+        again: false,
+      };
+    }
+
     return { tone: 'bad', headline: 'It did not run.', detail: `${where}${result.error}`, again: false };
   }
 
@@ -43,6 +75,15 @@ export function outcomeOf(action, result) {
     case 'thumbs':  return thumbs(result);
     case 'passphrase': return passphrase(result);
     case 'expiry':  return expiry(result);
+    // The server already produced the sentence — it holds the numbers and the
+    // failing keys. Repeating that judgement here would be a second place for
+    // it to disagree with itself.
+    case 'ledgerAudit': return {
+      tone: result.tone === 'ok' ? 'ok' : (result.tone === 'bad' ? 'bad' : 'idle'),
+      headline: result.headline || 'No answer came back.',
+      detail: result.detail || '',
+      again: false,
+    };
     default:        return { tone: 'bad', headline: 'Unknown job.', detail: '', again: false };
   }
 }

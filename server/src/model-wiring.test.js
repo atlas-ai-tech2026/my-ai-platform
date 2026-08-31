@@ -140,6 +140,40 @@ describe('Seedance 2.5 carries the full experience its card promises', () => {
   });
 });
 
+// ─── 2026-08-25, owner: Gemini Omni takes references AND start/end frames ───
+// The backend accepted image_urls for Omni since it was wired (max 7, kie's
+// budget) — but only the two frame slots ever fed it, so the card's promise
+// "with reference images" had no screen behind it. Same disease as Seedance
+// 2.5, caught the same day.
+describe('Gemini Omni carries references alongside its frames', () => {
+  const videoPageSrc = read('src/pages/Video.jsx');
+  const panelSrc = read('src/components/video/VideoLeftPanel.jsx');
+
+  it('the generic route accepts reference_urls and re-hosts them like frames', () => {
+    expect(indexSrc).toMatch(/reference_urls, duration/);
+    expect(indexSrc).toMatch(/rawRefs = Array\.isArray\(reference_urls\)/);
+  });
+
+  it("the Omni mapping pools frames + references, capped at kie's 7-image budget", () => {
+    expect(indexSrc).toMatch(/pool = \[\.\.\.frames, \.\.\.refs\]\.slice\(0, 7\)/);
+  });
+
+  // Frames first, so "@Image1" in a prompt keeps meaning the start frame.
+  it('frames come before references in the pool', () => {
+    expect(indexSrc).toMatch(/\[\.\.\.frames, \.\.\.refs\]/);
+  });
+
+  it('the page grants Omni the 7-image capacity and sends reference_urls', () => {
+    expect(videoPageSrc).toMatch(/genericRefCapacity = model\.id === 'gemini-omni' \? 7 : 0/);
+    expect(videoPageSrc).toMatch(/reference_urls: referenceUrls/);
+  });
+
+  it('the panel shows the shared budget honestly — refs + frames count together', () => {
+    expect(panelSrc).toMatch(/refCapacity = 0/);
+    expect(panelSrc).toMatch(/referenceImages\.length \+ \(startFrame \? 1 : 0\) \+ \(endFrame \? 1 : 0\)/);
+  });
+});
+
 describe('every chargeable video model is reachable and priced', () => {
   // Panel model NAMES also live in VIDEO_CREDITS (the Motion Control / Edit
   // tabs key by name), so only lowercase-hyphen ids are UI-list candidates.
