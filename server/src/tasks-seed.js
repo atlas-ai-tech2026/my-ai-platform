@@ -677,6 +677,36 @@ export const SEED = [
       + 'that morning, and an unbroken daily archive 2–31 August with no version counts — which '
       + 'also discharges the 24 August watch on #71.' },
 
+  { ref: '95', owner: 'claude', status: 'in_progress', priority: 2,
+    title: 'The first-run questions — what a new customer is asked, once',
+    why: 'Amr sent the Magnific onboarding and asked for something like it in Voxel\u2019s style, better designed. '
+      + 'The point is not the survey: people reach voxel-ai.ai from OUTSIDE the workshops and there was no way '
+      + 'to learn from where. Referrer data does not answer it \u2014 most links arrive stripped.',
+    detail: 'THREE SCREENS ON PRODUCTION 2026-09-01, and only for NEW registrations. '
+      + 'Magnific asks eight questions across eight screens; this asks seven across three, because their mistake '
+      + 'was never the number of questions \u2014 it was giving each one a page of its own. '
+      + 'Screen 1 attribution, alone and first at Amr\u2019s instruction. Screen 2 products + experience, the only '
+      + 'screen with no Skip because its answers decide where the customer lands. Screen 3 holds three questions '
+      + 'Magnific gives three separate pages, plus the COMPANY name \u2014 the most valuable answer of the seven, '
+      + 'because Voxel invoices organisations and the system holds no record of them. '
+      + 'THE TRIGGER IS A COLUMN, NOT THE BROWSER: onboarded_at on users, NULL means ask. Four signup paths '
+      + '(email, Google, Microsoft, admin-created) and a column defaulting to NULL covers all four, so none can '
+      + 'forget. The migration stamped every existing customer as already done \u2014 asking somebody who has used '
+      + 'Voxel for months how they found it gets a guess, not a fact. VERIFIED BY AMR: signed in on production '
+      + 'with his own old account and saw nothing. '
+      + 'STATISTICS live inside the Audience tab, not a new one \u2014 that tab already says \u201cwhere they came '
+      + 'from\u201d, and the halves complete each other: Audience records what the BROWSER reported, this records '
+      + 'what the CUSTOMER said. Funnel, skip rate per question, seconds per screen, a bar chart each. '
+      + 'THE TRAP, and the reason the skip rate is answerable at all: a skip is stored as an explicit value, never '
+      + 'as null. Otherwise \u201cnever reached it\u201d and \u201creached it and declined\u201d are the same empty '
+      + 'cell. The rate is over people who REACHED the question, not over everybody. '
+      + 'WHAT IS LEFT \u2014 screen 4, \u201cnow make one yourself\u201d. Built and withdrawn from BOTH dev and '
+      + 'production because its Generate button does not generate: a red button that does nothing is worse than '
+      + 'one screen fewer. It returns with a route running ONE free generation, once per account, enforced on the '
+      + 'server, fixed cheap model \u2014 about 25 cents a customer at $19/300 per credit, already approved. '
+      + 'BLOCKED ON AMR for three starter prompts: three rather than one so twenty people in a workshop room do '
+      + 'not all generate the identical picture.' },
+
   { ref: '84', owner: 'claude', status: 'done', priority: 1,
     title: 'Deleting a picture used to destroy it permanently — now 30 days to change your mind',
     why: 'The delete route removed the row outright. A customer who deleted by mistake had lost it, and nobody — not support, not the owner — could get it back. That was live the whole time.',
