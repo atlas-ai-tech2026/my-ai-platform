@@ -211,3 +211,29 @@ describe('☠ CONTINUE WILL NOT MOVE ON NOTHING', () => {
     expect(run()).toMatch(/q\.optional \|\| filled\(q\)/);
   });
 });
+
+// ─── ADDED 2026-09-01 ────────────────────────────────────────────────────────
+// Amr: "stop this page from dev for every opening — if I need to test
+// something it will open for me every time. Do it as per production exactly."
+describe('☠ THE FORCE FLAG CANNOT REACH PRODUCTION', () => {
+  it('the server ANDs it with the host check, so order protects it', () => {
+    // If it were `req.body.force || isDev` a customer could reopen their own
+    // onboarding, or anyone's, by adding a query string. AND means the host
+    // decides first and the flag is inert everywhere else.
+    const server = read('server/src/index.js');
+    expect(server).toMatch(/onboardingDevHost\(req\) && req\.body\?\.force === true/);
+  });
+
+  it('and the client only sets it from an explicit ?firstrun=1', () => {
+    const gate = code('src/components/onboarding/FirstRunGate.jsx');
+    expect(gate).toMatch(/firstrun=1/);
+    expect(gate).toMatch(/force:/);
+  });
+
+  it('☠ nothing shows the flow automatically any more', () => {
+    // The old rule was `if (isDev) return true` with no condition. Its absence
+    // is the whole change Amr asked for.
+    const onb = read('server/src/onboarding.js');
+    expect(onb).not.toMatch(/if \(isDev\) return true/);
+  });
+});

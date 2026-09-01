@@ -31,7 +31,12 @@ import FirstRun from './FirstRun';
  * src/lib/invoke-reachable.test.js reads both halves and fails if they part.
  */
 const API = {
-  check: () => base44.functions.invoke('onboarding', {}),
+  // `force` asks the server to show it again. It is honoured only on a dev
+  // host — see onboardingDevHost in server/src/index.js — so pasting
+  // ?firstrun=1 on production does nothing at all.
+  check: () => base44.functions.invoke('onboarding', {
+    force: typeof location !== 'undefined' && /[?&]firstrun=1\b/.test(location.search),
+  }),
   step: (body) => base44.functions.invoke('onboarding/step', body),
   done: (body) => base44.functions.invoke('onboarding/done', body),
 };

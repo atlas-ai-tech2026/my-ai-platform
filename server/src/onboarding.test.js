@@ -136,8 +136,17 @@ describe('who is shown the flow', () => {
     expect(shouldShow({ onboarded_at: '2026-08-01' })).toBe(false);
   });
 
-  it('☠ but on DEV everyone sees it every time', () => {
-    // Amr asked to be able to test it repeatedly without making a new account.
+  it('☠ DEV BEHAVES EXACTLY LIKE PRODUCTION — nothing is automatic', () => {
+    // It used to return true unconditionally on a dev host. That made dev
+    // unusable for anything else: the flow reopened on every page load while
+    // Amr was trying to look at something different. Same rule in both places
+    // now, which is also the only way the gate is genuinely tested.
+    expect(shouldShow({ onboarded_at: '2026-08-01' })).toBe(false);
+  });
+
+  it('and only a DELIBERATE force reopens it', () => {
+    // ?firstrun=1 on a dev host, and nothing else. The caller ANDs this with
+    // the host check, so it is inert on production however it is sent.
     expect(shouldShow({ onboarded_at: '2026-08-01' }, true)).toBe(true);
   });
 

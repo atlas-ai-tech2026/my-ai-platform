@@ -96,12 +96,24 @@ export function merge(existing, patch) {
 /**
  * Should this customer see the first-run flow?
  *
- * @param row      { onboarded_at }
- * @param isDev    on a dev host, ALWAYS show it — Amr asked to be able to test
- *                 it repeatedly without making a new account each time.
+ * ── DEV BEHAVES EXACTLY LIKE PRODUCTION NOW (Amr, 2026-09-01) ────────────
+ * It used to return true unconditionally on a dev host so the flow could be
+ * tested repeatedly. That made dev unusable for anything else: it reopened on
+ * every page load while he was trying to look at something different.
+ *
+ * So the rule is the same in both places — asked once, on a new account,
+ * never again. Which is also better for a second reason: dev exists so that
+ * what he tests is what customers get, and a gate that behaves differently in
+ * the two is a gate nobody has actually tested.
+ *
+ * @param row     { onboarded_at }
+ * @param forced  a DELIBERATE request to see it again — ?firstrun=1 on a dev
+ *                host, and nothing else. Never automatic, so it can never
+ *                interrupt, and impossible on production because the caller
+ *                only ever passes true when the host is one of ours.
  */
-export function shouldShow(row, isDev = false) {
-  if (isDev) return true;
+export function shouldShow(row, forced = false) {
+  if (forced) return true;
   return !row?.onboarded_at;
 }
 

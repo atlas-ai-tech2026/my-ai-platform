@@ -5715,7 +5715,11 @@ app.post('/api/onboarding', verifyJwt, async (req, res) => {
   try {
     const { rows } = await pool.query(ONB_READ_SQL, [req.user.id]);
     res.json({
-      show: onbShouldShow(rows?.[0], onboardingDevHost(req)),
+      // Forced ONLY by an explicit ?firstrun=1 on a dev host. The host check
+      // comes first, so the flag is inert on production no matter who sends
+      // it — a customer cannot re-open somebody's onboarding by adding a
+      // query string.
+      show: onbShouldShow(rows?.[0], onboardingDevHost(req) && req.body?.force === true),
       answers: rows?.[0]?.onboarding?.answers || {},
     });
   } catch (e) {
