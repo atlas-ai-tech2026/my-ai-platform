@@ -166,6 +166,22 @@ export const JOBS = [
       + 'rather than during a real restore.',
     run: () => adminApi.passphraseCheck(),
   },
+  {
+    id: 'advisories',
+    title: 'Accept the dependency advisories you have read',
+    blurb: 'Marks the advisories from the last weekly audit as reviewed, so the SOP line stops '
+      + 'saying "none reviewed yet" and reports only what appears from now on.',
+    writes: 'Writes a list of advisory names to our own table. No customer row, no file, and it '
+      + 'changes NO dependency — accepting is a note that you have read something, not a fix.',
+    info: 'The advisory line has told you to "review them once and accept them" since the day it '
+      + 'shipped, and until now there was no way to accept anything: the function existed and was '
+      + 'called by nothing. That is why the line has read "first check, none reviewed yet" every '
+      + 'week. Press Preview first — this list is dismissed permanently, and anything already on '
+      + 'it will never be announced again. It accepts the STORED list from the last audit, not a '
+      + 'fresh one, so what you dismiss is exactly what you read.',
+    preview: () => adminApi.advisories(),
+    run: () => adminApi.acceptAdvisories(),
+  },
 ];
 
 export default function MaintenancePanel({ onError }) {

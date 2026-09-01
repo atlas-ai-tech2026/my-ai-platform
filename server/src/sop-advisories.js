@@ -106,7 +106,7 @@ export function judgeAdvisories({ parsed, known = [], now = Date.now() }) {
       state: 'unknown',
       detail: parsed.error,
       action: 'The dependency audit could not be read. That is not the same as finding nothing.',
-      now,
+      found: [], now,
     };
   }
   const { added, resolved, unchanged } = diffAdvisories(parsed.advisories, known);
@@ -132,7 +132,7 @@ export function judgeAdvisories({ parsed, known = [], now = Date.now() }) {
       action: `Review them once and accept them; from then on this reports only what is NEW. `
         + `Start with ${worst.name}${worst.production ? ' — a production dependency' : ''}`
         + `${worst.fixAvailable ? ', and it has a fix available' : ', which has no upstream fix'}.`,
-      added: [], resolved: [], now,
+      added: [], resolved: [], found: parsed.advisories, now,
     };
   }
 
@@ -141,7 +141,8 @@ export function judgeAdvisories({ parsed, known = [], now = Date.now() }) {
     const bits = [`no new advisories · ${unchanged.length} already reviewed`];
     if (prod) bits.push(`${prod} of them in production dependencies`);
     if (resolved.length) bits.push(`${resolved.length} resolved since last check`);
-    return { state: 'ok', detail: bits.join(' · '), action: null, added, resolved, now };
+    return { state: 'ok', detail: bits.join(' · '), action: null,
+      added, resolved, found: parsed.advisories, now };
   }
 
   const worst = [...added].sort(byRealRisk)[0];
@@ -158,7 +159,7 @@ export function judgeAdvisories({ parsed, known = [], now = Date.now() }) {
     action: `Start with ${worst.name}${worst.production ? ' — it is a production dependency' : ''}. `
       + `${fixable} of ${added.length} have a fix available; run npm audit fix for those and decide on the rest. `
       + 'Then accept them so this reports only what is new again.',
-    added, resolved, now,
+    added, resolved, found: parsed.advisories, now,
   };
 }
 
@@ -305,19 +306,28 @@ export async function ensureAdvisoryRunTable(pool) {
   // never appears anywhere the table already exists, which is everywhere real.
   await pool.query(
     `ALTER TABLE advisory_runs ADD COLUMN IF NOT EXISTS logic_version INTEGER NOT NULL DEFAULT 1`);
+  // ── WHAT WAS ON THE SCREEN, NOT WHAT A LATER AUDIT FINDS ─────────────────
+  // `added` is only what was NEW, and on a first check that is deliberately
+  // empty — so there was nothing for an accept to act on. Storing the whole
+  // list means "accept" records exactly the advisories that were REVIEWED,
+  // rather than re-running npm audit and accepting whatever it finds a minute
+  // later. Those are different sets, and the difference is the one advisory
+  // that appeared in between and was never actually read by anybody.
+  await pool.query(
+    `ALTER TABLE advisory_runs ADD COLUMN IF NOT EXISTS found JSONB NOT NULL DEFAULT '[]'::jsonb`);
 }
 
 export async function saveAdvisoryRun(pool, judged) {
   await ensureAdvisoryRunTable(pool);
   await pool.query(
-    `INSERT INTO advisory_runs (id, state, detail, action, added, checked_at, logic_version)
-     VALUES (1, $1, $2, $3, $4::jsonb, NOW(), $5)
+    `INSERT INTO advisory_runs (id, state, detail, action, added, found, checked_at, logic_version)
+     VALUES (1, $1, $2, $3, $4::jsonb, $5::jsonb, NOW(), $6)
      ON CONFLICT (id) DO UPDATE SET
        state = EXCLUDED.state, detail = EXCLUDED.detail, action = EXCLUDED.action,
-       added = EXCLUDED.added, checked_at = EXCLUDED.checked_at,
+       added = EXCLUDED.added, found = EXCLUDED.found, checked_at = EXCLUDED.checked_at,
        logic_version = EXCLUDED.logic_version`,
     [judged.state, judged.detail, judged.action || null,
-     JSON.stringify(judged.added || []), LOGIC_VERSION]);
+     JSON.stringify(judged.added || []), JSON.stringify(judged.found || []), LOGIC_VERSION]);
 }
 
 export async function latestAdvisoryRun(pool) {
@@ -327,7 +337,8 @@ export async function latestAdvisoryRun(pool) {
   const r = rows[0];
   return {
     state: r.state, detail: r.detail, action: r.action || '',
-    added: r.added || [], checkedAt: new Date(r.checked_at).toISOString(),
+    added: r.added || [], found: r.found || [],
+    checkedAt: new Date(r.checked_at).toISOString(),
     logicVersion: r.logic_version ?? 1,
   };
 }

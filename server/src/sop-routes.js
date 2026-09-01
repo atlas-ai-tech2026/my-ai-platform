@@ -21,7 +21,8 @@ import { runSmokeChecks, summariseSmoke } from './sop-smoke.js';
 import { runIntegrityChecks } from './sop-integrity.js';
 import { runWrittenChecks } from './sop-written.js';
 import { latestAdvisoryRun, presentAdvisoryRun, refreshAdvisories,
-         needsBootstrap } from './sop-advisories.js';
+         needsBootstrap, knownAdvisories, acceptAdvisories,
+         judgeAdvisories, saveAdvisoryRun } from './sop-advisories.js';
 import { measureUsage as spacesUsage, measureMedia as spacesMedia,
          versioningStatus, listKeys } from './storage.js';
 import { measureOffsiteUsage as offsiteUsage, measureOffsiteMedia as offsiteMedia,
@@ -635,6 +636,73 @@ export function registerSopRoutes(app, {
     } catch (e) {
       console.error('[sop] rebuild after check failed:', e.message);
       res.status(500).json({ error: 'The checks ran, but the screen could not be rebuilt.' });
+    }
+  });
+
+  // ── ACCEPTING THE ADVISORIES YOU HAVE READ ───────────────────────────────
+  // The advisory line has told the owner to "review them once and accept them"
+  // since the day it shipped. acceptAdvisories() was written, correct, and
+  // CALLED BY NOBODY — so the line could never leave "first check, none
+  // reviewed yet", and the instruction on the screen described an action that
+  // did not exist.
+  //
+  // That is the third time this exact shape has appeared here: copyAndRecord()
+  // in the backup ledger, upsertTask() on the task board, and now this. Code
+  // that is right, tested, and unreachable.
+  //
+  // GET shows what WOULD be accepted, so the list can be read before it is
+  // dismissed for ever. It is the stored list from the last run, never a fresh
+  // audit: accepting must record what was actually reviewed, not whatever npm
+  // reports a minute later — the difference is precisely the advisory that
+  // appeared in between and was read by nobody.
+  app.get('/api/admin/sop/advisories', adminGate, async (req, res) => {
+    if (!dbReady()) return res.status(503).json({ error: 'Database not configured.' });
+    try {
+      const run = await latestAdvisoryRun(pool);
+      const known = await knownAdvisories(pool);
+      res.json({
+        advisories: run?.found || [],
+        checked_at: run?.checkedAt || null,
+        already_accepted: known.length,
+      });
+    } catch (e) {
+      console.error('[sop] advisory list failed:', e.message);
+      res.status(500).json({ error: `Could not read the advisories: ${e.message}` });
+    }
+  });
+
+  app.post('/api/admin/sop/advisories/accept', adminGate, async (req, res) => {
+    if (!dbReady()) return res.status(503).json({ error: 'Database not configured.' });
+    try {
+      const run = await latestAdvisoryRun(pool);
+      const found = run?.found || [];
+      if (!found.length) {
+        // Not an error, and NOT silently "accepted 0". A run that found nothing
+        // to accept is a different fact from an accept that worked.
+        return res.json({
+          accepted: 0,
+          nothing_to_accept: true,
+          detail: run
+            ? 'The last audit recorded no advisories to accept.'
+            : 'No audit has run yet. Press "Check now" on the weekly checks first.',
+        });
+      }
+      const accepted = await acceptAdvisories(pool, found);
+
+      // Re-judge immediately against the new baseline, so the line on screen
+      // reflects the decision rather than waiting a week to catch up. A button
+      // whose effect is invisible until next Tuesday is a button people press
+      // twice.
+      const known = await knownAdvisories(pool);
+      const judged = judgeAdvisories({ parsed: { advisories: found }, known });
+      await saveAdvisoryRun(pool, judged);
+
+      console.log(`[sop] ${accepted} advisor(y/ies) accepted as reviewed — `
+        + `the line now reports only what is NEW`);
+      res.json({ accepted, state: judged.state, detail: judged.detail });
+    } catch (e) {
+      console.error('[sop] advisory accept failed:', e.message);
+      res.status(500).json({ error: `Could not accept the advisories: ${e.message}` });
     }
   });
 

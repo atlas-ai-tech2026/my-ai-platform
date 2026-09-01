@@ -78,6 +78,7 @@ export function outcomeOf(action, result) {
     // The server already produced the sentence — it holds the numbers and the
     // failing keys. Repeating that judgement here would be a second place for
     // it to disagree with itself.
+    case 'advisories': return advisories(result);
     case 'ledgerAudit': return {
       tone: result.tone === 'ok' ? 'ok' : (result.tone === 'bad' ? 'bad' : 'idle'),
       headline: result.headline || 'No answer came back.',
@@ -86,6 +87,43 @@ export function outcomeOf(action, result) {
     };
     default:        return { tone: 'bad', headline: 'Unknown job.', detail: '', again: false };
   }
+}
+
+// ── Accepting the dependency advisories you have read ───────────────────────
+// PREVIEW returns the list; RUN returns how many were recorded. Both use the
+// STORED list from the last weekly audit, never a fresh one, so what gets
+// dismissed is exactly what was on the screen when it was read.
+function advisories(r) {
+  // Preview: the list itself.
+  if (Array.isArray(r.advisories)) {
+    if (!r.advisories.length) {
+      return { tone: 'idle', headline: 'Nothing to accept.',
+        detail: r.checked_at
+          ? 'The last audit found no advisories.'
+          : 'No audit has run yet — press "Check now" on the weekly checks first.',
+        again: false };
+    }
+    const prod = r.advisories.filter((a) => a.production);
+    const worst = r.advisories.filter((a) => a.severity === 'critical' || a.severity === 'high');
+    return {
+      tone: prod.length ? 'partial' : 'idle',
+      headline: `${plural(r.advisories.length, 'advisory', 'advisories')} would be marked reviewed.`,
+      detail: `${prod.length} in production dependencies, ${worst.length} high or critical. `
+        + `Already accepted: ${r.already_accepted ?? 0}. `
+        + 'After this the line reports only what is NEW — so read them before pressing Run.',
+      again: false,
+    };
+  }
+  // Run.
+  if (r.nothing_to_accept) {
+    return { tone: 'idle', headline: 'Nothing to accept.', detail: r.detail || '', again: false };
+  }
+  return {
+    tone: 'ok',
+    headline: `${plural(r.accepted, 'advisory', 'advisories')} recorded as reviewed.`,
+    detail: (r.detail || '') + ' From now on this line reports only advisories that are NEW.',
+    again: false,
+  };
 }
 
 // ── The speech model ────────────────────────────────────────────────────────

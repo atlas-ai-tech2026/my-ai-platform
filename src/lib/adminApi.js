@@ -222,6 +222,12 @@ export const adminApi = {
   // the cohort will use; without it the cohort check reports UNKNOWN rather
   // than passing, because "no cohort chosen" is not the same as "the cohort is
   // fine". See server/src/preflight.js.
+  // The advisory line has said "review them once and accept them" since it
+  // shipped, and until now there was no way to accept anything — see
+  // server/src/sop-routes.js. Preview first: this list is dismissed for ever.
+  advisories:       ()           => request('GET',  '/api/admin/sop/advisories'),
+  acceptAdvisories: ()           => request('POST', '/api/admin/sop/advisories/accept', {}),
+
   preflight:    (code)           => request('GET',
     `/api/admin/preflight${code ? `?code=${encodeURIComponent(code)}` : ''}`),
 
