@@ -112,11 +112,7 @@ export async function gatherFacts(pool, { getKieCredits, now = new Date() } = {}
 
   // Burn rate, for turning "4,180 left" into "runs out Saturday" — the form
   // that actually prompts a top-up.
-  const burn = await pool.query(
-    `SELECT COALESCE(SUM(amount), 0)::numeric / 7 AS per_day
-       FROM credits_history
-      WHERE action = 'spend' AND created_at > NOW() - INTERVAL '7 days'`);
-  facts.burnPerDay = Number(burn.rows[0]?.per_day) || null;
+  Object.assign(facts, await balanceFacts(pool, { getKieCredits }));
 
   // The last restore verification. Left UNDEFINED rather than null if the
   // table does not exist yet, so a database that has not migrated is not
@@ -133,17 +129,48 @@ export async function gatherFacts(pool, { getKieCredits, now = new Date() } = {}
     facts.backupVerify = { checked_at: new Date().toISOString(), ok: true, problems: [] };
   }
 
+  return facts;
+}
+
+/**
+ * JUST the supplier balance and the burn rate behind it.
+ *
+ * ── WHY THIS IS SEPARATE FROM gatherFacts ──────────────────────────────────
+ * gatherFacts also counts media durability, which is a FULL SCAN of `entities`
+ * — three count(*) FILTER clauses, each extracting result_url from JSONB and
+ * splitting it twice, on every GenerationHistory row. That is affordable for a
+ * screen opened once a morning.
+ *
+ * It is not affordable for the pre-workshop pre-flight card, which called
+ * gatherFacts to obtain exactly two numbers and inherited the whole scan.
+ * Pressed on production it took over two minutes — for a check whose entire
+ * premise is the ten minutes before you stand up in front of people.
+ *
+ * Both queries here are bounded: one live HTTP call with its own timeout, and
+ * one aggregate over seven days of credits_history, which is indexed. Shared
+ * rather than copied so the SOP tab and the pre-flight card can never report
+ * different balances.
+ */
+export async function balanceFacts(pool, { getKieCredits } = {}) {
+  const out = { credits: null, burnPerDay: null, providerError: null };
+
+  const burn = await pool.query(
+    `SELECT COALESCE(SUM(amount), 0)::numeric / 7 AS per_day
+       FROM credits_history
+      WHERE action = 'spend' AND created_at > NOW() - INTERVAL '7 days'`);
+  out.burnPerDay = Number(burn.rows[0]?.per_day) || null;
+
   if (typeof getKieCredits === 'function') {
     try {
-      facts.credits = await getKieCredits();
+      out.credits = await getKieCredits();
     } catch (e) {
       // Unreadable is NOT zero, and it is NOT fine. Left null so the balance
       // check abstains, and surfaced separately so the silence is explained.
-      facts.credits = null;
-      facts.providerError = e.message;
+      out.credits = null;
+      out.providerError = e.message;
     }
   }
-  return facts;
+  return out;
 }
 
 /** Write the verdicts, keeping one open row per condition. */

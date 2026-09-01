@@ -7,13 +7,21 @@
 // this screen lives in one file rather than in a query.
 //
 // EVERY FACT IS BORROWED, NEVER RE-DERIVED. The alert rows come from the same
-// query the Alerts tab runs, the balance from the same gatherFacts() the SOP
-// tab uses, the model verdicts from the same gatherReliability() behind
-// Costing → Reliability, the code from the same columns /api/redeem-code
-// checks. If any of them ever disagrees with its own tab, that is a bug — and
-// this arrangement makes it impossible for the disagreement to come from here.
+// query the Alerts tab runs, the balance from the same balanceFacts() the SOP
+// tab's own numbers come from, the model verdicts from the same
+// gatherReliability() behind Costing → Reliability, the code from the same
+// columns /api/redeem-code checks. If any of them ever disagrees with its own
+// tab that is a bug, and this arrangement makes it impossible for the
+// disagreement to originate here.
+//
+// BORROWED IS NOT THE SAME AS "CALL WHATEVER THE OTHER SCREEN CALLS". The
+// first version took the balance by calling gatherFacts(), which also counts
+// media durability with a full scan of `entities`. It needed two numbers and
+// paid for the whole scan: pressed on production it took over two minutes.
+// balanceFacts() is the shared piece that is actually shared — same source,
+// none of the cost that belongs to a different question.
 
-import { gatherFacts } from './alerts-routes.js';
+import { balanceFacts } from './alerts-routes.js';
 import { gatherReliability } from './reliability-routes.js';
 import { balanceLine } from './sop-engine.js';
 import { splitInvites } from './promo-audience.js';
@@ -21,6 +29,34 @@ import { judgePreflight } from './preflight.js';
 
 /** The reliability window. 30 days is what the Costing tab shows. */
 const WINDOW_DAYS = 30;
+
+/**
+ * ☠ HOW LONG ANY ONE SOURCE MAY TAKE BEFORE IT IS CALLED UNKNOWN.
+ *
+ * Pressed on production the first time, this screen took over two minutes and
+ * Amr gave up before it answered. The cause was gatherFacts, which counts
+ * media durability with a full scan of `entities` — the pre-flight needed two
+ * numbers from it and inherited the whole scan. That is fixed at the source
+ * (balanceFacts), but the lesson generalises: THE ONE SCREEN YOU READ WITH A
+ * ROOM FILLING UP MUST NOT BE ABLE TO HANG.
+ *
+ * So every source is raced against a clock. A check that does not answer in
+ * time reports UNKNOWN — which this screen already refuses to call ready — and
+ * the headline says so. Ten seconds and an honest "could not check the models
+ * in time" beats two minutes and a spinner, every time.
+ */
+export const SOURCE_TIMEOUT_MS = 8_000;
+
+/** Reject after `ms`, so one slow query cannot hold the other three hostage. */
+export function withTimeout(promise, ms, what) {
+  let timer;
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`${what} took longer than ${Math.round(ms / 1000)}s`)), ms);
+    }),
+  ]).finally(() => clearTimeout(timer));
+}
 
 /**
  * Attendees whose credits die TODAY.
@@ -76,27 +112,38 @@ export function registerPreflightRoutes(app, { pool, dbReady, adminGate, getKieC
     // a screen that goes empty when something breaks is a screen that tells you
     // least exactly when you need it most. Each failure becomes an UNKNOWN,
     // which preflight.js refuses to call ready.
-    const settle = async (fn) => {
-      try { return { value: await fn() }; }
-      catch (e) { return { error: e?.message || String(e) }; }
+    // Each source is timed AND bounded. The timings are logged because the
+    // first version of this screen was slow and nothing on the server said
+    // which part — a diagnosis by reasoning is not a measurement.
+    const timings = {};
+    const settle = async (what, fn) => {
+      const started = Date.now();
+      try {
+        const value = await withTimeout(fn(), SOURCE_TIMEOUT_MS, what);
+        timings[what] = Date.now() - started;
+        return { value };
+      } catch (e) {
+        timings[what] = Date.now() - started;
+        return { error: e?.message || String(e) };
+      }
     };
 
     const [alertsR, factsR, relR, codesR] = await Promise.all([
-      settle(() => pool.query(`SELECT * FROM alerts WHERE status <> 'resolved' ORDER BY last_seen DESC`)),
-      settle(() => gatherFacts(pool, { getKieCredits })),
-      settle(() => gatherReliability(pool, WINDOW_DAYS)),
-      settle(() => pool.query(USABLE_CODES_SQL)),
+      settle('alerts', () => pool.query(`SELECT * FROM alerts WHERE status <> 'resolved' ORDER BY last_seen DESC`)),
+      settle('balance', () => balanceFacts(pool, { getKieCredits })),
+      settle('models', () => gatherReliability(pool, WINDOW_DAYS)),
+      settle('codes', () => pool.query(USABLE_CODES_SQL)),
     ]);
 
     // The cohort, only if one was asked for.
     let cohort = { code: null };
     if (wanted) {
-      const found = await settle(() => pool.query(CODE_SQL, [wanted]));
+      const found = await settle('cohort', () => pool.query(CODE_SQL, [wanted]));
       const row = found.value?.rows?.[0] || null;
       if (row) {
         const [inv, exp] = await Promise.all([
-          settle(() => pool.query(INVITES_SQL, [row.id])),
-          settle(() => pool.query(EXPIRING_TODAY_SQL, [row.id])),
+          settle('invites', () => pool.query(INVITES_SQL, [row.id])),
+          settle('credits-alive', () => pool.query(EXPIRING_TODAY_SQL, [row.id])),
         ]);
         cohort = {
           code: row,
@@ -113,7 +160,7 @@ export function registerPreflightRoutes(app, { pool, dbReady, adminGate, getKieC
       ? null
       : balanceLine({
         credits: facts.credits, burnPerDay: facts.burnPerDay,
-        providerError: facts.providerError, now: facts.now,
+        providerError: facts.providerError, now: new Date().toISOString(),
       });
     const days = (Number.isFinite(facts.credits) && facts.burnPerDay > 0)
       ? facts.credits / facts.burnPerDay : null;
@@ -125,8 +172,16 @@ export function registerPreflightRoutes(app, { pool, dbReady, adminGate, getKieC
       cohort,
     });
 
+    // One line, so a slow press is diagnosable from the log instead of from a
+    // theory about which query it must have been.
+    const slowest = Object.entries(timings).sort((a, b) => b[1] - a[1])[0];
+    console.log(`[preflight] ${verdict.state} in ${Object.values(timings).reduce((a, b) => a + b, 0)}ms — `
+      + Object.entries(timings).map(([k, v]) => `${k} ${v}ms`).join(' · ')
+      + (slowest && slowest[1] > 3000 ? `  ⚠ ${slowest[0]} is slow` : ''));
+
     res.json({
       ...verdict,
+      timings,
       checked_at: new Date().toISOString(),
       window_days: WINDOW_DAYS,
       // The picker's options, so choosing a cohort needs no second request.
