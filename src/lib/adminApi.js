@@ -218,6 +218,13 @@ export const adminApi = {
   sopSchedule:      ()           => request('GET', '/api/admin/sop/schedule'),
   sopScheduleSave:  (row)        => request('PUT', '/api/admin/sop/schedule', row),
 
+  // The ten minutes before a workshop, on one screen. `code` is the promo code
+  // the cohort will use; without it the cohort check reports UNKNOWN rather
+  // than passing, because "no cohort chosen" is not the same as "the cohort is
+  // fine". See server/src/preflight.js.
+  preflight:    (code)           => request('GET',
+    `/api/admin/preflight${code ? `?code=${encodeURIComponent(code)}` : ''}`),
+
   // Tasks — the board is the single source of truth for what is outstanding.
   tasks:        ()               => request('GET',   '/api/admin/tasks'),
   taskStatus:   (id, status)     => request('PATCH', `/api/admin/tasks/${id}`, { status }),

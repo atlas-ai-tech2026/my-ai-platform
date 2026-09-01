@@ -28,11 +28,15 @@ import { OUR_ACCOUNT_DRY_SOURCE } from './alerts-engine.js';
 
 const WINDOW_DAYS = 30;
 
-export function registerReliabilityRoutes(app, { pool, dbReady, adminGate }) {
-  app.get('/api/costing/reliability', adminGate, async (req, res) => {
-    if (!dbReady()) return res.status(503).json({ error: 'Database not configured.' });
-    const days = Math.min(365, Math.max(1, parseInt(req.query.days, 10) || WINDOW_DAYS));
-    try {
+/**
+ * The whole report, without an HTTP request around it.
+ *
+ * Extracted so the pre-workshop pre-flight card can ask the SAME question this
+ * tab answers. Copying the attribution query into a second caller would give
+ * two screens that disagree about which model is safe to teach — and the one
+ * you happened to open would decide the lesson plan.
+ */
+export async function gatherReliability(pool, days = WINDOW_DAYS) {
       const [rows, refundTotals, models, speedRows, speedSince, recordedRows, recordedSince]
         = await Promise.all([
         pool.query(
@@ -167,7 +171,7 @@ export function registerReliabilityRoutes(app, { pool, dbReady, adminGate }) {
           WHERE action = 'spend' AND reason IS NULL
             AND created_at > NOW() - ($1 || ' days')::INTERVAL`, [days]);
 
-      res.json({
+      return {
         window_days: days,
         min_attempts: MIN_ATTEMPTS,
         models: report,
@@ -192,7 +196,15 @@ export function registerReliabilityRoutes(app, { pool, dbReady, adminGate }) {
           ...basisSummary(report),
           recording_since: recordedSince.rows[0]?.since || null,
         },
-      });
+      };
+}
+
+export function registerReliabilityRoutes(app, { pool, dbReady, adminGate }) {
+  app.get('/api/costing/reliability', adminGate, async (req, res) => {
+    if (!dbReady()) return res.status(503).json({ error: 'Database not configured.' });
+    const days = Math.min(365, Math.max(1, parseInt(req.query.days, 10) || WINDOW_DAYS));
+    try {
+      res.json(await gatherReliability(pool, days));
     } catch (err) {
       console.error('[reliability] failed:', err);
       res.status(500).json({ error: 'Could not build the reliability report.' });

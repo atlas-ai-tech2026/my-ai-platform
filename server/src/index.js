@@ -150,6 +150,7 @@ import { registerCustomerRoutes } from './customer-routes.js';
 import { registerWaitlistRoutes } from './waitlist.js';
 import { registerEditEventRoutes } from './edit-events.js';
 import { registerSopRoutes, scheduleSopJobs } from './sop-routes.js';
+import { registerPreflightRoutes } from './preflight-routes.js';
 import { registerTaskRoutes, ensureTasksTable, upsertTask } from './tasks.js';
 import { seedTasks } from './tasks-seed.js';
 import { registerLiveRoutes } from './live-routes.js';
@@ -5100,6 +5101,24 @@ registerSopRoutes(app, {
   pool, dbReady, adminGate,
   getKieCredits: KIE_KEY ? () => kieGetCredits() : null,
   getAutoBackupStatus: () => autoBackupStatus,
+});
+
+// ─── PRE-WORKSHOP PRE-FLIGHT (task #36) ──────────────────────────────────────
+// On 8 August, 415 generations failed during a live workshop because the
+// supplier account was empty. Every one auto-refunded, so no counter moved and
+// no alert fired — the room saw it before the system did.
+//
+// Every fact needed to catch that was already on a screen. Four screens: the
+// balance on SOP, the model failure rates under Costing, the code under Promo
+// Codes, the alerts on Alerts. Four tabs and four judgements, in the ten
+// minutes before standing up in front of people, is not a check anybody runs.
+//
+// This is the same information on ONE screen, arranged around one question:
+// can I start? It reads no new source — see preflight-routes.js — so it can
+// never disagree with the tab it borrowed each fact from.
+registerPreflightRoutes(app, {
+  pool, dbReady, adminGate,
+  getKieCredits: KIE_KEY ? () => kieGetCredits() : null,
 });
 
 // ─── TASKS (task #49) ────────────────────────────────────────────────────────

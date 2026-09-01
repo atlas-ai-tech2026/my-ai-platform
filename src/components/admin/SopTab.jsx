@@ -23,6 +23,7 @@ import { toast } from 'sonner';
 import { adminApi } from '@/lib/adminApi';
 import InfoDot from './InfoDot';
 import MaintenancePanel from './MaintenancePanel';
+import PreflightPanel from './PreflightPanel';
 
 const STATE_STYLE = {
   critical: { dot: 'var(--crm-red)',   bg: 'var(--crm-red-bg)',   label: 'Act now' },
@@ -211,6 +212,11 @@ export default function SopTab({ onError }) {
           </button>
         </span>
       </div>
+
+      {/* FIRST on the page, above the zones. This is the thing you open the
+          tab for on a workshop morning, and a check you have to scroll to is a
+          check that happens after the room is already sitting down. */}
+      <PreflightPanel onError={onError} />
 
       {Object.entries(ZONE_META).map(([id, meta]) => {
         const lines = zones[id] || [];
