@@ -182,18 +182,39 @@ describe('the batch box cannot be set to a number that fails', () => {
 });
 
 describe('the count that answers "must I press this 601 times?"', () => {
-  it('is on the screen, and reachable', async () => {
+  it('is on the screen, and reachable — and the answer is now no', async () => {
+    // It used to say "240 presses by hand". The sweep runs unattended, so the
+    // honest number is zero — and it must say WHY rather than showing a bare
+    // 0, which reads identically to a broken count.
     const spy = vi.spyOn(adminApi, 'thumbsScale').mockResolvedValue({
       need: 12000, have: 3000, done_pct: 20, accounts_waiting: 480, accounts_total: 601,
-      presses_by_hand: 240, estimated_hours: 4, days_at_slow_pace: 0.4,
+      presses_by_hand: 0, queued: 11700, skipped: 300,
+      estimated_hours: 4, days_at_slow_pace: 1.6,
       sampled: 25, avg_mb: 7.6, estimated_gb_moved: 178,
-      verdict: '12,000 pictures still load at full size. About 178 GB would be moved.',
+      verdict: '11,700 pictures still load at full size. The background sweep is working through them.',
     });
     render(<MaintenancePanel />);
     await userEvent.click(screen.getByRole('button', { name: /^Count$/ }));
     await waitFor(() => expect(spy).toHaveBeenCalled());
-    expect(await screen.findByText(/240 presses by hand/)).toBeInTheDocument();
+    expect(await screen.findByText(/Nothing to press/)).toBeInTheDocument();
+    expect(screen.getByText(/the sweep does this on its own/i)).toBeInTheDocument();
     expect(screen.getAllByText(/178 GB/).length).toBeGreaterThan(0);
+  });
+
+  it('shows how long is left, and what will never be done', async () => {
+    // "1.6 days left" is what turns a number into progress. And the 300 the
+    // sweep will never take must be named, or the count stalls above zero and
+    // the job looks stuck when it has finished.
+    vi.spyOn(adminApi, 'thumbsScale').mockResolvedValue({
+      need: 12000, have: 3000, done_pct: 20, accounts_waiting: 480, accounts_total: 601,
+      presses_by_hand: 0, queued: 11700, skipped: 300,
+      estimated_hours: 4, days_at_slow_pace: 1.6,
+      sampled: 25, avg_mb: 7.6, estimated_gb_moved: 178, verdict: 'x',
+    });
+    render(<MaintenancePanel />);
+    await userEvent.click(screen.getByRole('button', { name: /^Count$/ }));
+    expect(await screen.findByText(/1.6 days left at its current pace/)).toBeInTheDocument();
+    expect(screen.getByText(/300 skipped \(deleted or original gone\)/)).toBeInTheDocument();
   });
 
   it('an unmeasurable data cost is shown as UNKNOWN, never as zero', async () => {
@@ -201,7 +222,7 @@ describe('the count that answers "must I press this 601 times?"', () => {
     // across 601 customers' history.
     vi.spyOn(adminApi, 'thumbsScale').mockResolvedValue({
       need: 12000, have: 0, done_pct: 0, accounts_waiting: 480, accounts_total: 601,
-      presses_by_hand: 240, estimated_hours: 4, days_at_slow_pace: 0.4,
+      presses_by_hand: 0, queued: 12000, skipped: 0, estimated_hours: 4, days_at_slow_pace: 1.6,
       sampled: 0, avg_mb: null, estimated_gb_moved: null,
       verdict: '12,000 pictures still load at full size. The data cost could not be measured.',
     });

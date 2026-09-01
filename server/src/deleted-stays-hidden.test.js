@@ -55,6 +55,17 @@ describe('what a customer can see', () => {
     expect(search).toMatch(/countSql:.*\$\{clause\}/s);
   });
 
+  it('the unattended thumbnail sweep skips them', () => {
+    // The one-account BUTTON is exempt below, on the grounds that a thumbnail
+    // for a deleted row costs one small file. That reasoning does not survive
+    // being made automatic: run across every account for ever, it would fetch
+    // and re-upload every picture every customer has ever deleted.
+    const sweep = read('thumbnail-sweep.js');
+    const queries = sweep.match(/SELECT[\s\S]*?`/g) || [];
+    expect(queries.length, 'the sweep queries are gone or renamed').toBeGreaterThanOrEqual(2);
+    for (const q of queries) expect(q).toMatch(/deleted_at IS NULL/);
+  });
+
   it('the model list offered in the filter hides them', () => {
     // Otherwise a model would stay in the dropdown because of pictures the
     // customer deleted, and selecting it would return nothing.
@@ -114,6 +125,7 @@ describe('the reads that deliberately DO include deleted rows', () => {
     // exemption here. A NEW file appears in neither and fails this test.
     const known = new Set([
       'index.js', 'history-search.js', 'soft-delete.js',       // filtered, or the delete itself
+      'thumbnail-sweep.js',                                     // filtered — asserted below
       'media-rescue.js', 'media-health.js',                     // exempt, above
       'thumbnail-survey.js', 'thumbnail-scale.js',              // exempt, above
       'thumbnail-backfill.js',                                  // writes only

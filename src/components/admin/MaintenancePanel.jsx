@@ -80,15 +80,17 @@ export const JOBS = [
     id: 'thumbs',
     title: 'Make small versions',
     blurb: 'Builds a small copy of each picture so the history grid loads those instead of the '
-      + 'full-size file. Run it per account — and re-run it as new pictures are made, because '
-      + 'nothing creates these automatically yet.',
+      + 'full-size file. YOU NO LONGER NEED THIS FOR NORMAL USE: new pictures get a small version '
+      + 'as they are made, and a background job works through the older ones on its own. Use it '
+      + 'only to push one account to the front of the queue.',
     writes: 'WRITES to customer history — adds a thumb_url. The original is never touched, moved '
       + 'or deleted, and opening a picture still shows it at full size.',
     info: 'The grid was downloading twelve full-size files at 7.5 MB each. This makes a small copy '
       + 'for the grid only. It ADDS a field; nothing existing is modified, so the worst case for a '
-      + 'row that fails is that it stays exactly as slow as it is today. NOTE: a picture generated '
-      + 'today does NOT get one on its own — only this button creates them, so the grid gets slower '
-      + 'again as new work is made. Making it automatic is still to be built.',
+      + 'row that fails is that it stays exactly as slow as it is today. Two things now do this '
+      + 'without anybody pressing a button: every new picture gets one as it is saved, and a '
+      + 'background sweep does 25 of the older ones every five minutes, newest first, across all '
+      + 'accounts. This button remains for when one customer should not wait their turn.',
     scoped: true,
     emailOnly: true,
     run: (f) => adminApi.thumbsBackfill({ email: f.email, limit: f.limit }),
@@ -296,9 +298,12 @@ function ScaleLine({ scale, onLoad, busy, anyBusy }) {
         <InfoDot
           label="How much is left"
           text={'Counts every picture that still loads at full size, and measures a random sample to '
-            + 'estimate the data a catch-up would move. It writes NOTHING — it is the number you read '
-            + 'before deciding, not a job. If the data cost cannot be measured it says "unknown", '
-            + 'never zero.'}
+            + 'estimate the data still to move. It writes NOTHING. This is now a PROGRESS figure, not '
+            + 'a decision: a background sweep works through 25 every five minutes, newest first, '
+            + 'across all accounts, so this number should fall on its own between visits. It counts '
+            + 'separately the rows the sweep will never take — deleted pictures, and originals that '
+            + 'have gone — so it can actually reach zero instead of stalling and looking stuck. If '
+            + 'the data cost cannot be measured it says "unknown", never zero.'}
         />
         <button onClick={onLoad} disabled={anyBusy} style={{ ...btn, marginLeft: 'auto' }}>
           {busy ? 'Counting…' : scale ? 'Count again' : 'Count'}
@@ -314,12 +319,22 @@ function ScaleLine({ scale, onLoad, busy, anyBusy }) {
             {' · '}{scale.accounts_waiting.toLocaleString()} of {scale.accounts_total.toLocaleString()} accounts waiting
           </div>
           <div>
-            {/* The number that answers "do I have to press this myself?" */}
-            <strong style={{ color: 'var(--crm-amber)' }}>
-              {scale.presses_by_hand.toLocaleString()} presses by hand
+            {/* The number that answers "do I have to press this myself?" —
+                and the answer is now no. Shown as a plain statement rather
+                than an amber warning, because there is nothing to act on. */}
+            <strong style={{ color: 'var(--crm-green)' }}>
+              {scale.presses_by_hand === 0
+                ? 'Nothing to press — the sweep does this on its own'
+                : `${scale.presses_by_hand.toLocaleString()} presses by hand`}
             </strong>
-            {' · '}about {scale.estimated_hours}h of work
-            {' · '}{scale.days_at_slow_pace} days at a deliberately slow pace
+            {scale.days_at_slow_pace > 0 && (
+              <>{' · '}about {scale.days_at_slow_pace} days left at its current pace</>
+            )}
+            {scale.skipped > 0 && (
+              <span style={{ color: 'var(--crm-w40)' }}>
+                {' · '}{scale.skipped.toLocaleString()} skipped (deleted or original gone)
+              </span>
+            )}
           </div>
           <div style={{ color: 'var(--crm-w40)', fontSize: 11.5 }}>
             {scale.estimated_gb_moved === null

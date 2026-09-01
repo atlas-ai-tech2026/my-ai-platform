@@ -24,10 +24,23 @@
 // run it SLOWLY on purpose.
 
 /** Exact counts. Cheap: one aggregate, no file access. */
+import { BATCH as SWEEP_BATCH, EVERY_MS as SWEEP_EVERY_MS } from './thumbnail-sweep.js';
+
+/** The sweep's real pace, derived rather than typed: 25 every five minutes. */
+export const SWEEP_PER_MINUTE = SWEEP_BATCH / (SWEEP_EVERY_MS / 60_000);
+
 export const SCALE_SQL = `
   SELECT
     count(*) FILTER (WHERE COALESCE(data->>'thumb_url','') = '')          AS need,
     count(*) FILTER (WHERE COALESCE(data->>'thumb_url','') <> '')         AS have,
+    -- What the background sweep will ACTUALLY take. "need" is the honest
+    -- total, but it includes rows the sweep skips on purpose: pictures the
+    -- customer deleted, and files the rescue has already declared gone.
+    -- Without this the number drains and then stops above zero for ever, and
+    -- a progress figure that can never finish reads as a broken job.
+    count(*) FILTER (WHERE COALESCE(data->>'thumb_url','') = ''
+                       AND data->>'rescue_gone_at' IS NULL
+                       AND deleted_at IS NULL)                            AS queued,
     count(DISTINCT user_id) FILTER (WHERE COALESCE(data->>'thumb_url','') = '') AS accounts_waiting,
     count(DISTINCT user_id)                                              AS accounts_total
   FROM entities
@@ -39,7 +52,11 @@ export const SCALE_SQL = `
 
 /** A random handful of the ones still needing a thumbnail, to measure sizes.
  *  Random rather than newest: the newest are not typical of eight months of
- *  history, and the estimate is for all of it. */
+ *  history, and the estimate is for all of it.
+ *
+ *  Sampled from the SAME population the estimate is about — the rows the sweep
+ *  will actually take. Measuring deleted or missing files and then multiplying
+ *  by the queued count would be an average of one thing applied to another. */
 export const SAMPLE_SQL = `
   SELECT data->>'result_url' AS url
   FROM entities
@@ -48,6 +65,8 @@ export const SAMPLE_SQL = `
     AND COALESCE(data->>'thumb_url','') = ''
     AND COALESCE(data->>'result_url','') <> ''
     AND data->>'result_url' ~* '^https?://'
+    AND data->>'rescue_gone_at' IS NULL
+    AND deleted_at IS NULL
   ORDER BY random()
   LIMIT $1
 `;
@@ -62,11 +81,17 @@ const round = (n, p = 1) => Math.round(n * 10 ** p) / 10 ** p;
  * @param counts  {need, have, accounts_waiting, accounts_total}
  * @param sizes   bytes[] from HEAD requests — may be short, may be empty
  * @param opts.perPictureSeconds  measured: 20 pictures in 24s on production
- * @param opts.perMinute          how many the background job would do a minute
+ * @param opts.perMinute          the sweep's real pace — BATCH every EVERY_MS.
+ *                                Taken from thumbnail-sweep.js rather than
+ *                                typed here, so an estimate on the screen
+ *                                cannot quietly disagree with the job.
  */
-export function summariseScale(counts, sizes, { perPictureSeconds = 1.2, perMinute = 20 } = {}) {
+export function summariseScale(counts, sizes, { perPictureSeconds = 1.2, perMinute = SWEEP_PER_MINUTE } = {}) {
   const need = Number(counts?.need) || 0;
   const have = Number(counts?.have) || 0;
+  // Falls back to `need` so an older caller that does not select `queued`
+  // still gets a sensible number rather than zero.
+  const queued = Number.isFinite(Number(counts?.queued)) ? Number(counts.queued) : need;
 
   const measured = (sizes || []).filter((n) => Number.isFinite(n) && n > 0);
   // NULL, never 0, when nothing could be measured. A zero here would read as
@@ -80,30 +105,49 @@ export function summariseScale(counts, sizes, { perPictureSeconds = 1.2, perMinu
     accounts_waiting: Number(counts?.accounts_waiting) || 0,
     accounts_total: Number(counts?.accounts_total) || 0,
 
-    // What a human would otherwise do. This is the number that answers Amr's
-    // actual question, so it is computed rather than described.
-    presses_by_hand: need ? Math.ceil(need / 50) : 0,
+    // What the sweep will actually work through, and what it will skip.
+    queued,
+    skipped: Math.max(0, need - queued),
+
+    // Kept because Amr's original question was "how many times must I press
+    // this?" — and the answer is now zero. It stays on the screen as ZERO
+    // rather than disappearing, because "the button is gone" and "the work is
+    // done without the button" look identical if the number simply vanishes.
+    presses_by_hand: 0,
 
     sampled: measured.length,
     avg_mb: avgBytes === null ? null : round(avgBytes / MB, 2),
     // Downloaded once and re-uploaded once. Stated as an ESTIMATE everywhere
     // because it is one — an average of a sample times a count.
-    estimated_gb_moved: avgBytes === null ? null : round((need * avgBytes * 2) / (1024 * MB), 1),
-    estimated_hours: need ? round((need * perPictureSeconds) / 3600, 1) : 0,
+    estimated_gb_moved: avgBytes === null ? null : round((queued * avgBytes * 2) / (1024 * MB), 1),
+    estimated_hours: queued ? round((queued * perPictureSeconds) / 3600, 1) : 0,
     // At a deliberately slow pace, so the job never looks like an outage to
     // our own bucket and the bandwidth is spread across days.
-    days_at_slow_pace: need ? round(need / (perMinute * 60 * 24), 1) : 0,
+    // How long the sweep needs, at its real pace, for the rows it will take.
+    days_at_slow_pace: queued ? round(queued / (perMinute * 60 * 24), 1) : 0,
 
     // The sentence the panel shows. Written here so the number and the words
     // about the number can never disagree.
-    verdict: verdictFor(need, avgBytes),
+    verdict: verdictFor(need, queued, avgBytes, perMinute),
   };
 }
 
-function verdictFor(need, avgBytes) {
+function verdictFor(need, queued, avgBytes, perMinute) {
   if (!need) return 'Every picture already has a small version. Nothing to do.';
+  if (!queued) {
+    // Everything left is deleted or gone. The number will never reach zero,
+    // and saying so is the difference between a finished job and a stuck one.
+    return `${need.toLocaleString('en-US')} pictures have no small version, but every one of them is `
+      + 'either deleted or has a missing original. There is nothing left for the sweep to do.';
+  }
   const cost = avgBytes === null
     ? 'The data cost could not be measured — treat any estimate below as unknown, not as zero.'
-    : `About ${round((need * avgBytes * 2) / (1024 * MB), 1)} GB would be moved, downloaded and re-uploaded once each.`;
-  return `${need.toLocaleString('en-US')} pictures still load at full size. ${cost}`;
+    : `About ${round((queued * avgBytes * 2) / (1024 * MB), 1)} GB will be moved, downloaded and re-uploaded once each.`;
+  const days = round(queued / (perMinute * 60 * 24), 1);
+  const skipped = need - queued;
+  const aside = skipped > 0
+    ? ` A further ${skipped.toLocaleString('en-US')} are deleted or gone and will be skipped.`
+    : '';
+  return `${queued.toLocaleString('en-US')} pictures still load at full size. The background sweep is `
+    + `working through them on its own — about ${days} days at its current pace.${aside} ${cost}`;
 }

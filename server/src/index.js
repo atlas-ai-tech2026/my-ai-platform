@@ -41,6 +41,11 @@ import { RECORD_SQL, CLAIM_SQL, GIVE_UP_SQL, TOUCH_SQL, DUE_SQL, OWNS_SQL,
 // and the automatic path run identical code — two resizers would drift, and
 // the grid would show two different sizes of "small".
 import { makeThumbnail } from './thumbnail-backfill.js';
+import {
+  SWEEP_LOCK_ID, NEXT_BATCH_SQL, REMAINING_SQL as SWEEP_REMAINING_SQL,
+  MARK_FAILED_SQL, BATCH as SWEEP_BATCH, EVERY_MS as SWEEP_EVERY_MS,
+  retryCutoff, sweepOnce, sweepLine,
+} from './thumbnail-sweep.js';
 import { SCALE_SQL, SAMPLE_SQL, summariseScale } from './thumbnail-scale.js';
 import { DELETE_SQL as SOFT_DELETE_SQL, RESTORE_OWN_SQL, RESTORE_SQL, RECOVERABLE_SQL,
          DUE_FOR_PURGE_SQL, PURGE_ROW_SQL, purgeRows, daysLeft, RECOVERY_DAYS } from './soft-delete.js';
@@ -8459,6 +8464,64 @@ migrate()
     // then every 24h; balance check hourly starting now.
     setTimeout(runAutomatedBackup, 5 * 60 * 1000).unref?.();
     setInterval(runAutomatedBackup, 24 * 60 * 60 * 1000).unref?.();
+
+    // ── THE THUMBNAIL BACKLOG, ACROSS EVERY ACCOUNT (#75) ──────────────
+    // New pictures already get a small version as they are saved. This is for
+    // everything made before that shipped — and the only tool for those took
+    // an EMAIL and did one account at a time, so clearing the backlog meant a
+    // person typing customer addresses for as long as there are customers. It
+    // never got done, which leaves the history grid slow for exactly the
+    // people with the most pictures.
+    //
+    // Small and quiet: 25 every five minutes, on boxes that are also serving
+    // people. Roughly 300 an hour, so a 24,000 backlog clears in about three
+    // days with nobody noticing it run. It falls silent when there is nothing
+    // left — a job that keeps announcing itself after it has finished is a job
+    // people learn to scroll past.
+    setInterval(async () => {
+      if (!dbReady() || !spacesReady()) return;
+      const client = await pool.connect().catch(() => null);
+      if (!client) return;
+      try {
+        // Production runs TWO instances. Without this both take the same
+        // newest rows, fetch the same originals and upload the same
+        // thumbnails — paying twice for one result.
+        const { rows: got } = await client.query('SELECT pg_try_advisory_lock($1) AS got', [SWEEP_LOCK_ID]);
+        if (!got?.[0]?.got) return;
+        try {
+          // user_id comes from the ROW, never from a session: this sweep runs
+          // across every account, and SET_THUMB_SQL is scoped by owner so a
+          // wrong id could only ever write nothing, never someone else's row.
+          const owner = new Map();
+          const out = await sweepOnce({
+            rows: async () => {
+              const { rows } = await client.query(NEXT_BATCH_SQL, [SWEEP_BATCH, retryCutoff(Date.now())]);
+              for (const r of rows) owner.set(r.id, r.user_id);
+              return rows;
+            },
+            // The SAME resizer the control-panel button uses. Two copies would
+            // drift and then disagree about a customer's picture.
+            backfill: (batch, { onDone }) => backfillRows(batch, {
+              persist: (buf, contentType, kind) => persistBuffer(buf, contentType, kind),
+              setThumb: (id, url) => pool.query(SET_THUMB_SQL, [JSON.stringify(url), id, owner.get(id)]),
+              onProgress: (p) => onDone(p.id),
+            }),
+            markFailed: (id) => pool.query(MARK_FAILED_SQL, [id]),
+            remaining: async () => {
+              const { rows } = await client.query(SWEEP_REMAINING_SQL);
+              return Number(rows?.[0]?.remaining);
+            },
+          });
+          if (out.done || out.failed) console.log(sweepLine(out));
+        } finally {
+          await client.query('SELECT pg_advisory_unlock($1)', [SWEEP_LOCK_ID]).catch(() => {});
+        }
+      } catch (e) {
+        console.error('[thumb-sweep] pass failed:', e.message);
+      } finally {
+        client.release();
+      }
+    }, SWEEP_EVERY_MS).unref?.();
     // Alerts, every 5 minutes. This REPLACES the hourly checkKieBalance()
     // whose only output was console.error — the condition was being detected
     // correctly for weeks and reported to a log nobody opens. Hourly was also
