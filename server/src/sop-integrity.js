@@ -25,6 +25,11 @@ import path from 'node:path';
 /** Paths that legitimately have no frontend caller. */
 export const EXPECTED_UNCALLED = [
   '/api/health',                    // uptime monitors and deploy checks
+  // Called by UptimeRobot every 5 minutes from outside, which no amount of
+  // scanning our own source can see. It is also the endpoint whose visits the
+  // SOP tab records — so the one route we can PROVE is called was the one
+  // being reported as called by nobody.
+  '/api/ready',
   '/api/admin/sop',                 // this very screen; its UI lands in pass 3
   '/api/admin/sop/check-now',
   // Reached by a full-page navigation (window.location), not by fetch — so no
@@ -67,9 +72,22 @@ function readAll(dir, exts, out = []) {
  */
 export function registeredRoutes(serverFiles) {
   const routes = new Set();
-  const re = /\bapp\.(get|post|put|patch|delete)\s*\(\s*['"`](\/api\/[^'"`]*)['"`]/g;
+  // `all` is included, and so is the ARRAY form. Both were missing, and both
+  // were being used: /api/history/models and /api/history/deleted are
+  // registered as `app.all(['/api/history/models'], …)`. Invisible to a regex
+  // that expected app.post('/api/…') exactly, they were reported as paths the
+  // interface calls and nothing serves — while answering perfectly on
+  // production. A check that reports live routes as dead is a check people
+  // learn to dismiss, which is the failure this module exists to prevent,
+  // arriving in the module itself.
+  const re = /\bapp\.(get|post|put|patch|delete|all)\s*\(\s*(\[[^\]]*\]|['"`]\/api\/[^'"`]*['"`])/g;
+  const strings = /['"`](\/api\/[^'"`]*)['"`]/g;
   for (const { src } of serverFiles) {
-    for (const m of src.matchAll(re)) routes.add(`${m[1].toUpperCase()} ${m[2]}`);
+    for (const m of src.matchAll(re)) {
+      const method = m[1].toUpperCase();
+      // One registration, one or many paths — an array registers each of them.
+      for (const p of m[2].matchAll(strings)) routes.add(`${method} ${p[1]}`);
+    }
   }
   return routes;
 }
@@ -106,10 +124,38 @@ export function extractApiStrings(src) {
   return out;
 }
 
-/** API paths the frontend asks for. */
+/**
+ * Calls made through `base44.functions.invoke('name', …)`.
+ *
+ * ── WHY THIS EXISTS ────────────────────────────────────────────────────────
+ * invoke() builds its URL at RUNTIME — `api.post(\`/api/${funcName}\`)` — so the
+ * string "/api/history/search" appears nowhere in the source. Scanning only
+ * for literal /api/ strings therefore reported a dozen perfectly live
+ * endpoints as "nothing calls this": the whole history search, the onboarding
+ * screens, the edit agent, the pollers.
+ *
+ * A structural check that cries wolf twelve times is worse than no check. It
+ * was reporting 22, of which most were this — so the number could never fall,
+ * and a line that never changes is a line nobody reads. That is the exact
+ * failure this module exists to catch, arriving in the module itself.
+ */
+export function extractInvokeNames(src) {
+  const out = [];
+  // invoke('name'  ·  invoke("name"  ·  invoke(`name`  — the closing quote is
+  // required, so a template with ${…} inside is skipped rather than guessed at.
+  const re = /\binvoke\(\s*(['"`])([^'"`$\\]+)\1/g;
+  let m;
+  while ((m = re.exec(src))) out.push(`/api/${m[2].replace(/^\/+/, '')}`);
+  return out;
+}
+
+/** API paths the frontend asks for, literal AND via invoke(). */
 export function requestedPaths(clientFiles) {
   const paths = new Set();
-  for (const { src } of clientFiles) for (const p of extractApiStrings(src)) paths.add(p);
+  for (const { src } of clientFiles) {
+    for (const p of extractApiStrings(src)) paths.add(p);
+    for (const p of extractInvokeNames(src)) paths.add(p);
+  }
   return paths;
 }
 
@@ -154,13 +200,32 @@ export function deadPaths({ requested, routes }) {
   const prefixes = [];
   for (const r of routes) {
     const raw = r.split(' ')[1];
-    if (raw.includes('${')) prefixes.push(canonical(raw.slice(0, raw.indexOf('${'))));
+    // A WILDCARD serves everything beneath it. Express 5 spells it `*splat`
+    // (path-to-regexp v8 dropped the bare `*`), and the speech model route is
+    // exactly this: `/api/speech/model/*splat` serves
+    // `/api/speech/model/whisper-tiny/config.json`. Not knowing that, the
+    // check reported the one path I had just fetched from production with a
+    // 200 as a screen calling something the server cannot do.
+    const star = raw.search(/\*/);
+    if (star > -1) prefixes.push(canonical(raw.slice(0, star)));
+    else if (raw.includes('${')) prefixes.push(canonical(raw.slice(0, raw.indexOf('${'))));
     else served.add(canonical(raw));
   }
   return [...requested]
     .map(canonical)
     .filter((p) => p !== '/api' && !served.has(p))
     .filter((p) => !prefixes.some((pre) => pre && p.startsWith(pre)))
+    // A REQUESTED path whose last segment is a placeholder is the mirror of
+    // the case above: `/api/auth/${provider}` is one real call to one of two
+    // real routes, and `/api/${funcName}` is invoke()'s own dispatcher, whose
+    // actual destinations are extracted separately by extractInvokeNames().
+    // Reporting either as "a screen calling nothing" is reporting the mechanism
+    // instead of the call.
+    .filter((p) => {
+      if (!p.endsWith('/:p')) return true;
+      const prefix = p.slice(0, -2);            // keep the trailing slash
+      return ![...served].some((sv) => sv.startsWith(prefix));
+    })
     .sort();
 }
 
@@ -170,8 +235,23 @@ export function uncalledRoutes({ requested, routes, expected = EXPECTED_UNCALLED
   const skip = new Set(expected.map(canonical));
   return [...routes]
     .filter((r) => {
-      const p = canonical(r.split(' ')[1]);
-      return !asked.has(p) && !skip.has(p);
+      const raw = r.split(' ')[1];
+      const p = canonical(raw);
+      if (skip.has(p) || asked.has(p)) return false;
+      // The mirror of deadPaths: a route that ends in a WILDCARD or is built
+      // from a TEMPLATE is called whenever anything beneath it is called.
+      // `/api/speech/model/*splat` is asked for as `/api/speech/model/`, and
+      // `/api/offers/:id/${path}` is two real routes built in a loop. Without
+      // this both were reported as called by nobody — one of them while I was
+      // fetching it from production and getting 200s.
+      const star = raw.search(/\*/);
+      const tpl = raw.indexOf('${');
+      const cut = star > -1 ? star : tpl;
+      if (cut > -1) {
+        const prefix = canonical(raw.slice(0, cut));
+        if (prefix && [...asked].some((a) => a.startsWith(prefix))) return false;
+      }
+      return true;
     })
     .sort();
 }
