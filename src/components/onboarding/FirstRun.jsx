@@ -42,10 +42,47 @@ export default function FirstRun({ userId, onFinish, api }) {
   // The screen fades OUT before the next one fades in. Without this the
   // change was instant however long the enter animation was.
   const [leaving, setLeaving] = useState(false);
+  // Is there more below the fold? Measured, not guessed — it depends on the
+  // window, the font and how many chips have wrapped.
+  const [moreBelow, setMoreBelow] = useState(false);
+  const bodyRef = useRef(null);
   const startedAt = useRef(Date.now());
   const screen = SCREENS[i];
 
   useEffect(() => { startedAt.current = Date.now(); }, [i]);
+
+  /**
+   * Show a fade at the bottom whenever content is hidden below it.
+   *
+   * ── WHY THIS EXISTS ──────────────────────────────────────────────────────
+   * The company field was the last question under two long chip lists, and on
+   * an ordinary window it fell below the fold. Amr: "nobody see it... maybe
+   * the users cannot see it." Moving it up fixes THAT field; this fixes the
+   * class of problem, because chips wrap differently at every window size and
+   * something will always be the thing that falls off the bottom.
+   *
+   * A scroll area with no edge treatment looks exactly like a finished list.
+   */
+  useEffect(() => {
+    const el = bodyRef.current;
+    if (!el) return undefined;
+    const measure = () => {
+      // 4px of slack: sub-pixel layout means scrollTop + clientHeight rarely
+      // lands exactly on scrollHeight, and a fade that never quite goes away
+      // is its own kind of wrong.
+      setMoreBelow(el.scrollTop + el.clientHeight < el.scrollHeight - 4);
+    };
+    measure();
+    el.addEventListener('scroll', measure, { passive: true });
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(measure) : null;
+    ro?.observe(el);
+    window.addEventListener('resize', measure);
+    return () => {
+      el.removeEventListener('scroll', measure);
+      ro?.disconnect();
+      window.removeEventListener('resize', measure);
+    };
+  }, [i]);
 
   const pick = (qid, value, multi) => {
     setAnswers((a) => {
@@ -145,7 +182,7 @@ export default function FirstRun({ userId, onFinish, api }) {
             </h2>
             <p style={{ fontSize: 14.5, color: C.ink3, margin: '0 0 26px', maxWidth: '44ch' }}>{screen.sub}</p>
 
-            <div className="fr-body">
+            <div className="fr-body" ref={bodyRef}>
             {screen.questions.map((q) => (
               <div key={q.id} style={{ marginBottom: 24 }}>
                 {q.label && (
@@ -222,6 +259,15 @@ export default function FirstRun({ userId, onFinish, api }) {
               </div>
             )}
             </div>
+            {/* Not decoration: without an edge treatment a scroll area looks
+                exactly like a finished list, which is how the company field
+                went unseen. The word matters as much as the fade — a gradient
+                alone is easy to read as styling. */}
+            {moreBelow && (
+              <div className="fr-more" aria-hidden="true">
+                <span>more below</span>
+              </div>
+            )}
           </div>
 
           <div style={{
@@ -340,7 +386,25 @@ export default function FirstRun({ userId, onFinish, api }) {
         /* The content is a real flex box now — the previous version animated a
            display:contents wrapper, which generates NO BOX, so opacity and
            transform had nothing to act on and the animation never ran. */
-        .fr-content { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+        .fr-content { flex: 1; min-height: 0; display: flex; flex-direction: column; position: relative; }
+        /* The gradient reaches FULL opacity, not 92%. At 92% the label of the
+           next question showed through and collided with the cue — two pieces
+           of text in the same place, which reads as a rendering fault rather
+           than as an edge. */
+        .fr-more {
+          position: absolute; left: 0; right: 0; bottom: 0; height: 62px;
+          pointer-events: none; display: flex; align-items: flex-end; justify-content: center;
+          background: linear-gradient(180deg, rgba(17,17,20,0) 0%, rgba(17,17,20,.86) 55%, rgba(17,17,20,1) 88%);
+        }
+        /* Its own pill, so the word is legible whatever it happens to sit over. */
+        .fr-more span {
+          font-family: "JetBrains Mono", monospace; font-size: 9.5px;
+          letter-spacing: .16em; text-transform: uppercase;
+          color: rgba(255,255,255,.5); background: rgba(255,255,255,.06);
+          border: 1px solid rgba(255,255,255,.1); border-radius: 999px;
+          padding: 3px 10px 3px 12px;
+        }
+        .fr-more span::after { content: " ↓"; letter-spacing: 0; }
         @keyframes frIn {
           from { opacity: 0; transform: translateY(12px); }
           to   { opacity: 1; transform: none; }

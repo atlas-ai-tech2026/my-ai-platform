@@ -95,6 +95,27 @@ export const SCREENS = [
         id: 'usage', kind: 'chips', multi: false, label: 'Work or personal',
         options: ['Work', 'Personal', 'Both', 'I’m a student'],
       },
+      // ── THE SHORT ONES FIRST, AND THAT IS THE FIX ────────────────────────
+      // The company field used to be last, under two long chip lists — ten
+      // roles wrap to three rows and six more wrap to two, so on a normal
+      // window it sat below the fold. Amr: "nobody see it... I need to scroll
+      // down, so maybe the users cannot see it."
+      //
+      // An optional field nobody scrolls to is a field nobody fills, and this
+      // is the single most valuable answer on the screen: Voxel invoices
+      // ORGANISATIONS and holds no record of them.
+      //
+      // So the two SHORT questions lead — four chips and one input, both one
+      // row — and the long lists follow. It reads better as well: work or
+      // personal, then which organisation, then what you do there.
+      {
+        id: 'org', kind: 'text', label: 'Your company or organisation',
+        optional: true, placeholder: 'Optional',
+        // The most valuable answer on the screen. Voxel invoices ORGANISATIONS
+        // and the system holds no record of them, so this links a person to a
+        // company from day one instead of rebuilding it from workshop lists.
+        max: 120,
+      },
       {
         id: 'role', kind: 'chips', multi: false, label: 'What you do',
         // Voxel's roles, not Magnific's. Theirs lists 3D Artist, Illustrator
@@ -112,14 +133,6 @@ export const SCREENS = [
           'Social media content', 'Marketing and ads', 'Product photos',
           'Teaching and training', 'Client work', 'Just exploring',
         ],
-      },
-      {
-        id: 'org', kind: 'text', label: 'Your company or organisation',
-        optional: true, placeholder: 'Optional',
-        // The most valuable answer on the screen. Voxel invoices ORGANISATIONS
-        // and the system holds no record of them, so this links a person to a
-        // company from day one instead of rebuilding it from workshop lists.
-        max: 120,
       },
     ],
   },

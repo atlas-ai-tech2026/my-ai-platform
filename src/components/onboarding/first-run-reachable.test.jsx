@@ -237,3 +237,36 @@ describe('☠ THE FORCE FLAG CANNOT REACH PRODUCTION', () => {
     expect(onb).not.toMatch(/if \(isDev\) return true/);
   });
 });
+
+// ─── ADDED 2026-09-01, after Amr found it on the real screen ─────────────────
+// "After I choose all the options on the same page, the company name is down.
+//  Nobody see it. I need to scroll down, so maybe the users cannot see it."
+describe('☠ THE COMPANY FIELD IS ABOVE THE FOLD', () => {
+  it('the two SHORT questions come first', () => {
+    // Ten roles wrap to three rows and six more wrap to two, so anything after
+    // them lands below the fold on an ordinary window. An optional field
+    // nobody scrolls to is a field nobody fills — and this is the single most
+    // valuable answer on the screen, because Voxel invoices ORGANISATIONS and
+    // holds no record of them.
+    const about = SCREENS.find((s) => s.id === 'about');
+    const ids = about.questions.map((q) => q.id);
+    expect(ids.indexOf('org')).toBeLessThan(ids.indexOf('role'));
+    expect(ids.indexOf('org')).toBeLessThan(ids.indexOf('making'));
+  });
+
+  it('☠ and it is never the last question on the screen', () => {
+    const about = SCREENS.find((s) => s.id === 'about');
+    expect(about.questions.at(-1).id).not.toBe('org');
+  });
+
+  it('a scroll cue exists for whatever DOES fall below', () => {
+    // Chips wrap differently at every window size, so something will always be
+    // the thing that falls off. A scroll area with no edge treatment looks
+    // exactly like a finished list.
+    const run = code('src/components/onboarding/FirstRun.jsx');
+    expect(run).toMatch(/moreBelow/);
+    expect(run).toMatch(/more below/i);
+    // Measured, not assumed — it depends on the window and how chips wrapped.
+    expect(run).toMatch(/scrollTop \+ el\.clientHeight < el\.scrollHeight/);
+  });
+});
