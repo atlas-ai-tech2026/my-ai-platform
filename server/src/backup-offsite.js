@@ -95,6 +95,38 @@ export function offsiteConfigured(env = process.env) {
     .every((k) => (env[k] || '').trim());
 }
 
+/**
+ * The one sentence every unconfigured offsite path must produce.
+ *
+ * Kept identical to what measureOffsiteUsage already returned, so the SOP tab
+ * cannot show two different explanations for the same situation.
+ */
+export const OFFSITE_NOT_CONFIGURED = 'offsite storage is not configured in this environment';
+
+/**
+ * The bucket name, or a READABLE refusal.
+ *
+ * ── WHY THIS EXISTS ────────────────────────────────────────────────────────
+ * Every call site wrote `offsiteBucket(env)` bare. Where a function
+ * checked offsiteConfigured() first that was safe; three did not, and on dev —
+ * which has no offsite bucket by design (#51) — they threw
+ *
+ *     TypeError: Cannot read properties of undefined (reading 'trim')
+ *
+ * straight onto the daily operations screen, under the action "An unverified
+ * backup is not a backup — find out why this bucket could not be listed."
+ * That sends somebody hunting a Backblaze fault that does not exist, two lines
+ * below a check that reports the SAME condition correctly. A status screen
+ * that cries wolf on dev is a status screen people stop reading on production.
+ *
+ * Routed through one function so the guard cannot be forgotten again: there is
+ * no longer a way to name the bucket without checking it is there.
+ */
+function offsiteBucket(env) {
+  if (!offsiteConfigured(env)) throw new Error(OFFSITE_NOT_CONFIGURED);
+  return env.OFFSITE_S3_BUCKET.trim();
+}
+
 /** Names of the env vars that are missing — for a precise startup warning. */
 export function missingOffsiteVars(env = process.env) {
   return ['BACKUP_ENCRYPTION_PASSPHRASE', 'OFFSITE_S3_ENDPOINT', 'OFFSITE_S3_REGION',
@@ -116,7 +148,7 @@ export async function measureOffsiteUsage(env = process.env, { prefix } = {}) {
   if (!offsiteConfigured(env)) return { error: 'offsite storage is not configured in this environment' };
   try {
     const { measureBucket } = await import('./storage-usage.js');
-    const bucket = env.OFFSITE_S3_BUCKET.trim();
+    const bucket = offsiteBucket(env);
     const r = await measureBucket(offsiteReader(env), bucket, { ListObjectsV2Command, prefix });
     return { ...r, bucket };
   } catch (e) {
@@ -143,10 +175,10 @@ export async function listOffsiteMedia(env = process.env) {
   try {
     const { listAllObjects } = await import('./storage-usage.js');
     const { MEDIA_PREFIX } = await import('./media-sync.js');
-    const r = await listAllObjects(offsiteReader(env), env.OFFSITE_S3_BUCKET.trim(), {
+    const r = await listAllObjects(offsiteReader(env), offsiteBucket(env), {
       ListObjectsV2Command, prefix: MEDIA_PREFIX,
     });
-    return { ...r, bucket: env.OFFSITE_S3_BUCKET.trim() };
+    return { ...r, bucket: offsiteBucket(env) };
   } catch (e) {
     // ── SAY WHICH THING BROKE (2026-08-29) ──
     // Three nights of "could not list the offsite bucket", and that one
@@ -170,7 +202,7 @@ export async function listOffsiteMedia(env = process.env) {
       // A diagnostic must never share the resource it is diagnosing.
       const probe = await probeOffsite({
         head: (key) => offsiteClient(env).send(new HeadObjectCommand({
-          Bucket: env.OFFSITE_S3_BUCKET.trim(), Key: key,
+          Bucket: offsiteBucket(env), Key: key,
         })),
       });
       console.error(diagnosisLine(diagnose(e, probe)));
@@ -218,7 +250,7 @@ export async function readMediaObject(key, env = process.env) {
   let out;
   try {
     out = await offsiteReader(env).send(new GetObjectCommand({
-      Bucket: env.OFFSITE_S3_BUCKET.trim(), Key: key, Range: 'bytes=0-0',
+      Bucket: offsiteBucket(env), Key: key, Range: 'bytes=0-0',
     }));
   } catch (e) {
     // A zero-byte object answers a one-byte Range with 416. The object IS
@@ -268,7 +300,7 @@ export async function writeMediaObject({ key, body, contentLength, contentType }
   const env = optsOrEnv?.signal ? maybeEnv : (optsOrEnv && Object.keys(optsOrEnv).length ? optsOrEnv : process.env);
   if (!offsiteConfigured(env)) throw new Error('offsite storage is not configured');
   await offsiteClient(env).send(new PutObjectCommand({
-    Bucket: env.OFFSITE_S3_BUCKET.trim(),
+    Bucket: offsiteBucket(env),
     Key: key,
     Body: body,
     ContentLength: contentLength,
@@ -331,6 +363,9 @@ function offsiteClient(env = process.env) {
 }
 
 function buildOffsiteClient(env, { connectionTimeout, requestTimeout, maxAttempts, socketTimeout }) {
+  // Same refusal as offsiteBucket: a missing endpoint must not reach the SDK
+  // and come back as a TypeError on a status line.
+  if (!offsiteConfigured(env)) throw new Error(OFFSITE_NOT_CONFIGURED);
   return new S3Client({
     endpoint: env.OFFSITE_S3_ENDPOINT.trim(),
     region: env.OFFSITE_S3_REGION.trim(),
@@ -391,7 +426,7 @@ export async function offsiteObjectExists(key, env = process.env) {
   if (!offsiteConfigured(env)) return null;
   try {
     await offsiteClient(env).send(new HeadObjectCommand({
-      Bucket: env.OFFSITE_S3_BUCKET.trim(),
+      Bucket: offsiteBucket(env),
       Key: key,
     }));
     return true;
@@ -408,7 +443,7 @@ export async function uploadOffsite(key, body, env = process.env) {
   const prefix = (env.OFFSITE_S3_PREFIX || 'backups/').replace(/^\/+/, '');
   const fullKey = key.startsWith(prefix) ? key : prefix + key.replace(/^backups\//, '');
   await offsiteClient(env).send(new PutObjectCommand({
-    Bucket: env.OFFSITE_S3_BUCKET.trim(),
+    Bucket: offsiteBucket(env),
     Key: fullKey,
     Body: body,
     ContentType: 'application/octet-stream',
@@ -446,7 +481,7 @@ function requirePrefix(prefix) {
 export async function listOffsite(prefix, env = process.env) {
   const p = requirePrefix(prefix);
   const out = await offsiteReader(env).send(new ListObjectsV2Command({
-    Bucket: env.OFFSITE_S3_BUCKET.trim(), Prefix: p,
+    Bucket: offsiteBucket(env), Prefix: p,
   }));
   return (out.Contents || [])
     .map((o) => ({ key: o.Key, size: o.Size, modified: o.LastModified }))
@@ -496,7 +531,7 @@ export async function pruneOffsite({ prefix, keep, dryRun = true }, env = proces
       continue;
     }
     await offsiteClient(env).send(new DeleteObjectCommand({
-      Bucket: env.OFFSITE_S3_BUCKET.trim(), Key: o.key,
+      Bucket: offsiteBucket(env), Key: o.key,
     }));
     deleted.push(o.key);
   }
