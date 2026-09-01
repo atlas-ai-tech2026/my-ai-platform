@@ -69,8 +69,17 @@ describe('☠ NOTHING MEASURED MUST NEVER READ AS A RESULT', () => {
 
 describe('the funnel', () => {
   it('counts everyone who got at least that far', () => {
-    const s = summarise([user(1, {}), user(2, {}), user(4, {}, true)]);
-    expect(s.funnel.map((f) => f.reached)).toEqual([3, 2, 1, 1]);
+    // Three screens now — the generate screen is withdrawn until it generates.
+    const s = summarise([user(1, {}), user(2, {}), user(3, {}, true)]);
+    expect(s.funnel.map((f) => f.reached)).toEqual([3, 2, 1]);
+  });
+
+  it('☠ and clamps a stored reach that is higher than the flow', () => {
+    // A row written when there were four screens must not draw a fourth bar
+    // after the fourth screen was withdrawn.
+    const s = summarise([user(4, {}, true)]);
+    expect(s.funnel).toHaveLength(3);
+    expect(s.funnel.at(-1).reached).toBe(1);
   });
 
   it('shows what share carried on from the screen before', () => {

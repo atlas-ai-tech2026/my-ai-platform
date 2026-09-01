@@ -108,10 +108,19 @@ describe('☠ IT CAN NEVER LOCK SOMEBODY OUT', () => {
 });
 
 describe('the questions themselves', () => {
-  it('four screens, and attribution is first', () => {
-    expect(SCREENS).toHaveLength(4);
+  it('three screens, and attribution is first', () => {
+    // Three, not four: the "make one yourself" screen is withdrawn until its
+    // Generate button actually generates. Amr's call — a red button that does
+    // nothing is worse on production than one screen fewer.
+    expect(SCREENS).toHaveLength(3);
     expect(SCREENS[0].id).toBe('source');
     expect(SCREENS[0].questions[0].id).toBe('found');
+    expect(SCREENS.map((x) => x.id)).not.toContain('first');
+  });
+
+  it('☠ nothing offers a Generate button while nothing generates', () => {
+    // The screen is coming back. Until it does, no screen may claim it.
+    expect(SCREENS.some((x) => x.generate)).toBe(false);
   });
 
   it('“A Voxel workshop” is the first option, so the commonest answer needs no reading', () => {

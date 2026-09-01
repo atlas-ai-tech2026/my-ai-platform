@@ -128,7 +128,19 @@ export const STATS_SQL = `
  * are more edge cases here than anywhere else in this feature, because the
  * difference between "skipped" and "never got there" is the whole point.
  */
-export function summarise(rows = [], screenCount = 4) {
+/**
+ * How many screens the flow has.
+ *
+ * ── IT LIVES IN TWO FILES AND MUST NOT DRIFT ─────────────────────────────
+ * The questions are defined in src/lib/onboarding-questions.js, which is
+ * front-end and has no business being imported by the server. So the count is
+ * repeated here — and onboarding-count.test.js reads BOTH files and fails if
+ * they disagree, because a mismatch draws a funnel bar for a screen that does
+ * not exist and it would read as "everybody quits at the end".
+ */
+export const SCREEN_COUNT = 3;
+
+export function summarise(rows = [], screenCount = SCREEN_COUNT) {
   const total = rows.length;
   // reached[i] = how many people got at least as far as screen i+1
   const reached = new Array(screenCount).fill(0);

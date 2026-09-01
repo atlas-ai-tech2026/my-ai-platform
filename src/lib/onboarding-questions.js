@@ -123,16 +123,27 @@ export const SCREENS = [
       },
     ],
   },
-  {
-    id: 'first',
-    title: 'Now make one yourself.',
-    sub: 'We have written a prompt to start you off. Change it, or just press Generate.',
-    skippable: true,
-    art: 'sunrise',
-    caption: 'Yours, in a moment',
-    questions: [],
-    generate: true,
-  },
+  // ── SCREEN 4 IS NOT HERE YET, AND THAT IS DELIBERATE ─────────────────────
+  // It was built and tested: "Now make one yourself", a written prompt and a
+  // Generate button. It is not shipping because THE BUTTON DOES NOT GENERATE
+  // ANYTHING — it records the answer and closes.
+  //
+  // On dev that was fine; Amr was testing the questions. On production it would
+  // be a brand-new customer pressing a red button labelled Generate, on a
+  // prompt we wrote for them, and getting nothing. The product promising
+  // something it does not do, on the first screen anybody ever sees.
+  //
+  // Amr's call, 2026-08-31: ship the three that are finished, then bring this
+  // back when the generation is real. It needs a route that runs one free
+  // generation, once per account, enforced on the server, on a fixed cheap
+  // model — about 25 cents a customer, already approved.
+  //
+  // Removed from DEV as well as production on purpose. Dev exists so that what
+  // he tests is what customers get; a flow that differs between them is how
+  // surprises reach people who are paying.
+  //
+  // To restore: put the screen object back here. STARTER_PROMPTS below is kept
+  // ready for it.
 ];
 
 /**
