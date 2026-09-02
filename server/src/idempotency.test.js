@@ -262,10 +262,19 @@ describe('the guard is wired where it can actually run', () => {
   });
 
   // Guarding a read would refuse a customer polling for their own video.
+  //
+  // ☠ THE ROUTE MUST EXIST FOR THIS TO MEAN ANYTHING. This read
+  // `if (m) expect(...)` — so when /api/checkStatus was removed on 2026-09-02
+  // the match became null, the assertion was skipped, and the test went on
+  // passing while checking nothing at all. Found by the PR review on #83.
+  //
+  // Same shape as the guard that once used `indexOf(...) < indexOf(...)` and
+  // passed at -1: an absence must be a FAILURE here, never a quiet success.
   it('does NOT guard routes that only read', () => {
-    for (const route of ['/api/video-status', '/api/checkStatus']) {
+    for (const route of ['/api/video-status']) {
       const m = source.match(new RegExp(`app\\.post\\('${route.replace(/\//g, '\\/')}',[^)]*`));
-      if (m) expect(m[0]).not.toMatch(/noDoubleCharge/);
+      expect(m, `${route} is gone — this test would silently check nothing`).toBeTruthy();
+      expect(m[0]).not.toMatch(/noDoubleCharge/);
     }
   });
 
