@@ -687,6 +687,34 @@ export const SEED = [
       + 'that morning, and an unbroken daily archive 2–31 August with no version counts — which '
       + 'also discharges the 24 August watch on #71.' },
 
+  { ref: '96', owner: 'claude', status: 'pending', priority: 1,
+    title: 'An INVISIBLE character locked a customer out of his workshop',
+    why: 'Happened live on 2026-09-02 during the SPA New Academy session. osama.himselff@gmail.com tried the code TWELVE times in twenty minutes and was refused every time, while 83 others on the same list walked in.',
+    detail: 'THE CAUSE, found by reading the uploaded sheet: his address is stored as "\u200fosama.himselff@gmail.com" — a RIGHT-TO-LEFT MARK sits in front of it. Arabic-language Excel inserts these silently; the sheet is titled بيانات الطلاب. The invite list holds the address WITH the mark, he types it WITHOUT, so mayRedeem() never matches. '
+      + 'It is invisible in Excel, in the invites drawer, and in an email. Only the bytes differ. Exactly 1 of the 84 addresses was affected; the other 83 are clean (9 have capitals, which are lowercased already). '
+      + '── THE FIX, three parts ── (1) strip invisible marks on IMPORT — RLM, LRM, ZWSP, ZWNJ, ZWJ, BOM, NBSP, and the LRE/RLE/PDF embedding marks; the same class as the whitespace trim already there. (2) strip them on COMPARISON too, which repairs every list ALREADY uploaded without re-uploading anything — this is the half that matters most. (3) a test containing a real \u200f, or it comes back. '
+      + '── AND THE MESSAGE ── the log says "not on the code\'s list", which reads as "he was not invited" when the truth is "he was invited under a name nobody can type". He kept retrying because nothing told him to stop. For an INVITED cohort we can safely say the address is not the one the code was issued to — that is not a leak, because the person already proved they hold the address by signing in. '
+      + 'WORKAROUND USED ON THE DAY: Amr issued him a separate promo code.' },
+  { ref: '97', owner: 'claude', status: 'pending', priority: 6,
+    title: 'No way to add one email to an existing promo code\'s list',
+    why: 'When 1 of 84 people cannot redeem, the only answers today are "issue a whole second code" or "grant credits by hand" — and the second leaves no trace on the code\'s own screen.',
+    detail: 'PATCH /api/admin/promocodes/:id accepts description and expires_at only. The invites drawer can already SHOW who has not turned up (splitInvites) — it just cannot add anyone. A small "add email" control there closes the loop, and would have fixed 2026-09-02 in one click instead of a second code. '
+      + 'Note the cap interaction: capForInvites() derives max_redemptions from the list size, so adding an email must decide whether the cap grows with it.' },
+  { ref: '98', owner: 'owner', status: 'pending', priority: 7,
+    title: 'Rename the two database clusters',
+    why: 'The names nearly caused an accident on 2026-09-02: we were about to run a PITR restore and Claude\'s own notes had the wrong cluster.',
+    detail: 'app-e05e2c20-b769-4901-9a83-2f46c6879f7a is PRODUCTION and the database inside it is called dev-db-347887. app-20e9229f-d911-4e14-84f0-8c045365e025 is DEV, database dev-db. "dev-db-347887" SOUNDS like dev and IS production — inherited from production having been created from a dev database. '
+      + 'Renaming to voxel-production / voxel-dev removes the trap permanently. Five minutes in the DigitalOcean console. Until then, tell them apart by the Users & Databases tab, or by patch window: production Thu 3–7PM, dev Sun 2–6AM.' },
+  { ref: '99', owner: 'owner', status: 'pending', priority: 12,
+    title: 'Code review is running on the smallest model',
+    why: 'On its first PR it found one real bug and got two wrong — about what Haiku would be expected to do.',
+    detail: 'GitHub → Settings → Secrets and variables → Actions → Variables: OCR_LLM_MODEL is claude-haiku-4-5-20251001. The workflow\'s own header says it should be claude-sonnet-5. One line. '
+      + 'Worth noting the review DID self-correct on its second run — it downgraded its own "bug · high" to "maintainability · low" once it looked again — so it is not merely noisy. A stronger model would waste less of the reader\'s attention.' },
+  { ref: '100', owner: 'owner', status: 'pending', priority: 9,
+    title: 'Production database patch update — Thursday 3–7PM GMT+3',
+    why: 'DigitalOcean will restart the production database inside that window. Better known than discovered.',
+    detail: 'Both clusters show "A patch update is required". Production\'s window is Thursday after 3PM–7PM (GMT+3); dev\'s is Sunday 2AM–6AM. Both are "Primary only" — no standby — so the restart is a brief outage, not a failover. '
+      + 'DO NOT schedule a workshop in that window. Nothing to do otherwise; it applies itself.' },
   { ref: '95', owner: 'claude', status: 'in_progress', priority: 2,
     title: 'The first-run questions — what a new customer is asked, once',
     why: 'Amr sent the Magnific onboarding and asked for something like it in Voxel\u2019s style, better designed. '
