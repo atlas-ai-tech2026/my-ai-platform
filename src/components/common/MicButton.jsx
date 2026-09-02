@@ -80,6 +80,23 @@ export default function MicButton({
   const base = useRef('');
   // Phrases the recogniser has committed during THIS run.
   const settled = useRef('');
+  // ── IS A RUN STILL IN PROGRESS? ─────────────────────────────────────────
+  // The browser keeps talking after you stop it. rec.stop() makes Chrome
+  // deliver one more `isFinal` result asynchronously — AFTER stop() below has
+  // cleared `base`. paint() then rebuilds the box from an EMPTY base, so
+  // everything written before that dictation is replaced by the few words that
+  // arrived late.
+  //
+  // Reported by Amr on 2026-09-02: "when I click play again, the first word
+  // it's disappear or deleted, and only the new one it's become. I cannot put
+  // the multiple voice recording and typing." Exactly this: dictate, stop,
+  // dictate again — and the first dictation is gone.
+  //
+  // The tail is NOT lost by ignoring these: stop() in speech-input.js already
+  // flushes `pending` through onFinal synchronously, while the run is still
+  // live. Chrome's late result is usually that same phrase again, so honouring
+  // it would duplicate the words as well as eat the box.
+  const running = useRef(false);
 
   // Computed once: the answer cannot change while the page is open, and it
   // decides whether the button exists at all.
@@ -87,6 +104,8 @@ export default function MicButton({
 
   /** Put the sentence-so-far into the box, live. */
   const paint = (interim) => {
+    // A run that has ended must never write again. See `running` above.
+    if (!running.current) return;
     const spoken = [settled.current, interim].filter((s) => s && s.trim()).join(' ');
     onChange?.(appendSpeech(base.current, spoken));
   };
@@ -99,6 +118,9 @@ export default function MicButton({
     // stop() commits any half-heard tail through onFinal FIRST, so this must
     // run before the refs are cleared or the last words are lost.
     handle.current?.stop();
+    // AFTER the flush, never before: stop() commits the tail through onFinal
+    // synchronously, and that write must still land.
+    running.current = false;
     handle.current = null;
     base.current = '';
     settled.current = '';
@@ -108,8 +130,11 @@ export default function MicButton({
 
   const toggle = () => {
     if (listening) { stop(); return; }
+    // Read the box as it is NOW, so a second dictation adds to the first
+    // instead of replacing it.
     base.current = getValue?.() ?? '';
     settled.current = '';
+    running.current = true;
     setListening(true);
     onListeningChange?.(true);
     // Rising tone, and the click that triggered it is also the user gesture
@@ -126,6 +151,7 @@ export default function MicButton({
       },
       onError: (msg) => { toast.error(msg); stop(); },
       onEnd: () => {
+        running.current = false;
         handle.current = null;
         base.current = '';
         settled.current = '';
