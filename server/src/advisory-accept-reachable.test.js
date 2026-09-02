@@ -114,3 +114,46 @@ describe('☠ IT ACCEPTS WHAT WAS READ, NOT WHAT IS FOUND LATER', () => {
     expect(body).toMatch(/saveAdvisoryRun\(pool, judged\)/);
   });
 });
+
+describe('☠ "THERE ARE NONE" AND "I DO NOT HAVE THE LIST" ARE DIFFERENT FACTS', () => {
+  // Amr pressed Preview on production and got "Nothing to accept. The last
+  // audit recorded no advisories to accept." — directly under a line reading
+  // "16 advisories found, none reviewed yet". Both cannot be true, and a screen
+  // that argues with itself is one nobody trusts again.
+  //
+  // The cause was benign: advisory_runs.found was added by the SAME deploy that
+  // added the button, so the last weekly run had no list to give. But the
+  // WORDING claimed there were no advisories, which was false and visibly so.
+  const routes = server('sop-routes.js');
+
+  it('the two cases have separate wording', () => {
+    expect(routes).toMatch(/nothingToAcceptReason/);
+    const at = routes.indexOf('const nothingToAcceptReason');
+    const body = routes.slice(at, routes.indexOf('\n  };', at));
+    // no run at all · a run that predates the column · a run that truly found none
+    expect(body).toMatch(/No audit has run yet/);
+    expect(body).toMatch(/did not record which/);
+    expect(body).toMatch(/genuinely nothing to accept/);
+  });
+
+  it('☠ and the stale case tells you which button to press', () => {
+    const at = routes.indexOf('const nothingToAcceptReason');
+    const body = routes.slice(at, routes.indexOf('\n  };', at));
+    // A dead end is what the lifecycle job did to him on 2026-08-31. Not again.
+    expect(body).toMatch(/Press "Check now"/);
+  });
+
+  it('it is decided by the run\'s own verdict, not by guessing', () => {
+    const at = routes.indexOf('const nothingToAcceptReason');
+    const body = routes.slice(at, routes.indexOf('\n  };', at));
+    // state !== 'ok' means the audit DID find advisories — so an empty list is
+    // a missing record, not an empty world.
+    expect(body).toMatch(/run\.state && run\.state !== 'ok'/);
+  });
+
+  it('and the preview carries the reason to the screen', () => {
+    expect(routes).toMatch(/why_empty:/);
+    const outcome = web('lib/maintenance-outcome.js');
+    expect(outcome).toMatch(/r\.why_empty/);
+  });
+});

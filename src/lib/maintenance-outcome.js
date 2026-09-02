@@ -97,11 +97,15 @@ function advisories(r) {
   // Preview: the list itself.
   if (Array.isArray(r.advisories)) {
     if (!r.advisories.length) {
-      return { tone: 'idle', headline: 'Nothing to accept.',
-        detail: r.checked_at
-          ? 'The last audit found no advisories.'
-          : 'No audit has run yet — press "Check now" on the weekly checks first.',
-        again: false };
+      // The server says WHY, because "there are none" and "the list was never
+      // recorded" look identical here and mean opposite things. Amr saw the
+      // second one worded as the first, directly under a line counting 16.
+      return {
+        tone: r.why_empty && /Check now/.test(r.why_empty) ? 'partial' : 'idle',
+        headline: 'Nothing to accept yet.',
+        detail: r.why_empty || 'The last audit found no advisories.',
+        again: false,
+      };
     }
     const prod = r.advisories.filter((a) => a.production);
     const worst = r.advisories.filter((a) => a.severity === 'critical' || a.severity === 'high');

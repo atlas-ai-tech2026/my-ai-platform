@@ -655,6 +655,36 @@ export function registerSopRoutes(app, {
   // audit: accepting must record what was actually reviewed, not whatever npm
   // reports a minute later — the difference is precisely the advisory that
   // appeared in between and was read by nobody.
+  /**
+   * Why there is nothing to accept — and they are very different reasons.
+   *
+   * ☠ THE SCREEN CONTRADICTED ITSELF. Amr pressed Preview on production and got
+   * "Nothing to accept. The last audit recorded no advisories to accept." —
+   * directly below a line reading "16 advisories found, none reviewed yet".
+   * Both cannot be true, and a screen that argues with itself is one nobody
+   * trusts again.
+   *
+   * The cause: the full list is stored in advisory_runs.found, a column added
+   * by the SAME deploy that added this button. The last weekly audit ran before
+   * it existed, so `found` is the empty default while the run's own verdict
+   * still says there are advisories. Nothing was broken; the list simply had
+   * not been recorded yet.
+   *
+   * So say that, and say what to press. "There are none" and "I do not have the
+   * list yet" must never share a sentence.
+   */
+  const nothingToAcceptReason = (run) => {
+    if (!run) {
+      return 'No audit has run yet. Press "Check now" at the top of this page first.';
+    }
+    if (run.state && run.state !== 'ok') {
+      return 'The last audit ran before this button existed, so it did not record which '
+        + 'advisories it found. Press "Check now" at the top of this page — that re-runs '
+        + 'the audit and records the list — then press Preview again.';
+    }
+    return 'The last audit found no advisories. There is genuinely nothing to accept.';
+  };
+
   app.get('/api/admin/sop/advisories', adminGate, async (req, res) => {
     if (!dbReady()) return res.status(503).json({ error: 'Database not configured.' });
     try {
@@ -664,6 +694,8 @@ export function registerSopRoutes(app, {
         advisories: run?.found || [],
         checked_at: run?.checkedAt || null,
         already_accepted: known.length,
+        // Only meaningful when the list is empty — see nothingToAcceptReason.
+        why_empty: (run?.found || []).length ? null : nothingToAcceptReason(run),
       });
     } catch (e) {
       console.error('[sop] advisory list failed:', e.message);
@@ -682,9 +714,7 @@ export function registerSopRoutes(app, {
         return res.json({
           accepted: 0,
           nothing_to_accept: true,
-          detail: run
-            ? 'The last audit recorded no advisories to accept.'
-            : 'No audit has run yet. Press "Check now" on the weekly checks first.',
+          detail: nothingToAcceptReason(run),
         });
       }
       const accepted = await acceptAdvisories(pool, found);
