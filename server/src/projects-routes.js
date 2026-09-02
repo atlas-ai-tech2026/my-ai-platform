@@ -7,7 +7,7 @@
 
 import {
   LIST_SQL, INSERT_SQL, UPDATE_SQL, ARCHIVE_SQL, DELETE_SQL,
-  cleanProject, valuesOf, summarise, byOwner, byStatus, STATUSES,
+  cleanProject, valuesOf, summarise, byOwner, byStatus, STATUSES, toWire,
 } from './projects.js';
 
 export function registerProjectRoutes(app, { pool, dbReady, adminGate }) {
@@ -19,7 +19,7 @@ export function registerProjectRoutes(app, { pool, dbReady, adminGate }) {
       const { rows } = await pool.query(LIST_SQL, [includeArchived]);
       const now = new Date();
       res.json({
-        projects: rows,
+        projects: rows.map(toWire),
         summary: summarise(rows, now),
         by_owner: byOwner(rows),
         by_status: byStatus(rows, now),
@@ -39,7 +39,7 @@ export function registerProjectRoutes(app, { pool, dbReady, adminGate }) {
       const { rows } = await pool.query(INSERT_SQL,
         [...valuesOf(clean.value), req.user?.email || null]);
       console.log(`[projects] added "${clean.value.name}"`);
-      res.json({ project: rows[0] });
+      res.json({ project: toWire(rows[0]) });
     } catch (e) {
       console.error('[projects] create failed:', e.message);
       res.status(500).json({ error: `Could not save the project: ${e.message}` });
@@ -55,7 +55,7 @@ export function registerProjectRoutes(app, { pool, dbReady, adminGate }) {
     try {
       const { rows } = await pool.query(UPDATE_SQL, [...valuesOf(clean.value), id]);
       if (!rows[0]) return res.status(404).json({ error: 'That project no longer exists.' });
-      res.json({ project: rows[0] });
+      res.json({ project: toWire(rows[0]) });
     } catch (e) {
       console.error('[projects] update failed:', e.message);
       res.status(500).json({ error: `Could not save the change: ${e.message}` });
@@ -75,7 +75,7 @@ export function registerProjectRoutes(app, { pool, dbReady, adminGate }) {
     try {
       const { rows } = await pool.query(ARCHIVE_SQL, [id, archived]);
       if (!rows[0]) return res.status(404).json({ error: 'That project no longer exists.' });
-      res.json({ project: rows[0] });
+      res.json({ project: toWire(rows[0]) });
     } catch (e) {
       console.error('[projects] archive failed:', e.message);
       res.status(500).json({ error: `Could not archive it: ${e.message}` });

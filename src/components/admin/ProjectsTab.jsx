@@ -48,17 +48,33 @@ const field = {
   background: 'var(--crm-w06)', color: 'var(--crm-ink)', fontSize: 13, width: '100%',
 };
 
+// ── A DATE IS A DAY, NOT A MOMENT ──────────────────────────────────────────
+// The server sends YYYY-MM-DD strings (projects.js toWire) and nothing here
+// turns them back into Date objects. Building a Date from a date-only value
+// and comparing instants is what made the same deadline read 02 Sept in Kuwait
+// and 01 Sept in London — correct for the two people using this and wrong for
+// everyone else, which is how such a bug survives for years.
+const todayStr = () => {
+  const d = new Date(); const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+};
+const dayOf = (v) => String(v || '').slice(0, 10);
+
 /** Overdue is decided here too, so a card and its row can never disagree. */
 function isOverdue(p) {
   if (!p?.end_date || p.status === 'Completed') return false;
-  const end = new Date(p.end_date);
-  if (Number.isNaN(end.getTime())) return false;
-  end.setHours(23, 59, 59, 999);
-  return end < new Date();
+  const end = dayOf(p.end_date);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(end)) return false;
+  return end < todayStr();          // strictly before today — today is not late
 }
 const effStatus = (p) => (isOverdue(p) ? 'Overdue' : p.status);
-const day = (d) => (d ? new Date(d).toLocaleDateString('en-GB',
-  { day: '2-digit', month: 'short', year: 'numeric' }) : '—');
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const day = (d) => {
+  const s = dayOf(d);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return '—';
+  const [y, m, dd] = s.split('-');
+  return `${dd} ${MONTHS[Number(m) - 1]} ${y}`;
+};
 const money = (n) => (Number(n) || 0).toLocaleString('en-US');
 
 export default function ProjectsTab({ onError }) {
@@ -68,6 +84,8 @@ export default function ProjectsTab({ onError }) {
   const [view, setView] = useState('table');
   const [showArchived, setShowArchived] = useState(false);
   const [filters, setFilters] = useState({ owner: '', status: '', priority: '', q: '' });
+  // Newest deadline first by default — a board is read to find what is next.
+  const [sort, setSort] = useState({ key: 'end_date', dir: 1 });
 
   const load = useCallback(async (archived = showArchived) => {
     setBusy(true);
@@ -82,7 +100,28 @@ export default function ProjectsTab({ onError }) {
   const owners = useMemo(
     () => [...new Set(projects.map((p) => p.owner).filter(Boolean))].sort(), [projects]);
 
-  const shown = useMemo(() => projects.filter((p) => {
+  const sorted = useCallback((list) => {
+    const { key, dir } = sort;
+    const rank = { High: 0, Medium: 1, Low: 2 };
+    return [...list].sort((a, b) => {
+      let x = a[key]; let y = b[key];
+      // Undated rows go LAST whichever way the column is sorted: a project with
+      // no deadline is not the most urgent thing on the board, and sorting it
+      // to the top is how the real deadline gets pushed off the screen.
+      if (key === 'end_date' || key === 'start_date') {
+        if (!x && !y) return 0;
+        if (!x) return 1;
+        if (!y) return -1;
+      }
+      if (key === 'priority') { x = rank[x] ?? 9; y = rank[y] ?? 9; }
+      if (key === 'progress') { x = Number(x) || 0; y = Number(y) || 0; }
+      if (typeof x === 'string') { x = x.toLowerCase(); y = String(y || '').toLowerCase(); }
+      if (x === y) return 0;
+      return (x < y ? -1 : 1) * dir;
+    });
+  }, [sort]);
+
+  const shown = useMemo(() => sorted(projects.filter((p) => {
     if (filters.owner && p.owner !== filters.owner) return false;
     if (filters.status && effStatus(p) !== filters.status) return false;
     if (filters.priority && p.priority !== filters.priority) return false;
@@ -92,7 +131,24 @@ export default function ProjectsTab({ onError }) {
       if (!hay.includes(filters.q.toLowerCase())) return false;
     }
     return true;
-  }), [projects, filters]);
+  })), [projects, filters, sorted]);
+
+  /** Everything on the board as a spreadsheet. A tool you cannot get data out
+   *  of is a trap, and this is the first screen here they will type into. */
+  function exportCsv() {
+    const cols = ['name', 'client', 'owner', 'status', 'priority', 'progress', 'risk',
+      'start_date', 'end_date', 'budget', 'cost', 'revenue', 'currency', 'category',
+      'tags', 'description', 'notes', 'archived'];
+    const cell = (v) => {
+      const t = Array.isArray(v) ? v.join('; ') : String(v ?? '');
+      return /[",\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t;
+    };
+    const csv = [cols.join(','), ...shown.map((p) => cols.map((c) => cell(p[c])).join(','))].join('\n');
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+    const a = document.createElement('a');
+    a.href = url; a.download = `voxel-projects-${todayStr()}.csv`; a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
 
   async function save(form) {
     setBusy(true);
@@ -140,6 +196,9 @@ export default function ProjectsTab({ onError }) {
           aria-label="Search projects"
           style={{ ...field, width: 240, marginLeft: 'auto' }}
         />
+        <button onClick={exportCsv} disabled={!shown.length} style={{ ...btn, opacity: shown.length ? 1 : 0.5 }}>
+          Export CSV
+        </button>
         <button onClick={() => setEditing({})} style={{ ...btn, borderColor: 'var(--crm-red)', color: 'var(--crm-red)' }}>
           + New project
         </button>
@@ -181,7 +240,7 @@ export default function ProjectsTab({ onError }) {
       </div>
 
       {view === 'table'
-        ? <Table rows={shown} onEdit={setEditing} onArchive={archive} />
+        ? <Table rows={shown} onEdit={setEditing} onArchive={archive} sort={sort} onSort={setSort} />
         : <Board rows={shown} onEdit={setEditing} onMove={move} />}
 
       {s && (
@@ -262,7 +321,11 @@ function Badge({ status }) {
   );
 }
 
-function Table({ rows, onEdit, onArchive }) {
+function Table({ rows, onEdit, onArchive, sort, onSort }) {
+  const HEADS = [
+    ['Project', 'name'], ['Owner', 'owner'], ['Status', 'status'], ['Priority', 'priority'],
+    ['Progress', 'progress'], ['End', 'end_date'], ['', null],
+  ];
   if (!rows.length) {
     return <div style={{ ...card, textAlign: 'center', color: 'var(--crm-w45)', padding: 40 }}>
       Nothing here yet. Press <strong style={{ color: 'var(--crm-ink)' }}>+ New project</strong> to add the first one.
@@ -273,12 +336,17 @@ function Table({ rows, onEdit, onArchive }) {
       <table style={{ width: '100%', borderCollapse: 'collapse' }}>
         <thead>
           <tr>
-            {['Project', 'Owner', 'Status', 'Priority', 'Progress', 'End', ''].map((h) => (
-              <th key={h} style={{
-                textAlign: 'left', fontSize: 10.5, textTransform: 'uppercase', letterSpacing: '.06em',
-                color: 'var(--crm-w50)', fontWeight: 700, padding: '11px 14px',
-                borderBottom: '1px solid var(--crm-w08)', whiteSpace: 'nowrap',
-              }}>{h}</th>
+            {HEADS.map(([h, key]) => (
+              <th key={h || 'act'}
+                onClick={key ? () => onSort((s) => ({ key, dir: s.key === key ? -s.dir : 1 })) : undefined}
+                style={{
+                  textAlign: 'left', fontSize: 10.5, textTransform: 'uppercase', letterSpacing: '.06em',
+                  color: sort?.key === key ? 'var(--crm-ink)' : 'var(--crm-w50)', fontWeight: 700,
+                  padding: '11px 14px', borderBottom: '1px solid var(--crm-w08)',
+                  whiteSpace: 'nowrap', cursor: key ? 'pointer' : 'default', userSelect: 'none',
+                }}>
+                {h}{sort?.key === key ? <span style={{ opacity: 0.6 }}>{sort.dir > 0 ? ' ▲' : ' ▼'}</span> : null}
+              </th>
             ))}
           </tr>
         </thead>
@@ -381,8 +449,8 @@ function Editor({ project, onCancel, onSave, onDelete, owners, busy }) {
     owner: project.owner || '', description: project.description || '',
     status: project.status || 'Not Started', priority: project.priority || 'Medium',
     progress: project.progress ?? 0, risk: project.risk || 'Medium',
-    start_date: project.start_date ? String(project.start_date).slice(0, 10) : '',
-    end_date: project.end_date ? String(project.end_date).slice(0, 10) : '',
+    start_date: dayOf(project.start_date),
+    end_date: dayOf(project.end_date),
     budget: project.budget ?? 0, cost: project.cost ?? 0, revenue: project.revenue ?? 0,
     category: project.category || '', tags: (project.tags || []).join(', '),
     notes: project.notes || '',

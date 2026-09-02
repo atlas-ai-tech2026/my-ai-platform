@@ -8,9 +8,12 @@
 // wrong column.
 
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   isOverdue, effectiveStatus, daysLeft, summarise, byOwner, byStatus,
-  cleanProject, LIST_SQL, INSERT_SQL, UPDATE_SQL, DELETE_SQL, COLUMNS, valuesOf, STATUSES,
+  cleanProject, LIST_SQL, INSERT_SQL, UPDATE_SQL, DELETE_SQL, COLUMNS, valuesOf, STATUSES, toWire,
 } from './projects.js';
 
 const now = new Date('2026-09-02T12:00:00Z');
@@ -192,5 +195,55 @@ describe('the SQL and the value list cannot drift apart', () => {
 
   it('every status the UI offers is one the cleaner accepts', () => {
     for (const s of STATUSES) expect(cleanProject({ name: 'x', status: s }).value.status).toBe(s);
+  });
+});
+
+// ─── ADDED BEFORE THE FIRST REAL DEADLINE WENT IN ────────────────────────────
+describe('☠ A DATE IS A DAY, NOT A MOMENT', () => {
+  // Postgres DATE comes back through the driver as a JS Date at LOCAL midnight,
+  // and JSON turns that into an instant: 2026-09-02 leaves the server as
+  // "2026-09-01T21:00:00.000Z". Rendered in a browser behind the server it is a
+  // DAY EARLY, and the overdue comparison is wrong by a day with it.
+  //
+  // MEASURED: stored 2026-09-02 renders as 02 Sept in Kuwait and 01 Sept in
+  // London, New York and Los Angeles. Correct for the two people who will use
+  // this, wrong for everyone else — which is how a bug like this survives.
+
+  it('an instant from the driver becomes the day it was meant to be', () => {
+    const wired = toWire({ end_date: new Date('2026-09-02T00:00:00'), start_date: null });
+    expect(wired.end_date).toBe('2026-09-02');
+    expect(wired.start_date).toBeNull();
+  });
+
+  it('a string is passed through, already trimmed to the day', () => {
+    expect(toWire({ end_date: '2026-09-02T21:00:00.000Z' }).end_date).toBe('2026-09-02');
+    expect(toWire({ end_date: '2026-09-02' }).end_date).toBe('2026-09-02');
+  });
+
+  it('and rubbish becomes null rather than "Invalid Date"', () => {
+    expect(toWire({ end_date: 'whenever' }).end_date).toBeNull();
+  });
+
+  it('☠ overdue is a comparison of DAYS, so it cannot shift by a timezone', () => {
+    const t = new Date('2026-09-02T00:30:00');       // just after midnight, locally
+    expect(isOverdue({ end_date: '2026-09-01', status: 'Pending' }, t)).toBe(true);
+    expect(isOverdue({ end_date: '2026-09-02', status: 'Pending' }, t)).toBe(false);
+    const late = new Date('2026-09-02T23:30:00');    // last half hour of the day
+    expect(isOverdue({ end_date: '2026-09-02', status: 'Pending' }, late)).toBe(false);
+  });
+
+  it('and days left is whole days, from the day parts', () => {
+    const t = new Date('2026-09-02T18:00:00');
+    expect(daysLeft({ end_date: '2026-09-09' }, t)).toBe(7);
+    expect(daysLeft({ end_date: '2026-09-02' }, t)).toBe(0);
+    expect(daysLeft({ end_date: '2026-08-31' }, t)).toBe(-2);
+  });
+
+  it('the routes send every row through it, so nothing leaks a raw Date', () => {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const routes = readFileSync(join(here, 'projects-routes.js'), 'utf8');
+    expect(routes).toMatch(/rows\.map\(toWire\)/);
+    // create / update / archive all return a single row
+    expect((routes.match(/toWire\(rows\[0\]\)/g) || []).length).toBeGreaterThanOrEqual(3);
   });
 });

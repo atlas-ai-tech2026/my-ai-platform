@@ -96,3 +96,35 @@ describe('it wears this panel\'s clothes', () => {
     expect(code).not.toMatch(/#600001|--oxblood|--paper|Iowan Old Style/);
   });
 });
+
+describe('☠ WHAT A BOARD NEEDS BEFORE REAL DATA GOES IN', () => {
+  const tab = () => web('components/admin/ProjectsTab.jsx');
+
+  it('dates are handled as DAYS, never rebuilt into Date objects', () => {
+    // Postgres DATE arrives as an instant. new Date() on it and the same
+    // deadline reads 02 Sept in Kuwait and 01 Sept in London — correct for the
+    // two people using this, wrong for everyone else.
+    const code = tab().split('\n').filter((l) => !l.trim().startsWith('//')).join('\n');
+    expect(code, 'a Date is being built from a date-only value again')
+      .not.toMatch(/new Date\(p\.end_date\)|new Date\(d\)\.toLocaleDateString/);
+    expect(code).toMatch(/end < todayStr\(\)/);
+  });
+
+  it('the columns can be sorted — a fixed order stops working at 20 rows', () => {
+    expect(tab()).toMatch(/onSort\(\(s\) => \(\{ key, dir: s\.key === key \? -s\.dir : 1 \}\)\)/);
+  });
+
+  it('☠ and an undated project sorts LAST, never first', () => {
+    // Sorting "no deadline" to the top pushes the real deadline off the screen,
+    // which is the one thing the board is read to find.
+    expect(tab()).toMatch(/if \(!x\) return 1;/);
+    expect(tab()).toMatch(/if \(!y\) return -1;/);
+  });
+
+  it('the data can be got back out — a tool you cannot export from is a trap', () => {
+    expect(tab()).toMatch(/function exportCsv\(/);
+    expect(tab()).toMatch(/adminApi|text\/csv/);
+    // Quotes and commas in a description must not break the file.
+    expect(tab()).toMatch(/replace\(\/"\/g, '""'\)/);
+  });
+});

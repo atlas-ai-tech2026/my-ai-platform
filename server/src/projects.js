@@ -33,12 +33,18 @@ export const RISKS = ['Low', 'Medium', 'High'];
  */
 export function isOverdue(p, now = new Date()) {
   if (!p?.end_date || p.status === 'Completed') return false;
-  const end = new Date(p.end_date);
-  if (Number.isNaN(end.getTime())) return false;
-  // End of the due DAY, not the moment it begins: something due today is not
-  // late at nine in the morning.
-  end.setHours(23, 59, 59, 999);
-  return end < now;
+  const end = String(p.end_date).slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(end)) return false;
+  // Compared as DAYS, as text. Building Dates and comparing instants is what
+  // made the same deadline read differently in two timezones — and something
+  // due today is not late at nine in the morning, so it is strictly `<`.
+  return end < dayString(now);
+}
+
+/** Today where the reader is, as YYYY-MM-DD. */
+export function dayString(d = new Date()) {
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
 /** What the badge should say — 'Overdue' outranks the stored status. */
@@ -48,11 +54,11 @@ export function effectiveStatus(p, now = new Date()) {
 
 /** Days until the end date. Negative when it has passed. null when undated. */
 export function daysLeft(p, now = new Date()) {
-  if (!p?.end_date) return null;
-  const end = new Date(p.end_date);
-  if (Number.isNaN(end.getTime())) return null;
-  const a = Date.UTC(end.getUTCFullYear(), end.getUTCMonth(), end.getUTCDate());
-  const b = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  const end = String(p?.end_date || '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(end)) return null;
+  const [ey, em, ed] = end.split('-').map(Number);
+  const a = Date.UTC(ey, em - 1, ed);
+  const b = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
   return Math.round((a - b) / 86_400_000);
 }
 
@@ -161,6 +167,44 @@ export function cleanProject(body = {}) {
       notes: str(body.notes, 4000) || null,
     },
   };
+}
+
+/**
+ * ☠ A DATE IS A DAY, NOT A MOMENT.
+ *
+ * Postgres DATE columns come back through the driver as JS Date objects at
+ * local midnight, and JSON turns those into an instant: 2026-09-02 leaves the
+ * server as "2026-09-01T21:00:00.000Z". Rendered in a browser behind the
+ * server it is then a DAY EARLY — and the overdue comparison is wrong by a day
+ * with it.
+ *
+ * Measured: stored 2026-09-02 shows as 02 Sept in Kuwait and 01 Sept in London,
+ * New York and Los Angeles. It would therefore have been correct for the two
+ * people using it and wrong for everyone else, which is the kind of bug that
+ * survives for years.
+ *
+ * So dates leave this module as plain YYYY-MM-DD strings and are never turned
+ * back into Date objects downstream. A deadline board whose deadlines move
+ * depending on where you open it is not a deadline board.
+ */
+export function toWire(row) {
+  if (!row) return row;
+  const day = (v) => {
+    if (!v) return null;
+    if (typeof v === 'string') {
+      const d10 = v.slice(0, 10);
+      // Validated, not merely truncated: 'whenever'.slice(0,10) is 'whenever',
+      // which would travel to the screen as a date and render as nonsense.
+      return /^\d{4}-\d{2}-\d{2}$/.test(d10) ? d10 : null;
+    }
+    // Local parts, not toISOString(): the Date is already at local midnight,
+    // and converting to UTC is precisely the shift being undone here.
+    const d = new Date(v);
+    if (Number.isNaN(d.getTime())) return null;
+    const pad = (n) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  };
+  return { ...row, start_date: day(row.start_date), end_date: day(row.end_date) };
 }
 
 export const LIST_SQL = `
