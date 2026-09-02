@@ -419,17 +419,31 @@ export default function VideoLeftPanel({
       <div style={{ display: 'flex', flexDirection: 'column' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
           <span style={{ fontSize: 13, fontWeight: 700, color: '#FFF' }}>Describe your video</span>
+          {/* ── THE ONE ⚡, AND IT LIVES OUTSIDE THE TEXTAREA ─────────────
+              There were two: this one, and a red pill anchored bottom-left
+              INSIDE the box. Both were inert. Wiring the inner one worked, and
+              then sat on top of the prompt — Amr, 2026-09-02: "the text, it's
+              become on the icons."
+
+              Padding would not have fixed that. paddingBottom only reserves
+              space at the END of the content; a long prompt SCROLLS, and the
+              text simply passes underneath a control anchored to the box. The
+              only durable fix is for the control not to be over the text at
+              all. */}
           <button
             type="button"
-            title="Enhance prompt with AI"
-            aria-label="Enhance prompt"
+            onClick={enhance}
+            disabled={enhancing}
+            title={before !== null ? 'Put my prompt back' : 'Expand my prompt'}
+            aria-label={before !== null ? 'Put my prompt back' : 'Expand my prompt'}
             style={{
-              width: 26, height: 26, borderRadius: 7,
-              background: 'rgba(255,255,255,0.05)',
-              border: '1px solid rgba(255,255,255,0.10)',
-              color: 'rgba(255,255,255,0.85)',
+              width: 26, height: 26, borderRadius: 7, padding: 0,
+              background: before !== null ? 'rgba(224,30,30,0.18)' : 'rgba(255,255,255,0.05)',
+              border: `1px solid ${before !== null ? 'rgba(224,30,30,0.55)' : 'rgba(255,255,255,0.10)'}`,
+              color: before !== null ? RED : 'rgba(255,255,255,0.85)',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
-              cursor: 'pointer',
+              cursor: enhancing ? 'wait' : 'pointer',
+              opacity: enhancing ? 0.55 : 1,
             }}
             className="vlf-hover"
           >
@@ -480,33 +494,10 @@ export default function VideoLeftPanel({
               lineHeight: 1.45,
               fontFamily: '"DM Sans", sans-serif',
               caretColor: RED,
-              paddingBottom: 32, // make room for the ⚡ pill anchored bottom-left
+              // The ⚡ moved out of the box, so the prompt gets that space back.
               boxSizing: 'border-box',
             }}
           />
-          {/* Bottom-left enhance affordance pill (red). A real <button>: it was
-              a <div>, so it was invisible to the keyboard and to a screen
-              reader as well as being inert. */}
-          <button
-            type="button"
-            onClick={enhance}
-            disabled={enhancing}
-            aria-label={before !== null ? 'Put my prompt back' : 'Expand my prompt'}
-            title={before !== null ? 'Put my prompt back' : 'Expand my prompt'}
-            style={{
-              position: 'absolute', bottom: 12, left: 12,
-              width: 28, height: 28, borderRadius: 7, padding: 0,
-              background: 'rgba(224,30,30,0.18)',
-              border: `1px solid rgba(224,30,30,0.55)`,
-              color: RED,
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              cursor: enhancing ? 'wait' : 'pointer',
-              opacity: enhancing ? 0.55 : 1,
-            }}
-            className="vlf-hover"
-          >
-            <Zap style={{ width: 13, height: 13 }} />
-          </button>
         </div>
       </div>
 

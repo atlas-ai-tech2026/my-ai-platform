@@ -130,3 +130,44 @@ describe('☠ A FAILURE NAMES THE CAUSE', () => {
     expect(screen.getByDisplayValue('untouched')).toBeInTheDocument();
   });
 });
+
+describe('☠ THERE IS EXACTLY ONE ⚡, AND IT IS NOT OVER THE TEXT', () => {
+  const src = () => {
+    const fs = require('node:fs');
+    const path = require('node:path');
+    return fs.readFileSync(path.join(__dirname, 'VideoLeftPanel.jsx'), 'utf8');
+  };
+
+  it('only one enhance control exists', async () => {
+    // There were two, both inert: this header button and a red pill anchored
+    // inside the textarea. Two controls for one action is a way to press the
+    // wrong one, and one of them was always going to be the dead one.
+    const { readFileSync } = await import('node:fs');
+    const { dirname, join } = await import('node:path');
+    const { fileURLToPath } = await import('node:url');
+    const s = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'VideoLeftPanel.jsx'), 'utf8');
+    expect((s.match(/<Zap /g) || []).length, 'a second ⚡ is back').toBe(1);
+    expect((s.match(/onClick=\{enhance\}/g) || []).length).toBe(1);
+  });
+
+  it('☠ and it is NOT positioned inside the prompt box', async () => {
+    // Amr: "the text, it's become on the icons." Padding cannot fix that — a
+    // long prompt SCROLLS, so text passes under anything anchored to the box.
+    // The control has to be outside the text entirely.
+    const { readFileSync } = await import('node:fs');
+    const { dirname, join } = await import('node:path');
+    const { fileURLToPath } = await import('node:url');
+    const s = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'VideoLeftPanel.jsx'), 'utf8');
+    const at = s.indexOf('onClick={enhance}');
+    const block = s.slice(Math.max(0, at - 600), at + 600);
+    expect(block, 'the ⚡ is absolutely positioned again — it will sit on the prompt')
+      .not.toMatch(/position:\s*'absolute'[^}]*bottom:/s);
+  });
+
+  it('still works from its new home', async () => {
+    vi.spyOn(base44.functions, 'invoke').mockResolvedValue({ data: { prompt: 'EXPANDED' } });
+    render(<Harness initial="a cat" />);
+    await userEvent.click(bolt());
+    expect(await screen.findByDisplayValue('EXPANDED')).toBeInTheDocument();
+  });
+});
