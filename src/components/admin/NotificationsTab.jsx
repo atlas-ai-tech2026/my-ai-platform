@@ -182,6 +182,11 @@ function Compose({ data, busy, setBusy, onError, onSent }) {
         (r.emailed ? ` · ${r.emailed} by email` : '') +
         (r.email_skipped ? ` · ${r.email_skipped} email skipped` : '') +
         (r.skipped_cap ? ` · ${r.skipped_cap} held by the daily cap` : ''));
+      // The same fault as the promo form, found on the same day by looking:
+      // clearing the boxes while `tried` stays true paints "title required"
+      // and "body required" across a notification that was just sent to every
+      // customer. See PromoCodesTab.create.
+      setTried(false);
       setTitle(''); setBody(''); setCtaText(''); setCtaUrl('');
       onSent?.();
     } catch (e) {

@@ -170,7 +170,20 @@ export default function PromoCodesTab({ onError }) {
       if (r.invalid?.length) {
         toast.error(`${r.invalid.length} address(es) were not valid and were left out: ${r.invalid.slice(0, 3).join(', ')}`);
       }
+      // ☠ THE FORM IS FRESH AGAIN, SO THE VALIDATION MUST BE TOO.
+      // `tried` gates the red highlighting: do not shout at someone who has
+      // not submitted yet. Clearing the boxes without clearing `tried` made
+      // "Credits per redemption" go red the instant a code was CREATED
+      // SUCCESSFULLY — reported by Amr on 2026-09-03, who reasonably asked
+      // whether something had gone wrong. Nothing had. The screen said it had.
+      setTried(false);
       setCode(''); setDescription(''); setCredits(''); setMaxRedemptions(''); setExpiresAt('');
+      // ☠ AND access_days, which was never cleared. It is not cosmetic: it sets
+      // how long the credits a code grants stay alive. A 90-day workshop code
+      // followed by an unrelated code silently gave the second one 90 days too,
+      // and the only place it showed was a column reading "90" instead of
+      // "30 (standard)" on a code nobody was looking at.
+      setAccessDays('');
       setInviteText(''); setInviteFileName('');
       load();
     } catch (e) { onError?.(e, 'Promo creation failed'); }
