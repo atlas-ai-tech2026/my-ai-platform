@@ -390,6 +390,54 @@ export function registerSopRoutes(app, {
       'A table no server file mentions. Dead data that still grows and still gets backed up.',
       'Confirm it is unused, then drop it.');
 
+    // ── ADDRESSES NOBODY CAN TYPE ─────────────────────────────────────────
+    // ☠ THE ONE LINE IN THIS ZONE THAT MAY GO RED, and deliberately so.
+    // Everything above is a heuristic over source text with honest false
+    // positives, which is why nothing above is ever worse than a warning. This
+    // one is a fact: login runs `WHERE email = $1`, an EXACT match, against an
+    // address the app lowercases and strips. A `users` row that is not already
+    // clean cannot be signed in to at all, and password reset will not find it
+    // either. The account exists, is paid for, displays correctly on every
+    // admin screen, and is unreachable. There is no reading of that which is
+    // merely worth doing this week.
+    //
+    // Invitations are a warning, not a failure: the redeem comparison
+    // normalises both sides since 2026-09-02, so those people can already get
+    // in. What is left there is a list an admin cannot read and compare.
+    const um = r.unmatchable_emails || { users: [], invites: [] };
+    const say = (rows, f) => rows.length
+      ? rows.slice(0, 6).map(f).join(' · ') + (rows.length > 6 ? ` … and ${rows.length - 6} more` : '')
+      : 'none found';
+    out.push(line({
+      key: 'unmatchable-emails', zone: 'integrity',
+      label: 'Accounts nobody can sign in to',
+      state: um.users.length ? STATE.CRITICAL : STATE.OK,
+      value: String(um.users.length), checkedAt: r.checked_at,
+      info: 'An address stored with a capital letter, a stray space, or an invisible mark that '
+        + 'Arabic Excel inserts silently. Sign-in compares the address EXACTLY, so the person '
+        + 'types what looks like their own address and is told no such account exists. Nothing '
+        + 'errors, nothing is logged, and every admin screen shows the address looking correct. '
+        + 'Found on 2026-09-02, when ten of eighty-four workshop attendees could not redeem the '
+        + 'code they had been invited to.',
+      detail: say(um.users, (u) => `${u.email.trim()} → ${u.clean} (${u.fault}${u.collides ? ', COLLIDES with another account' : ''})`),
+      action: um.users.length
+        ? 'Each of these people is locked out right now. The address needs correcting in the '
+          + 'database — except any marked COLLIDES, where a second account already holds the '
+          + 'clean address and a person has to decide which one keeps it.'
+        : '',
+    }));
+    out.push(line({
+      key: 'unmatchable-invites', zone: 'integrity',
+      label: 'Invitations stored unreadably',
+      state: um.invites.length ? STATE.WARN : STATE.OK,
+      value: String(um.invites.length), checkedAt: r.checked_at,
+      info: 'The same fault on a promo code\u2019s invitation list. These people CAN redeem \u2014 the '
+        + 'comparison normalises both sides since 2026-09-02 \u2014 so this is no longer a lockout. '
+        + 'What remains is a list an admin cannot read: two addresses that look identical and are not.',
+      detail: say(um.invites, (i) => `${i.code}: ${i.email.trim()} → ${i.clean} (${i.fault})`),
+      action: um.invites.length ? 'Cosmetic. Fixed permanently the next time each list is uploaded.' : '',
+    }));
+
     // ── NEW dependency vulnerabilities ────────────────────────────────────
     // Reported when they APPEAR, never counted. There are 11 advisories today;
     // ten were reviewed and accepted deliberately, and nothing in the system

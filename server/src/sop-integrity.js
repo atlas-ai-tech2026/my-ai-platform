@@ -21,6 +21,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { normalizeEmail } from './email-normalize.js';
 
 /** Paths that legitimately have no frontend caller. */
 export const EXPECTED_UNCALLED = [
@@ -335,6 +336,76 @@ export async function findNullColumns(pool) {
   return out;
 }
 
+// ── ADDRESSES STORED IN A FORM NOBODY CAN TYPE ──────────────────────────────
+//
+// Added 2026-09-02, the day ten of eighty-four workshop attendees could not
+// redeem the code they were invited to. The invisible right-to-left mark got
+// the attention; the capital letters were the bigger half, and both came from
+// the same habit — normalising the address as TYPED and trusting the address
+// as STORED.
+//
+// ☠ THE WORST CASE IS NOT PROMO CODES. Login runs `WHERE email = $1`, an
+// EXACT match, against an address the app lowercases and strips. So a row in
+// `users` that is not already clean cannot be signed in to AT ALL, and
+// password reset will not find it either. The account exists, is paid for,
+// shows correctly on every admin screen, and is unreachable. Nothing errors.
+//
+// ── WHY THIS IS JAVASCRIPT AND NOT SQL ─────────────────────────────────────
+// It could be one regexp_replace in Postgres. It is not, for two reasons.
+// First, it uses normalizeEmail — the SAME function the login route and the
+// redeem route use — so this check cannot drift away from the comparison it is
+// checking, which is precisely the failure it exists to catch. Second, a SQL
+// character class of invisible characters is untestable without a database,
+// and this was written on a machine that can reach neither.
+//
+// The address is shown IN FULL, not masked. A line saying "3 accounts are
+// locked out" without saying which is a line nobody can act on.
+export async function findUnmatchableEmails(pool) {
+  /**
+   * What is wrong with it, in the words someone would use to fix it.
+   *
+   * ☠ NO SECOND LIST OF INVISIBLE CHARACTERS. "An invisible mark is present"
+   * is asked as "does stripping change anything that lowercasing and trimming
+   * would not" — so this cannot drift away from email-normalize.js, and there
+   * is nothing here to keep in step with it. The first version of this
+   * function pasted its own copy of the character class, and the literal
+   * non-breaking space in it arrived as an ordinary space.
+   */
+  const fault = (e) => [
+    e !== e.toLowerCase() ? 'capitals' : null,
+    normalizeEmail(e) !== String(e).trim().toLowerCase() ? 'invisible mark' : null,
+    e !== String(e).trim() ? 'spaces' : null,
+  ].filter(Boolean).join(' + ') || 'differs';
+
+  const dirty = (rows) => rows
+    .filter((r) => r.email !== normalizeEmail(r.email))
+    .map((r) => ({ ...r, clean: normalizeEmail(r.email), fault: fault(r.email) }));
+
+  const users = await pool.query('SELECT id, email FROM users');
+  const invites = await pool.query(`
+    SELECT c.code, e.email, e.redeemed_at IS NOT NULL AS redeemed
+      FROM promo_code_emails e JOIN promo_codes c ON c.id = e.code_id
+     WHERE c.active = true AND (c.expires_at IS NULL OR c.expires_at > NOW())`);
+
+  const badUsers = dirty(users.rows);
+  // Cleaning an address is only safe if the clean form is free. Two rows that
+  // normalise to the same address are a genuine collision and a decision for
+  // a person, not for a repair script.
+  const counts = new Map();
+  for (const t of users.rows) {
+    const k = normalizeEmail(t.email);
+    counts.set(k, (counts.get(k) || 0) + 1);
+  }
+  for (const u of badUsers) u.collides = counts.get(u.clean) > 1;
+
+  return {
+    users: badUsers,
+    invites: dirty(invites.rows),
+    scanned: { users: users.rowCount, invites: invites.rowCount },
+  };
+}
+
+
 export async function listTables(pool) {
   const { rows } = await pool.query(
     `SELECT table_name FROM information_schema.tables
@@ -356,6 +427,7 @@ export async function runIntegrityChecks(pool, { root, now = new Date().toISOStr
   const requested = requestedPaths(clientFiles);
   const tables = await listTables(pool);
   const nullCols = describeNullColumns(await findNullColumns(pool));
+  const unmatchable = await findUnmatchableEmails(pool);
 
   return {
     checked_at: now,
@@ -363,7 +435,9 @@ export async function runIntegrityChecks(pool, { root, now = new Date().toISOStr
     uncalled_routes: uncalledRoutes({ requested, routes }),
     unreferenced_tables: unreferencedTables({ tables, serverFiles }),
     null_columns: nullCols,
+    unmatchable_emails: unmatchable,
     scanned: { server_files: serverFiles.length, client_files: clientFiles.length,
-               routes: routes.size, tables: tables.length },
+               routes: routes.size, tables: tables.length,
+               users: unmatchable.scanned.users, invites: unmatchable.scanned.invites },
   };
 }

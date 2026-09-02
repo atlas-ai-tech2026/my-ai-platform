@@ -128,6 +128,15 @@ export const LINE_SOURCES = {
   'null-columns': { kind: KIND.DATABASE, why: 'pg_stats, then an exact count to confirm.' },
   'uncalled-routes': { kind: KIND.SOURCE_FILE, why: 'Parses registered routes against requested paths.' },
   'unused-tables': { kind: KIND.DATABASE, why: 'information_schema, cross-checked against the sources.' },
+  'unmatchable-emails': {
+    kind: KIND.DATABASE,
+    why: 'Reads every users.email and compares it with normalizeEmail — the SAME function login '
+      + 'and redeem use. Not a heuristic and not a sample: an exact answer over every row.',
+  },
+  'unmatchable-invites': {
+    kind: KIND.DATABASE,
+    why: 'Reads the invitation lists of live promo codes through the same comparison.',
+  },
 
   // ── POSTURE ──────────────────────────────────────────────────────────────
   'admin-gate': { kind: KIND.SOURCE_FILE, why: 'Parses every admin route for its gate.' },
