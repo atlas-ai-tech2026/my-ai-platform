@@ -705,11 +705,13 @@ export const SEED = [
       + 'It deliberately does NOT strip dots or plus-addressing: a.hmed@ and ahmed@ are different people, and letting the wrong person redeem would be worse than the bug. '
       + '\u2014\u2014 AND THE MESSAGE \u2014\u2014 "This code is invalid, expired, or already used" offered three explanations and none of them applied, so he assumed a glitch and kept trying. It now adds a fourth \u2014 "or was not issued to this account. Check with whoever gave it to you" \u2014 which leaks nothing (four undistinguished possibilities instead of three) and is the only one a person can act on. '
       + 'WORKAROUND USED ON THE DAY: Amr issued him a separate promo code. 36 tests, three sabotages.' },
-  { ref: '97', owner: 'claude', status: 'pending', priority: 6,
+  { ref: '97', owner: 'claude', status: 'done', priority: 6,
     title: 'No way to add one email to an existing promo code\'s list',
-    why: 'When 1 of 84 people cannot redeem, the only answers today are "issue a whole second code" or "grant credits by hand" — and the second leaves no trace on the code\'s own screen.',
-    detail: 'PATCH /api/admin/promocodes/:id accepts description and expires_at only. The invites drawer can already SHOW who has not turned up (splitInvites) — it just cannot add anyone. A small "add email" control there closes the loop, and would have fixed 2026-09-02 in one click instead of a second code. '
-      + 'Note the cap interaction: capForInvites() derives max_redemptions from the list size, so adding an email must decide whether the cap grows with it.' },
+    why: 'When 1 of 84 people cannot redeem, the only answers were "issue a whole second code" or "grant credits by hand" \u2014 and neither leaves a mark on the code\u2019s own screen, which is where anyone would look a week later. On 2026-09-02 Amr issued a second code and wrote himself a note not to forget it.',
+    detail: 'DONE. "+ Add email to this list" now sits under the invitation list in the promo drawer. Type one address or paste several; the list is re-read from the server afterwards, so what appears is what was actually stored. '
+      + '\u2014\u2014 THE CAP, which was the only real decision \u2014\u2014 capForInvites() derives max_redemptions from the list size ("one hundred emails, one hundred uses"), so adding an 85th person to a code capped at 84 would produce EXACTLY the failure the button exists to fix: on the list, refused at the door. The cap therefore grows with the list \u2014 but ONLY where the list set it. A cap typed by hand (fifty seats released to a hundred people) is a decision, and on this platform those are seats an organisation was INVOICED for, so it is left alone and the screen says plainly that the person just added will be refused until it is raised. '
+      + '\u2014\u2014 AND IT REFUSES ON AN OPEN CODE \u2014\u2014 a code with no list is open to anyone holding it; adding one address would LOCK it to that person and shut everybody else out. The button is not offered, and the endpoint refuses with that sentence. '
+      + '24 tests, four sabotages. The address goes through the same normaliser as everything else, which is what stops this button re-creating #96.' },
   { ref: '98', owner: 'owner', status: 'pending', priority: 7,
     title: 'Rename the two database clusters',
     why: 'The names nearly caused an accident on 2026-09-02: we were about to run a PITR restore and Claude\'s own notes had the wrong cluster.',

@@ -143,3 +143,32 @@ export function splitInvites(rows = []) {
     waitingCount: waiting.length,
   };
 }
+
+/**
+ * What the redemption cap becomes when somebody is added to an existing list.
+ *
+ * ☠ THE ONE DECISION IN THIS FEATURE, AND IT CUTS BOTH WAYS.
+ *
+ * capForInvites() derives max_redemptions from the list size — "one hundred
+ * emails, one hundred uses". So adding a 101st person to a code capped at 100
+ * would produce EXACTLY the failure the add button exists to fix: someone on
+ * the list, refused at the door. The cap has to follow the list.
+ *
+ * But a cap the owner typed himself is a decision. Fifty seats released to a
+ * list of a hundred is a real thing to want, and widening it silently would
+ * spend fifty seats nobody agreed to spend — on this platform, seats an
+ * organisation was invoiced for. So it is left exactly where it is, and the
+ * caller is told, because the person just added will otherwise be refused with
+ * no explanation anywhere.
+ *
+ * "Derived" is recognised as cap === the list size before the addition. That
+ * is what capForInvites produced, and any other number was chosen by a person.
+ * An unlimited cap (null) needs nothing.
+ */
+export function capAfterAdding({ currentCap, listBefore, added }) {
+  const now = listBefore + added;
+  if (currentCap == null) return { cap: null, raised: false, short: false };
+  const derived = Number(currentCap) === listBefore;
+  if (derived && added > 0) return { cap: now, raised: true, short: false };
+  return { cap: currentCap, raised: false, short: now > Number(currentCap) };
+}

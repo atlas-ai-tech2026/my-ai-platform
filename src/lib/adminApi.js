@@ -136,6 +136,12 @@ export const adminApi = {
   // Who the code was ADDRESSED to, and who has actually turned up. Different
   // question from redemptions: this one can show you the people who have NOT.
   promoInvites: (id) => request('GET', `/api/admin/promocodes/${id}/invites`),
+  // Add somebody to a list that already exists. Before this, one attendee of
+  // 84 who could not redeem meant issuing a whole second code — which is what
+  // happened on 2026-09-02, and left nothing on the code's own screen to show
+  // for it. The cap follows the list where the list set it.
+  promoInvitesAdd: (id, emails) =>
+    request('POST', `/api/admin/promocodes/${id}/invites`, { emails }),
   // Who loses access, and when. Added urgently 2026-08-20 — the Users tab shows
   // Credit expiry, the 2026-08-25 rule: credits die 30 days after they were
   // added; accounts never expire. Two calls on purpose: one only LOOKS, one

@@ -113,6 +113,10 @@ export default function PromoCodesTab({ onError }) {
   const [expandedId, setExpandedId] = useState(null);
   const [redemptions, setRedemptions] = useState({}); // promo id → rows
   const [invites, setInvites] = useState({});         // promo id → invited/waiting
+  // Adding one person to a list that already exists — see addInvites below.
+  const [addTo, setAddTo] = useState(null);           // promo id the box is open on
+  const [addText, setAddText] = useState('');
+  const [adding, setAdding] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -223,6 +227,42 @@ export default function PromoCodesTab({ onError }) {
       setInvites(prev => ({ ...prev, [p.id]: inv }));
     } catch { /* an open code has no list; not a failure worth a toast */ }
   }, [expandedId, redemptions, onError]);
+
+  /**
+   * Add somebody to a list that already exists.
+   *
+   * ── WHY THERE WAS NO SUCH THING ────────────────────────────────────────
+   * On 2026-09-02 one attendee of 84 could not redeem, and the only answers
+   * available were "issue a whole second code" or "grant the credits by hand".
+   * Amr issued a second code, and wrote himself a note not to forget it. A
+   * week later the code's own screen shows nothing about any of it.
+   *
+   * The list is reloaded from the server rather than patched here, so what
+   * appears is what was actually stored — including the address in the form
+   * the server normalised it to, which is the whole point after today.
+   */
+  const addInvites = useCallback(async (p) => {
+    const text = addText.trim();
+    if (!text) { toast.error('Enter an email address'); return; }
+    setAdding(true);
+    try {
+      const r = await adminApi.promoInvitesAdd(p.id, text);
+      const parts = [];
+      if (r.added) parts.push(`${r.added} added to ${p.code}`);
+      if (r.duplicate?.length) parts.push(`${r.duplicate.length} already on the list`);
+      if (r.invalid?.length) parts.push(`${r.invalid.length} not a usable address`);
+      (r.added ? toast.success : toast.error)(parts.join(' · ') || 'Nothing to add');
+      // Said separately and left on screen: a cap the owner set by hand is now
+      // smaller than the list it guards, and the person just added WILL be
+      // refused. A success toast that scrolls away is not good enough for that.
+      if (r.capWarning) toast.warning(r.capWarning, { duration: 15000 });
+      setAddText('');
+      const inv = await adminApi.promoInvites(p.id);
+      setInvites(prev => ({ ...prev, [p.id]: inv }));
+      load();                                   // the redemption cap may have moved
+    } catch (e) { onError?.(e, 'Could not add to the list'); }
+    finally { setAdding(false); }
+  }, [addText, load, onError]);
 
   /**
    * One Excel file PER CODE: the users who redeemed this promo, with their
@@ -599,6 +639,41 @@ export default function PromoCodesTab({ onError }) {
                                 </div>
                               </>
                             )}
+
+                            {/* ── ADD SOMEBODY WHO WAS LEFT OFF ──────────────
+                                The answer to "one person on the sheet cannot
+                                redeem". Before this existed the only options
+                                were a whole second code or credits by hand,
+                                and neither leaves a mark here. */}
+                            <div style={{ marginTop: 10 }}>
+                              {addTo === p.id ? (
+                                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                                  <input
+                                    value={addText}
+                                    onChange={e => setAddText(e.target.value)}
+                                    onKeyDown={e => { if (e.key === 'Enter' && !adding) addInvites(p); }}
+                                    placeholder="someone@example.com — or paste several"
+                                    aria-label={`Add an email address to ${p.code}`}
+                                    autoFocus
+                                    style={{ ...inputStyle, flex: '1 1 300px', maxWidth: 420, fontSize: 12 }} />
+                                  <button onClick={() => addInvites(p)} disabled={adding} style={primaryBtnStyle}>
+                                    {adding ? 'Adding…' : 'Add to list'}
+                                  </button>
+                                  <button onClick={() => { setAddTo(null); setAddText(''); }} style={btnStyle}>
+                                    Cancel
+                                  </button>
+                                  <div style={{ flexBasis: '100%', fontSize: 11, color: 'var(--crm-w40)' }}>
+                                    They can redeem {p.code} straight away — nothing is emailed to them.
+                                    {' '}The redemption cap grows with the list, unless you set it by hand.
+                                  </div>
+                                </div>
+                              ) : (
+                                <button onClick={() => { setAddTo(p.id); setAddText(''); }} style={btnStyle}
+                                  title={`Add an email address to ${p.code}'s list`}>
+                                  + Add email to this list
+                                </button>
+                              )}
+                            </div>
                           </div>
                         )}
                         {!rows && <div style={{ color: 'var(--crm-w40)', fontSize: 12 }}>Loading…</div>}

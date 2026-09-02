@@ -67,7 +67,7 @@ import { deepHealth } from './health-deep.js';
 import { AGENT_SYSTEM } from './edit-agent-prompt.js';
 import { formatProviderError, providerErrorParts, isProviderRefusal } from './provider-error.js';
 import { normalizeBulkEmails, generateBulkPassword } from './bulk-helpers.js';
-import { mayRedeem, capForInvites, splitInvites, REFUSAL } from './promo-audience.js';
+import { mayRedeem, capForInvites, capAfterAdding, splitInvites, REFUSAL } from './promo-audience.js';
 // ONE definition of "the same address", shared by auth, bulk and promo.
 import { normalizeEmail } from './email-normalize.js';
 import { groupByExpiryDay, summarise, actionable, SOON_DAYS } from './expiry-report.js';
@@ -7366,6 +7366,113 @@ app.get('/api/admin/promocodes/:id/invites', adminGate, async (req, res) => {
   } catch (err) {
     console.error('[admin/promocodes/invites] error:', err);
     res.status(500).json({ error: 'Could not read the invitation list.' });
+  }
+});
+
+// ── ADD SOMEBODY TO A LIST THAT ALREADY EXISTS ──────────────────────────────
+//
+// The gap this closes was found the hard way on 2026-09-02: one attendee of 84
+// could not redeem, and the only two answers available were "issue a whole
+// second code" or "grant the credits by hand". Amr issued a second code and
+// wrote himself a note not to forget it. Neither answer leaves a mark on the
+// code's own screen, which is where anyone would look a week later.
+//
+// ☠ THE CAP IS THE PART THAT NEEDS THINKING ABOUT.
+// capForInvites() derives max_redemptions from the list size at creation —
+// "one hundred emails, one hundred uses". So adding an email to a code that is
+// already full would produce the exact failure this control exists to fix: a
+// person on the list who cannot redeem. The cap therefore grows with the list,
+// but ONLY when it was derived. A cap the owner set deliberately smaller than
+// the list (fifty seats released to a hundred people) is a decision, not a
+// coincidence, and it is left alone and reported rather than quietly widened.
+app.post('/api/admin/promocodes/:id/invites', adminGate, async (req, res) => {
+  if (!dbReady()) return res.status(503).json({ error: 'Database not available.' });
+  const codeId = parseInt(req.params.id, 10);
+  if (!Number.isFinite(codeId) || codeId <= 0) {
+    return res.status(400).json({ error: 'Invalid code id.' });
+  }
+  // One or many — the owner pastes what they have.
+  const raw = Array.isArray(req.body?.emails) ? req.body.emails
+    : String(req.body?.emails ?? req.body?.email ?? '').split(/[\s,;]+/);
+  const { valid, invalid } = normalizeBulkEmails(raw);
+  if (!valid.length) {
+    return res.status(400).json({
+      error: invalid.length
+        ? `Not a usable email address: ${invalid.slice(0, 3).join(', ')}`
+        : 'Enter an email address.',
+      invalid,
+    });
+  }
+  if (valid.length > 500) {
+    return res.status(400).json({ error: `Too many at once (${valid.length}) — max 500.` });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    // FOR UPDATE: two admins adding at the same moment must not each read the
+    // same list size and each set the cap to the same too-small number.
+    const { rows: codeRows } = await client.query(
+      `SELECT id, code, max_redemptions FROM promo_codes WHERE id = $1 FOR UPDATE`, [codeId]);
+    const promo = codeRows[0];
+    if (!promo) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Promo code not found.' });
+    }
+
+    const before = await client.query(
+      `SELECT COUNT(*)::int AS n FROM promo_code_emails WHERE code_id = $1`, [codeId]);
+    const listBefore = before.rows[0].n;
+    if (listBefore === 0) {
+      // An OPEN code has no list, and adding one address would silently lock
+      // it to that one person — the opposite of what anyone clicking "add"
+      // expects. Refuse and say what it would have done.
+      await client.query('ROLLBACK');
+      return res.status(409).json({
+        error: `${promo.code} is open to anyone who has the code. Adding an address would `
+             + `LOCK it to that one person and shut everybody else out. Create a new `
+             + `restricted code instead.`,
+      });
+    }
+
+    let added = 0;
+    const duplicate = [];
+    for (const email of valid) {
+      const r = await client.query(
+        `INSERT INTO promo_code_emails (code_id, email) VALUES ($1, $2)
+         ON CONFLICT (code_id, email) DO NOTHING`,
+        [codeId, email]);
+      if (r.rowCount === 1) added++; else duplicate.push(email);
+    }
+
+    // The cap follows the list where the list set it, and is left alone where
+    // a person set it. The reasoning lives in promo-audience.js.
+    const { cap, raised, short } = capAfterAdding({
+      currentCap: promo.max_redemptions, listBefore, added,
+    });
+    if (raised) {
+      await client.query('UPDATE promo_codes SET max_redemptions = $2 WHERE id = $1', [codeId, cap]);
+    }
+    await client.query('COMMIT');
+
+    // A cap the owner set deliberately, now smaller than the list it guards.
+    // Said plainly, because the person added will otherwise be refused and
+    // nobody will know why.
+    const capWarning = short
+      ? `${promo.code} allows ${cap} redemptions and the list now holds ${listBefore + added}. `
+        + `The cap was set by hand, so it has been left alone — raise it in Edit if the `
+        + `people you just added should be able to redeem.`
+      : null;
+
+    console.log(`[admin/promocodes/invites] ${req.user?.email} added ${added} to ${promo.code}`
+      + ` (list ${listBefore} → ${listBefore + added}${raised ? `, cap → ${cap}` : ''})`);
+    res.json({ added, duplicate, invalid, total: listBefore + added, max_redemptions: cap, capWarning });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('[admin/promocodes/invites] add error:', err);
+    res.status(500).json({ error: 'Could not add to the invitation list.' });
+  } finally {
+    client.release();
   }
 });
 

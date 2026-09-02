@@ -22,6 +22,8 @@ const api = vi.hoisted(() => ({
   togglePromo: vi.fn(),
   updatePromo: vi.fn(),
   promoRedemptions: vi.fn(),
+  promoInvites: vi.fn(),
+  promoInvitesAdd: vi.fn(),
 }));
 
 vi.mock('@/lib/adminApi', () => ({ adminApi: api }));
@@ -56,7 +58,7 @@ vi.mock('exceljs', () => {
   }
   return { default: { Workbook } };
 });
-vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
+vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn() } }));
 
 // What the export produced, captured by the mock above and the anchor below.
 const sheet = { rows: [], headers: [], filename: null };
@@ -116,6 +118,14 @@ beforeEach(() => {
         promo_credits_all: 25, promo_codes_count: 1 },
     ],
   });
+  // A code ADDRESSED to people: two turned up, one has not. GULF-MEDIA has no
+  // list at all, which is how an open code behaves.
+  api.promoInvites.mockResolvedValue({
+    total: 3, redeemedCount: 2, waitingCount: 1,
+    waiting: [{ email: 'left.off@example.com', redeemed_at: null }],
+    redeemed: [{ email: 'sara@example.com' }, { email: 'omar@example.com' }],
+  });
+  api.promoInvitesAdd.mockResolvedValue({ added: 1, duplicate: [], invalid: [], total: 4 });
 });
 
 describe('existing promo codes are unaffected', () => {
@@ -495,5 +505,97 @@ describe('Expires and Access days are shown as a pair', () => {
     expect(src).toMatch(/'Days left':/);
     // The dead account date must not sneak back into the sheet.
     expect(src).not.toMatch(/access_ends_at/);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// #97 — adding somebody to a list that already exists
+//
+// On 2026-09-02 one attendee of 84 could not redeem. The only answers available
+// were "issue a whole second code" or "grant the credits by hand"; Amr issued a
+// second code and wrote himself a note not to forget it. Neither answer leaves
+// a mark on the code's own screen, which is where anyone would look a week
+// later. This is the control that closes that loop.
+
+const openInvites = async (user, code = 'VOXEL-OLD-0001') => {
+  render(<PromoCodesTab />);
+  await waitFor(() => screen.getByText(code));
+  const row = screen.getByText(code).closest('tr');
+  await user.click(within(row).getByRole('button', { name: /\d+ \/ / }));
+  await waitFor(() => expect(api.promoInvites).toHaveBeenCalled());
+};
+
+describe('#97 — adding somebody who was left off the sheet', () => {
+  it('offers the control on a code that HAS a list', async () => {
+    const user = userEvent.setup();
+    await openInvites(user);
+    expect(await screen.findByRole('button', { name: /Add email to this list/ })).toBeInTheDocument();
+  });
+
+  it('sends what was typed, and reloads the list from the server', async () => {
+    const user = userEvent.setup();
+    await openInvites(user);
+    await user.click(screen.getByRole('button', { name: /Add email to this list/ }));
+
+    await user.type(screen.getByLabelText(/Add an email address to VOXEL-OLD-0001/), 'late@example.com');
+    await user.click(screen.getByRole('button', { name: /^Add to list$/ }));
+
+    await waitFor(() => expect(api.promoInvitesAdd).toHaveBeenCalledWith(1, 'late@example.com'));
+    // Re-read rather than patched in place: what appears must be what was
+    // actually stored, including the form the server normalised it to.
+    await waitFor(() => expect(api.promoInvites).toHaveBeenCalledTimes(2));
+  });
+
+  it('Enter submits, because one address is the whole point', async () => {
+    const user = userEvent.setup();
+    await openInvites(user);
+    await user.click(screen.getByRole('button', { name: /Add email to this list/ }));
+    await user.type(screen.getByLabelText(/Add an email address/), 'late@example.com{Enter}');
+    await waitFor(() => expect(api.promoInvitesAdd).toHaveBeenCalled());
+  });
+
+  it('☠ says so when a hand-set cap will refuse the person just added', async () => {
+    // The failure this feature could quietly reintroduce: added to the list,
+    // still refused at the door, and nothing anywhere explaining why.
+    const { toast } = await import('sonner');
+    api.promoInvitesAdd.mockResolvedValue({
+      added: 1, duplicate: [], invalid: [], total: 85, max_redemptions: 50,
+      capWarning: 'VOXEL-OLD-0001 allows 50 redemptions and the list now holds 85.',
+    });
+    const user = userEvent.setup();
+    await openInvites(user);
+    await user.click(screen.getByRole('button', { name: /Add email to this list/ }));
+    await user.type(screen.getByLabelText(/Add an email address/), 'late@example.com{Enter}');
+
+    await waitFor(() => expect(toast.warning).toHaveBeenCalledWith(
+      expect.stringContaining('allows 50 redemptions'), expect.objectContaining({ duration: 15000 })));
+  });
+
+  it('an address already on the list is reported, not counted as added', async () => {
+    const { toast } = await import('sonner');
+    api.promoInvitesAdd.mockResolvedValue({ added: 0, duplicate: ['sara@example.com'], invalid: [] });
+    const user = userEvent.setup();
+    await openInvites(user);
+    await user.click(screen.getByRole('button', { name: /Add email to this list/ }));
+    await user.type(screen.getByLabelText(/Add an email address/), 'sara@example.com{Enter}');
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(
+      expect.stringContaining('already on the list')));
+  });
+
+  it('refuses to call the server with an empty box', async () => {
+    const user = userEvent.setup();
+    await openInvites(user);
+    await user.click(screen.getByRole('button', { name: /Add email to this list/ }));
+    await user.click(screen.getByRole('button', { name: /^Add to list$/ }));
+    expect(api.promoInvitesAdd).not.toHaveBeenCalled();
+  });
+
+  it('☠ and does NOT offer it on an OPEN code', async () => {
+    // GULF-MEDIA has no list. Adding one address would LOCK it to that person
+    // and shut everybody else out — so the control is not there to click.
+    api.promoInvites.mockResolvedValue({ total: 0, redeemedCount: 0, waitingCount: 0, waiting: [], redeemed: [] });
+    const user = userEvent.setup();
+    await openInvites(user, 'GULF-MEDIA');
+    expect(screen.queryByRole('button', { name: /Add email to this list/ })).toBeNull();
   });
 });
