@@ -8,7 +8,7 @@
 // would actually reply with, and whether it is honest that older outcomes are
 // deduced rather than known.
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import CustomerPanel from './CustomerPanel';
@@ -36,7 +36,14 @@ const OVERVIEW = {
   ],
 };
 
-beforeEach(() => { customerOverview.mockReset(); customerOverview.mockResolvedValue(OVERVIEW); });
+beforeEach(() => {
+  customerOverview.mockReset();
+  customerOverview.mockResolvedValue(OVERVIEW);
+  // Frozen by default so no assertion in this file can acquire a fuse later.
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  vi.setSystemTime(new Date('2026-09-01T12:00:00Z'));
+});
+afterEach(() => { vi.useRealTimers(); });
 
 describe('the answer to their email, without reading a ledger', () => {
   it('shows each generation paired with what happened to it', async () => {
@@ -52,11 +59,34 @@ describe('the answer to their email, without reading a ledger', () => {
   });
 
   // Who they are and whether they can still use the platform, in one line.
+  //
+  // ☠ THE CLOCK IS FROZEN, AND IT HAS TO BE. This test read "access until
+  // 2026-09-02" against a fixture expiring at 2026-09-02T00:00:00Z. It passed
+  // every day until 2026-09-02, when that moment became the past and the
+  // component correctly began saying "access ended" instead. The component was
+  // right; the test had a fuse on it.
+  //
+  // A test that fails by calendar is worse than no test: it goes red on a day
+  // when nothing changed, and the habit of dismissing red is the expensive
+  // part. So the day is fixed here, and BOTH branches are exercised — the
+  // "ended" one had no test at all, which is why nobody noticed it was the
+  // branch a passing suite had never entered.
   it('identifies the workshop they came from and when access ends', async () => {
+    vi.setSystemTime(new Date('2026-09-01T12:00:00Z'));
     render(<CustomerPanel user={USER} onClose={vi.fn()} onError={vi.fn()} />);
     await waitFor(() => expect(screen.getByText(/Riyadh · August/)).toBeInTheDocument());
     expect(screen.getByText('VOXEL-7UMD-Z66C')).toBeInTheDocument();
     expect(screen.getByText(/access until 2026-09-02/)).toBeInTheDocument();
+  });
+
+  it('☠ and says access ENDED once the date has passed', async () => {
+    // The other side of the same line. An expired customer reading "access
+    // until 2 September" on 3 September would be told the opposite of the truth
+    // by the screen that exists to answer their email.
+    vi.setSystemTime(new Date('2026-09-03T12:00:00Z'));
+    render(<CustomerPanel user={USER} onClose={vi.fn()} onError={vi.fn()} />);
+    await waitFor(() => expect(screen.getByText(/Riyadh · August/)).toBeInTheDocument());
+    expect(screen.getByText(/access ended 2026-09-02/)).toBeInTheDocument();
   });
 
   it('shows how long a recorded generation actually took', async () => {

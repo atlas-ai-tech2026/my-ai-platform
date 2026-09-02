@@ -14,6 +14,7 @@ import React, { useState } from 'react';
 import MicButton, { MicKeyframes } from '@/components/common/MicButton';
 import { ArrowLeft, ChevronDown, Minus, Plus, ArrowLeftRight, Zap, Video } from 'lucide-react';
 import { toast } from 'sonner';
+import { base44 } from '@/api/base44Client';
 import { OptionChip, PopoverChip } from './videoChipAtoms';
 import { getVideoCredits } from '@/lib/creditPricing';
 
@@ -93,6 +94,36 @@ export default function VideoLeftPanel({
   const [mode, setMode] = useState('frame');
   const [cameraMotion, setCameraMotion] = useState(null);
   const [showCameraDrop, setShowCameraDrop] = useState(false);
+  // ── THE ⚡ BUTTON DID NOTHING ────────────────────────────────────────────
+  // It was a styled <div> with a title and no handler, while
+  // /api/enhance-prompt sat complete on the server — auth, rate limit, LLM,
+  // and a security fix from the July audit — called by nobody. A customer
+  // pressed it and nothing happened, on every generation, for months.
+  //
+  // `before` keeps what they wrote. Replacing somebody's prompt with no way
+  // back is the kind of help that loses work, and a programmatic value change
+  // does not go into the browser's undo history — so a second press restores.
+  const [enhancing, setEnhancing] = useState(false);
+  const [before, setBefore] = useState(null);
+
+  async function enhance() {
+    if (enhancing) return;
+    if (before !== null) { onPromptChange?.(before); setBefore(null); return; }
+    const text = (prompt || '').trim();
+    if (!text) { toast.error('Write something first, then press ⚡ to expand it.'); return; }
+    setEnhancing(true);
+    try {
+      const { data } = await base44.functions.invoke('enhance-prompt', { prompt: text, type: 'video' });
+      if (!data?.prompt) throw new Error('The enhancer returned nothing.');
+      setBefore(prompt);
+      onPromptChange?.(data.prompt);
+      toast.success('Prompt expanded — press ⚡ again to put yours back.');
+    } catch (e) {
+      // The server writes the sentence that names the cause; show that, never
+      // a generic failure. Invariant 1: no generation path shows a vague toast.
+      toast.error(e?.body?.error || e?.message || 'The prompt enhancer could not run.');
+    } finally { setEnhancing(false); }
+  }
   const [audioOn, setAudioOn] = useState(false);
   // Kling 3.0 only: multi-shot mode (the model splits the clip into up to 5
   // camera shots). OFF by default — single continuous shot from the start
@@ -453,21 +484,29 @@ export default function VideoLeftPanel({
               boxSizing: 'border-box',
             }}
           />
-          {/* Bottom-left enhance affordance pill (red) */}
-          <div style={{
-            position: 'absolute', bottom: 12, left: 12,
-            width: 28, height: 28, borderRadius: 7,
-            background: 'rgba(224,30,30,0.18)',
-            border: `1px solid rgba(224,30,30,0.55)`,
-            color: RED,
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            cursor: 'pointer',
-          }}
-          className="vlf-hover"
-          title="Apply prompt enhancer"
+          {/* Bottom-left enhance affordance pill (red). A real <button>: it was
+              a <div>, so it was invisible to the keyboard and to a screen
+              reader as well as being inert. */}
+          <button
+            type="button"
+            onClick={enhance}
+            disabled={enhancing}
+            aria-label={before !== null ? 'Put my prompt back' : 'Expand my prompt'}
+            title={before !== null ? 'Put my prompt back' : 'Expand my prompt'}
+            style={{
+              position: 'absolute', bottom: 12, left: 12,
+              width: 28, height: 28, borderRadius: 7, padding: 0,
+              background: 'rgba(224,30,30,0.18)',
+              border: `1px solid rgba(224,30,30,0.55)`,
+              color: RED,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              cursor: enhancing ? 'wait' : 'pointer',
+              opacity: enhancing ? 0.55 : 1,
+            }}
+            className="vlf-hover"
           >
             <Zap style={{ width: 13, height: 13 }} />
-          </div>
+          </button>
         </div>
       </div>
 
