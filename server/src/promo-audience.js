@@ -106,10 +106,24 @@ export function mayRedeem({ email, invited, alreadyRedeemed = false }) {
 /**
  * The words a refused redemption gets.
  *
- * One string for every reason a code is unusable. "You are not on the list"
- * would tell someone holding a leaked code that the code itself is good.
+ * ONE string for every reason a code is unusable, still — naming which door
+ * was locked would tell whoever holds a leaked code that the code itself is
+ * good and merely mis-addressed.
+ *
+ * ☠ BUT IT NOW LISTS THE FOURTH REASON, because omitting it cost a real
+ * customer twenty minutes. During the SPA workshop on 2026-09-02 the sentence
+ * offered three explanations, none of which applied: the code was live, unused
+ * and his. So he read "already used", assumed a glitch, and tried TWELVE
+ * times. Nothing in the words suggested there was anything to check.
+ *
+ * Adding the fourth possibility leaks nothing new — the four stay
+ * undistinguished, exactly as the three did — and it is the one an actual
+ * person can act on, including the commonest innocent case of all: signed in
+ * with a different account than the one the code was sent to.
  */
-export const REFUSAL = 'This code is invalid, expired, or already used.';
+export const REFUSAL =
+  'This code is invalid, expired, already used, or was not issued to this account. '
+  + 'Check with whoever gave it to you.';
 
 /**
  * How many uses a list-restricted code should allow.

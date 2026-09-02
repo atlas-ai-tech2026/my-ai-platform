@@ -119,3 +119,57 @@ describe('lists already in the database are repaired without re-uploading', () =
     expect(src).toMatch(/\[created\.id, normalizeEmail\(email\)\]/);
   });
 });
+
+describe('☠ AND THE SEAT IS TICKED OFF AS TAKEN', () => {
+  // The second half of the same bug, and the half nobody would have reported.
+  //
+  // The tick-off ran in SQL as `LOWER(email) = LOWER($3)`. That agrees with
+  // mayRedeem about CAPITALS and disagrees about an INVISIBLE MARK — so once
+  // the fix above let osama through, he would have redeemed successfully and
+  // his invitation would have stayed open forever. `redeemed_by` is the column
+  // the owner reads to see who has taken up their seat: it would have shown
+  // the code as fully redeemed and every seat still empty.
+  //
+  // Fixed by choosing the ROW in JS, with the same comparison that admitted
+  // the person, and updating by primary key.
+
+  const src = () => require('node:fs')
+    .readFileSync(require('node:path').join(__dirname, 'index.js'), 'utf8');
+
+  /**
+   * The source with whole-line `//` comments dropped.
+   *
+   * Needed because the comment recording this fix QUOTES the SQL it removed,
+   * and the first version of the test below matched its own explanation and
+   * failed. A test that reads prose is not reading the program.
+   */
+  const code = () => src().split('\n').filter((l) => !/^\s*\/\//.test(l)).join('\n');
+
+  it('the tick-off no longer re-decides the match in SQL', () => {
+    expect(code()).not.toMatch(/LOWER\(email\) = LOWER\(\$3\)/);
+    // and the stripper really is looking at the program, not at nothing
+    expect(code()).toMatch(/UPDATE promo_code_emails/);
+  });
+
+  it('it updates the row mayRedeem matched, by primary key', () => {
+    expect(src()).toMatch(/UPDATE promo_code_emails SET redeemed_by = \$2, redeemed_at = NOW\(\)\s*\n\s*WHERE id = \$1 AND redeemed_at IS NULL/);
+    expect(src()).toMatch(/invitedRows\.rows\.find\(\(r\) => normalizeEmail\(r\.email\) === mine\)/);
+  });
+
+  it('and the row it picks is the one with the mark, not a lookalike', () => {
+    // The selection expression, run on rows shaped like the database's.
+    const rows = [
+      { id: 11, email: 'someone.else@gmail.com' },
+      { id: 22, email: '‏osama.himselff@gmail.com' },   // real U+200F
+      { id: 33, email: 'Osama.Himselff@Hotmail.com' },  // a genuinely different person
+    ];
+    const mine = normalizeEmail('osama.himselff@gmail.com');
+    expect(rows.find((r) => normalizeEmail(r.email) === mine)?.id).toBe(22);
+  });
+
+  it('an open code picks no row at all, and skips the update', () => {
+    const mine = normalizeEmail('anyone@gmail.com');
+    expect([].find((r) => normalizeEmail(r.email) === mine)).toBeUndefined();
+    expect(src()).toMatch(/if \(invitation\) \{/);
+  });
+});

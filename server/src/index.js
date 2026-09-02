@@ -6591,7 +6591,8 @@ app.post('/api/redeem-code', redeemLimiter, verifyJwt, requireNotBanned, async (
     // The claim is checked against the account's OWN email from the database,
     // never anything sent with the request.
     const invitedRows = await client.query(
-      `SELECT email FROM promo_code_emails WHERE code_id = $1`, [p.id]);
+      `SELECT id, email FROM promo_code_emails WHERE code_id = $1`, [p.id]);
+    let invitation = null;
     if (invitedRows.rowCount > 0) {
       const verdict = mayRedeem({
         email: req.user.email,
@@ -6605,6 +6606,13 @@ app.post('/api/redeem-code', redeemLimiter, verifyJwt, requireNotBanned, async (
         // and merely mis-addressed.
         return res.status(404).json({ error: REFUSAL });
       }
+      // ☠ WHICH ROW, so the tick-off below marks what mayRedeem just matched.
+      // It used to be `LOWER(email) = LOWER($3)` in SQL, which agrees with
+      // mayRedeem on capitals and DISAGREES on an invisible mark: the person
+      // redeems, and their invitation stays open forever. The owner reads
+      // that column to see who has taken up their seat.
+      const mine = normalizeEmail(req.user.email);
+      invitation = invitedRows.rows.find((r) => normalizeEmail(r.email) === mine) ?? null;
     }
 
     try {
@@ -6617,11 +6625,13 @@ app.post('/api/redeem-code', redeemLimiter, verifyJwt, requireNotBanned, async (
       throw e;
     }
     await client.query('UPDATE promo_codes SET redeemed_count = redeemed_count + 1 WHERE id = $1', [p.id]);
-    // Tick the invitation off. Harmlessly matches nothing on an open code.
-    await client.query(
-      `UPDATE promo_code_emails SET redeemed_by = $2, redeemed_at = NOW()
-        WHERE code_id = $1 AND LOWER(email) = LOWER($3) AND redeemed_at IS NULL`,
-      [p.id, req.user.id, req.user.email]);
+    // Tick the invitation off — by ROW, decided above. Open codes have none.
+    if (invitation) {
+      await client.query(
+        `UPDATE promo_code_emails SET redeemed_by = $2, redeemed_at = NOW()
+          WHERE id = $1 AND redeemed_at IS NULL`,
+        [invitation.id, req.user.id]);
+    }
     const credits = Number(p.credits);
     // ACCESS PERIOD → CREDIT LIFE (owner's rule, 2026-08-25). access_days used
     // to extend the ACCOUNT's lockout date; accounts never expire any more.

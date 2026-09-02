@@ -66,12 +66,23 @@ describe('the refusal never says which door was locked', () => {
   // "You are not on the list" tells whoever holds a leaked code that the code
   // itself is good and only mis-addressed — the one thing worth learning from
   // a failed attempt.
-  it('is the same sentence used for expired and used-up codes', () => {
-    expect(REFUSAL).toBe('This code is invalid, expired, or already used.');
+  it('is ONE sentence, shared by every reason a code is unusable', () => {
+    // All four possibilities, none of them singled out. Which is which stays
+    // exactly as unknowable as when there were three.
+    for (const reason of [/invalid/i, /expired/i, /already used/i, /not issued to this account/i]) {
+      expect(REFUSAL).toMatch(reason);
+    }
   });
 
   it('gives away neither the list nor the code', () => {
     expect(REFUSAL).not.toMatch(/list|invite|allowed|permitted|your email/i);
+  });
+
+  it('☠ and it tells the reader there is something to CHECK', () => {
+    // The omission that cost a customer twenty minutes and twelve attempts:
+    // three explanations, none of which applied, and no hint of a fourth. A
+    // refusal a person cannot act on reads as a malfunction, so they retry.
+    expect(REFUSAL).toMatch(/check with/i);
   });
 });
 
