@@ -470,7 +470,12 @@ export const SEED = [
   { ref: '44', owner: 'claude', status: 'pending', priority: 16,
     title: 'The small batch',
     why: 'None are big; several remove a recurring annoyance.',
-    detail: 'A DEV banner so dev is never mistaken for production · a FAL dashboard · the duplicate-charge counter on Alerts · point my local environment away from production · tighten DMARC · rename the workshop-shaped labels now the customer is a company.' },
+    detail: 'A DEV banner so dev is never mistaken for production · a FAL dashboard · the duplicate-charge counter on Alerts · point my local environment away from production · tighten DMARC · rename the workshop-shaped labels now the customer is a company. '
+      + '── THE DEV BANNER IS DONE, 2026-09-02 ── It earned its place that same day: dev and production were confused TWICE in one session — the database clusters (dev-db-347887 sounds like dev and IS production) and which panel a screenshot came from. Both were caught; the cost of not catching one is a job run against real customers. '
+      + 'It reuses dev-only.js rather than carrying a second host list, because two lists of "which hosts are dev" is exactly the drift that bites. The rule is an ALLOW-list of exact matches and NEVER names production — "hide on voxel-ai.ai" is the natural way to write it and is the wrong way round, because it shows the banner to every customer the day a second production domain exists. It fails towards HIDDEN for undefined, null, empty, and a lookalike like dev.voxel-ai.ai.evil.com. '
+      + 'It sits in the document flow rather than fixed over the page: the panel\'s own Dark/Sign out cluster was position:fixed and spent weeks covering the SOP status labels, and a warning that hides content is its own small bug. Mounted first and NOT lazily — a banner that arrives one chunk later leaves a window in which somebody could act on the wrong site. '
+      + '10 tests, the important one being that it renders NOTHING on production. Verified by turning the allow-list into a deny-list: three tests fail. '
+      + 'STILL OPEN in this batch: the FAL dashboard, the duplicate-charge counter, repointing the local .env, DMARC, and the workshop-shaped labels.' },
   { ref: '19', owner: 'claude', status: 'pending', priority: 22,
     title: 'Tech debt from the audit',
     why: 'Both were flagged in July and both keep growing.',

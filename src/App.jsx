@@ -23,6 +23,10 @@ const SpeechLab = lazy(() => import('@/pages/SpeechLab'));
 // The first-run questions. Lazy, because it must never be part of what a
 // RETURNING customer downloads — they will never see it again.
 const FirstRunGate = lazy(() => import('@/components/onboarding/FirstRunGate'));
+// NOT lazy: a banner that says "this is not production" must be on the first
+// paint, not one chunk later. The whole window in which somebody could act on
+// the wrong site is the window before it appears.
+import DevBanner from '@/components/common/DevBanner';
 
 // Route-chunk loading state: plain dark screen, matches the app background
 // so navigation feels like a beat of black rather than a flash of white.
@@ -141,6 +145,10 @@ function App() {
 
   return (
     <AuthProvider>
+      {/* FIRST in the tree, and outside the Router: it must be on screen
+          before any route resolves, and it must not disappear while a lazy
+          chunk loads. On production it renders nothing at all. */}
+      <DevBanner />
       <QueryClientProvider client={queryClientInstance}>
         <Router>
           <AuthenticatedApp />
