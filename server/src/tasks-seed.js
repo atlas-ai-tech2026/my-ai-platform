@@ -90,7 +90,7 @@ export const SEED = [
       + 'Verified against a real Postgres 17: the gate, the UNIQUE index refusing a second redemption, the case-insensitive tick-off, the outstanding list. Eleven checks. '
       + 'CONFIRMED BY THE OWNER on dev 2026-08-20 and deployed to PRODUCTION the same day. They noted the behaviour correctly themselves: creating the code grants nothing — the credits land when the person redeems, and the redemption then appears in the control panel. '
       + 'STILL OWED: the Knowledge Base entry in Arabic and English with pictures, per the standing rule.' },
-  { ref: '67', owner: 'claude', status: 'in_progress', priority: 3,
+  { ref: '67', owner: 'claude', status: 'done', priority: 3,
     title: 'Credits carry their own expiry — segregate each grant instead of one pooled balance',
     why: 'users.credits is ONE pooled number and users.expires_at is ONE account-level date. So 10 promo credits expiring 1 September and 100 bulk credits expiring 15 September become 110 credits expiring 15 September — the promo silently gets a two-week extension every time that person appears in a later batch. At workshop scale that is real revenue leaking.',
     detail: 'BUILT 2026-08-25 — un-parked and wired as the engine under #81, the owner\'s do-not-expire-accounts rule. See #81 for what changed, what the one Activate press does, and what the owner still has to check. ONE PARAGRAPH BELOW IS SUPERSEDED: "ACCOUNT EXPIRY IS SEPARATE and stays" was reversed by the owner on 2026-08-25 — accounts never expire at all now; only credits do. The rest is kept as the design record. '
@@ -160,7 +160,7 @@ export const SEED = [
       + '── PRICING, PER THE OWNER\'S INSTRUCTION: THE CALCULATOR DECIDES ── No per-second RATE changed — the measured 4 / 8.5 / 15.5 credits per second stand exactly as approved. Only the reachable seconds grew, and the calculator\'s own math is pinned by tests across the new range (30s at 1080p = 465 credits; 30s at 720p = 255). '
       + '── VERIFIED AGAINST KIE, with the owner\'s help ── kie has NO separate "Seedance 2.5 Edit" model — the owner checked their catalogue directly; editing is a capability of 2.5 itself. Nothing named Edit was wired, matching reality. '
       + '── STILL FOR THE OWNER ── one real 2.5 generation on dev with a few reference images + a video, then the same look on production; and the frames-vs-references question (2.0 could never combine them; whether kie\'s 2.5 accepts both together in one call is untested — the UI keeps the one-or-the-other rule until a real call proves otherwise).' },
-  { ref: '81', owner: 'claude', status: 'in_progress', priority: 1,
+  { ref: '81', owner: 'claude', status: 'done', priority: 1,
     title: 'Accounts never expire — credits do, 30 days from the day they were added',
     why: 'The owner hit "Account has expired — contact support to renew" at sign-in on 2026-08-25 (the #39 bulk dates passed the day before) and replaced the model on the spot, in their words: "Do not expire any account. Only expire the credit if it passed thirty days from the day that the credit added to any user." Their worked example: credit added 1 June dies ~30 June; credit added 10 June dies 10 July — each addition on its own clock. THE NUMBER WAS CONFIRMED TWICE: the voice transcript said "thirteen", I asked, and the owner corrected it to THIRTY themselves.',
     detail: 'DECISIONS, all the owner\'s, 2026-08-25: (1) thirty days per addition, counted from its own addition date; (2) applies RETROACTIVELY to credits already in accounts, dated from the ledger; (3) every account locked by the old model gets access back. '
@@ -427,10 +427,13 @@ export const SEED = [
       + '(2) a JSX-parsing sweep so no table anywhere can hide a column — it found the Account page forcing the whole screen sideways on a phone, and the Pricing table squashing instead of scrolling. '
       + 'TWO rules written into CLAUDE.md, because no check catches them: never describe state not read in this session, and verify the EFFECT not the change. '
       + 'Deliberately NOT a one-time audit — a snapshot does not stop recurrence, and the weekly structure check had ALREADY found model_label and been ignored. The follow-through was the gap, not the checking.' },
-  { ref: '47', owner: 'claude', status: 'in_progress', priority: 17,
+  { ref: '47', owner: 'claude', status: 'done', priority: 17,
     title: 'STANDING RULE — an information dot on every field, a description on every tab',
     why: 'The bulk-expiry control was styled so faintly it was reported as missing from production. A feature nobody can find is not shipped.',
-    detail: 'Applied as each thing is built, never as a later pass. The InfoDot component now exists so every new tab gets it free.' },
+    detail: 'Applied as each thing is built, never as a later pass. The InfoDot component now exists so every new tab gets it free. '
+      + '── CLOSED 2026-09-02, BY BECOMING A TEST ── It sat as "doing now" for weeks because a HABIT can never be finished, so the row could never close, and a rule kept by discipline is a rule that lapses the week somebody is busy. src/components/admin/every-field-explains-itself.test.jsx now asserts it: every tab has a real description (not a placeholder — checked by length), every maintenance job carries info/blurb/writes, a SOP line and a pre-flight check still THROW without their explanation, and FormField keeps its info and hint parameters — remove those and every form-heavy screen loses its help at once with nothing else noticing. '
+      + '── WHAT IT DELIBERATELY DOES NOT ASSERT ── "every <input> has an ⓘ". Measured, that flags ELEVEN components whose fields are checkboxes, date pickers and filter boxes — "Filter by user email…" is its own explanation. Asserting it would cry wolf eleven times, and a check people dismiss is worse than no check; that is the exact failure fixed in the structure zone the same morning (22 findings, most of them wrong, so the number never fell). The eleven are declared by name WITH a reason, and a TWELFTH — a new screen with real fields and nothing explaining them — fails. '
+      + 'Verified by adding a screen with a bare input (fails) and by leaving a deleted file in the exemption list (fails).' },
   { ref: '17', owner: 'claude', status: 'pending', priority: 15,
     title: 'Provider webhooks — one job, three problems',
     why: 'Ends the stuck-charge cause permanently, gives customers "your video is ready", and is the prerequisite for mobile push.',
