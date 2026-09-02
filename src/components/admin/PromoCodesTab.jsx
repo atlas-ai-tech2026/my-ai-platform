@@ -225,7 +225,16 @@ export default function PromoCodesTab({ onError }) {
     try {
       const inv = await adminApi.promoInvites(p.id);
       setInvites(prev => ({ ...prev, [p.id]: inv }));
-    } catch { /* an open code has no list; not a failure worth a toast */ }
+    } catch (e) {
+      // ☠ A SWALLOWED ERROR LOOKED EXACTLY LIKE AN OPEN CODE.
+      // This used to be `catch {}` with the note "an open code has no list;
+      // not a failure worth a toast". But an open code and a failed request
+      // render identically — nothing — so a broken endpoint would have read as
+      // "this code has no invitation list", and the owner would have believed
+      // it. That is the silent-failure class this project keeps finding.
+      // Recorded so the drawer can say which of the two it is.
+      setInvites(prev => ({ ...prev, [p.id]: { failed: e?.message || 'could not be read' } }));
+    }
   }, [expandedId, redemptions, onError]);
 
   /**
@@ -611,6 +620,32 @@ export default function PromoCodesTab({ onError }) {
                             invited as ahmed@company.com and signing up as
                             ahmed.k@gmail.com, which a redemption list can
                             never reveal. Only a code with a list renders it. */}
+                        {/* The list could not be read. Said out loud, because
+                            silence here is indistinguishable from "this code
+                            has no list" — and one of those is a lie. */}
+                        {invites[p.id]?.failed && (
+                          <div style={{
+                            marginBottom: 14, padding: '10px 12px', borderRadius: 8,
+                            background: 'var(--crm-amber-bg)', border: '1px solid var(--crm-w08)',
+                            fontSize: 12, color: 'var(--crm-ink)',
+                          }}>
+                            <strong>The invitation list could not be read.</strong>{' '}
+                            This does <em>not</em> mean {p.code} has no list — it means we do not
+                            know. ({invites[p.id].failed})
+                          </div>
+                        )}
+                        {/* An OPEN code, stated rather than left blank: it is a
+                            real and important property of the code, not an
+                            absence of information. */}
+                        {invites[p.id] && !invites[p.id].failed && !invites[p.id].total && (
+                          <div style={{ marginBottom: 14, fontSize: 12, color: 'var(--crm-w40)' }}>
+                            <strong style={{ color: 'var(--crm-w60)' }}>Open code</strong> — not
+                            locked to any list, so anyone signed in who has the string can redeem
+                            it once. Every code issued before 20 August is open.
+                            {' '}Adding an address here would lock {p.code} to that one person and
+                            shut everybody else out, so there is nothing to add to.
+                          </div>
+                        )}
                         {invites[p.id]?.total > 0 && (
                           <div style={{ marginBottom: 14 }}>
                             <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6 }}>

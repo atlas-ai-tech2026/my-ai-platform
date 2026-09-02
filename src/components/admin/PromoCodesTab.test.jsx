@@ -599,3 +599,43 @@ describe('#97 — adding somebody who was left off the sheet', () => {
     expect(screen.queryByRole('button', { name: /Add email to this list/ })).toBeNull();
   });
 });
+
+describe('☠ AN OPEN CODE AND A BROKEN REQUEST MUST NOT LOOK THE SAME', () => {
+  // Found by Amr on 2026-09-02, opening VOXEL-KY7X-YDQF on dev to try the new
+  // add-email button and finding nothing there. The code is open — every code
+  // issued before 20 August is — so the screen was RIGHT. But it said nothing
+  // at all, and a failed request would have said nothing at all too.
+  //
+  // The catch was literally `catch {}` with the note "not a failure worth a
+  // toast". It was worth a sentence.
+
+  it('says OPEN CODE out loud, instead of rendering nothing', async () => {
+    api.promoInvites.mockResolvedValue({ total: 0, redeemedCount: 0, waitingCount: 0, waiting: [], redeemed: [] });
+    const user = userEvent.setup();
+    await openInvites(user, 'GULF-MEDIA');
+    expect(await screen.findByText(/Open code/)).toBeInTheDocument();
+    expect(screen.getByText(/anyone signed in who has the string can redeem/)).toBeInTheDocument();
+    // and it explains why there is no button, rather than leaving a hole
+    expect(screen.getByText(/shut everybody else out/)).toBeInTheDocument();
+  });
+
+  it('☠ and says the opposite thing when the list could not be READ', async () => {
+    api.promoInvites.mockRejectedValue(new Error('503 database not available'));
+    const user = userEvent.setup();
+    await openInvites(user, 'GULF-MEDIA');
+    const msg = await screen.findByText(/could not be read/);
+    expect(msg).toBeInTheDocument();
+    // The distinction that matters: it is not a claim about the code.
+    // (Matched on a contiguous run — the sentence is broken by an <em>.)
+    expect(screen.getByText(/has no list — it means we do not know/)).toBeInTheDocument();
+    expect(screen.queryByText(/Open code/)).toBeNull();
+  });
+
+  it('and neither message appears on a code that HAS a list', async () => {
+    const user = userEvent.setup();
+    await openInvites(user);                       // the default mock: 3 invited
+    await screen.findByRole('button', { name: /Add email to this list/ });
+    expect(screen.queryByText(/Open code/)).toBeNull();
+    expect(screen.queryByText(/could not be read/)).toBeNull();
+  });
+});
