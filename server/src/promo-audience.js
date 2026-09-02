@@ -29,8 +29,30 @@
 // codes in production; silently restricting them would break redemptions
 // nobody asked to change.
 
-/** Normalised for comparison. Emails are case-insensitive in practice. */
-export const normalizeEmail = (e) => String(e ?? '').trim().toLowerCase();
+/**
+ * Characters that are IN an address but cannot be typed.
+ *
+ * Arabic-language Excel inserts direction marks silently. A sheet titled
+ * بيانات الطلاب gave us "\u200fosama.himselff@gmail.com" — a RIGHT-TO-LEFT
+ * MARK in front of the address, invisible in Excel, invisible in the invites
+ * drawer, invisible in an email. Only the bytes differ, and the person can
+ * never type their way past it.
+ *
+ * Zero-width and direction marks, the word joiner, the byte-order mark, and
+ * the non-breaking space — all of which survive a copy-paste and none of which
+ * belong in an email address.
+ */
+const INVISIBLE = /[\u200B-\u200F\u202A-\u202E\u2060\uFEFF\u00A0]/g;
+
+/**
+ * Normalised for comparison. Emails are case-insensitive in practice.
+ *
+ * ── STRIPPING THE INVISIBLES IS WHAT REPAIRS LISTS ALREADY UPLOADED ────────
+ * Both sides of the comparison go through here, so a code whose list was
+ * imported months ago with a stray mark starts working the moment this ships —
+ * no re-upload, no editing anybody's row.
+ */
+export const normalizeEmail = (e) => String(e ?? '').replace(INVISIBLE, '').trim().toLowerCase();
 
 /**
  * May this person redeem this code?
@@ -60,7 +82,22 @@ export function mayRedeem({ email, invited, alreadyRedeemed = false }) {
   if (!size) return { allowed: true, reason: 'open-code' };
   const mine = normalizeEmail(email);
   if (!mine) return { allowed: false, reason: 'not-invited' };
-  const set = invited instanceof Set ? invited : new Set(invited.map(normalizeEmail));
+  // ☠ NORMALISE BOTH SIDES, INCLUDING A SET.
+  //
+  // This read `invited instanceof Set ? invited : …`, so a Set was trusted as
+  // already normalised — and the redeem route builds one straight from the
+  // database rows: `new Set(rows.map((r) => r.email))`. The typed address was
+  // lowercased and trimmed; the STORED address never was.
+  //
+  // So every stored address that was not already lower-case and clean could
+  // not be redeemed by the person it belonged to. In the SPA New Academy list
+  // of 84 that was NINE addresses with capital letters plus one carrying an
+  // invisible mark — ten people, not one, and every one of them looked like
+  // "you were not invited".
+  //
+  // Cheap: these lists are at most a few hundred entries, built once per
+  // redemption attempt.
+  const set = new Set([...invited].map(normalizeEmail));
   return set.has(mine)
     ? { allowed: true, reason: 'invited' }
     : { allowed: false, reason: 'not-invited' };

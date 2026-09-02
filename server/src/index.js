@@ -67,7 +67,7 @@ import { deepHealth } from './health-deep.js';
 import { AGENT_SYSTEM } from './edit-agent-prompt.js';
 import { formatProviderError, providerErrorParts, isProviderRefusal } from './provider-error.js';
 import { normalizeBulkEmails, generateBulkPassword } from './bulk-helpers.js';
-import { mayRedeem, capForInvites, splitInvites, REFUSAL } from './promo-audience.js';
+import { mayRedeem, capForInvites, splitInvites, REFUSAL, normalizeEmail } from './promo-audience.js';
 import { groupByExpiryDay, summarise, actionable, SOON_DAYS } from './expiry-report.js';
 // Owner's rule 2026-08-25: credits expire 30 days from the day they were
 // added — each addition on its own clock. ACCOUNTS NEVER EXPIRE any more;
@@ -7180,11 +7180,15 @@ app.post('/api/admin/promocodes', adminGate, async (req, res) => {
         [code, credits, cap, expiresAt, req.user?.email || ADMIN_EMAIL, description, accessDays]
       );
       created = rows[0];
+      // Stored NORMALISED. The comparison normalises both sides anyway — that
+      // is what repairs lists uploaded before this fix — but storing the clean
+      // form means the invites drawer shows an address a human can read and
+      // compare, instead of one that looks identical to another and is not.
       for (const email of invited) {
         await client.query(
           `INSERT INTO promo_code_emails (code_id, email) VALUES ($1, $2)
            ON CONFLICT (code_id, email) DO NOTHING`,
-          [created.id, email]);
+          [created.id, normalizeEmail(email)]);
       }
       await client.query('COMMIT');
     } catch (e) {
