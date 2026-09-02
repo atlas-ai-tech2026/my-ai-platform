@@ -12,6 +12,7 @@
 // It does not send anything — email campaigns are on hold at the owner's
 // instruction, and collecting is a separate act from contacting.
 
+import { normalizeEmail } from './email-normalize.js';
 /** Sources a caller may claim. An open field becomes junk within a week. */
 export const WAITLIST_SOURCES = ['edit', 'mobile', 'api'];
 
@@ -24,7 +25,10 @@ export const WAITLIST_SOURCES = ['edit', 'mobile', 'api'];
  * regex. This only rejects what obviously cannot be delivered.
  */
 export function normaliseEmail(raw) {
-  const email = String(raw ?? '').trim().toLowerCase();
+  // Strip the untypable first — see email-normalize.js. Someone pasting
+  // their address out of a mail client brings the marks with it, and a
+  // waitlist row nobody can ever match to a sign-up is a row lost.
+  const email = normalizeEmail(raw);
   if (email.length < 6 || email.length > 254) return null;
   const at = email.indexOf('@');
   if (at < 1 || at !== email.lastIndexOf('@')) return null;

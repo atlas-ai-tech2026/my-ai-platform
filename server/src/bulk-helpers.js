@@ -3,12 +3,21 @@
 // so they're unit-testable without booting the server.
 
 import { randomBytes } from 'node:crypto';
+import { normalizeEmail } from './email-normalize.js';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
 /**
  * Normalize a raw email list from an uploaded sheet: trim, lowercase,
  * dedupe, split valid from invalid. Order of first appearance is kept.
+ *
+ * ☠ AND STRIP THE UNTYPABLE, which this did not do until 2026-09-02.
+ * `.trim().toLowerCase()` leaves a RIGHT-TO-LEFT MARK exactly where Arabic
+ * Excel put it, and EMAIL_RE accepts it — `[^\s@]` matches a direction mark,
+ * because JavaScript's \s does not. So the address was classified VALID and
+ * an ACCOUNT WAS CREATED under a name its owner can never type: sign-in fails,
+ * password reset finds nobody, and every screen shows an address that looks
+ * exactly right. The promo bug at least refused loudly. This one succeeded.
  */
 export function normalizeBulkEmails(raw) {
   const seen = new Set();
@@ -16,7 +25,7 @@ export function normalizeBulkEmails(raw) {
   const invalid = [];
   let dupes = 0;
   for (const item of Array.isArray(raw) ? raw : []) {
-    const email = String(item ?? '').trim().toLowerCase();
+    const email = normalizeEmail(item);
     if (!email) continue;
     if (seen.has(email)) { dupes++; continue; }
     seen.add(email);

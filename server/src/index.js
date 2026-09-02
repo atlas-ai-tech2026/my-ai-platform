@@ -67,7 +67,9 @@ import { deepHealth } from './health-deep.js';
 import { AGENT_SYSTEM } from './edit-agent-prompt.js';
 import { formatProviderError, providerErrorParts, isProviderRefusal } from './provider-error.js';
 import { normalizeBulkEmails, generateBulkPassword } from './bulk-helpers.js';
-import { mayRedeem, capForInvites, splitInvites, REFUSAL, normalizeEmail } from './promo-audience.js';
+import { mayRedeem, capForInvites, splitInvites, REFUSAL } from './promo-audience.js';
+// ONE definition of "the same address", shared by auth, bulk and promo.
+import { normalizeEmail } from './email-normalize.js';
 import { groupByExpiryDay, summarise, actionable, SOON_DAYS } from './expiry-report.js';
 // Owner's rule 2026-08-25: credits expire 30 days from the day they were
 // added — each addition on its own clock. ACCOUNTS NEVER EXPIRE any more;
@@ -478,7 +480,7 @@ const ipKey = (req) => ipKeyGenerator(clientIp(req));
 // limit" but server/scripts/reset-admin-2fa.mjs, which also clears
 // lockouts — an operator with server access can always get back in.
 const isAdminAuth = (req) =>
-  String(req.body?.email || '').trim().toLowerCase() === ADMIN_EMAIL;
+  normalizeEmail(req.body?.email) === ADMIN_EMAIL;
 
 // Brute-force protection, keyed on the REAL client IP (see clientIp above).
 //  • loginLimiter: tight, paired with the failed_logins DB check in
@@ -3981,7 +3983,7 @@ app.post('/api/node/run-failed', verifyJwt, requireNotBanned, async (req, res) =
 // ─── AUTH: REGISTER ─────────────────────────────────────────────────
 app.post('/api/auth/register', registerLimiter, requireAuthInfra, async (req, res) => {
   try {
-    const email = String(req.body?.email || '').trim().toLowerCase();
+    const email = normalizeEmail(req.body?.email);
     const password = String(req.body?.password || '');
 
     if (!EMAIL_RE.test(email)) {
@@ -4083,7 +4085,7 @@ function recordFailedLogin(email, ip, ua) {
 app.post('/api/auth/login', loginLimiter, requireAuthInfra, async (req, res) => {
   const ip = clientIp(req);
   const ua = req.get('user-agent') || null;
-  const email = String(req.body?.email || '').trim().toLowerCase();
+  const email = normalizeEmail(req.body?.email);
   const password = String(req.body?.password || '');
 
   // Persistent brute-force throttle (survives restart). Fires before any
@@ -4636,7 +4638,7 @@ const resetLimiter = rateLimit({
 });
 
 app.post('/api/auth/forgot-password', resetLimiter, async (req, res) => {
-  const email = String(req.body?.email || '').trim().toLowerCase();
+  const email = normalizeEmail(req.body?.email);
   // Reply first, work after: identical body and identical timing whether the
   // account exists, the mailer is down, or the address is nonsense.
   res.json(NEUTRAL_REPLY);
@@ -5252,7 +5254,7 @@ app.get('/api/admin/users', adminGate, async (req, res) => {
 // ─── ADMIN: SEARCH USERS BY EMAIL ───────────────────────────────────
 app.get('/api/admin/users/search', adminGate, async (req, res) => {
   try {
-    const q = String(req.query.email || '').trim().toLowerCase();
+    const q = normalizeEmail(req.query.email);
     if (!q) return res.json({ users: [] });
 
     // ILIKE with parameterized argument — SQL-injection safe. Cap to 50 so
@@ -5863,7 +5865,7 @@ app.post('/api/admin/media-rescue', adminGate, async (req, res) => {
   if (!dbReady()) return res.status(503).json({ error: 'Database not configured.' });
   if (!spacesReady()) return res.status(503).json({ error: 'Spaces not configured — nowhere to rescue files to.' });
 
-  const email = String(req.body?.email || '').trim().toLowerCase();
+  const email = normalizeEmail(req.body?.email);
   const all = req.body?.all === true;
   const limit = Math.max(1, Math.min(500, Number(req.body?.limit) || 20));
   if (!email && !all) {
@@ -5945,7 +5947,7 @@ app.get('/api/admin/media-health', adminGate, async (req, res) => {
 
 app.get('/api/admin/thumbnails/survey', adminGate, async (req, res) => {
   if (!dbReady()) return res.status(503).json({ error: 'Database not configured.' });
-  const email = String(req.query.email || '').trim().toLowerCase();
+  const email = normalizeEmail(req.query.email);
   if (!email) return res.status(400).json({ error: 'An email is required — this runs for one account.' });
 
   try {
@@ -5981,7 +5983,7 @@ app.get('/api/admin/thumbnails/survey', adminGate, async (req, res) => {
 // TIME REMAINING, because what matters is what is about to be lost for good.
 app.get('/api/admin/recovery', adminGate, async (req, res) => {
   if (!dbReady()) return res.status(503).json({ error: 'Database not configured.' });
-  const email = String(req.query.email || '').trim().toLowerCase();
+  const email = normalizeEmail(req.query.email);
   const text = String(req.query.text || '').trim();
   const days = Number(req.query.days) || null;
   try {
@@ -6052,7 +6054,7 @@ app.post('/api/admin/thumbnails/backfill', adminGate, async (req, res) => {
   if (!dbReady()) return res.status(503).json({ error: 'Database not configured.' });
   if (!spacesReady()) return res.status(503).json({ error: 'Spaces not configured — nowhere to put a thumbnail.' });
 
-  const email = String(req.body?.email || '').trim().toLowerCase();
+  const email = normalizeEmail(req.body?.email);
   const limit = Math.max(1, Math.min(1000, Number(req.body?.limit) || 20));
   if (!email) return res.status(400).json({ error: 'An email is required — this runs for one account.' });
 
