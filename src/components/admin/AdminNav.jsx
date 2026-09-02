@@ -90,7 +90,7 @@ function writeCollapsed(v) {
 }
 
 export const GROUPS = [
-  { id: 'daily',     label: 'Daily',     tabs: ['sop', 'alerts', 'tasks', 'live'] },
+  { id: 'daily',     label: 'Daily',     tabs: ['sop', 'alerts', 'tasks', 'projects', 'live'] },
   // Recovery sits here, not in System: it is opened because a PERSON emailed
   // saying they lost something — the same reason Users is opened. It was left
   // out of this list once and the fallback put it in System, which is where

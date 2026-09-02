@@ -13,6 +13,7 @@ import UserTable from '@/components/admin/UserTable';
 // would be a control that silently does nothing. Component kept on disk.
 import AudienceTab from '@/components/admin/AudienceTab';
 import ExpensesTab from '@/components/admin/ExpensesTab';
+import ProjectsTab from '@/components/admin/ProjectsTab';
 import ExpiryPanel from '@/components/admin/ExpiryPanel';
 import CreditsModal from '@/components/admin/CreditsModal';
 import HistoryModal from '@/components/admin/HistoryModal';
@@ -60,6 +61,13 @@ const TABS = [
   // truth for both of us.
   { id: 'tasks', label: 'Tasks',
     desc: 'Every task and project, split into yours and mine, in priority order — with the history back to the start. Open one to see why it matters and what it involves. Mark your own items done; reopen anything closed too early. This is the list, not a copy of it.' },
+  // FOURTH, beside Tasks and deliberately NOT merged with it. Tasks is the
+  // record of what Claude is building here — seeded from code and rewritten on
+  // every deploy, which would silently overwrite a row a person typed. This
+  // one is Amr and Mohaned's own board, edited by hand, about work that is
+  // mostly not software.
+  { id: 'projects', label: 'Projects',
+    desc: 'The projects you and Mohaned are running together — proposals, demos, follow-ups, whatever is in flight. List or board, drag a card to change its status, and the numbers across the top count themselves. Overdue is worked out from the end date every time it is read, never stored, so it cannot go stale. The row button ARCHIVES rather than deletes: a shared board is exactly where one person removes something the other still needed.' },
   { id: 'alerts', label: 'Alerts',
     desc: 'What needs your attention right now — supplier balance running low, charges taken with nothing delivered, failure spikes. This is the only screen that speaks first; every other tab waits to be asked. Anything serious also emails you once.' },
   // Tier 2.1 — for use DURING a session, not after it. Second only to
@@ -343,6 +351,7 @@ export default function AdminPanel() {
 
         {tab === 'sop' && <SopTab onError={handleError} />}
         {tab === 'tasks' && <TasksTab onError={handleError} />}
+        {tab === 'projects' && <ProjectsTab onError={handleError} />}
         {tab === 'recovery' && <RecoveryTab onError={handleError} />}
         {tab === 'alerts' && <AlertsTab onError={handleError} />}
 

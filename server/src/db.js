@@ -1259,6 +1259,49 @@ export async function migrate() {
         PRIMARY KEY (provider, month)
       )`);
 
+    // ── THE PROJECT BOARD AMR AND MOHANED SHARE ──────────────────────────
+    // Their own work together, tracked where they already look every day,
+    // rather than in a spreadsheet only one of them has open.
+    //
+    // It is deliberately NOT the tasks table. That one is the record of what I
+    // am building on this platform, seeded from code and owner_touched-aware.
+    // This is a board two people edit by hand, about work that is mostly not
+    // software. Sharing a table would have meant one of them constantly
+    // filtering the other out.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS projects (
+        id          SERIAL        PRIMARY KEY,
+        name        VARCHAR(200)  NOT NULL,
+        client      VARCHAR(200),
+        owner       VARCHAR(120),
+        description TEXT,
+        -- Free text rather than an enum: the set of statuses is theirs to
+        -- change, and a migration to add "On Hold" would be a silly reason to
+        -- need a deploy.
+        status      VARCHAR(40)   NOT NULL DEFAULT 'Not Started',
+        priority    VARCHAR(16)   NOT NULL DEFAULT 'Medium',
+        progress    INTEGER       NOT NULL DEFAULT 0,
+        risk        VARCHAR(16)   NOT NULL DEFAULT 'Medium',
+        start_date  DATE,
+        end_date    DATE,
+        budget      NUMERIC(12,2) NOT NULL DEFAULT 0,
+        cost        NUMERIC(12,2) NOT NULL DEFAULT 0,
+        revenue     NUMERIC(12,2) NOT NULL DEFAULT 0,
+        currency    VARCHAR(8)    NOT NULL DEFAULT 'KWD',
+        category    VARCHAR(80),
+        tags        TEXT[]        NOT NULL DEFAULT '{}',
+        notes       TEXT,
+        -- Archived, never deleted by the archive button. A board two people
+        -- share is exactly where one of them removes something the other still
+        -- needed, and "where did it go" has no answer without this.
+        archived    BOOLEAN       NOT NULL DEFAULT FALSE,
+        created_by  VARCHAR(200),
+        created_at  TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
+        updated_at  TIMESTAMPTZ   NOT NULL DEFAULT NOW()
+      )`);
+    await client.query(
+      `CREATE INDEX IF NOT EXISTS projects_board_idx ON projects (archived, status, end_date)`);
+
     await client.query('COMMIT');
     console.log('[db] migrations ok — users + credits_history + admin_audit_log + failed_logins + entities + node_spaces ready');
   } catch (err) {

@@ -151,6 +151,7 @@ import { registerWaitlistRoutes } from './waitlist.js';
 import { registerEditEventRoutes } from './edit-events.js';
 import { registerSopRoutes, scheduleSopJobs } from './sop-routes.js';
 import { registerPreflightRoutes } from './preflight-routes.js';
+import { registerProjectRoutes } from './projects-routes.js';
 import { registerTaskRoutes, ensureTasksTable, upsertTask } from './tasks.js';
 import { seedTasks } from './tasks-seed.js';
 import { registerLiveRoutes } from './live-routes.js';
@@ -5120,6 +5121,14 @@ registerPreflightRoutes(app, {
   pool, dbReady, adminGate,
   getKieCredits: KIE_KEY ? () => kieGetCredits() : null,
 });
+
+// ─── THE PROJECT BOARD AMR AND MOHANED SHARE ─────────────────────────────────
+// Their own work together — proposals, demos, follow-ups — tracked where they
+// already look every day rather than in a spreadsheet only one of them has
+// open. Deliberately its own table, not the tasks board: that one is seeded
+// from code and refreshed on every boot, which would quietly overwrite rows a
+// person had typed.
+registerProjectRoutes(app, { pool, dbReady, adminGate });
 
 // ─── TASKS (task #49) ────────────────────────────────────────────────────────
 // The owner had to ask "what is pending?" every time, and the answer came from

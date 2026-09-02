@@ -222,6 +222,15 @@ export const adminApi = {
   // the cohort will use; without it the cohort check reports UNKNOWN rather
   // than passing, because "no cohort chosen" is not the same as "the cohort is
   // fine". See server/src/preflight.js.
+  // ── The project board Amr and Mohaned share ────────────────────────────
+  // Archiving is what the board's button does; deleting is for a row typed by
+  // mistake, and the screen says so before it happens.
+  projects:        (opts)        => request('GET', `/api/admin/projects${opts?.archived ? '?archived=true' : ''}`),
+  projectCreate:   (body)        => request('POST', '/api/admin/projects', body),
+  projectUpdate:   (id, body)    => request('PUT', `/api/admin/projects/${id}`, body),
+  projectArchive:  (id, archived) => request('POST', `/api/admin/projects/${id}/archive`, { archived }),
+  projectDelete:   (id)          => request('DELETE', `/api/admin/projects/${id}`),
+
   // The advisory line has said "review them once and accept them" since it
   // shipped, and until now there was no way to accept anything — see
   // server/src/sop-routes.js. Preview first: this list is dismissed for ever.
