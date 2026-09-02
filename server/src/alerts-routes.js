@@ -154,10 +154,36 @@ export async function gatherFacts(pool, { getKieCredits, now = new Date() } = {}
 export async function balanceFacts(pool, { getKieCredits } = {}) {
   const out = { credits: null, burnPerDay: null, providerError: null };
 
+  // ── THIS HAS NEVER PRODUCED A NUMBER, AND IT IS THE POINT OF THE LINE ──
+  // balanceLine exists to turn "74,066 credits" into "~6 days", because a
+  // credit count means nothing at a glance and a day count books a top-up.
+  // On production it has only ever said "Comfortable", with no days at all.
+  //
+  // TWO BUGS, and the first hid the second.
+  //
+  // 1. WRONG SIGN. A spend is stored as `-cost` (credits.js), so SUM(amount)
+  //    over spends is NEGATIVE. balanceLine then asks `burnPerDay > 0`, which
+  //    is false, and returns null — no days, silently, every time. Every other
+  //    place in this codebase that totals spending writes SUM(-amount); there
+  //    are four of them. This one did not.
+  //
+  // 2. WRONG UNIT, which fixing the sign alone would have hidden. `amount` is
+  //    VOXEL credits — what the customer is charged. The balance being judged
+  //    is the KIE balance — what WE are charged. Dividing one by the other is
+  //    dimensionally meaningless; it would have produced a confident number
+  //    that was not days of anything.
+  //
+  // kie_credits is the right column: the estimated KIE credits each
+  // transaction consumed from OUR kie balance. It is positive, so no negation.
+  // It is NULL for FAL-backed models — correctly, because those do not drain
+  // the kie balance at all, and a workshop taught entirely on FAL models
+  // genuinely does give the kie balance infinite runway.
   const burn = await pool.query(
-    `SELECT COALESCE(SUM(amount), 0)::numeric / 7 AS per_day
+    `SELECT COALESCE(SUM(kie_credits), 0)::numeric / 7 AS per_day
        FROM credits_history
       WHERE action = 'spend' AND created_at > NOW() - INTERVAL '7 days'`);
+  // Still null rather than 0 when nothing was spent: "no burn rate yet" is an
+  // honest thing for the screen to say, and 0 would divide into infinity.
   out.burnPerDay = Number(burn.rows[0]?.per_day) || null;
 
   if (typeof getKieCredits === 'function') {

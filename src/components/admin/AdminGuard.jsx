@@ -63,19 +63,40 @@ export default function AdminGuard({ children }) {
     return (
       <CrmThemeProvider>
         {children}
-        {/* One fixed cluster. The theme toggle used to live in AdminPanel's
-            header while this button was position:fixed at the same corner —
-            they overlapped on screen. Keeping both here makes that impossible. */}
+        {/* One cluster. The theme toggle used to live in AdminPanel's header
+            while this button was position:fixed at the same corner — they
+            overlapped each other. Keeping both here makes that impossible.
+
+            ── AND IT MUST NOT BE position:fixed ────────────────────────────
+            Fixed, it stayed at top-right while the page scrolled underneath —
+            landing exactly on the FINE / ACT NOW / THIS WEEK labels at the
+            right edge of every SOP row. On a status screen those labels ARE
+            the information, so this covered the one thing the page exists to
+            say. Worse, the background was var(--crm-w06) — six percent white —
+            so the row's text showed straight through the button and the two
+            were unreadable together.
+
+            `absolute` resolves against the initial containing block here, so
+            the cluster sits at the top of the DOCUMENT and scrolls away with
+            everything else. Reported by Amr on 2026-09-02 from the production
+            panel; visible in every screenshot of the SOP tab once scrolled.
+
+            The background is opaque for the same reason: a control that
+            overlaps content, even for the moment before it scrolls off, must
+            hide what is under it rather than blend with it. */}
         <div style={{
-          position: 'fixed', top: 16, right: 16, zIndex: 1000,
+          position: 'absolute', top: 16, right: 16, zIndex: 1000,
           display: 'flex', gap: 8, alignItems: 'center',
+          background: 'var(--crm-page)', padding: 4, borderRadius: 10,
         }}>
           <ThemeToggle />
           <button
             onClick={logout}
             style={{
               padding: '6px 14px', fontSize: 12, fontWeight: 600,
-              background: 'var(--crm-w06)',
+              // Opaque: this sits over content until it scrolls away, and a
+              // translucent button on top of a row makes both unreadable.
+              background: 'var(--crm-surface)',
               border: '1px solid var(--crm-w12)',
               borderRadius: 8, color: 'var(--crm-w80)', cursor: 'pointer',
               fontFamily: '"DM Sans", sans-serif',
