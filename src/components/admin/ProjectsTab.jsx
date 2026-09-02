@@ -86,6 +86,7 @@ export default function ProjectsTab({ onError }) {
   const [filters, setFilters] = useState({ owner: '', status: '', priority: '', q: '' });
   // Newest deadline first by default — a board is read to find what is next.
   const [sort, setSort] = useState({ key: 'end_date', dir: 1 });
+  const [month, setMonth] = useState(() => { const n = new Date(); return [n.getFullYear(), n.getMonth()]; });
 
   const load = useCallback(async (archived = showArchived) => {
     setBusy(true);
@@ -217,10 +218,10 @@ export default function ProjectsTab({ onError }) {
       )}
 
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 12 }}>
-        {['table', 'board'].map((v) => (
+        {['table', 'board', 'calendar'].map((v) => (
           <button key={v} onClick={() => setView(v)}
             style={{ ...btn, background: view === v ? 'var(--crm-w14)' : 'var(--crm-w06)' }}>
-            {v === 'table' ? 'List' : 'Board'}
+            {v === 'table' ? 'List' : v === 'board' ? 'Board' : 'Calendar'}
           </button>
         ))}
         <Picker label="Owner" value={filters.owner} options={owners}
@@ -239,9 +240,9 @@ export default function ProjectsTab({ onError }) {
         </span>
       </div>
 
-      {view === 'table'
-        ? <Table rows={shown} onEdit={setEditing} onArchive={archive} sort={sort} onSort={setSort} />
-        : <Board rows={shown} onEdit={setEditing} onMove={move} />}
+      {view === 'table' && <Table rows={shown} onEdit={setEditing} onArchive={archive} sort={sort} onSort={setSort} />}
+      {view === 'board' && <Board rows={shown} onEdit={setEditing} onMove={move} />}
+      {view === 'calendar' && <Calendar rows={shown} onEdit={setEditing} month={month} onMonth={setMonth} />}
 
       {s && (
         <div style={{ ...card, marginTop: 16, display: 'flex', gap: 24, flexWrap: 'wrap', fontSize: 12.5 }}>
@@ -440,6 +441,121 @@ function Board({ rows, onEdit, onMove }) {
         );
       })}
     </div>
+  );
+}
+
+/**
+ * The month, with starts and deadlines on it.
+ *
+ * ── EVERY DATE HERE IS A STRING ────────────────────────────────────────────
+ * The grid is walked in UTC and each cell is formatted to YYYY-MM-DD, then
+ * matched against the project's date by plain string equality. No Date is ever
+ * built from a project's date and no timezone is ever involved — which is the
+ * bug that had the same deadline reading 02 Sept in Kuwait and 01 Sept in
+ * London. Walking in UTC also means a daylight-saving change cannot skip or
+ * repeat a day, which is the other way month grids go wrong.
+ *
+ * Weeks start on MONDAY, matching the sample and the working week here.
+ */
+function Calendar({ rows, onEdit, month, onMonth }) {
+  const [y, m] = month;                                   // m is 0-based
+  const pad = (n) => String(n).padStart(2, '0');
+  const iso = (d) => `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
+
+  const first = new Date(Date.UTC(y, m, 1));
+  // Monday-start: getUTCDay() is 0 for Sunday, so shift it.
+  const lead = (first.getUTCDay() + 6) % 7;
+  const gridStart = new Date(Date.UTC(y, m, 1 - lead));
+
+  const starts = new Map();
+  const ends = new Map();
+  for (const p of rows) {
+    const s = dayOf(p.start_date); if (s) { starts.set(s, [...(starts.get(s) || []), p]); }
+    const e = dayOf(p.end_date); if (e) { ends.set(e, [...(ends.get(e) || []), p]); }
+  }
+
+  const today = todayStr();
+  const cells = [];
+  for (let i = 0; i < 42; i += 1) {
+    const d = new Date(gridStart); d.setUTCDate(gridStart.getUTCDate() + i);
+    const key = iso(d);
+    cells.push({ key, day: d.getUTCDate(), outside: d.getUTCMonth() !== m, isToday: key === today,
+      starts: starts.get(key) || [], ends: ends.get(key) || [] });
+  }
+
+  const label = new Date(Date.UTC(y, m, 1))
+    .toLocaleDateString('en-GB', { month: 'long', year: 'numeric', timeZone: 'UTC' });
+
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+        <button onClick={() => onMonth(m === 0 ? [y - 1, 11] : [y, m - 1])} style={btn} aria-label="Previous month">‹</button>
+        <button onClick={() => onMonth(m === 11 ? [y + 1, 0] : [y, m + 1])} style={btn} aria-label="Next month">›</button>
+        <span style={{ fontWeight: 700, color: 'var(--crm-ink)', fontSize: 14, minWidth: 150 }}>{label}</span>
+        <button onClick={() => { const n = new Date(); onMonth([n.getFullYear(), n.getMonth()]); }} style={btn}>Today</button>
+        <span style={{ marginLeft: 'auto', fontSize: 11.5, color: 'var(--crm-w45)' }}>
+          ▸ starts &nbsp;·&nbsp; ◗ deadline &nbsp;·&nbsp; red = overdue
+        </span>
+      </div>
+
+      <div style={{ ...card, padding: 0, overflow: 'hidden' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', borderBottom: '1px solid var(--crm-w08)' }}>
+          {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((d) => (
+            <div key={d} style={{ padding: 9, fontSize: 10.5, textTransform: 'uppercase',
+              letterSpacing: '.06em', color: 'var(--crm-w50)', fontWeight: 700, textAlign: 'center' }}>{d}</div>
+          ))}
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)' }}>
+          {cells.map((c) => (
+            <div key={c.key} style={{
+              minHeight: 96, padding: '6px 7px', borderRight: '1px solid var(--crm-w05)',
+              borderBottom: '1px solid var(--crm-w05)',
+              background: c.outside ? 'var(--crm-w03)' : 'transparent', opacity: c.outside ? 0.5 : 1,
+            }}>
+              <div style={{
+                fontSize: 11.5, fontWeight: 700,
+                color: c.isToday ? 'var(--crm-red)' : 'var(--crm-w45)',
+              }}>{c.day}</div>
+              <Events list={c.starts} mark="▸" onEdit={onEdit} />
+              <Events list={c.ends} mark="◗" onEdit={onEdit} deadline />
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** At most three per day, and it SAYS when it is hiding some. */
+function Events({ list, mark, onEdit, deadline }) {
+  if (!list.length) return null;
+  const shown = list.slice(0, 3);
+  return (
+    <>
+      {shown.map((p) => {
+        const late = deadline && isOverdue(p);
+        return (
+          <div
+            key={`${mark}${p.id}`}
+            onClick={() => onEdit(p)}
+            title={`${p.name}${p.owner ? ` · ${p.owner}` : ''}`}
+            style={{
+              marginTop: 4, fontSize: 10.5, fontWeight: 600, padding: '2px 5px', borderRadius: 5,
+              cursor: 'pointer', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+              color: late ? 'var(--crm-red)' : 'var(--crm-w72)',
+              border: `1px solid ${late ? 'var(--crm-red)' : 'var(--crm-w14)'}`,
+            }}
+          >{mark} {p.name}</div>
+        );
+      })}
+      {/* Never a silent truncation: a day showing three of seven deadlines
+          while looking complete is the calendar lying about the week. */}
+      {list.length > shown.length && (
+        <div style={{ marginTop: 3, fontSize: 10, color: 'var(--crm-w45)' }}>
+          + {list.length - shown.length} more
+        </div>
+      )}
+    </>
   );
 }
 
