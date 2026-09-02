@@ -18,7 +18,6 @@
 //   1. it scrolls away with the page
 //   2. whatever it does overlap, it HIDES rather than blends with
 
-import React from 'react';
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
