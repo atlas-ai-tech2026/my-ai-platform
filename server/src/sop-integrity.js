@@ -37,6 +37,22 @@ export const EXPECTED_UNCALLED = [
   '/api/auth/google', '/api/auth/google/callback',
   '/api/auth/microsoft', '/api/auth/microsoft/callback',
   '/api/unsubscribe',               // followed from a link in an email
+
+  // ── THE CUSTOMER SIDE OF NOTIFICATIONS — DEFERRED ON PURPOSE ────────────
+  // The admin half is built and used: compose, audience, preview, send. These
+  // three are the CUSTOMER's half — a bell in the header, a list they can read,
+  // marking one seen. The owner deferred that deliberately; email campaigns are
+  // separately ON HOLD.
+  //
+  // Declared rather than removed, because the routes are correct, ownership-
+  // scoped to req.user.id, and will be needed the day that screen is built.
+  // Deleting them would mean writing them again from memory.
+  //
+  // Decided 2026-09-02 with Amr. If the customer notification screen is built,
+  // take these three off this list — they will have callers.
+  '/api/notifications',
+  '/api/notifications/read',
+  '/api/notifications/:id/click',
 ];
 
 /** Tables written by migrations or infrastructure rather than a route. */

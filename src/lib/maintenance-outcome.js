@@ -78,6 +78,7 @@ export function outcomeOf(action, result) {
     // The server already produced the sentence — it holds the numbers and the
     // failing keys. Repeating that judgement here would be a second place for
     // it to disagree with itself.
+    case 'restoreVerify': return restoreVerify(result);
     case 'advisories': return advisories(result);
     case 'ledgerAudit': return {
       tone: result.tone === 'ok' ? 'ok' : (result.tone === 'bad' ? 'bad' : 'idle'),
@@ -87,6 +88,40 @@ export function outcomeOf(action, result) {
     };
     default:        return { tone: 'bad', headline: 'Unknown job.', detail: '', again: false };
   }
+}
+
+// ── Proving the backup can be restored ──────────────────────────────────────
+// PREVIEW returns { latest, history }; RUN returns { ok, problems, ... }.
+function restoreVerify(r) {
+  // Preview: the record, without running anything.
+  if (r.history || r.latest !== undefined) {
+    const l = r.latest;
+    if (!l) {
+      return { tone: 'idle', headline: 'Never verified.',
+        detail: 'No restore has been proven yet. Press Run to do it now — it writes nothing.',
+        again: false };
+    }
+    const when = l.checked_at ? new Date(l.checked_at).toLocaleDateString('en-GB') : 'unknown';
+    const runs = (r.history || []).length;
+    if (!l.ok) {
+      return { tone: 'bad', headline: `The last check FAILED (${when}).`,
+        detail: `${firstProblems(l.problems)} ${runs} run(s) recorded. A backup that cannot be `
+          + 'restored is not a backup.', again: true };
+    }
+    return { tone: 'ok', headline: `Restorable — last proven ${when}.`,
+      detail: `${l.rows_total ? `${Number(l.rows_total).toLocaleString()} rows read back. ` : ''}`
+        + `${runs} run(s) recorded.`, again: false };
+  }
+  // Run.
+  if (!r.ok) {
+    return { tone: 'bad', headline: 'The archive did NOT restore.',
+      detail: `${firstProblems(r.problems)} Nothing was changed — but this is the one to act on.`,
+      again: true };
+  }
+  return { tone: 'ok', headline: 'The backup restored and the rows are there.',
+    detail: `${r.rowsTotal ? `${Number(r.rowsTotal).toLocaleString()} rows read back` : 'Verified'}`
+      + `${r.loadTested ? ', loaded into a scratch database' : ''}. The live database was never touched.`,
+    again: false };
 }
 
 // ── Accepting the dependency advisories you have read ───────────────────────

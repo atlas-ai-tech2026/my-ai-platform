@@ -1791,81 +1791,20 @@ app.post('/api/generate', verifyJwt, requireNotBanned, noDoubleCharge, requireMo
     return res.status(500).json({ error: 'Generation failed: ' + publicError(humanReason) });
   }
 });
+// ─── /api/checkStatus REMOVED 2026-09-02 ────────────────────────────────────
+// It was a SECOND copy of the video status poller — same kie/fal branches, and
+// its own calls to settleVideoCharge() and refundFailedVideo(). /api/video-status
+// does that job and is the one every client actually polls (Video.jsx,
+// EditCut.jsx, voxel-node/api.js).
+//
+// Two copies of refund logic is the hazard, not the extra route. If somebody
+// fixes a settle-or-refund bug in one and not the other, the unexercised copy
+// does the wrong thing with money the day anything reaches it.
+//
+// Safe to remove, checked rather than assumed: `git log -S checkStatus -- src/`
+// finds no caller anywhere in the project's history, and the route required a
+// JWT, so no outside integration could reach it either.
 
-// ─── CHECK STATUS ENDPOINT ─────────────────────────────────────────
-// M5 (audit 2026-07-28): was unauthenticated — anyone could poll any job
-// id and read other users' generation results. Now auth + rate limit +
-// ownership (404 on mismatch, same shape as the other ownership checks).
-app.post('/api/checkStatus', verifyJwt, requireNotBanned, statusLimiter, async (req, res) => {
-  const { job_id, model_id } = req.body;
-
-  if (!job_id || typeof job_id !== 'string') return res.status(400).json({ error: 'Invalid job_id' });
-  if (!model_id || typeof model_id !== 'string') return res.status(400).json({ error: 'Invalid model_id' });
-
-  if (!(await userOwnsJob(req.user.id, job_id))) {
-    return res.status(404).json({ error: 'Job not found.' });
-  }
-
-  // kie.ai jobs — same prefix convention as /api/video-status.
-  if (model_id.startsWith('kie:')) {
-    try {
-      const family = model_id.startsWith('kie:jobs:') ? 'jobs' : 'veo';
-      const t = await kieGetTask(family, job_id, { tag: 'KIE-STATUS' });
-      if (t.state === 'success') {
-        await settleVideoCharge(job_id); // completed — charge stands
-        const durableUrl = await persistOrFallback(t.resultUrls[0], 'video');
-        return res.json({ status: 'COMPLETED', video_url: durableUrl, image_url: null });
-      }
-      if (t.state === 'fail') {
-        await refundFailedVideo(job_id, `kie: ${t.failMsg || 'generation failed'}`);
-        return res.json({ status: 'FAILED', error: publicError(t.failMsg, 'Generation failed') });
-      }
-      return res.json({ status: 'IN_PROGRESS', queue_position: null });
-    } catch (error) {
-      console.error('[checkStatus] [KIE] error:', error.message);
-      return res.status(500).json({ status: 'ERROR', error: 'Could not check status.' });
-    }
-  }
-
-  try {
-    const status = await fal.queue.status(model_id, {
-      requestId: job_id,
-      logs: false,
-    });
-
-    if (status.status === 'COMPLETED') {
-      const result = await fal.queue.result(model_id, { requestId: job_id });
-
-      const videoUrl =
-        result.data?.video?.url ||
-        result.data?.video_url ||
-        result.data?.output?.video_url ||
-        null;
-
-      const imageUrl =
-        result.data?.images?.[0]?.url ||
-        result.data?.image?.url ||
-        null;
-
-      await settleVideoCharge(job_id); // completed — charge stands
-      // Re-host outputs to our own Spaces bucket so history stays durable.
-      const durableVideo = await persistOrFallback(videoUrl, 'video');
-      const durableImage = await persistOrFallback(imageUrl, 'image');
-      return res.json({ status: 'COMPLETED', video_url: durableVideo, image_url: durableImage });
-    }
-
-    if (status.status === 'FAILED') {
-      await refundFailedVideo(job_id, 'fal: generation failed');
-      return res.json({ status: 'FAILED', error: 'Generation failed. Please try again.' });
-    }
-
-    return res.json({ status: status.status, queue_position: status.queue_position || null });
-
-  } catch (error) {
-    console.error('Status check error:', error.message);
-    return res.status(500).json({ status: 'ERROR', error: 'Could not check status.' });
-  }
-});
 
 // ─── GENERATE VIDEO (new endpoint with polling) ───────────────────
 app.post('/api/generate-video', verifyJwt, requireNotBanned, noDoubleCharge, requireModelProviderKey, async (req, res) => {

@@ -222,6 +222,13 @@ export const adminApi = {
   // the cohort will use; without it the cohort check reports UNKNOWN rather
   // than passing, because "no cohort chosen" is not the same as "the cohort is
   // fine". See server/src/preflight.js.
+  // ── Proving the backup, on demand ──────────────────────────────────────
+  // Both endpoints existed and neither had a screen. The answer to "are we
+  // safe?" should never be "wait a month and find out" — which is exactly what
+  // the route's own comment says, on a route nothing could reach.
+  backupVerification: ()  => request('GET',  '/api/admin/backup/verification'),
+  backupVerifyNow:    ()  => request('POST', '/api/admin/backup/verify', {}),
+
   // ── The project board Amr and Mohaned share ────────────────────────────
   // Archiving is what the board's button does; deleting is for a row typed by
   // mistake, and the screen says so before it happens.

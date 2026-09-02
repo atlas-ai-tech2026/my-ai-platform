@@ -167,6 +167,23 @@ export const JOBS = [
     run: () => adminApi.passphraseCheck(),
   },
   {
+    id: 'restoreVerify',
+    title: 'Prove the backup can actually be restored',
+    blurb: 'Downloads the newest encrypted archive, decrypts it, and loads it into a scratch '
+      + 'database to confirm the rows are really there. Preview shows the last twelve runs '
+      + 'without running anything.',
+    writes: 'Writes NOTHING to customer data. It builds a throwaway copy, counts what came back, '
+      + 'and records the result. The live database is never touched.',
+    info: 'This runs monthly on its own, and its own code says the answer to "are we safe?" should '
+      + 'never be "wait a month and find out" — yet until now there was no way to ask. Press Preview '
+      + 'to read the history; press Run only when you actually want to prove it now. A run downloads '
+      + 'and decrypts a real archive, so it takes a minute and can be cut off at 100 seconds by the '
+      + 'proxy — the result is still recorded server-side either way, so check Preview again if the '
+      + 'page gives up first.',
+    preview: () => adminApi.backupVerification(),
+    run: () => adminApi.backupVerifyNow(),
+  },
+  {
     id: 'advisories',
     title: 'Accept the dependency advisories you have read',
     blurb: 'Marks the advisories from the last weekly audit as reviewed, so the SOP line stops '
