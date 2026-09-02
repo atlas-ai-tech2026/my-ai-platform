@@ -125,4 +125,26 @@ describe('the line it becomes', () => {
   it('and says so when it has bounded the list, per the standing rule', () => {
     expect(routes()).toMatch(/… and \$\{rows\.length - 6\} more/);
   });
+
+  it('☠ and a GREEN line says how much it looked at', () => {
+    // Amr's production screenshot read "0 · Fine · none found". True, and
+    // reassuring — but a query that examined NOTHING would have printed the
+    // same three words. The function has always returned a scanned count; the
+    // screen threw it away, so the standard this file asserts was one the
+    // reader never actually saw.
+    expect(routes()).toMatch(/none found — \$\{scanned\}/);
+    expect(routes()).toMatch(/looked\(um\.scanned\?\.users \?\? 0, 'account', 'accounts'\)/);
+    expect(routes()).toMatch(/looked\(um\.scanned\?\.invites \?\? 0, 'invitation on a live code', 'invitations on live codes'\)/);
+  });
+
+  it('and the count is written the way a person reads numbers', () => {
+    // 595, not 595; 3,046, not 3046. The null-column line already taught us
+    // that an unpunctuated four-figure row count gets misread at a glance.
+    expect(routes()).toMatch(/n\.toLocaleString\(\)/);
+    // ☠ BOTH FORMS SPELLED OUT, not an "s" glued to the end. The first
+    // version did that and produced "1,204 invitation on a live codes checked"
+    // — caught by PRINTING it, which is the only way that kind of mistake is
+    // ever caught.
+    expect(routes()).toMatch(/n === 1 \? one : many/);
+  });
 });

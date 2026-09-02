@@ -404,10 +404,22 @@ export function registerSopRoutes(app, {
     // Invitations are a warning, not a failure: the redeem comparison
     // normalises both sides since 2026-09-02, so those people can already get
     // in. What is left there is a list an admin cannot read and compare.
-    const um = r.unmatchable_emails || { users: [], invites: [] };
-    const say = (rows, f) => rows.length
+    const um = r.unmatchable_emails || { users: [], invites: [], scanned: { users: 0, invites: 0 } };
+    // ☠ A GREEN LINE MUST SAY HOW MUCH IT LOOKED AT.
+    // "none found" and "nothing was examined" render identically, and the
+    // second is the one that would matter. This check's own unit test asserts
+    // that distinction — and the first version of the SCREEN threw the count
+    // away, so the test held a standard the reader never saw. Amr's production
+    // screenshot is what showed it: "0 · Fine · none found", with no way to
+    // tell a clean database from a query that read nothing.
+    // Both forms spelled out. The first version appended an "s" to the whole
+    // phrase and produced "1,204 invitation on a live codes checked" — caught
+    // by printing it rather than by reading it, which is the only way that
+    // kind of mistake is ever caught.
+    const looked = (n, one, many) => `${n.toLocaleString()} ${n === 1 ? one : many} checked`;
+    const say = (rows, f, scanned) => rows.length
       ? rows.slice(0, 6).map(f).join(' · ') + (rows.length > 6 ? ` … and ${rows.length - 6} more` : '')
-      : 'none found';
+      : `none found — ${scanned}`;
     out.push(line({
       key: 'unmatchable-emails', zone: 'integrity',
       label: 'Accounts nobody can sign in to',
@@ -419,7 +431,9 @@ export function registerSopRoutes(app, {
         + 'errors, nothing is logged, and every admin screen shows the address looking correct. '
         + 'Found on 2026-09-02, when ten of eighty-four workshop attendees could not redeem the '
         + 'code they had been invited to.',
-      detail: say(um.users, (u) => `${u.email.trim()} → ${u.clean} (${u.fault}${u.collides ? ', COLLIDES with another account' : ''})`),
+      detail: say(um.users,
+        (u) => `${u.email.trim()} → ${u.clean} (${u.fault}${u.collides ? ', COLLIDES with another account' : ''})`,
+        looked(um.scanned?.users ?? 0, 'account', 'accounts')),
       action: um.users.length
         ? 'Each of these people is locked out right now. The address needs correcting in the '
           + 'database — except any marked COLLIDES, where a second account already holds the '
@@ -434,7 +448,9 @@ export function registerSopRoutes(app, {
       info: 'The same fault on a promo code\u2019s invitation list. These people CAN redeem \u2014 the '
         + 'comparison normalises both sides since 2026-09-02 \u2014 so this is no longer a lockout. '
         + 'What remains is a list an admin cannot read: two addresses that look identical and are not.',
-      detail: say(um.invites, (i) => `${i.code}: ${i.email.trim()} → ${i.clean} (${i.fault})`),
+      detail: say(um.invites,
+        (i) => `${i.code}: ${i.email.trim()} → ${i.clean} (${i.fault})`,
+        looked(um.scanned?.invites ?? 0, 'invitation on a live code', 'invitations on live codes')),
       action: um.invites.length ? 'Cosmetic. Fixed permanently the next time each list is uploaded.' : '',
     }));
 
