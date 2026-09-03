@@ -120,8 +120,10 @@ describe('Seedance 2.5 carries the full experience its card promises', () => {
 
   it("carries kie's reference caps — 30 images, 10 videos, 10 audio", () => {
     expect(indexSrc).toMatch(/refImageUrls\.slice\(0, isV25 \? 30 : 9\)/);
-    expect(indexSrc).toMatch(/video_urls\.slice\(0, isV25 \? 10 : 3\)/);
-    expect(indexSrc).toMatch(/audio_urls\.slice\(0, isV25 \? 10 : 3\)/);
+    // Since 2026-09-03 the video/audio lists are the RE-HOSTED ones (kie
+    // cannot read a data: URI) — same caps, new names.
+    expect(indexSrc).toMatch(/refVideoUrls\.slice\(0, isV25 \? 10 : 3\)/);
+    expect(indexSrc).toMatch(/refAudioUrls\.slice\(0, isV25 \? 10 : 3\)/);
   });
 
   it('offers 720p AND 1080p on the route, and never 4k (the API field refuses it)', () => {

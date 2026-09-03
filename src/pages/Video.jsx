@@ -13,6 +13,7 @@ import VideoMotionControlLeftPanel from '@/components/video/VideoMotionControlLe
 import VideoTopTabs from '@/components/video/VideoTopTabs';
 import { toast } from 'sonner';
 import { prepareImageForFal } from '@/lib/uploadToFal';
+import { readMediaSeconds } from '@/lib/mediaSeconds';
 import { useAuth } from '@/lib/AuthContext';
 import { VOXEL_TOKEN_KEY } from '@/lib/adminApi';
 
@@ -521,13 +522,18 @@ export default function Video() {
     const count = seedanceMedia[typeKey].length + 1;
     const label = type === 'image' ? `@Image${count}` : type === 'video' ? `@Video${count}` : `@Audio${count}`;
 
+    // A reference video's length drives the price and the request (the output
+    // follows the video — see /api/generate-video-ref). Read it now so the
+    // panel can show the price while the upload is still running.
+    const seconds = type === 'video' ? await readMediaSeconds(file) : null;
+
     setSeedanceMedia(prev => ({
       ...prev,
-      [typeKey]: [...prev[typeKey], { id, type, previewUrl, url: null, status: 'uploading', label }],
+      [typeKey]: [...prev[typeKey], { id, type, previewUrl, url: null, status: 'uploading', label, ...(seconds ? { seconds } : {}) }],
     }));
 
     try {
-      console.log(`[SEEDANCE UPLOAD] Uploading ${type} file:`, file.name, file.size, file.type);
+      console.log(`[SEEDANCE UPLOAD] Uploading ${type} file:`, file.name, file.size, file.type, seconds ? `${seconds.toFixed(1)}s` : '');
       const url = await prepareImageForFal(file, 0);
       console.log(`[SEEDANCE UPLOAD] ✅ Uploaded:`, url);
       setSeedanceMedia(prev => ({
@@ -644,8 +650,12 @@ export default function Video() {
     setIsGenerating(true);
     try {
       const readyImages = seedanceMedia.images.filter(i => i.url && (i.status === 'uploaded' || i.status === 'approved'));
-      const videoUrls = seedanceMedia.videos.filter(v => v.url).map(v => v.url);
+      const readyVideos = seedanceMedia.videos.filter(v => v.url);
+      const videoUrls = readyVideos.map(v => v.url);
       const audioUrls = seedanceMedia.audios.filter(a => a.url).map(a => a.url);
+      // The longest reference video, as the browser read it — the server reads
+      // the file itself and bills that; this is its cross-check.
+      const refVideoSeconds = readyVideos.reduce((m, v) => Math.max(m, Number(v.seconds) || 0), 0);
 
       // Separate images by role
       const referenceUrls = [];
@@ -704,6 +714,7 @@ export default function Video() {
       } else if (mode === 'reference') {
         if (referenceUrls.length > 0) body.image_urls = referenceUrls;
         if (videoUrls.length > 0) body.video_urls = videoUrls;
+        if (videoUrls.length > 0 && refVideoSeconds > 0) body.reference_video_seconds = refVideoSeconds;
         if (audioUrls.length > 0) body.audio_urls = audioUrls;
       }
 

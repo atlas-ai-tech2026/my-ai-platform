@@ -80,6 +80,7 @@ import { addLot, mirrorSpend as mirrorLotSpend, backfillAllUsers, scheduleCredit
 import { CREDIT_LIFE_DAYS } from './credit-backfill.js';
 import { withContinuity } from './video-prompt.js';
 import { probeVideoDurationSeconds } from './media-probe.js';
+import { referenceVideoBilling } from './seedance-reference.js';
 import { audienceMiddleware, audienceReport, ensureAudienceTables } from './audience-store.js';
 import { runRate, breakEven, renewals, renewalHeadline, monthlySeries, CYCLES }
   from './expenses.js';
@@ -2609,12 +2610,75 @@ app.post('/api/generate-video-ref', verifyJwt, requireNotBanned, noDoubleCharge,
 
   if (!modelAllowedForUser(req, modelLabel)) return res.status(403).json(MODEL_BLOCKED(modelLabel));
 
+  // Re-host any `data:` URI the upload fallback produced BEFORE the provider
+  // sees it — otherwise it rejects with "Only jpeg/jpg/png image formats are
+  // supported". Same step the image route has always performed.
+  // (Production bug, 2026-08-02.) Reference videos and audio go through it
+  // too since 2026-09-03 — kie cannot read a data: URI of any kind. This
+  // runs BEFORE the charge now, so a failure is a plain 400 with the reason
+  // and nothing to refund.
+  const isKieSeedance = VIDEO_DIRECT_MAP[modelLabel]?.provider === 'kie';
+  let startFrameUrl = start_frame;
+  let endFrameUrl = end_frame;
+  let refImageUrls = image_urls;
+  let refVideoUrls = Array.isArray(video_urls) ? video_urls.filter(Boolean) : [];
+  let refAudioUrls = Array.isArray(audio_urls) ? audio_urls.filter(Boolean) : [];
+  try {
+    const opts = { forKie: isKieSeedance, tag: 'REFS-SEEDANCE' };
+    if (start_frame) startFrameUrl = (await resolveReferenceUrls([start_frame], opts))[0];
+    if (end_frame) endFrameUrl = (await resolveReferenceUrls([end_frame], opts))[0];
+    if ((image_urls || []).length) refImageUrls = await resolveReferenceUrls(image_urls, opts);
+    if (refVideoUrls.length) refVideoUrls = await resolveReferenceUrls(refVideoUrls, opts);
+    if (refAudioUrls.length) refAudioUrls = await resolveReferenceUrls(refAudioUrls, opts);
+  } catch (error) {
+    console.error('[SEEDANCE] reference re-host failed:', error.message);
+    return res.status(400).json({ error: publicError(error.message) });
+  }
+
+  // ── A reference VIDEO: the output follows the video (owner, 2026-09-03) ──
+  // Seedance reads the prompt and, when it decides the job is EDITING the
+  // attached video, it requires ratio 'adaptive' and duration -1 — the result
+  // takes the input video's length and shape — and the video must be 4–30 s
+  // (the 2.0 family stops at its own 15 s ceiling). Voxel always sent a fixed
+  // number ("Auto" on the picker was silently 5), so every such job came
+  // back refused. With a reference video the request now sends -1 / adaptive
+  // (kie: "the model picks", valid for any Seedance 2.x job), and the charge
+  // is per second of the LONGEST reference video, read from the FILE
+  // (media-probe.js) — the browser's figure is only a cross-check. A video
+  // outside the range gets a plain 400 here, before any charge, instead of
+  // kie's refusal after it. See seedance-reference.js.
+  const maxSeconds = isV25 ? 30 : 15;
+  let billingDuration = duration;
+  let followsVideo = false;
+  let hintStale = false;
+  if (refVideoUrls.length) {
+    const probed = await Promise.all(refVideoUrls.map((u) => probeVideoDurationSeconds(u, { tag: 'SEEDANCE-REF' })));
+    const verdict = referenceVideoBilling({ probed, declared: req.body.reference_video_seconds, maxSeconds });
+    if (verdict.unreadable) {
+      return res.status(400).json({ error: 'Could not read the length of your reference video — please re-upload it as an MP4.' });
+    }
+    if (verdict.outOfRange) {
+      return res.status(400).json({
+        error: `Your reference video is ${verdict.longest} seconds long — ${modelLabel} accepts reference videos of 4 to ${maxSeconds} seconds.`,
+      });
+    }
+    if (verdict.source === 'declared') console.error(`[SEEDANCE] reference video length not readable from the file — billing the declared ${verdict.seconds}s`);
+    if (verdict.drift) console.error(`[SEEDANCE] browser declared ${verdict.declared}s, the file says ${verdict.seconds}s — billing the file`);
+    billingDuration = verdict.seconds;
+    followsVideo = true;
+    hintStale = verdict.drift;
+    console.log(`[SEEDANCE] reference video: output follows the video — billing ${verdict.seconds}s (${verdict.source})`);
+  }
+
   // C1: server-computed price; client credit_cost is a hint only. Audio
   // defaults ON here (generate_audio !== false), matching the submission.
+  // When the output follows a reference video, the hint was worked out from
+  // the browser's reading of that video; if the file disagreed the hint is
+  // stale by construction and is not held against the request.
   const serverCost = priceOrRespond(res, {
-    kind: 'video', model: modelLabel, resolution, duration,
+    kind: 'video', model: modelLabel, resolution, duration: billingDuration,
     audio: generate_audio !== false,
-    clientCost: req.body.credit_cost,
+    clientCost: hintStale ? undefined : req.body.credit_cost,
   });
   if (serverCost == null) return;
 
@@ -2624,11 +2688,11 @@ app.post('/api/generate-video-ref', verifyJwt, requireNotBanned, noDoubleCharge,
   try {
     const charge = await chargeCredits({
       userId: req.user.id, kind: 'video', ip: clientIp(req), cost: serverCost, note: `video: ${modelLabel}`,
-      provider: VIDEO_DIRECT_MAP[modelLabel]?.provider === 'kie' ? 'kie' : 'fal',
-      kieCredits: VIDEO_DIRECT_MAP[modelLabel]?.provider === 'kie'
-        ? estimateKieCredits({ kind: 'video', model: modelLabel, resolution, duration, audio: generate_audio }) : null,
-      falCost: VIDEO_DIRECT_MAP[modelLabel]?.provider === 'kie'
-        ? null : estimateFalCost({ kind: 'video', model: modelLabel, resolution, duration, audio: generate_audio }),
+      provider: isKieSeedance ? 'kie' : 'fal',
+      kieCredits: isKieSeedance
+        ? estimateKieCredits({ kind: 'video', model: modelLabel, resolution, duration: billingDuration, audio: generate_audio }) : null,
+      falCost: isKieSeedance
+        ? null : estimateFalCost({ kind: 'video', model: modelLabel, resolution, duration: billingDuration, audio: generate_audio }),
     });
     chargedKind = 'video';
     chargedCost = charge.cost;
@@ -2646,36 +2710,12 @@ app.post('/api/generate-video-ref', verifyJwt, requireNotBanned, noDoubleCharge,
     return res.status(500).json({ error: 'Credit charge failed.' });
   }
 
-  // Re-host any `data:` URI the upload fallback produced BEFORE the provider
-  // sees it — otherwise it rejects with "Only jpeg/jpg/png image formats are
-  // supported". Same step the image route has always performed.
-  // (Production bug, 2026-08-02.)
-  let startFrameUrl = start_frame;
-  let endFrameUrl = end_frame;
-  let refImageUrls = image_urls;
-  try {
-    const isKieSeedance = VIDEO_DIRECT_MAP[modelLabel]?.provider === 'kie';
-    const opts = { forKie: isKieSeedance, tag: 'REFS-SEEDANCE' };
-    if (start_frame) startFrameUrl = (await resolveReferenceUrls([start_frame], opts))[0];
-    if (end_frame) endFrameUrl = (await resolveReferenceUrls([end_frame], opts))[0];
-    if ((image_urls || []).length) refImageUrls = await resolveReferenceUrls(image_urls, opts);
-  } catch (error) {
-    console.error('[SEEDANCE] reference re-host failed:', error.message);
-    if (chargedKind) {
-      refundCredits({
-        userId: req.user.id, kind: chargedKind, ip: clientIp(req), cost: chargedCost,
-        reason: `seedance_ref_resolve_failed: ${error.message}`.slice(0, 500),
-      }).catch(() => {});
-    }
-    return res.status(400).json({ error: publicError(error.message) });
-  }
-
   // Determine which Seedance endpoint to use
   const hasStartFrame = !!startFrameUrl;
   const hasEndFrame = !!endFrameUrl;
   const hasRefImages = (refImageUrls || []).length > 0;
-  const hasRefVideos = (video_urls || []).length > 0;
-  const hasRefAudios = (audio_urls || []).length > 0;
+  const hasRefVideos = refVideoUrls.length > 0;
+  const hasRefAudios = refAudioUrls.length > 0;
 
   // ── kie.ai-backed Seedance (switched from FAL 2026-07-20) ──
   // One jobs model per variant covers t2v / i2v / reference in a single
@@ -2697,8 +2737,12 @@ app.post('/api/generate-video-ref', verifyJwt, requireNotBanned, noDoubleCharge,
         model: seedanceMapping.kieModel,
         input: {
           prompt,
-          aspect_ratio: ['1:1', '4:3', '3:4', '16:9', '9:16', '21:9'].includes(aspect_ratio) ? aspect_ratio : 'adaptive',
-          duration: durInt,
+          // With a reference video the output follows the video: -1 and
+          // 'adaptive' are what Seedance requires for an editing job and
+          // accepts for any other (see the block above the charge).
+          aspect_ratio: followsVideo ? 'adaptive'
+            : ['1:1', '4:3', '3:4', '16:9', '9:16', '21:9'].includes(aspect_ratio) ? aspect_ratio : 'adaptive',
+          duration: followsVideo ? -1 : durInt,
           resolution: res_,
           generate_audio: generate_audio !== false,
           ...(hasStartFrame ? { first_frame_url: startFrameUrl } : {}),
@@ -2707,11 +2751,12 @@ app.post('/api/generate-video-ref', verifyJwt, requireNotBanned, noDoubleCharge,
           // images, 10 videos and 10 audio clips (50 multimodal assets —
           // kie's published limits); 2.0-family keeps its 9 / 3 / 3.
           ...(hasRefImages ? { reference_image_urls: refImageUrls.slice(0, isV25 ? 30 : 9) } : {}),
-          ...(hasRefVideos ? { reference_video_urls: video_urls.slice(0, isV25 ? 10 : 3) } : {}),
-          ...(hasRefAudios ? { reference_audio_urls: audio_urls.slice(0, isV25 ? 10 : 3) } : {}),
+          ...(hasRefVideos ? { reference_video_urls: refVideoUrls.slice(0, isV25 ? 10 : 3) } : {}),
+          ...(hasRefAudios ? { reference_audio_urls: refAudioUrls.slice(0, isV25 ? 10 : 3) } : {}),
         },
       };
       console.log(`[SEEDANCE] [KIE] Variant: ${modelLabel} →`, seedanceMapping.kieModel);
+      console.log('[SEEDANCE] [KIE] payload:', JSON.stringify(body));
       const taskId = await kieCreateTask('jobs', body, { tag: 'KIE-SEEDANCE' });
       console.log(`[SEEDANCE] [KIE] ✅ Submitted taskId: ${taskId}`);
       await trackVideoCharge(taskId, { userId: req.user.id, kind: chargedKind, cost: chargedCost, modelLabel: chargedLabel, modelId: 'kie:jobs:' + seedanceMapping.kieModel });
@@ -2752,8 +2797,8 @@ app.post('/api/generate-video-ref', verifyJwt, requireNotBanned, noDoubleCharge,
     // Reference-to-video mode (both variants accept image_urls/video_urls/audio_urls)
     falModel = `${endpointBase}/reference-to-video`;
     if (hasRefImages) input.image_urls = refImageUrls;
-    if (hasRefVideos) input.video_urls = video_urls;
-    if (hasRefAudios) input.audio_urls = audio_urls;
+    if (hasRefVideos) input.video_urls = refVideoUrls;
+    if (hasRefAudios) input.audio_urls = refAudioUrls;
     console.log(`[SEEDANCE] Mode: reference-to-video (images: ${(image_urls||[]).length}, videos: ${(video_urls||[]).length}, audio: ${(audio_urls||[]).length})`);
   } else {
     // Text-to-video mode (no images)

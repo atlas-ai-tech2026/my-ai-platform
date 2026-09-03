@@ -48,13 +48,25 @@ export default function SeedanceLeftPanel({
 
   const allMedia = [...(media?.images || []), ...(media?.videos || []), ...(media?.audios || [])];
 
+  // With a reference VIDEO attached, the output follows that video: Seedance
+  // decides from the prompt whether the job edits it, and for an editing job
+  // it refuses a fixed length or ratio (owner, 2026-09-03 — kie's "ratio must
+  // be adaptive, duration must be -1"). So the two pickers step aside, and
+  // the price is per second of the longest reference video. The server
+  // re-reads the length from the file and bills that.
+  const refVideos = (media?.videos || []);
+  const followsVideo = refVideos.length > 0;
+  const refVideoSeconds = refVideos.reduce((m, v) => Math.max(m, Number(v.seconds) || 0), 0);
+  const maxSeconds = model?.id === 'seedance-2-5' ? 30 : 15;
+  const billedSeconds = followsVideo && refVideoSeconds > 0
+    ? Math.max(4, Math.min(maxSeconds, Math.round(refVideoSeconds))) : null;
+
   // Credit cost (Seedance is per-second by resolution). When duration is
   // "auto" we estimate against 5s and flag it with a "~".
-  const isAutoDuration = duration === 'auto' || !duration;
-  const creditCost = getVideoCredits(
-    model?.id,
-    { resolution, duration: isAutoDuration ? '5s' : duration, audio: audioOn },
-  );
+  const isAutoDuration = !followsVideo && (duration === 'auto' || !duration);
+  const creditCost = followsVideo
+    ? (billedSeconds ? getVideoCredits(model?.id, { resolution, duration: String(billedSeconds), audio: audioOn }) : null)
+    : getVideoCredits(model?.id, { resolution, duration: isAutoDuration ? '5s' : duration, audio: audioOn });
 
   const insertAtReference = (label) => {
     onPromptChange?.((prompt || '') + label + ' ');
@@ -210,16 +222,23 @@ export default function SeedanceLeftPanel({
         <ChevronDown style={{ width: 14, height: 14, color: 'rgba(255,255,255,0.3)' }} />
       </button>
 
+      {/* With a reference video attached, length and ratio are the video's. */}
+      {followsVideo && (
+        <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.55)', fontFamily: S.font, lineHeight: 1.45 }}>
+          Length and ratio follow your reference video{billedSeconds ? ` (${billedSeconds}s)` : ''} — Seedance keeps the video's own length and shape. Reference videos must be 4–{maxSeconds} seconds.
+        </div>
+      )}
       {/* Settings row */}
       <div style={{ display: 'flex', gap: 6 }}>
         {/* Duration */}
         <div style={{ flex: 1, position: 'relative' }}>
-          <button onClick={() => { setShowDurDrop(v => !v); setShowAspectDrop(false); setShowResDrop(false); }}
-            style={{ width: '100%', padding: '8px 10px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'space-between', color: '#fff', fontSize: 12, fontFamily: S.font, cursor: 'pointer' }}>
-            <span>{duration === 'auto' ? 'Auto' : (duration || 'auto') + 's'}</span>
+          <button onClick={() => { if (followsVideo) return; setShowDurDrop(v => !v); setShowAspectDrop(false); setShowResDrop(false); }}
+            title={followsVideo ? `Length follows your reference video${billedSeconds ? ` (${billedSeconds}s)` : ''}` : undefined}
+            style={{ width: '100%', padding: '8px 10px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'space-between', color: followsVideo ? 'rgba(255,255,255,0.55)' : '#fff', fontSize: 12, fontFamily: S.font, cursor: followsVideo ? 'default' : 'pointer' }}>
+            <span>{followsVideo ? (billedSeconds ? `Video · ${billedSeconds}s` : 'Video') : duration === 'auto' ? 'Auto' : (duration || 'auto') + 's'}</span>
             <ChevronDown style={{ width: 12, height: 12, color: 'rgba(255,255,255,0.3)' }} />
           </button>
-          {showDurDrop && (
+          {showDurDrop && !followsVideo && (
             <div style={{ position: 'absolute', bottom: '100%', left: 0, right: 0, background: '#1A1A1A', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 8, padding: 4, zIndex: 20, maxHeight: 200, overflowY: 'auto' }}>
               {DURATIONS.map(d => (
                 <button key={d} onClick={() => { onDurationChange?.(d); setShowDurDrop(false); }}
@@ -233,12 +252,13 @@ export default function SeedanceLeftPanel({
         </div>
         {/* Aspect */}
         <div style={{ flex: 1, position: 'relative' }}>
-          <button onClick={() => { setShowAspectDrop(v => !v); setShowDurDrop(false); setShowResDrop(false); }}
-            style={{ width: '100%', padding: '8px 10px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'space-between', color: '#fff', fontSize: 12, fontFamily: S.font, cursor: 'pointer' }}>
-            <span>{aspectRatio || 'auto'}</span>
+          <button onClick={() => { if (followsVideo) return; setShowAspectDrop(v => !v); setShowDurDrop(false); setShowResDrop(false); }}
+            title={followsVideo ? 'Ratio follows your reference video' : undefined}
+            style={{ width: '100%', padding: '8px 10px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'space-between', color: followsVideo ? 'rgba(255,255,255,0.55)' : '#fff', fontSize: 12, fontFamily: S.font, cursor: followsVideo ? 'default' : 'pointer' }}>
+            <span>{followsVideo ? 'Video' : (aspectRatio || 'auto')}</span>
             <ChevronDown style={{ width: 12, height: 12, color: 'rgba(255,255,255,0.3)' }} />
           </button>
-          {showAspectDrop && (
+          {showAspectDrop && !followsVideo && (
             <div style={{ position: 'absolute', bottom: '100%', left: 0, right: 0, background: '#1A1A1A', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 8, padding: 4, zIndex: 20 }}>
               {ASPECTS.map(a => (
                 <button key={a} onClick={() => { onAspectRatioChange?.(a); setShowAspectDrop(false); }}
@@ -288,7 +308,7 @@ export default function SeedanceLeftPanel({
           <>
             Generate <Sparkles style={{ width: 15, height: 15 }} />
             {creditCost != null && (
-              <span title={isAutoDuration ? 'Estimated cost (auto duration ≈ 5s)' : 'Credit cost'}>
+              <span title={followsVideo ? `Per second of your reference video (${billedSeconds}s)` : isAutoDuration ? 'Estimated cost (auto duration ≈ 5s)' : 'Credit cost'}>
                 ✦ {isAutoDuration ? '~' : ''}{creditCost}
               </span>
             )}
