@@ -5505,22 +5505,29 @@ app.get('/api/admin/stats', adminGate, async (req, res) => {
 // user email, and a date range. Each row carries BOTH meters: `amount`
 // (signed voxel credits) and `kie_credits` (estimated KIE credits the
 // generation burned from our kie.ai balance; null → rendered "—").
+// The ledger filters, shared by the Logs page (one page of rows) and the
+// credit report (every matching row). One function, so the same filter means
+// the same rows on both — a report that disagreed with the screen it was
+// opened from would be worse than no report.
+const LEDGER_ACTIONS = ['spend', 'refund', 'grant', 'revoke', 'promo', 'gift', 'signup', 'set'];
+function ledgerFilters(query) {
+  const where = [];
+  const params = [];
+  const p = (v) => { params.push(v); return `$${params.length}`; };
+  const action = String(query.action || '').toLowerCase();
+  if (LEDGER_ACTIONS.includes(action)) where.push(`ch.action = ${p(action)}`);
+  if (query.q) where.push(`ch.reason ILIKE ${p('%' + String(query.q).slice(0, 100) + '%')}`);
+  if (query.email) where.push(`u.email ILIKE ${p('%' + String(query.email).slice(0, 100) + '%')}`);
+  if (query.from) where.push(`ch.created_at >= ${p(new Date(query.from))}`);
+  if (query.to) where.push(`ch.created_at < ${p(new Date(query.to))}::timestamptz + INTERVAL '1 day'`);
+  return { whereSql: where.length ? 'WHERE ' + where.join(' AND ') : '', params, p, action };
+}
+
 app.get('/api/admin/logs', adminGate, async (req, res) => {
   try {
     const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 50, 1), 200);
     const offset = Math.max(parseInt(req.query.offset, 10) || 0, 0);
-
-    const where = [];
-    const params = [];
-    const p = (v) => { params.push(v); return `$${params.length}`; };
-
-    const action = String(req.query.action || '').toLowerCase();
-    if (['spend', 'refund', 'grant', 'revoke', 'promo', 'gift', 'signup'].includes(action)) where.push(`ch.action = ${p(action)}`);
-    if (req.query.q) where.push(`ch.reason ILIKE ${p('%' + String(req.query.q).slice(0, 100) + '%')}`);
-    if (req.query.email) where.push(`u.email ILIKE ${p('%' + String(req.query.email).slice(0, 100) + '%')}`);
-    if (req.query.from) where.push(`ch.created_at >= ${p(new Date(req.query.from))}`);
-    if (req.query.to) where.push(`ch.created_at < ${p(new Date(req.query.to))}::timestamptz + INTERVAL '1 day'`);
-    const whereSql = where.length ? 'WHERE ' + where.join(' AND ') : '';
+    const { whereSql, params, p } = ledgerFilters(req.query);
 
     const [rows, count] = await Promise.all([
       pool.query(
@@ -5543,6 +5550,54 @@ app.get('/api/admin/logs', adminGate, async (req, res) => {
   } catch (err) {
     console.error('[admin/logs] error:', err);
     res.status(500).json({ error: 'Logs fetch failed.' });
+  }
+});
+
+// ─── ADMIN: CREDIT REPORT — every ledger row a filter matches ──────────────
+// Owner, 2026-09-03: "The workshop — we gave every student $25, 395 credits,
+// reason SPA4. I need a PDF: every email, the reason, how many credits." The
+// Logs page answers that fifty rows at a time. A workshop is one question with
+// one answer, so this returns EVERY matching row (capped, and it says when the
+// cap bit) with the totals; the browser lays it out as the report
+// (src/lib/creditReport.js) and prints it to PDF. Same filters, same rows as
+// the Logs page — ledgerFilters is shared on purpose.
+app.get('/api/admin/reports/credits', adminGate, async (req, res) => {
+  try {
+    const { whereSql, params, action } = ledgerFilters(req.query);
+    const cap = 5000;
+    const { rows } = await pool.query(
+      `SELECT ch.id, ch.created_at, ch.action, ch.amount, ch.reason, ch.admin_email,
+              u.id AS user_id, u.email
+         FROM credits_history ch
+         JOIN users u ON u.id = ch.user_id
+        ${whereSql}
+        ORDER BY ch.created_at ASC, ch.id ASC
+        LIMIT ${cap + 1}`,
+      params
+    );
+    const truncated = rows.length > cap;
+    const out = truncated ? rows.slice(0, cap) : rows;
+    const credits = out.reduce((sum, r) => sum + Number(r.amount), 0);
+    res.json({
+      rows: out,
+      totals: {
+        rows: out.length,
+        accounts: new Set(out.map((r) => r.user_id)).size,
+        credits: Math.round(credits * 100) / 100,
+      },
+      truncated,
+      cap,
+      filters: {
+        q: req.query.q ? String(req.query.q).slice(0, 100) : '',
+        action: LEDGER_ACTIONS.includes(action) ? action : '',
+        email: req.query.email ? String(req.query.email).slice(0, 100) : '',
+        from: req.query.from || '', to: req.query.to || '',
+      },
+      generated_at: new Date().toISOString(),
+    });
+  } catch (err) {
+    console.error('[admin/reports/credits] error:', err);
+    res.status(500).json({ error: 'Credit report failed.' });
   }
 });
 

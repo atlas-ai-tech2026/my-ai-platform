@@ -112,6 +112,14 @@ export const adminApi = {
     ).toString();
     return request('GET', `/api/admin/logs${qs ? '?' + qs : ''}`);
   },
+  // Every ledger row the Logs filters match (not a page) — for the PDF /
+  // Excel credit report. Same filter names as logs().
+  creditsReport: (params = {}) => {
+    const qs = new URLSearchParams(
+      Object.entries(params).filter(([, v]) => v !== undefined && v !== null && v !== '')
+    ).toString();
+    return request('GET', `/api/admin/reports/credits${qs ? '?' + qs : ''}`);
+  },
   usage: (from, to) => {
     const qs = new URLSearchParams({ ...(from && { from }), ...(to && { to }) }).toString();
     return request('GET', `/api/admin/usage${qs ? '?' + qs : ''}`);
