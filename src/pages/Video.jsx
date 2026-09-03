@@ -61,19 +61,20 @@ export default function Video() {
   // (one per panel). No tab-change side-effects needed.
   const [videoTab, setVideoTab] = useState('create');
 
-  // ─── Edit Video state (Kling Omni Edit + Kling O1 Video Edit) ───
-  // Default model: Kling O1 Video Edit (matches Higgsfield's default).
+  // ─── Edit Video state (Kling 3.0 Omni Edit) ───
+  // Kling O1 Video Edit retired 2026-09-03 (ran on FAL; kie has no O1). The
+  // Edit tab is off the nav until the kie route is live — see VideoTopTabs.
   const [editVideoFile, setEditVideoFile] = useState(null);
   const [editRefImages, setEditRefImages] = useState([]);
   const [editKeepAudio, setEditKeepAudio] = useState(true);
   const [editAutoSettings, setEditAutoSettings] = useState(true);
   const [editQuality, setEditQuality] = useState('720p');
-  const [editModel, setEditModel] = useState('Kling O1 Video Edit');
+  const [editModel, setEditModel] = useState('Kling 3.0 Omni Edit');
 
   // ─── Motion Control state (motion transfer) ───
   // Default model: Kling 3.0 Motion Control (the flagship; uses Omni One
-  // physics). scene_control persists to history but isn't sent to FAL
-  // today (server-side note explains why).
+  // physics). scene_control persists to history but isn't sent to the
+  // provider today (server-side note explains why).
   const [motionCharImage, setMotionCharImage] = useState(null);
   const [motionRefVideo, setMotionRefVideo] = useState(null);
   const [motionQuality, setMotionQuality] = useState('720p');
@@ -342,11 +343,12 @@ export default function Video() {
 
   // ─── Motion Control (motion transfer) generate ───
   // Uploads the character image + the motion reference video once via
-  // /api/upload, then POSTs to /api/motion-control. The backend
-  // dispatches to the right Kling endpoint based on `model`. scene_control
-  // is sent for forward-compatibility — the server omits it from the FAL
-  // payload until Kling exposes the flag publicly.
-  const handleMotionControl = async (creditCost) => {
+  // /api/upload, then POSTs to /api/motion-control. The backend dispatches
+  // to the right kie Kling model based on `model` and bills PER SECOND of
+  // the reference clip — `duration` here is the length the browser read
+  // from the file; the server reads the file itself and that number wins.
+  // scene_control is sent for forward-compatibility only.
+  const handleMotionControl = async (creditCost, { seconds } = {}) => {
     if (!motionRefVideo) { toast.error('Add a motion reference video'); return; }
     if (!motionCharImage) { toast.error('Add a character image'); return; }
     if (!isAuthenticated) {
@@ -371,6 +373,7 @@ export default function Video() {
           ...(prompt?.trim() ? { prompt: prompt.trim() } : {}),
           quality: motionQuality,
           scene_control: motionSceneControl,
+          ...(seconds ? { duration: seconds } : {}),
           credit_cost: creditCost,
         }),
       });
@@ -388,10 +391,12 @@ export default function Video() {
         return;
       }
 
+      const billedSeconds = data.seconds || seconds || null;
       const saved = await History_.create({
         type: 'video', model: motionModel, prompt: prompt || '',
         job_id: data.job_id, model_id: data.model_id,
         status: 'pending',
+        ...(billedSeconds ? { duration: billedSeconds } : {}),
         character_image_url: charUrl,
         motion_video_url: motionUrl,
         quality: motionQuality,
@@ -400,6 +405,7 @@ export default function Video() {
       setVideos(prev => [{
         id: saved.id, prompt: prompt || '', model: motionModel,
         status: 'pending', job_id: data.job_id, model_id: data.model_id,
+        ...(billedSeconds ? { duration: billedSeconds } : {}),
         character_image_url: charUrl,
         motion_video_url: motionUrl,
         quality: motionQuality,

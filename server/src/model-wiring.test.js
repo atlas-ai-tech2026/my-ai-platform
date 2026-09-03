@@ -178,15 +178,16 @@ describe('Gemini Omni carries references alongside its frames', () => {
 // The request was already right for Kling 3.0 on kie (multi_shots:false,
 // checked against kie's schema) and customers still got cut-up clips. What a
 // correct flag cannot stop, the prompt can — so the provider-facing prompt
-// carries a continuity instruction on every Kling image-to-video request, and
-// the FAL path (Kling 3.0 Omni) states shot_type explicitly.
+// carries a continuity instruction on every Kling image-to-video request.
+// (Until 2026-09-03 the FAL path also sent shot_type for Kling 3.0 Omni; no
+// Kling model runs on FAL any more, so that code is gone — kling-on-kie.test.js.)
 describe('Kling image-to-video stays on the customer\'s image', () => {
   const panelSrc = read('src/components/video/VideoLeftPanel.jsx');
 
   it('the provider prompt goes through the continuity guard on BOTH provider paths', () => {
     expect(indexSrc).toMatch(/providerPrompt = withContinuity\(prompt, \{ hasImage: !!image_url, multiShots: !!multi_shots, model \}\)/);
     expect(indexSrc).toMatch(/prompt: providerPrompt, frames, duration/);     // kie
-    expect(indexSrc).toMatch(/const input = \{\s*\n\s*prompt: providerPrompt,/); // FAL
+    expect(indexSrc).toMatch(/const input = \{\s*\n\s*prompt: providerPrompt,/); // FAL (non-Kling models)
   });
 
   it('Kling 3.0 on kie still sends multi_shots explicitly — the documented single-shot form', () => {
@@ -194,8 +195,9 @@ describe('Kling image-to-video stays on the customer\'s image', () => {
     expect(indexSrc).toMatch(/image_urls: ms \? \[frames\[0\]\] : frames/);
   });
 
-  it("the FAL Kling v3 path (Omni) states shot_type 'customize' for image-to-video", () => {
-    expect(indexSrc).toMatch(/hasImage && String\(falModel\)\.includes\('kling-video\/v3'\) \? \{ shot_type: 'customize' \}/);
+  it('Kling 3.0 Omni (kie Kling O3) sends multi_shots explicitly too, first frame only when it is on', () => {
+    expect(indexSrc).toMatch(/"Kling 3\.0 Omni":\s*\{ provider: "kie"/);
+    expect(indexSrc).toMatch(/image_urls: ms \? \[frames\[0\]\] : frames\.slice\(0, 2\)/);
   });
 
   it('the Multi Shot toggle defaults OFF and is the only way to ask for cuts', () => {
