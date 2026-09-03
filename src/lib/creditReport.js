@@ -170,7 +170,7 @@ export function buildCreditReportHtml({ rows = [], filters = {}, generatedAt = n
   <div class="page">
     <h1>VOXEL.AI — ${esc(title)}</h1>
     <p class="sub">${esc(subtitle)}</p>
-    <p class="meta">Generated ${esc(when(generatedAt))} from the Voxel credit ledger. 1 credit = ${money(CREDIT_VALUE_USD)}.</p>
+    <p class="meta">Generated ${esc(when(generatedAt))} from the Voxel credit ledger. 1 credit = $${CREDIT_VALUE_USD.toFixed(4)}.</p>
 
     <div class="tiles">
       <div class="tile"><div class="k">People</div><div class="v">${num(s.accounts)}</div><div class="s">distinct emails</div></div>
