@@ -30,6 +30,7 @@ import { groupByExpiryDay, summarise, actionable, SOON_DAYS } from './expiry-rep
 import { addLot, mirrorSpend as mirrorLotSpend, backfillAllUsers, scheduleCreditLotSweep,
          lotsOverview, activateNow, userCreditSummary } from './credit-lots-db.js';
 import { CREDIT_LIFE_DAYS } from './credit-backfill.js';
+import { withContinuity } from './video-prompt.js';
 import { audienceMiddleware, audienceReport, ensureAudienceTables } from './audience-store.js';
 import { runRate, breakEven, renewals, renewalHeadline, monthlySeries, CYCLES }
   from './expenses.js';
@@ -1763,6 +1764,13 @@ app.post('/api/generate-video', verifyJwt, requireNotBanned, noDoubleCharge, req
     return res.status(500).json({ error: 'Credit charge failed.' });
   }
 
+  // The prompt the PROVIDER sees. For a Kling image-to-video request with
+  // Multi Shot off it carries a continuity instruction (owner, 2026-08-25:
+  // "the video must be generated from the same image — one shot"). The
+  // customer's own prompt is stored and shown untouched; see video-prompt.js.
+  const providerPrompt = withContinuity(prompt, { hasImage: !!image_url, multiShots: !!multi_shots, model });
+  if (providerPrompt !== prompt) console.log('[VIDEO] continuity guard applied for', model);
+
   // ── kie.ai-backed video (Veo 3 / Veo 3 Fast / Kling 3.0 / Kling 2.6) ──
   // Async task like FAL's queue; the kie:-prefixed model_id routes
   // /api/video-status polling to kie ('kie:jobs:' → Jobs API, plain 'kie:' →
@@ -1786,7 +1794,7 @@ app.post('/api/generate-video', verifyJwt, requireNotBanned, noDoubleCharge, req
       const refs = rawRefs.length
         ? await resolveReferenceUrls(rawRefs, { forKie: true, tag: 'REFS-VIDEO' }) : [];
       const { family, body, modelIdTag } = buildKieVideoSubmission(mapping, {
-        prompt, frames, duration, aspectRatio: aspect_ratio, resolution, audio,
+        prompt: providerPrompt, frames, duration, aspectRatio: aspect_ratio, resolution, audio,
         multiShots: multi_shots, refs,
       });
       // Full payload log — the ground truth of what kie was asked to do
@@ -1819,9 +1827,15 @@ app.post('/api/generate-video', verifyJwt, requireNotBanned, noDoubleCharge, req
 
   // Build input with correct param names per model
   const input = {
-    prompt,
+    prompt: providerPrompt,
     ...(duration ? { duration: String(duration) } : {}),
     ...(aspect_ratio ? { aspect_ratio } : {}),
+    // Kling v3 on FAL (the Kling 3.0 Omni path) documents `shot_type`:
+    // 'intelligent' lets the model decide its own shot structure, 'customize'
+    // means the shots are exactly what the prompt(s) say — one prompt, one
+    // shot. Sent explicitly for image-to-video so a provider default can
+    // never storyboard a customer's single image into cuts.
+    ...(hasImage && String(falModel).includes('kling-video/v3') ? { shot_type: 'customize' } : {}),
   };
 
   // Same re-hosting as the kie branch above: a `data:` URI from the upload

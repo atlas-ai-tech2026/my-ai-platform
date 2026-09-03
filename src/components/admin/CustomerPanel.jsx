@@ -68,13 +68,17 @@ export default function CustomerPanel({ user, onClose, onError }) {
               {' · joined '}{dayOf(ws[0].redeemed_at)}
             </>
           ) : 'Signed up directly — no workshop code'}
+          {/* A stored expires_at is HISTORY, not a state (owner's rule,
+              2026-08-25: accounts never expire — credits do). Until the
+              Activate press wipes these dates, this line must not tell staff
+              "access ended" in red about a customer who can sign in fine.
+              Grey, factual, and gone once the record is cleared. */}
           {c?.expires_at && (
             <> {' · '}
-              <b style={{ color: new Date(c.expires_at) <= new Date() ? 'var(--crm-red)' : 'var(--crm-w72)' }}>
-                {new Date(c.expires_at) <= new Date()
-                  ? `access ended ${dayOf(c.expires_at)}`
-                  : `access until ${dayOf(c.expires_at)}`}
-              </b>
+              <span style={{ color: 'var(--crm-w40)' }}
+                title="An old lockout date left on the record by the retired account-expiry model. Sign-in ignores it — accounts never expire; only credits do. The Credit expiry panel's Activate press clears these.">
+                lockout date on record {dayOf(c.expires_at)} — no longer enforced
+              </span>
             </>
           )}
           {c?.banned && <> {' · '}<b style={{ color: 'var(--crm-red)' }}>BANNED</b></>}
