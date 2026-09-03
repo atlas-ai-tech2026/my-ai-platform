@@ -8,6 +8,7 @@
 import ProviderDashboard from './ProviderDashboard';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { adminApi } from '@/lib/adminApi';
+import { buildCreditReportHtml, summarizeCreditRows } from '@/lib/creditReport';
 
 const PAGE_SIZE = 50;
 
@@ -80,6 +81,74 @@ export default function LogsTab({ onError }) {
     URL.revokeObjectURL(a.href);
   }, [rows, page]);
 
+  // ── The credit report (owner, 2026-09-03) ──────────────────────────────
+  // "Every email we added credits to with the reason SPA4, and how many
+  // credits" — as a PDF someone else can read. Takes the filters exactly as
+  // set above, fetches EVERY matching row (the table shows one page), and
+  // opens the report in its own tab where the browser's Print → Save as PDF
+  // gives a clean A4 file. The tab is opened synchronously on the click so a
+  // popup blocker cannot eat it while the rows are still loading.
+  const [reporting, setReporting] = useState(false);
+  const reportFilters = useMemo(() => ({ action, q, email, from, to }), [action, q, email, from, to]);
+
+  const openReport = useCallback(async () => {
+    const w = window.open('', '_blank');
+    if (!w) { onError?.(new Error('popup blocked'), 'Allow pop-ups for this site to open the report'); return; }
+    w.document.write('<!doctype html><title>Credit report</title><p style="font-family:sans-serif;padding:24px">Preparing the report…</p>');
+    setReporting(true);
+    try {
+      const r = await adminApi.creditsReport(reportFilters);
+      const html = buildCreditReportHtml({
+        rows: r.rows, filters: r.filters, generatedAt: r.generated_at, truncated: r.truncated, cap: r.cap,
+      });
+      w.document.open(); w.document.write(html); w.document.close();
+    } catch (e) {
+      w.close();
+      onError?.(e, 'Credit report failed');
+    } finally {
+      setReporting(false);
+    }
+  }, [reportFilters, onError]);
+
+  // The same rows as a real .xlsx (exceljs, already used by Promo Codes) for
+  // anyone who wants to sort or sum them further.
+  const exportReportXlsx = useCallback(async () => {
+    setReporting(true);
+    try {
+      const r = await adminApi.creditsReport(reportFilters);
+      const s = summarizeCreditRows(r.rows);
+      const ExcelJS = (await import('exceljs')).default;
+      const wb = new ExcelJS.Workbook();
+      const ws = wb.addWorksheet('Credit report');
+      ws.columns = [
+        { header: '#', key: 'n', width: 6 },
+        { header: 'Email', key: 'email', width: 36 },
+        { header: 'Date', key: 'date', width: 22 },
+        { header: 'Credits', key: 'amount', width: 10 },
+        { header: 'Type', key: 'action', width: 14 },
+        { header: 'Added by', key: 'admin', width: 30 },
+        { header: 'Reason', key: 'reason', width: 40 },
+      ];
+      r.rows.forEach((row, i) => ws.addRow({
+        n: i + 1, email: row.email, date: new Date(row.created_at).toLocaleString(), amount: Number(row.amount),
+        action: row.action, admin: row.admin_email || '', reason: row.reason || '',
+      }));
+      ws.addRow({});
+      ws.addRow({ email: `${s.accounts} people`, amount: s.credits, action: `$${s.usd.toFixed(2)}` });
+      ws.getRow(1).font = { bold: true };
+      const buffer = await wb.xlsx.writeBuffer();
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+      a.download = `voxel-credit-report-${(q || 'all').replace(/[^a-z0-9]+/gi, '-').toLowerCase()}-${new Date().toISOString().slice(0, 10)}.xlsx`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    } catch (e) {
+      onError?.(e, 'Excel export failed');
+    } finally {
+      setReporting(false);
+    }
+  }, [reportFilters, q, onError]);
+
   const summary = useMemo(() => {
     if (!rows?.length) return null;
     const voxel = rows.reduce((s, r) => s + (r.action === 'spend' ? -Number(r.amount) : 0), 0);
@@ -129,6 +198,14 @@ export default function LogsTab({ onError }) {
           {loading ? 'Loading…' : '⟳ Refresh'}
         </button>
         <button onClick={exportCsv} disabled={!rows?.length} style={btnStyle}>⬇ Export CSV</button>
+        <button onClick={openReport} disabled={reporting} style={{ ...btnStyle, borderColor: 'var(--crm-red)' }}
+          title="Every row these filters match — not just this page — laid out as a report with totals and checks (duplicates, odd amounts). Opens in a new tab; use Save as PDF there. Example: Status = grant, details = SPA4.">
+          {reporting ? 'Preparing…' : '🧾 Report (PDF)'}
+        </button>
+        <button onClick={exportReportXlsx} disabled={reporting} style={btnStyle}
+          title="The same report as a real Excel file (.xlsx) — every matching row plus the totals.">
+          ⬇ Report (Excel)
+        </button>
       </div>
 
       {summary && (
