@@ -147,7 +147,7 @@ export const SEED = [
     detail: 'Standing rule: I ask before ANY 2FA change reaches production.' },
 
   // ── MINE, outstanding, priority order ────────────────────────────────────
-  { ref: '94', owner: 'claude', status: 'in_progress', priority: 1,
+  { ref: '101', owner: 'claude', status: 'in_progress', priority: 1,
     title: 'Kling image-to-video must be ONE shot from the customer\'s image',
     why: 'Owner, 2026-08-25: customers upload an image to Kling 3.0, pick 5 seconds, and receive a clip cut into several shots that drift away from their image. "It must be generating the video from the same image."',
     detail: '── WHAT WAS VERIFIED FIRST ── Voxel\'s request for the model named Kling 3.0 was already correct: Multi Shot toggle defaults OFF, the page passes it, the server sends multi_shots:false explicitly with the image in image_urls — and that is exactly the single-shot form kie\'s own Kling 3.0 docs specify (their default is false too; real multi-shot needs a multi_prompt array we never send). So the flag was never the bug. '
