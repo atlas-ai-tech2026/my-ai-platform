@@ -39,9 +39,10 @@ function mapKeys(name) {
 const MODEL_CONFIG = mapKeys('MODEL_CONFIG');
 const VIDEO_DIRECT_MAP = mapKeys('VIDEO_DIRECT_MAP');
 
+// Kling O1 Video Edit retired 2026-09-03 (no kie twin) — not listed on purpose.
 const PANEL_MODELS = [
   'Kling 3.0 Motion Control', 'Kling Motion Control',
-  'Kling O1 Video Edit', 'Kling 3.0 Omni Edit',
+  'Kling 3.0 Omni Edit',
 ];
 
 describe('the UI catalogs were parsed (guards against a silent no-op test)', () => {

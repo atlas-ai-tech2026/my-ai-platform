@@ -193,13 +193,13 @@ export const VIDEO_CREDITS = {
     type: 'per-sec', defaultRes: '1080p',
     byRes: { '1080p': { off: 1.2, on: 1.2 } },
   },
+  // Kling 2.1 — kie's `kling/v2-1-standard`, image-to-video, 720p only
+  // (moved off FAL 2026-09-03). kie's own line: 25 credits = $0.125 per 5 s
+  // → $0.025/s → ÷0.6 ÷ $0.063333 = 0.66 → 1 cr/s. Was 2 cr/s against a
+  // FAL basis of $0.057/s; the calculator, not the old number, sets it.
   'kling-2-1': {
-    type: 'per-sec', defaultRes: '1080p',
-    byRes: { '1080p': { off: 2, on: 2 } },
-  },
-  'kling-o1': {
-    type: 'flat', defaultRes: '1080p',
-    byRes: { '720p': 10, '1080p': 10 },
+    type: 'per-sec', defaultRes: '720p',
+    byRes: { '720p': { off: 1, on: 1 } },
   },
   'hailuo-2-3': {
     type: 'flat', defaultRes: '1080p',
@@ -225,18 +225,27 @@ export const VIDEO_CREDITS = {
   },
 
   // ---- Motion Control + Edit panels (keyed by model NAME, like the UI) ----
+  // Motion Control moved from FAL to kie on 2026-09-03 (kling-3.0/motion-
+  // control, kling-2.6/motion-control). kie bills these PER SECOND of the
+  // reference clip (3–30 s), so a flat per-clip price cannot hold: the old
+  // flat 11 credits for a 30-second Kling 3.0 clip would have sold $0.70 of
+  // video that cost $1.80. Per second, at the standard formula:
+  //   3.0 std 9 kie cr/s = $0.045 → 1.5 cr/s · pro 12 kie cr/s = $0.060 → 2 cr/s
+  //   2.6 std 5 kie cr/s = $0.025 → 1 cr/s   · pro 8 kie cr/s  = $0.040 → 1.5 cr/s
+  // (std = 720p, pro = 1080p.) The kie credit figures are the ones quoted for
+  // these models at migration time and are to be confirmed against kie's own
+  // price line — see task #101. The server bills on the reference clip's
+  // length as read from the file (media-probe.js), never the client's number.
   'Kling 3.0 Motion Control': {
-    type: 'flat', defaultRes: '1080p',
-    byRes: { '720p': 8, '1080p': 11 },
+    type: 'per-sec', defaultRes: '1080p',
+    byRes: { '720p': { off: 1.5, on: 1.5 }, '1080p': { off: 2, on: 2 } },
   },
   'Kling Motion Control': {
-    type: 'flat', defaultRes: '720p',
-    byRes: { '720p': 6, '1080p': 8 },
+    type: 'per-sec', defaultRes: '720p',
+    byRes: { '720p': { off: 1, on: 1 }, '1080p': { off: 1.5, on: 1.5 } },
   },
-  'Kling O1 Video Edit': {
-    type: 'flat', defaultRes: '720p',
-    byRes: { '720p': 10, '1080p': 10 },
-  },
+  // Kling O1 Video Edit retired 2026-09-03 — no kie twin exists (kie's Kling
+  // family: O3, 3.0, 3.0 Turbo, 2.6, 2.5 Turbo, 2.1, motion control, avatar).
   'Kling 3.0 Omni Edit': {
     type: 'flat', defaultRes: '720p',
     byRes: { '720p': 10, '1080p': 10 },
@@ -310,7 +319,6 @@ export const VIDEO_LABEL_TO_ID = {
   'Kling 2.6': 'kling-2-6',
   'Kling 2.5': 'kling-2-5',
   'Kling 2.1': 'kling-2-1',
-  'Kling O1': 'kling-o1',
   'Kling 3.0 Omni': 'kling-3-omni',
   'Seedance 2.5': 'seedance-2-5',
   'Seedance 2.0': 'seedance-2',

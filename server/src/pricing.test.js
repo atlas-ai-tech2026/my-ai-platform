@@ -119,12 +119,25 @@ describe('server-side price computation (labels → workbook prices)', () => {
     expect(getVideoCredits('Kling 2.6', { resolution: '720p', duration: 5 })).toBe(7.5); // only 1080p priced
   });
 
-  it('Motion Control / Edit panels priced by quality field', () => {
-    expect(getVideoCredits('Kling 3.0 Motion Control', { resolution: '720p' })).toBe(8);
-    expect(getVideoCredits('Kling 3.0 Motion Control', { resolution: '1080p' })).toBe(11);
-    expect(getVideoCredits('Kling Motion Control', { resolution: undefined })).toBe(6); // defaultRes 720p
-    expect(getVideoCredits('Kling O1 Video Edit', { resolution: '1080p' })).toBe(10);
+  // Motion Control is billed per second of the reference clip since it moved
+  // to kie (2026-09-03) — a 30-second reference costs six times a 5-second
+  // one, as it does us. Edit stays flat per clip.
+  it('Motion Control priced per second by quality; Edit flat per clip', () => {
+    expect(getVideoCredits('Kling 3.0 Motion Control', { resolution: '720p', duration: 5 })).toBe(7.5);
+    expect(getVideoCredits('Kling 3.0 Motion Control', { resolution: '1080p', duration: 5 })).toBe(10);
+    expect(getVideoCredits('Kling 3.0 Motion Control', { resolution: '1080p', duration: 30 })).toBe(60);
+    expect(getVideoCredits('Kling Motion Control', { resolution: undefined, duration: 5 })).toBe(5); // defaultRes 720p
+    expect(getVideoCredits('Kling Motion Control', { resolution: '1080p', duration: 12 })).toBe(18);
     expect(getVideoCredits('Kling 3.0 Omni Edit', {})).toBe(10);
+    expect(getVideoCredits('Kling 3.0 Omni Edit', { duration: 10 })).toBe(10);
+  });
+
+  // No kie twin exists for these, so they must not be priceable — a price on
+  // file is what lets a stale client charge for a model the server retired.
+  it('retired Kling O1 rows are gone from both tables', () => {
+    expect(getVideoCredits('Kling O1', { resolution: '1080p' })).toBeNull();
+    expect(getVideoCredits('Kling O1 Video Edit', { resolution: '1080p' })).toBeNull();
+    expect(FRONTEND_VIDEO_CREDITS['kling-o1']).toBeUndefined();
   });
 });
 

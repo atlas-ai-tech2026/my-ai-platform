@@ -1,15 +1,21 @@
 // Motion Control tab — motion transfer.
 //
-//   - Kling Motion Control      (`fal-ai/kling-video/v2.6/standard/motion-control`)
-//   - Kling 3.0 Motion Control  (`fal-ai/kling-video/v3/pro/motion-control`)         — default
+//   - Kling Motion Control      (kie `kling-2.6/motion-control`)
+//   - Kling 3.0 Motion Control  (kie `kling-3.0/motion-control`)   — default
 //
 // User uploads a short motion-reference video (3–30 s) AND a character
 // image (face + body visible). Submits via POST /api/motion-control.
 // The result is the character animated with the reference motion.
 //
-// scene_control toggle is persisted to history but NOT sent to FAL
-// today — Kling hasn't exposed the flag publicly. Once they do, the
-// backend route can start forwarding it without a frontend change.
+// Since the move to kie (2026-09-03) this is billed PER SECOND of the
+// reference clip — kie bills us that way — so the price shown depends on
+// the video the customer picked, and the seconds ride along with the
+// request. The server re-reads the length from the file itself; the number
+// here is display and a cross-check, never the bill.
+//
+// scene_control toggle is persisted to history but NOT sent to the provider
+// today — Kling hasn't exposed the flag publicly. Once they do, the backend
+// route can start forwarding it without a frontend change.
 import React, { useState } from 'react';
 import { Video as VideoIcon, Plus, X, BookOpen, ChevronDown } from 'lucide-react';
 import { toast } from 'sonner';
@@ -46,6 +52,16 @@ const MOTION_MODELS = [
   { name: 'Kling Motion Control', description: 'Control motion with video references' },
 ];
 
+// kie rounds the reference clip to whole seconds and accepts 3–30 of them.
+// Must match billableSeconds() in server/src/index.js (/api/motion-control).
+const MOTION_MIN_SECONDS = 3;
+const MOTION_MAX_SECONDS = 30;
+function billableSeconds(seconds) {
+  const n = Math.round(Number(seconds));
+  if (!Number.isFinite(n)) return null;
+  return Math.max(MOTION_MIN_SECONDS, Math.min(MOTION_MAX_SECONDS, n));
+}
+
 function validateVideoDuration(file, min, max, label) {
   return new Promise(resolve => {
     const url = URL.createObjectURL(file);
@@ -79,6 +95,9 @@ export default function VideoMotionControlLeftPanel({
   const [showQualityDrop, setShowQualityDrop] = useState(false);
   const [showPicker, setShowPicker] = useState(false);
   const [videoPoster, setVideoPoster] = useState(null);
+  // Length of the picked reference clip, read from its metadata. Drives the
+  // price shown and is sent with the request; the server re-reads it.
+  const [refSeconds, setRefSeconds] = useState(null);
 
   const copy = MODEL_COPY[model] || MODEL_COPY['Kling 3.0 Motion Control'];
 
@@ -86,8 +105,9 @@ export default function VideoMotionControlLeftPanel({
     const file = e.target.files?.[0];
     e.target.value = '';
     if (!file) return;
-    const result = await validateVideoDuration(file, 3, 30, '3–30 seconds');
+    const result = await validateVideoDuration(file, MOTION_MIN_SECONDS, MOTION_MAX_SECONDS, '3–30 seconds');
     if (!result.ok) { toast.error(result.reason); return; }
+    setRefSeconds(result.duration);
     const url = URL.createObjectURL(file);
     const v = document.createElement('video');
     v.preload = 'auto';
@@ -123,11 +143,13 @@ export default function VideoMotionControlLeftPanel({
     if (isGenerating) return;
     if (!motionVideo) { toast.error('Add a motion reference video'); return; }
     if (!charImage) { toast.error('Add a character image'); return; }
-    onGenerate?.(creditCost);
+    onGenerate?.(creditCost, { seconds });
   };
 
-  // Credit cost — Motion Control is flat per generation by resolution (quality).
-  const creditCost = getVideoCredits(model, { resolution: quality });
+  // Credit cost — per second of the reference clip, by resolution (quality).
+  // Until a clip is picked there is no length, so there is no price: "—".
+  const seconds = motionVideo ? billableSeconds(refSeconds) : null;
+  const creditCost = seconds ? getVideoCredits(model, { resolution: quality, duration: seconds }) : null;
 
   return (
     <div style={{
@@ -237,7 +259,7 @@ export default function VideoMotionControlLeftPanel({
               )}
               <button
                 type="button"
-                onClick={() => { setVideoPoster(null); onMotionVideoChange?.(null); }}
+                onClick={() => { setVideoPoster(null); setRefSeconds(null); onMotionVideoChange?.(null); }}
                 aria-label="Remove motion video"
                 style={{
                   position: 'absolute', top: 6, right: 6,
@@ -413,8 +435,9 @@ export default function VideoMotionControlLeftPanel({
         >
           <span>{isGenerating ? 'Generating' : 'Generate'}</span>
           {!isGenerating && (
-            <span style={{ fontSize: 12 }} title="Estimated credit cost">
-              ✦ {creditCost ?? '—'}
+            <span style={{ fontSize: 12 }}
+              title={seconds ? `Billed per second of the reference clip — ${seconds} s` : 'Add a motion reference video to see the price'}>
+              ✦ {creditCost ?? '—'}{seconds ? ` · ${seconds}s` : ''}
             </span>
           )}
         </button>

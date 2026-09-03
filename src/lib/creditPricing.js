@@ -223,26 +223,25 @@ export const VIDEO_CREDITS = {
     type: 'per-sec', defaultRes: '720p',
     byRes: { '480p': { off: 0.5, on: 0.5 }, '720p': { off: 0.5, on: 0.5 } },
   },
-  // Kling 3.0 Omni — FAL kling v3 pro (basis ≤$0.152/s).
+  // Kling 3.0 Omni — kie's Kling O3 since 2026-09-03. Price unchanged (it
+  // was set against a $0.152/s basis) until kie's own O3 price line is read.
   'kling-3-omni': {
     type: 'per-sec', defaultRes: '1080p',
     byRes: { '720p': { off: 4, on: 4 }, '1080p': { off: 4, on: 4 } },
   },
-  // Kling 2.5 — FAL (workbook's kie row prices 5s at 6 cr → 1.2 cr/s).
+  // Kling 2.5 — kie's 2.5 Turbo Pro since 2026-09-03 ($0.042/s → 1.2 cr/s).
   'kling-2-5': {
     type: 'per-sec', defaultRes: '1080p',
     byRes: { '1080p': { off: 1.2, on: 1.2 } },
   },
-  // Kling 2.1 — FAL standard (basis ≤$0.057/s).
+  // Kling 2.1 — kie's 2.1 Standard since 2026-09-03: image-to-video, 720p,
+  // $0.025/s → 1 cr/s by the standard formula (was 2 against a FAL basis).
   'kling-2-1': {
-    type: 'per-sec', defaultRes: '1080p',
-    byRes: { '1080p': { off: 2, on: 2 } },
+    type: 'per-sec', defaultRes: '720p',
+    byRes: { '720p': { off: 1, on: 1 } },
   },
-  // Kling O1 — FAL, flat per generation (basis ≤$0.38).
-  'kling-o1': {
-    type: 'flat', defaultRes: '1080p',
-    byRes: { '720p': 10, '1080p': 10 },
-  },
+  // Kling O1 retired 2026-09-03 — it never existed on kie (Voxel's "O1" was
+  // FAL's Kling 1.6 under another name).
   // Hailuo 2.3 — FAL minimax (basis ≤$0.285/clip).
   'hailuo-2-3': {
     type: 'flat', defaultRes: '1080p',
@@ -273,23 +272,20 @@ export const VIDEO_CREDITS = {
   },
 
   // ---- Motion Control + Edit panels (keyed by model NAME, not id) ----------
-  // These are flat per-generation by resolution.
-  // Kling 3.0 Motion Control (sheet: 720p=7, 1080p=10, +1)
+  // Motion Control runs on kie since 2026-09-03 and kie bills PER SECOND of
+  // the reference clip, so these are per-second too (was flat per clip):
+  // 3.0 = 1.5 / 2 cr/s (720p / 1080p), 2.6 = 1 / 1.5 cr/s. Working in
+  // server/src/pricing.js; must stay identical (parity test).
   'Kling 3.0 Motion Control': {
-    type: 'flat', defaultRes: '1080p',
-    byRes: { '720p': 8, '1080p': 11 },
+    type: 'per-sec', defaultRes: '1080p',
+    byRes: { '720p': { off: 1.5, on: 1.5 }, '1080p': { off: 2, on: 2 } },
   },
-  // Kling Motion Control (older) (sheet: 720p=5, 1080p=7, +1)
   'Kling Motion Control': {
-    type: 'flat', defaultRes: '720p',
-    byRes: { '720p': 6, '1080p': 8 },
+    type: 'per-sec', defaultRes: '720p',
+    byRes: { '720p': { off: 1, on: 1 }, '1080p': { off: 1.5, on: 1.5 } },
   },
-  // Kling O1 Video Edit (sheet: 9 at both resolutions, +1)
-  'Kling O1 Video Edit': {
-    type: 'flat', defaultRes: '720p',
-    byRes: { '720p': 10, '1080p': 10 },
-  },
-  // Kling 3.0 Omni Edit — not in the sheet; mapped to Kling O1 Video Edit (+1).
+  // Kling O1 Video Edit retired 2026-09-03 — no kie twin.
+  // Kling 3.0 Omni Edit — flat per clip, unchanged.
   'Kling 3.0 Omni Edit': {
     type: 'flat', defaultRes: '720p',
     byRes: { '720p': 10, '1080p': 10 },
