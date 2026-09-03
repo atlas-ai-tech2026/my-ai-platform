@@ -235,9 +235,9 @@ export const VIDEO_CREDITS = {
   //   ($0.135) at 1080p → 3 cr/s (47.4%) and 4 cr/s (46.7%). (The figures
   //   quoted before that page was read — 9 / 12 credits/s — were HALF the
   //   truth; this is why a price is never set from a quote.)
-  //   Kling Motion Control (2.6) — kie's line NOT read yet. Priced at the 3.0
-  //   rates until it is: over-pricing an older tier costs a sale, under-
-  //   pricing it costs money on every clip. Task #101.
+  //   Kling Motion Control (2.6) — kie's OWN price line, read by the owner
+  //   from kie's page on 2026-09-03: 11 credits/s ($0.055) at 720p, 18
+  //   credits/s ($0.09) at 1080p → 1.5 cr/s (42.1%) and 2.5 cr/s (43.2%).
   // The server bills on the reference clip's length as read from the file
   // (media-probe.js), never the client's number.
   'Kling 3.0 Motion Control': {
@@ -246,7 +246,7 @@ export const VIDEO_CREDITS = {
   },
   'Kling Motion Control': {
     type: 'per-sec', defaultRes: '720p',
-    byRes: { '720p': { off: 3, on: 3 }, '1080p': { off: 4, on: 4 } },
+    byRes: { '720p': { off: 1.5, on: 1.5 }, '1080p': { off: 2.5, on: 2.5 } },
   },
   // Kling O1 Video Edit retired 2026-09-03 — no kie twin exists (kie's Kling
   // family: O3, 3.0, 3.0 Turbo, 2.6, 2.5 Turbo, 2.1, motion control, avatar).
