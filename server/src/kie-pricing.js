@@ -82,6 +82,17 @@ const KIE_USD = {
     },
   },
   'Kling 3.0 Turbo':   { perSecond: { '720p': 0.09, '1080p': 0.1125 } },
+  // ── Kling models moved off FAL 2026-09-03 (owner: every Kling choice
+  //    calls its kie twin). Bases: kie 2.5 Turbo Pro $0.21 per 5 s clip
+  //    (costing seed row 46); kie 2.1 Standard 25 credits = $0.125 per 5 s
+  //    (kie's own page). Motion control: the kie-credit-per-second figures
+  //    quoted at migration (3.0 std 9 / pro 12, 2.6 std 5 / pro 8) — to be
+  //    confirmed against kie's price line, see task #101. Kling 3.0 Omni
+  //    (kie O3) has no price read yet → deliberately absent → ledger "—".
+  'Kling 2.5':                { perSecond: { flat: 0.042 } },
+  'Kling 2.1':                { perSecond: { flat: 0.025 } },
+  'Kling 3.0 Motion Control': { perSecond: { '720p': 0.045, '1080p': 0.06 } },
+  'Kling Motion Control':     { perSecond: { '720p': 0.025, '1080p': 0.04 } },
 
   // ── video, billed per whole clip ──
   // Veo: kie bills per video regardless of duration. "Veo 3"/"Veo 3.1" both
@@ -167,6 +178,9 @@ const KIE_SWITCH_DATE = {
   'Sora 2': '2026-07-21', 'Wan 2.6': '2026-07-21', 'Grok Imagine': '2026-07-21',
   'Seedance 1.5 Pro': '2026-07-21', 'GPT-4o Image': '2026-07-21', 'Midjourney': '2026-07-21',
   'Flux Kontext Max': '2026-07-21', 'Flux 2': '2026-07-21',
+  // Kling family moved off FAL (owner, 2026-09-03)
+  'Kling 2.5': '2026-09-03', 'Kling 2.1': '2026-09-03', 'Kling 3.0 Omni': '2026-09-03',
+  'Kling 3.0 Motion Control': '2026-09-03', 'Kling Motion Control': '2026-09-03',
 };
 
 // amount (positive voxel credits) → kie credits, per image model
