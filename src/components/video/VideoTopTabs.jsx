@@ -9,9 +9,14 @@ import React from 'react';
 
 const RED = '#E01E1E';
 
+// Edit Video is OFF the nav since 2026-09-03: its two models ran on FAL, the
+// owner's rule is that no Kling generation goes to FAL, and the kie twin
+// (Kling O3 video-to-video) has not had its request shape confirmed yet —
+// task #102. The panel and route stay in the codebase; re-add the tab entry
+// when the server route is live again. Never show a tab whose Generate
+// button can only answer with an error.
 const TABS = [
   { id: 'create', label: 'Create Video' },
-  { id: 'edit',   label: 'Edit Video'   },
   { id: 'motion', label: 'Motion Control' },
 ];
 

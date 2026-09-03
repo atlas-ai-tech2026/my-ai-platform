@@ -1,11 +1,13 @@
-// Edit Video tab — two Kling video-to-video models behind one panel.
+// Edit Video tab — Kling video-to-video behind one panel.
 //
-//   - Kling 3.0 Omni Edit  (`fal-ai/kling-video/o3/standard/video-to-video/reference`) — Exclusive
-//   - Kling O1 Video Edit  (`fal-ai/kling-video/o1/video-to-video/reference`)         — default
+//   - Kling 3.0 Omni Edit — kie's Kling O3 video reference (route paused until
+//     kie's request shape is confirmed, task #102; the tab is off the nav)
+//   - Kling O1 Video Edit — RETIRED 2026-09-03: it ran on FAL and kie has no
+//     O1. Owner's rule: no Kling generation goes to FAL.
 //
 // User uploads ONE source video (3–10 s) + up to 4 reference images +
 // a text prompt. Submits via POST /api/edit-video-omni; the backend
-// reads the `model` field to dispatch to the right FAL endpoint.
+// reads the `model` field to dispatch.
 //
 // Visual layer: same red-glass shell + atoms as VideoLeftPanel — the
 // outer surface (380 px wide, blur 36 px, radius 22) lives in
@@ -36,17 +38,10 @@ const MODEL_COPY = {
     exclusive: true,
     howItWorks: 'Upload a 3–10 second clip and describe the change in plain English. Kling 3.0 Omni Edit rewrites the footage while preserving the original motion.',
   },
-  'Kling O1 Video Edit': {
-    title: 'KLING O1 VIDEO EDIT',
-    subtitle: 'Generate with elements and references',
-    exclusive: false,
-    howItWorks: 'Upload a clip plus up to 4 reference images. Kling O1 weaves the references into a new generation while keeping the source motion.',
-  },
 };
 
 const EDIT_MODELS = [
   { name: 'Kling 3.0 Omni Edit', description: 'Edit videos with text prompts', exclusive: true },
-  { name: 'Kling O1 Video Edit', description: 'Generate with elements and references' },
 ];
 
 // HTML5 metadata duration check — resolves { ok, reason }.
@@ -87,7 +82,7 @@ export default function VideoEditOmniLeftPanel({
   const [videoPoster, setVideoPoster] = useState(null);
   const videoInputRef = useRef(null);
 
-  const copy = MODEL_COPY[model] || MODEL_COPY['Kling O1 Video Edit'];
+  const copy = MODEL_COPY[model] || MODEL_COPY['Kling 3.0 Omni Edit'];
 
   const handleVideoPick = async (e) => {
     const file = e.target.files?.[0];
@@ -488,7 +483,7 @@ export default function VideoEditOmniLeftPanel({
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 10.5, color: 'rgba(255,255,255,0.55)' }}>Model</div>
           <div style={{ fontSize: 13, fontWeight: 700, color: '#FFF', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-            {model || 'Kling O1 Video Edit'}
+            {model || 'Kling 3.0 Omni Edit'}
           </div>
         </div>
         <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: 14 }}>›</span>
