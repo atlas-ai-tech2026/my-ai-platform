@@ -67,6 +67,15 @@ describe('a Seedance job with a reference video follows the video', () => {
     expect(route).toMatch(/reference_audio_urls: refAudioUrls\.slice/);
   });
 
+  // Owner's dev test, 2026-09-03: the price said 19 s, the card said 0:05.
+  // The badge shows the stored duration, and the page stored the picker's
+  // "auto". The server now says how many seconds it billed; the page uses it.
+  it('tells the page the seconds it billed, and the page labels the card with them', () => {
+    expect(route).toMatch(/\.\.\.\(followsVideo \? \{ seconds: billingDuration \} : \{\}\)/);
+    expect(pageSrc).toMatch(/const shownDuration = data\.seconds \? String\(data\.seconds\) : seedanceDuration/);
+    expect(pageSrc).toMatch(/duration: shownDuration, ratio: seedanceAspect/);
+  });
+
   it('logs the full kie payload — the ground truth when a customer complains', () => {
     expect(route).toMatch(/\[SEEDANCE\] \[KIE\] payload:/);
   });

@@ -738,13 +738,18 @@ export default function Video() {
         return;
       }
 
+      // With a reference video the server bills — and the video runs — for the
+      // video's own length, and says so in `seconds`. The card is labelled
+      // with THAT; the picker's "auto" would show as 0:05 for a 19-second clip
+      // (owner, dev test 2026-09-03).
+      const shownDuration = data.seconds ? String(data.seconds) : seedanceDuration;
       const saved = await History_.create({
         type: 'video', model: model.name, prompt,
         job_id: data.job_id, model_id: data.model_id,
-        status: 'pending', duration: seedanceDuration, ratio: seedanceAspect,
+        status: 'pending', duration: shownDuration, ratio: seedanceAspect,
       });
 
-      setVideos(prev => [{ id: saved.id, prompt, model: model.name, duration: seedanceDuration, aspectRatio: seedanceAspect, status: 'pending', job_id: data.job_id, model_id: data.model_id, created_date: saved.created_date }, ...prev]);
+      setVideos(prev => [{ id: saved.id, prompt, model: model.name, duration: shownDuration, aspectRatio: seedanceAspect, status: 'pending', job_id: data.job_id, model_id: data.model_id, created_date: saved.created_date }, ...prev]);
       pollVideo(saved.id, data.job_id, data.model_id);
       toast.success('Seedance generating — you can keep working!');
       refreshAuth();

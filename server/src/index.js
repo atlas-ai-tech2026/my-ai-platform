@@ -2668,6 +2668,10 @@ app.post('/api/generate-video-ref', verifyJwt, requireNotBanned, noDoubleCharge,
         job_id: taskId,
         model_id: 'kie:jobs:' + seedanceMapping.kieModel,
         model: modelLabel,
+        // The seconds billed when the output follows a reference video — the
+        // page labels the card with these, not with the picker's "Auto",
+        // which the badge would otherwise show as 0:05 for a 19-second clip.
+        ...(followsVideo ? { seconds: billingDuration } : {}),
       });
     } catch (error) {
       console.error('[SEEDANCE] [KIE] Error:', error.message);
