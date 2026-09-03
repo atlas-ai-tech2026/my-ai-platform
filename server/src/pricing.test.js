@@ -122,14 +122,25 @@ describe('server-side price computation (labels → workbook prices)', () => {
   // Motion Control is billed per second of the reference clip since it moved
   // to kie (2026-09-03) — a 30-second reference costs six times a 5-second
   // one, as it does us. Edit stays flat per clip.
+  // Rates are the calculator's answers to kie's OWN price line for 3.0
+  // ($0.10/s at 720p, $0.135/s at 1080p → 3 and 4 cr/s); 2.6 carries the
+  // same until its own line is read.
   it('Motion Control priced per second by quality; Edit flat per clip', () => {
-    expect(getVideoCredits('Kling 3.0 Motion Control', { resolution: '720p', duration: 5 })).toBe(7.5);
-    expect(getVideoCredits('Kling 3.0 Motion Control', { resolution: '1080p', duration: 5 })).toBe(10);
-    expect(getVideoCredits('Kling 3.0 Motion Control', { resolution: '1080p', duration: 30 })).toBe(60);
-    expect(getVideoCredits('Kling Motion Control', { resolution: undefined, duration: 5 })).toBe(5); // defaultRes 720p
-    expect(getVideoCredits('Kling Motion Control', { resolution: '1080p', duration: 12 })).toBe(18);
+    expect(getVideoCredits('Kling 3.0 Motion Control', { resolution: '720p', duration: 5 })).toBe(15);
+    expect(getVideoCredits('Kling 3.0 Motion Control', { resolution: '1080p', duration: 5 })).toBe(20);
+    expect(getVideoCredits('Kling 3.0 Motion Control', { resolution: '1080p', duration: 30 })).toBe(120);
+    expect(getVideoCredits('Kling Motion Control', { resolution: undefined, duration: 5 })).toBe(15); // defaultRes 720p
+    expect(getVideoCredits('Kling Motion Control', { resolution: '1080p', duration: 12 })).toBe(48);
     expect(getVideoCredits('Kling 3.0 Omni Edit', {})).toBe(10);
     expect(getVideoCredits('Kling 3.0 Omni Edit', { duration: 10 })).toBe(10);
+  });
+
+  it('Kling 3.0 Motion Control clears 40% against kie\'s own price line at both resolutions', () => {
+    const CV = 0.063333;
+    for (const [res, cost] of Object.entries({ '720p': 0.10, '1080p': 0.135 })) {
+      const sale = getVideoCredits('Kling 3.0 Motion Control', { resolution: res, duration: 1 }) * CV;
+      expect((sale - cost) / sale, `${res}`).toBeGreaterThanOrEqual(0.40);
+    }
   });
 
   // No kie twin exists for these, so they must not be priceable — a price on
