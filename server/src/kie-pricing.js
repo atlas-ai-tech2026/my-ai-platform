@@ -85,14 +85,15 @@ const KIE_USD = {
   // ── Kling models moved off FAL 2026-09-03 (owner: every Kling choice
   //    calls its kie twin). Bases: kie 2.5 Turbo Pro $0.21 per 5 s clip
   //    (costing seed row 46); kie 2.1 Standard 25 credits = $0.125 per 5 s
-  //    (kie's own page). Motion control: the kie-credit-per-second figures
-  //    quoted at migration (3.0 std 9 / pro 12, 2.6 std 5 / pro 8) — to be
-  //    confirmed against kie's price line, see task #101. Kling 3.0 Omni
-  //    (kie O3) has no price read yet → deliberately absent → ledger "—".
+  //    (kie's own page). Kling 3.0 Motion Control: kie's own price line, read
+  //    from their page by the owner on 2026-09-03 — 20 credits/s ($0.10) at
+  //    720p, 27 credits/s ($0.135) at 1080p. Kling Motion Control (2.6): line
+  //    not read yet; carried at the 3.0 figures until it is (task #101). Kling
+  //    3.0 Omni (kie O3) has no price read yet → deliberately absent → "—".
   'Kling 2.5':                { perSecond: { flat: 0.042 } },
   'Kling 2.1':                { perSecond: { flat: 0.025 } },
-  'Kling 3.0 Motion Control': { perSecond: { '720p': 0.045, '1080p': 0.06 } },
-  'Kling Motion Control':     { perSecond: { '720p': 0.025, '1080p': 0.04 } },
+  'Kling 3.0 Motion Control': { perSecond: { '720p': 0.10, '1080p': 0.135 } },
+  'Kling Motion Control':     { perSecond: { '720p': 0.10, '1080p': 0.135 } },
 
   // ── video, billed per whole clip ──
   // Veo: kie bills per video regardless of duration. "Veo 3"/"Veo 3.1" both

@@ -229,20 +229,24 @@ export const VIDEO_CREDITS = {
   // control, kling-2.6/motion-control). kie bills these PER SECOND of the
   // reference clip (3–30 s), so a flat per-clip price cannot hold: the old
   // flat 11 credits for a 30-second Kling 3.0 clip would have sold $0.70 of
-  // video that cost $1.80. Per second, at the standard formula:
-  //   3.0 std 9 kie cr/s = $0.045 → 1.5 cr/s · pro 12 kie cr/s = $0.060 → 2 cr/s
-  //   2.6 std 5 kie cr/s = $0.025 → 1 cr/s   · pro 8 kie cr/s  = $0.040 → 1.5 cr/s
-  // (std = 720p, pro = 1080p.) The kie credit figures are the ones quoted for
-  // these models at migration time and are to be confirmed against kie's own
-  // price line — see task #101. The server bills on the reference clip's
-  // length as read from the file (media-probe.js), never the client's number.
+  // video that cost $4.05. Per second, at the standard formula:
+  //   Kling 3.0 Motion Control — kie's OWN price line, read by the owner from
+  //   kie's page on 2026-09-03: 20 credits/s ($0.10) at 720p, 27 credits/s
+  //   ($0.135) at 1080p → 3 cr/s (47.4%) and 4 cr/s (46.7%). (The figures
+  //   quoted before that page was read — 9 / 12 credits/s — were HALF the
+  //   truth; this is why a price is never set from a quote.)
+  //   Kling Motion Control (2.6) — kie's line NOT read yet. Priced at the 3.0
+  //   rates until it is: over-pricing an older tier costs a sale, under-
+  //   pricing it costs money on every clip. Task #101.
+  // The server bills on the reference clip's length as read from the file
+  // (media-probe.js), never the client's number.
   'Kling 3.0 Motion Control': {
     type: 'per-sec', defaultRes: '1080p',
-    byRes: { '720p': { off: 1.5, on: 1.5 }, '1080p': { off: 2, on: 2 } },
+    byRes: { '720p': { off: 3, on: 3 }, '1080p': { off: 4, on: 4 } },
   },
   'Kling Motion Control': {
     type: 'per-sec', defaultRes: '720p',
-    byRes: { '720p': { off: 1, on: 1 }, '1080p': { off: 1.5, on: 1.5 } },
+    byRes: { '720p': { off: 3, on: 3 }, '1080p': { off: 4, on: 4 } },
   },
   // Kling O1 Video Edit retired 2026-09-03 — no kie twin exists (kie's Kling
   // family: O3, 3.0, 3.0 Turbo, 2.6, 2.5 Turbo, 2.1, motion control, avatar).

@@ -273,16 +273,17 @@ export const VIDEO_CREDITS = {
 
   // ---- Motion Control + Edit panels (keyed by model NAME, not id) ----------
   // Motion Control runs on kie since 2026-09-03 and kie bills PER SECOND of
-  // the reference clip, so these are per-second too (was flat per clip):
-  // 3.0 = 1.5 / 2 cr/s (720p / 1080p), 2.6 = 1 / 1.5 cr/s. Working in
+  // the reference clip, so these are per-second too (was flat per clip).
+  // 3.0: kie's own line ($0.10/s 720p, $0.135/s 1080p) → 3 / 4 cr/s.
+  // 2.6: priced at the 3.0 rates until kie's own line is read. Working in
   // server/src/pricing.js; must stay identical (parity test).
   'Kling 3.0 Motion Control': {
     type: 'per-sec', defaultRes: '1080p',
-    byRes: { '720p': { off: 1.5, on: 1.5 }, '1080p': { off: 2, on: 2 } },
+    byRes: { '720p': { off: 3, on: 3 }, '1080p': { off: 4, on: 4 } },
   },
   'Kling Motion Control': {
     type: 'per-sec', defaultRes: '720p',
-    byRes: { '720p': { off: 1, on: 1 }, '1080p': { off: 1.5, on: 1.5 } },
+    byRes: { '720p': { off: 3, on: 3 }, '1080p': { off: 4, on: 4 } },
   },
   // Kling O1 Video Edit retired 2026-09-03 — no kie twin.
   // Kling 3.0 Omni Edit — flat per clip, unchanged.
