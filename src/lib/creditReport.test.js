@@ -56,7 +56,28 @@ describe('buildCreditReportHtml — the page that becomes the PDF', () => {
     expect(html).toContain('1,090');                       // 395 + 395 + 300
     expect(html).toContain('No email appears twice.');
     expect(html).toContain('differ from the usual amount of 395 credits');
-    expect(html).toContain('c@x.com (300 cr)');
+    expect(html).toMatch(/c@x\.com<\/td><td class="n">300<\/td>/);   // the off-standard table
+  });
+
+  // 396 rows of "Credit added" by the same admin printed those two values 396
+  // times each and pushed the first real report to 34 pages. A value that
+  // never changes is said once, in the header.
+  it('folds columns that never change into the header, and keeps them when they vary', () => {
+    expect(html).toContain('Added by atlas@example.com (all entries)');
+    expect(html).not.toMatch(/<th>Added by<\/th>/);
+    const mixed = buildCreditReportHtml({
+      rows: [row('a@x.com', 5), row('b@x.com', 5, { admin_email: 'other@example.com', action: 'promo' })],
+    });
+    expect(mixed).toMatch(/<th>Added by<\/th>/);
+    expect(mixed).toMatch(/<th>Type<\/th>/);
+    expect(mixed).toContain('Promo code');
+  });
+
+  it('prints the totals once, at the end, and formats money with thousands separators', () => {
+    const big = buildCreditReportHtml({ rows: Array.from({ length: 400 }, (_, i) => row(`u${i}@x.com`, 395)) });
+    expect(big.match(/class="total"/g)).toHaveLength(1);
+    expect(big).toContain('$10,006.67');                    // 158,000 × $19/300
+    expect(big).toContain('158,000');
   });
 
   it('has a print stylesheet and a Save as PDF button', () => {
