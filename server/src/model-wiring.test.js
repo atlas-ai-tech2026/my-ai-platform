@@ -174,6 +174,36 @@ describe('Gemini Omni carries references alongside its frames', () => {
   });
 });
 
+// ─── 2026-08-25, owner: Kling image-to-video must be ONE shot from the image ─
+// The request was already right for Kling 3.0 on kie (multi_shots:false,
+// checked against kie's schema) and customers still got cut-up clips. What a
+// correct flag cannot stop, the prompt can — so the provider-facing prompt
+// carries a continuity instruction on every Kling image-to-video request, and
+// the FAL path (Kling 3.0 Omni) states shot_type explicitly.
+describe('Kling image-to-video stays on the customer\'s image', () => {
+  const panelSrc = read('src/components/video/VideoLeftPanel.jsx');
+
+  it('the provider prompt goes through the continuity guard on BOTH provider paths', () => {
+    expect(indexSrc).toMatch(/providerPrompt = withContinuity\(prompt, \{ hasImage: !!image_url, multiShots: !!multi_shots, model \}\)/);
+    expect(indexSrc).toMatch(/prompt: providerPrompt, frames, duration/);     // kie
+    expect(indexSrc).toMatch(/const input = \{\s*\n\s*prompt: providerPrompt,/); // FAL
+  });
+
+  it('Kling 3.0 on kie still sends multi_shots explicitly — the documented single-shot form', () => {
+    expect(indexSrc).toMatch(/multi_shots: ms,/);
+    expect(indexSrc).toMatch(/image_urls: ms \? \[frames\[0\]\] : frames/);
+  });
+
+  it("the FAL Kling v3 path (Omni) states shot_type 'customize' for image-to-video", () => {
+    expect(indexSrc).toMatch(/hasImage && String\(falModel\)\.includes\('kling-video\/v3'\) \? \{ shot_type: 'customize' \}/);
+  });
+
+  it('the Multi Shot toggle defaults OFF and is the only way to ask for cuts', () => {
+    expect(panelSrc).toMatch(/useState\(false\);\s*\n\s*const \[showDurationDrop/);
+    expect(panelSrc).toMatch(/multiShots: multiShotsOn/);
+  });
+});
+
 describe('every chargeable video model is reachable and priced', () => {
   // Panel model NAMES also live in VIDEO_CREDITS (the Motion Control / Edit
   // tabs key by name), so only lowercase-hyphen ids are UI-list candidates.
