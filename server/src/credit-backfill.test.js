@@ -1,159 +1,170 @@
 // ─── credit-backfill.test.js ─────────────────────────────────────────────────
-// The retroactive half of the owner's 2026-08-25 rule: existing balances get
-// dated from when their credits were actually added. Attribution is
-// newest-first because spending drains oldest-first — what remains of a
-// balance can only belong to the newest additions.
+// Labelling the credit rows written before `source` existed.
+//
+// ☠ THE ONLY RULE THAT MATTERS HERE: A ROW WE CANNOT PLACE IS LEFT ALONE.
+//
+// It would be easy to sweep the awkward cases into 'system' and report a tidy
+// 100%. That is the exact failure this project keeps finding — a number that
+// looks complete because the difficult rows were quietly absorbed. This is the
+// owner's money: $9,605 of it in one workshop alone. A small honest gap beats
+// a large confident lie.
 
 import { describe, it, expect } from 'vitest';
-import { planBackfill, CREDIT_LIFE_DAYS } from './credit-backfill.js';
+import { classifyRow, previewBackfill, BULK_REASON } from './credit-backfill.js';
 
-const DAY = 86400000;
-const NOW = Date.parse('2026-08-25T12:00:00Z');
-const daysAgo = (n) => new Date(NOW - n * DAY).toISOString();
+describe('what an old credit row gets labelled', () => {
+  it('a code redemption is promo, a gift card is gift', () => {
+    expect(classifyRow({ action: 'promo', reason: 'promo: VOXEL-VPW9-DY93' })).toBe('promo');
+    expect(classifyRow({ action: 'gift', reason: 'gift card: ABC' })).toBe('gift');
+  });
 
-describe('the standard life is thirty days — the owner corrected "thirteen" themselves', () => {
-  it('is 30', () => {
-    expect(CREDIT_LIFE_DAYS).toBe(30);
+  it('everything the system does on its own is system', () => {
+    for (const action of ['spend', 'refund', 'expire', 'signup', 'ban', 'unban', 'password_reset']) {
+      expect(classifyRow({ action }), action).toBe('system');
+    }
+  });
+
+  it('☠ a grant with bulk\'s own sentence is BULK, not manual', () => {
+    // The distinction the whole feature rests on. Bulk provisioning and the
+    // panel's credit box both wrote action 'grant'; only this sentence, which
+    // no human typed, ever separated them.
+    expect(classifyRow({ action: 'grant', reason: 'bulk provision: Basic plan' })).toBe('bulk');
+    expect(classifyRow({ action: 'grant', reason: 'bulk provision: Free plan' })).toBe('bulk');
+  });
+
+  it('and any other grant is manual — including the real SPA 4 reasons', () => {
+    for (const reason of ['spa 4', 'Spa 4', 'Spa 4.', 'SPA4',
+      'Spa 4 its was his credit and we removed and then we returned agian', '']) {
+      expect(classifyRow({ action: 'grant', reason }), JSON.stringify(reason)).toBe('manual');
+    }
+  });
+
+  it('revoke and set were always a person deciding something', () => {
+    expect(classifyRow({ action: 'revoke', reason: 'took back' })).toBe('manual');
+    expect(classifyRow({ action: 'set', reason: 'corrected' })).toBe('manual');
+  });
+
+  it('☠ a row it cannot place is LEFT ALONE, never swept into system', () => {
+    // The tempting shortcut, refused. An action from a path since removed is
+    // not evidence of anything; guessing would put unknown money in a total
+    // the owner reads as fact.
+    expect(classifyRow({ action: 'topup', reason: 'x' })).toBeNull();
+    expect(classifyRow({ action: 'create', reason: '' })).toBeNull();
+    expect(classifyRow({ action: '', reason: 'anything' })).toBeNull();
+    expect(classifyRow({})).toBeNull();
+  });
+
+  it('is not fooled by case or stray spacing in the action', () => {
+    expect(classifyRow({ action: ' GRANT ', reason: 'spa 4' })).toBe('manual');
+    expect(classifyRow({ action: 'Promo' })).toBe('promo');
+  });
+
+  it('☠ and a customer cannot talk their way into being "bulk"', () => {
+    // `reason` on a manual grant is free text an admin types. If the match
+    // were loose, typing the words anywhere would relabel money.
+    expect(classifyRow({ action: 'grant', reason: 'refund for the bulk provision: mistake' })).toBe('manual');
+    expect(classifyRow({ action: 'grant', reason: 'not a bulk provision' })).toBe('manual');
+    expect(BULK_REASON.source.startsWith('^')).toBe(true);   // anchored, deliberately
   });
 });
 
-describe('attributing a balance to its addition dates', () => {
-  it('a balance fully covered by the newest grant maps onto it alone', () => {
-    const r = planBackfill({
-      balance: 50,
-      additions: [
-        { amount: 100, action: 'grant', created_at: daysAgo(2) },
-        { amount: 200, action: 'grant', created_at: daysAgo(40) },
-      ],
-      now: NOW,
-    });
-    expect(r.lots).toHaveLength(1);
-    expect(r.lots[0].amount).toBe(50);
-    expect(r.lots[0].granted_at.toISOString()).toBe(daysAgo(2));
-    expect(r.attributed).toBe(50);
-    expect(r.unattributed).toBe(0);
+describe('the preview the owner approves', () => {
+  const rows = [
+    { action: 'grant', reason: 'spa 4', amount: 395, email: 'a@b.com', created_at: '2026-08-20' },
+    { action: 'grant', reason: 'Spa 4', amount: 395, email: 'c@d.com', created_at: '2026-08-20' },
+    { action: 'grant', reason: 'bulk provision: Basic plan', amount: 100, email: 'e@f.com' },
+    { action: 'promo', reason: 'promo: VOXEL-X', amount: 158, email: 'g@h.com' },
+    { action: 'spend', reason: 'Kling 3.0', amount: -12.5, email: 'a@b.com' },
+    { action: 'topup', reason: 'from a path that no longer exists', amount: 50, email: 'i@j.com' },
+  ];
+
+  it('groups by what each row would become, biggest first', () => {
+    const p = previewBackfill(rows);
+    expect(p.groups.map((g) => g.source)).toEqual(
+      expect.arrayContaining(['manual', 'bulk', 'promo', 'system', 'unclassified']));
+    expect(p.groups[0].source).toBe('manual');       // 2 rows, the largest group
+    expect(p.groups[0].rows).toBe(2);
   });
 
-  it('a balance larger than the newest grant spills into the one before it', () => {
-    const r = planBackfill({
-      balance: 130,
-      additions: [
-        { amount: 100, action: 'grant', created_at: daysAgo(2) },
-        { amount: 200, action: 'promo', created_at: daysAgo(10) },
-      ],
-      now: NOW,
-    });
-    expect(r.lots).toHaveLength(2);
-    expect(r.lots[0].amount).toBe(100);          // all of the newest
-    expect(r.lots[1].amount).toBe(30);           // the remainder from the older
-    expect(r.lots[1].granted_at.toISOString()).toBe(daysAgo(10));
-    expect(r.attributed).toBe(130);
+  it('says what it would NOT touch, as its own number', () => {
+    const p = previewBackfill(rows);
+    expect(p.total_rows).toBe(6);
+    expect(p.unclassified).toBe(1);
+    expect(p.would_write).toBe(5);
   });
 
-  it('sorts additions newest-first no matter the order they arrive in', () => {
-    const shuffled = [
-      { amount: 10, action: 'grant', created_at: daysAgo(20) },
-      { amount: 10, action: 'grant', created_at: daysAgo(1) },
-      { amount: 10, action: 'grant', created_at: daysAgo(9) },
-    ];
-    const r = planBackfill({ balance: 15, additions: shuffled, now: NOW });
-    expect(r.lots[0].granted_at.toISOString()).toBe(daysAgo(1));
-    expect(r.lots[1].granted_at.toISOString()).toBe(daysAgo(9));
-    expect(r.lots[1].amount).toBe(5);
+  it('puts money on each group, because that is what makes it checkable', () => {
+    const p = previewBackfill(rows, { creditValueUsd: 0.063333 });
+    const manual = p.groups.find((g) => g.source === 'manual');
+    expect(manual.credits).toBe(790);
+    expect(manual.usd).toBeCloseTo(50.03, 2);
   });
 
-  it('every lot expires exactly its life after its OWN addition date', () => {
-    const r = planBackfill({
-      balance: 40,
-      additions: [
-        { amount: 20, action: 'grant', created_at: daysAgo(3) },
-        { amount: 20, action: 'gift', created_at: daysAgo(45) },
-      ],
-      now: NOW,
-    });
-    expect(r.lots[0].expires_at.getTime() - r.lots[0].granted_at.getTime()).toBe(30 * DAY);
-    expect(r.lots[1].expires_at.getTime() - r.lots[1].granted_at.getTime()).toBe(30 * DAY);
+  it('☠ shows REAL examples, so a person can say "those are not manual"', () => {
+    // A count cannot be checked. Three rows can.
+    const p = previewBackfill(rows);
+    const manual = p.groups.find((g) => g.source === 'manual');
+    expect(manual.examples[0]).toMatchObject({ email: 'a@b.com', reason: 'spa 4', amount: 395 });
+    expect(manual.examples).toHaveLength(2);
   });
 
-  it('an addition already past its life produces a lot that is ALREADY expired — the retroactive point', () => {
-    const r = planBackfill({
-      balance: 20,
-      additions: [{ amount: 20, action: 'grant', created_at: daysAgo(45) }],
-      now: NOW,
-    });
-    expect(r.lots[0].expires_at.getTime()).toBeLessThan(NOW);
+  it('states the whole thing as one sentence a person can approve', () => {
+    const p = previewBackfill(rows);
+    expect(p.sentence).toMatch(/^6 unlabelled rows — /);
+    expect(p.sentence).toMatch(/The unclassified ones stay untouched\./);
+  });
+
+  it('an already-labelled ledger says so, instead of showing an empty table', () => {
+    expect(previewBackfill([]).sentence).toMatch(/every row already carries a source/);
+    expect(previewBackfill([]).would_write).toBe(0);
+  });
+
+  it('every row lands in exactly one group', () => {
+    const p = previewBackfill(rows);
+    expect(p.groups.reduce((n, g) => n + g.rows, 0)).toBe(rows.length);
   });
 });
 
-describe('the remainder the ledger cannot explain', () => {
-  it('becomes one visible lot dated from the backfill moment, never dropped', () => {
-    const r = planBackfill({
-      balance: 500,
-      additions: [{ amount: 100, action: 'grant', created_at: daysAgo(5) }],
-      now: NOW,
-    });
-    expect(r.attributed).toBe(100);
-    expect(r.unattributed).toBe(400);
-    const orphan = r.lots[r.lots.length - 1];
-    expect(orphan.source).toBe('backfill-unattributed');
-    expect(orphan.amount).toBe(400);
-    expect(orphan.granted_at.getTime()).toBe(NOW);
-    expect(orphan.expires_at.getTime()).toBe(NOW + 30 * DAY);
+describe('☠ THE ROUTE REFUSES TO WRITE AGAINST A PICTURE THAT MOVED', () => {
+  const src = () => require('node:fs')
+    .readFileSync(require('node:path').join(__dirname, 'index.js'), 'utf8');
+  const code = () => src().split('\n').filter((l) => !/^\s*\/\//.test(l)).join('\n');
+
+  it('the preview only reads — no UPDATE, no INSERT', () => {
+    const body = code().slice(code().indexOf("'/api/admin/credits/backfill-preview'"),
+                              code().indexOf("'/api/admin/credits/backfill-apply'"));
+    expect(body).not.toMatch(/UPDATE credits_history/);
+    expect(body).not.toMatch(/INSERT INTO/);
+    expect(body).toMatch(/WHERE ch\.source IS NULL/);
   });
 
-  it('a balance with NO ledger rows at all is entirely unattributed', () => {
-    const r = planBackfill({ balance: 75, additions: [], now: NOW });
-    expect(r.lots).toHaveLength(1);
-    expect(r.lots[0].source).toBe('backfill-unattributed');
-    expect(r.unattributed).toBe(75);
-  });
-});
-
-describe('nothing is invented', () => {
-  it('zero balance plans zero lots', () => {
-    const r = planBackfill({ balance: 0, additions: [{ amount: 10, action: 'grant', created_at: daysAgo(1) }], now: NOW });
-    expect(r.lots).toHaveLength(0);
+  it('apply demands the number the owner was actually shown', () => {
+    // An approval is for a specific picture. If rows arrived or vanished in
+    // between, that approval was for something else.
+    expect(code()).toMatch(/expected !== rows\.length/);
+    expect(code()).toMatch(/status\(409\)/);
   });
 
-  it('a negative balance plans zero lots rather than a negative lot', () => {
-    expect(planBackfill({ balance: -5, additions: [], now: NOW }).lots).toHaveLength(0);
+  it('☠ it never overwrites a source already decided', () => {
+    // Re-running must be safe. Without the guard a second pass could relabel
+    // rows the first pass — or a human — had already settled.
+    expect(code()).toMatch(/SET source = \$1 WHERE id = ANY\(\$2\) AND source IS NULL/);
   });
 
-  it('negative and zero ledger rows (spends, refund reversals) are ignored as addition sources', () => {
-    const r = planBackfill({
-      balance: 10,
-      additions: [
-        { amount: -50, action: 'spend', created_at: daysAgo(1) },
-        { amount: 0, action: 'set', created_at: daysAgo(1) },
-        { amount: 10, action: 'grant', created_at: daysAgo(2) },
-      ],
-      now: NOW,
-    });
-    expect(r.lots).toHaveLength(1);
-    expect(r.lots[0].granted_at.toISOString()).toBe(daysAgo(2));
+  it('and writes in chunks rather than one lock over the whole ledger', () => {
+    // credits_history is written by every generation. A single UPDATE over
+    // tens of thousands of ids holds a lock across all of them.
+    expect(code()).toMatch(/i \+= 500/);
   });
 
-  it('decimal balances allocate to the cent, lots sum exactly to the balance', () => {
-    const r = planBackfill({
-      balance: 77.5,
-      additions: [
-        { amount: 50.25, action: 'grant', created_at: daysAgo(1) },
-        { amount: 40.1, action: 'grant', created_at: daysAgo(2) },
-      ],
-      now: NOW,
-    });
-    const sum = r.lots.reduce((n, l) => n + l.remaining, 0);
-    expect(Math.round(sum * 100) / 100).toBe(77.5);
-    expect(r.lots[1].amount).toBe(27.25);
+  it('rows it cannot place are skipped, not defaulted', () => {
+    expect(code()).toMatch(/if \(!source\) continue;/);
   });
 
-  it('a shorter life can be asked for explicitly, but never defaults to it', () => {
-    const r = planBackfill({
-      balance: 10,
-      additions: [{ amount: 10, action: 'grant', created_at: daysAgo(1) }],
-      now: NOW,
-      days: 7,
-    });
-    expect(r.lots[0].expires_at.getTime() - r.lots[0].granted_at.getTime()).toBe(7 * DAY);
+  it('the whole thing is one transaction — all labelled, or none', () => {
+    const body = code().slice(code().indexOf("'/api/admin/credits/backfill-apply'"));
+    expect(body).toMatch(/BEGIN/);
+    expect(body).toMatch(/COMMIT/);
+    expect(body).toMatch(/ROLLBACK/);
   });
 });

@@ -68,6 +68,7 @@ import { AGENT_SYSTEM } from './edit-agent-prompt.js';
 import { formatProviderError, providerErrorParts, isProviderRefusal } from './provider-error.js';
 import { normalizeBulkEmails, generateBulkPassword } from './bulk-helpers.js';
 import { splitList, describeSplit } from './list-check.js';
+import { classifyRow, previewBackfill } from './credit-backfill.js';
 import { mayRedeem, capForInvites, capAfterAdding, splitInvites, REFUSAL } from './promo-audience.js';
 // ONE definition of "the same address", shared by auth, bulk and promo.
 import { normalizeEmail } from './email-normalize.js';
@@ -7291,6 +7292,101 @@ app.post('/api/admin/credit-lots/activate', adminGate, async (req, res) => {
 // sign-in uses. A list of 84 on 2026-09-02 held nine addresses with capitals
 // and one with an invisible right-to-left mark; without this, all ten would be
 // called "new" and given duplicate accounts.
+// ── LABELLING THE CREDIT ROWS WRITTEN BEFORE `source` EXISTED ───────────────
+//
+// Two endpoints on purpose: one that only LOOKS, one that writes only what the
+// owner has already been shown.
+//
+// ☠ WHY A PREVIEW AND NOT A BUTTON. This touches every historical credit row —
+// the ledger behind $9,605 in one workshop alone. A classification that is
+// merely plausible would be indistinguishable, afterwards, from one that is
+// right. So the preview reports the counts, the money AND real example rows,
+// and the apply step refuses to run unless it is handed the same total it
+// showed. If the ledger moved in between, it stops rather than writing against
+// a picture that has changed.
+app.get('/api/admin/credits/backfill-preview', adminGate, async (req, res) => {
+  if (!dbReady()) return res.status(503).json({ error: 'Database not available.' });
+  try {
+    const { rows } = await pool.query(
+      `SELECT ch.id, ch.action, ch.amount, ch.reason, ch.created_at, u.email
+         FROM credits_history ch LEFT JOIN users u ON u.id = ch.user_id
+        WHERE ch.source IS NULL
+        ORDER BY ch.created_at DESC`);
+    const { rows: settings } = await pool.query(
+      `SELECT credit_value FROM pricing_settings WHERE id = 1`).catch(() => ({ rows: [] }));
+    const preview = previewBackfill(rows, {
+      creditValueUsd: Number(settings?.[0]?.credit_value) || 0.063333,
+    });
+    console.log(`[credit-backfill] preview for ${req.user?.email}: ${preview.sentence}`);
+    res.json(preview);
+  } catch (err) {
+    console.error('[credit-backfill] preview failed:', err);
+    res.status(500).json({ error: 'Could not build the preview.' });
+  }
+});
+
+app.post('/api/admin/credits/backfill-apply', adminGate, async (req, res) => {
+  if (!dbReady()) return res.status(503).json({ error: 'Database not available.' });
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const { rows } = await client.query(
+      `SELECT id, action, reason FROM credits_history WHERE source IS NULL FOR UPDATE`);
+
+    // ☠ THE PICTURE MUST NOT HAVE MOVED. The owner approved a number; if the
+    // ledger has gained or lost unlabelled rows since, that approval was for
+    // something else. Refuse and send them back to the preview.
+    const expected = Number(req.body?.expect_rows);
+    if (!Number.isFinite(expected) || expected !== rows.length) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({
+        error: `The ledger changed since you looked — you approved ${
+          Number.isFinite(expected) ? expected : 'an unknown number of'} rows and there are now `
+             + `${rows.length}. Open the preview again so you are approving what is actually there.`,
+        now: rows.length,
+      });
+    }
+
+    const bySource = new Map();
+    for (const r of rows) {
+      const source = classifyRow(r);
+      if (!source) continue;                        // left alone, deliberately
+      if (!bySource.has(source)) bySource.set(source, []);
+      bySource.get(source).push(r.id);
+    }
+
+    let written = 0;
+    for (const [source, ids] of bySource) {
+      // In chunks: one UPDATE over tens of thousands of ids is a long lock on
+      // the table every generation writes to.
+      for (let i = 0; i < ids.length; i += 500) {
+        const chunk = ids.slice(i, i + 500);
+        const r = await client.query(
+          `UPDATE credits_history SET source = $1 WHERE id = ANY($2) AND source IS NULL`,
+          [source, chunk]);
+        written += r.rowCount;
+      }
+    }
+    await client.query('COMMIT');
+
+    const left = rows.length - written;
+    console.log(`[credit-backfill] ${req.user?.email} labelled ${written} row(s); `
+      + `${left} left unclassified on purpose`);
+    res.json({
+      written, unclassified: left,
+      by_source: Object.fromEntries([...bySource].map(([s, ids]) => [s, ids.length])),
+      sentence: `${written.toLocaleString()} row${written === 1 ? '' : 's'} labelled`
+        + (left ? `. ${left.toLocaleString()} left unclassified — we could not tell what they were.` : '.'),
+    });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('[credit-backfill] apply failed:', err);
+    res.status(500).json({ error: 'Nothing was changed — the labelling failed.' });
+  } finally {
+    client.release();
+  }
+});
+
 app.post('/api/admin/users/check-list', adminGate, async (req, res) => {
   if (!dbReady()) return res.status(503).json({ error: 'Database not available.' });
   try {
