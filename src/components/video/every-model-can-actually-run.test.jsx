@@ -92,9 +92,13 @@ describe('☠ EVERY MODEL SHOWN TO A CUSTOMER MUST BE ONE THE SERVER CAN RUN', (
 
   it('records which models are currently unservable, so the number cannot drift quietly', () => {
     const hidden = offered.filter((m) => m.unavailable).map((m) => m.name).sort();
+    // Was ELEVEN when this was written. A parallel session moved the Kling
+    // family onto its kie twin the same afternoon, which is why the list is
+    // now SEVEN — and why this assertion is spelled out rather than counted:
+    // a number going down silently is as unexplained as one going up.
     expect(hidden).toEqual([
-      'Hailuo 2.3', 'Kling 2.1', 'Kling 2.5', 'Kling 3.0 Omni', 'Kling O1',
-      'LTX 2', 'PixVerse 5', 'Seedance 1', 'Vidu Q2', 'Vidu Q3', 'Wan 2.2',
+      'Hailuo 2.3', 'LTX 2', 'PixVerse 5', 'Seedance 1',
+      'Vidu Q2', 'Vidu Q3', 'Wan 2.2',
     ]);
   });
 

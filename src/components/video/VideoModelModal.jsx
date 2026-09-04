@@ -26,50 +26,49 @@ const VIDEO_MODELS = [
   { id:'veo-3-1',        name:'Veo 3.1',           brand:'Google',    color:'#10A37F', badge:'NEW',  desc:'High fidelity videos with audio & 4K',        tags:['Start Frame','Audio','4K'],        res:'720p-4K',   dur:'4-8s',   featured:true,  img:'https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=120&q=80&fit=crop' },
   { id:'veo-3-fast',     name:'Veo 3 Fast',        brand:'Google',    color:'#10A37F', badge:'FAST', desc:'Faster, cheaper Veo tier with audio',         tags:['Start Frame','Audio','Fast'],      res:'720-1080p', dur:'8s',     img:'https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=120&q=80&fit=crop' },
   { id:'kling-2-6',      name:'Kling 2.6',         brand:'Kling',     color:'#2563EB', badge:null,   desc:'Cinematic videos with audio & voice',          tags:['Start Frame','Audio'],             res:'720-1080p', dur:'5-10s',  img:'https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?w=120&q=80&fit=crop' },
+  // Kling 3.0 Omni / 2.5 / 2.1 moved from FAL to kie on 2026-09-03 (owner:
+  // every Kling choice calls its kie twin). Omni = kie's Kling O3. 2.5 = kie's
+  // 2.5 Turbo Pro. 2.1 = kie's 2.1 Standard, which is image-to-video ONLY —
+  // so its card says "Start Frame" and the server refuses a text-only request
+  // with a named reason instead of quietly running something else.
+  { id:'kling-3-omni',   name:'Kling 3.0 Omni',    brand:'Kling',     color:'#2563EB', badge:null,   desc:'Kling O3 — multimodal references, native audio',  tags:['Start/End','Audio'],         res:'720-1080p', dur:'3-15s',  img:'https://images.unsplash.com/photo-1536440136628-849c177e76a1?w=400&q=80&fit=crop' },
+  { id:'kling-2-5',      name:'Kling 2.5',         brand:'Kling',     color:'#2563EB', badge:null,   desc:'Great creativity with exceptional value',      tags:['Start Frame'],                     res:'1080p',     dur:'5-10s',  img:'https://images.unsplash.com/photo-1560942485-b2a11cc13456?w=120&q=80&fit=crop' },
+  { id:'kling-2-1',      name:'Kling 2.1',         brand:'Kling',     color:'#2563EB', badge:null,   desc:'Natural motion from a start frame (image-to-video)', tags:['Start Frame'],               res:'720p',      dur:'5-10s',  img:'https://images.unsplash.com/photo-1543946207-39bd91e70ca7?w=120&q=80&fit=crop' },
   // Sora 2 temporarily removed 2026-07-23 — kie's Sora interface is paused
   // ("This interface is temporarily paused"); every generation failed with
   // auto-refund. Re-add this entry when kie reactivates it:
   // { id:'sora-2', name:'Sora 2', brand:'Sora', color:'#444', badge:'NEW', desc:'Story-telling videos with audio — real Sora 2', tags:['Start Frame','Audio'], res:'720-1080p', dur:'10s', img:'https://images.unsplash.com/photo-1518770660439-4636190af475?w=120&q=80&fit=crop' },
   { id:'wan-2-6',        name:'Wan 2.6',           brand:'Wan',       color:'#7C3AED', badge:null,   desc:'Cinematic videos with audio & multi-shots',   tags:['Start Frame','Multi-shots','Audio'],res:'720-1080p',dur:'5-15s',  img:'https://images.unsplash.com/photo-1500462918059-b1a0cb512f1d?w=120&q=80&fit=crop' },
   { id:'grok-imagine',   name:'Grok Imagine',      brand:'Grok',      color:'#D97706', badge:null,   desc:'Fast generation of cinematic videos',          tags:['Start Frame','Audio'],             res:'480-720p',  dur:'6-30s',  img:'https://images.unsplash.com/photo-1534972195531-d756b9bfa9f2?w=120&q=80&fit=crop' },
-  // ── ☠ NOT SERVABLE — every one of these reaches FAL, and FAL is not connected ──
+  // ── ☠ NOT SERVABLE — these still reach FAL, and FAL is not connected ──
   //
-  // Found 2026-09-03, during a live workshop. A customer picked Kling 3.0 Omni
-  // and the server answered:
+  // Found 2026-09-03 from production logs during a live workshop. A customer
+  // picked a model and the server answered:
   //
   //     [VIDEO] Mapped to fal model: fal-ai/kling-video/v3/pro/image-to-video
   //     [VIDEO] Error: Forbidden
   //
-  // These have no entry in the server's kie provider map, so they fall through
-  // to a legacy FAL map that is still in the code. FAL holds a key but refuses
-  // every request — so ALL ELEVEN fail 100% of the time. Only one customer
-  // happened to pick one that day; the rest was luck.
+  // ELEVEN models were in that state. The Kling family has since been moved to
+  // its kie twin (see "every Kling model generates from its kie twin, never
+  // FAL"). SEVEN REMAIN with no kie route, and each fails 100% of the time.
   //
-  // They are kept here, flagged rather than deleted, exactly as Sora 2 was
-  // above: the entry is the record of what we used to offer and what it cost
-  // to price. `unavailable` hides them from the picker; remove the flag when
-  // the model has a REAL kie route.
+  // Flagged, not deleted — the entry records what we offered and what it was
+  // priced against, exactly as Sora 2 was kept when kie paused it in July.
+  // Remove the flag when the model has a real kie route.
   //
-  // ── WHAT KIE ACTUALLY HAS, read from their catalogue API 2026-09-03 ──
-  //   Kling 3.0 Omni → kie calls it "Kling O3" (path kling-o3), described by
-  //                    kie as "powered by Kling VIDEO 3.0 Omni capabilities,
-  //                    supports multimodal references". Also covers Omni Edit.
-  //   Kling 2.5      → "Kling 2.5 Turbo" (kling-2-5)
-  //   Kling 2.1      → "Kling V2.1" (kling/v2-1)
-  //   Hailuo 2.3     → "Hailuo 2.3" (hailuo-2-3)
-  //   Kling O1       → kie has no O1. O3 is the current generation.
-  //   Seedance 1 / Wan 2.2 / PixVerse 5 → kie has DIFFERENT versions
-  //                    (Seedance V1, Wan V2.2 A14B, PixVerse V6) — a swap
-  //                    would be a different product, so it is the owner's call.
-  //   LTX 2 / Vidu Q3 / Vidu Q2 → not on kie at all.
+  // ── WHAT KIE ACTUALLY HAS, from their catalogue API 2026-09-03 ──
+  //   Hailuo 2.3  → kie HAS it: "Hailuo 2.3" (hailuo-2-3), price line 0.15
+  //   Seedance 1  → kie has "Seedance V1" and "Seedance 1.0 Pro Fast" — a
+  //                 DIFFERENT product, so swapping is the owner's call
+  //   Wan 2.2     → kie has "Wan V2.2 A14B" (wan/v2-2) and "Wan 2.2 Animate"
+  //   PixVerse 5  → kie has V6, not 5
+  //   LTX 2, Vidu Q3, Vidu Q2 → not on kie at all
   //
-  // Each still needs kie's PRICE and parameter shape before it is wired. Those
-  // are not guessed here — see the Seedance and Omni 1.1 lessons.
+  // Each still needs kie's PRICE and parameter shape before wiring. Not
+  // guessed here — see the Seedance and Omni 1.1 lessons.
   // ── FAL-backed (kept for the record; none of these can run) ──
-  { id:'kling-3-omni',   name:'Kling 3.0 Omni',    brand:'Kling',     color:'#2563EB', badge:null,   desc:'Enhanced multimodal references',              tags:['Reference','Multi-shots','Audio'], res:'720-1080p', dur:'3-15s',  img:'https://images.unsplash.com/photo-1536440136628-849c177e76a1?w=400&q=80&fit=crop', unavailable:'no kie route' },
-  { id:'kling-2-5',      name:'Kling 2.5',         brand:'Kling',     color:'#2563EB', badge:null,   desc:'Great creativity with exceptional value',      tags:['Start/End'],                       res:'720-1080p', dur:'5-10s',  img:'https://images.unsplash.com/photo-1560942485-b2a11cc13456?w=120&q=80&fit=crop', unavailable:'no kie route' },
-  { id:'kling-2-1',      name:'Kling 2.1',         brand:'Kling',     color:'#2563EB', badge:null,   desc:'Natural motion & great prompt adherence',      tags:['Start/End'],                       res:'720-1080p', dur:'5-10s',  img:'https://images.unsplash.com/photo-1543946207-39bd91e70ca7?w=120&q=80&fit=crop', unavailable:'no kie route' },
-  { id:'kling-o1',       name:'Kling O1',          brand:'Kling',     color:'#2563EB', badge:null,   desc:'Enhanced multimodal references',               tags:['Reference','Start/End'],           res:'720-1080p', dur:'3-10s',  img:'https://images.unsplash.com/photo-1620641788421-7a1c342ea42e?w=120&q=80&fit=crop', unavailable:'no kie route' },
+  // "Kling O1" retired 2026-09-03: it was FAL's Kling 1.6 under another name
+  // and kie has no such model — a card that cannot call its twin is a lie.
   { id:'hailuo-2-3',     name:'Hailuo 2.3',        brand:'Hailuo',    color:'#A855F7', badge:null,   desc:'Great for cinematic & acting scenes',          tags:['Start Frame'],                     res:'768-1080p', dur:'6-10s',  img:'https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?w=120&q=80&fit=crop', unavailable:'no kie route' },
   { id:'seedance-1',     name:'Seedance 1',        brand:'Seedance',  color:'#0D9488', badge:null,   desc:'Narrative videos with multi-shots',            tags:['Start/End','Multi-shots'],         res:'480-1080p', dur:'5-10s',  img:'https://images.unsplash.com/photo-1470071459604-3b5ec3a7fe05?w=120&q=80&fit=crop', unavailable:'no kie route' },
   { id:'ltx-2',          name:'LTX 2',             brand:'LTX',       color:'#0891B2', badge:null,   desc:'Fast cinematic 4K videos up to 20s',           tags:['Start Frame','Audio','4K'],        res:'4K',        dur:'6-10s',  img:'https://images.unsplash.com/photo-1581375321224-79da6fd32627?w=120&q=80&fit=crop', unavailable:'no kie route' },
@@ -84,9 +83,8 @@ const font = '"DM Sans", sans-serif';
 export default function VideoModelModal({ selectedId, onSelect, onClose }) {
   const [search, setSearch] = useState('');
   // A model with no route cannot be offered. Showing it means a customer picks
-  // it, waits, and is refunded for nothing — which is what happened on
-  // 2026-09-03. Filtered in ONE place so search cannot reveal what the grid
-  // hides.
+  // it, waits, and is refunded for nothing. Filtered in ONE place so search
+  // cannot reveal what the grid hides.
   const servable = VIDEO_MODELS.filter(m => !m.unavailable);
   const featured = servable.filter(m => m.featured);
   const filtered = servable.filter(m =>

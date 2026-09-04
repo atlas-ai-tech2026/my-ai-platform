@@ -38,11 +38,10 @@ const DURATION_OPTIONS_BY_MODEL = {
   // Kling 3.0 family: 3-15 seconds (every integer)
   'kling-3-omni':    ['3s', '4s', '5s', '6s', '7s', '8s', '9s', '10s', '11s', '12s', '13s', '14s', '15s'],
   'kling-3':         ['3s', '4s', '5s', '6s', '7s', '8s', '9s', '10s', '11s', '12s', '13s', '14s', '15s'],
-  // Kling 2.x: 5 or 10 seconds only
+  // Kling 2.x: 5 or 10 seconds only (kie's 2.6 / 2.5 Turbo / 2.1 Standard)
   'kling-2-6':       ['5s', '10s'],
   'kling-2-5':       ['5s', '10s'],
   'kling-2-1':       ['5s', '10s'],
-  'kling-o1':        ['5s', '10s'],
   // Wan family: 5-15s
   'wan-2-6':         ['5s', '6s', '7s', '8s', '9s', '10s', '11s', '12s', '13s', '14s', '15s'],
   'wan-2-2':         ['5s', '10s'],

@@ -58,35 +58,30 @@ describe('the answer to their email, without reading a ledger', () => {
     await waitFor(() => expect(screen.getByText(/timed out after 90s/)).toBeInTheDocument());
   });
 
-  // Who they are and whether they can still use the platform, in one line.
-  //
-  // ☠ THE CLOCK IS FROZEN, AND IT HAS TO BE. This test read "access until
-  // 2026-09-02" against a fixture expiring at 2026-09-02T00:00:00Z. It passed
-  // every day until 2026-09-02, when that moment became the past and the
-  // component correctly began saying "access ended" instead. The component was
-  // right; the test had a fuse on it.
-  //
-  // A test that fails by calendar is worse than no test: it goes red on a day
-  // when nothing changed, and the habit of dismissing red is the expensive
-  // part. So the day is fixed here, and BOTH branches are exercised — the
-  // "ended" one had no test at all, which is why nobody noticed it was the
-  // branch a passing suite had never entered.
-  it('identifies the workshop they came from and when access ends', async () => {
-    vi.setSystemTime(new Date('2026-09-01T12:00:00Z'));
+  // Who they are, in one line. (Until 2026-08-25 this also asserted "access
+  // until <date>" — a literal date that turned into the past on 2026-09-02
+  // and broke the suite, and a claim the owner's rule made false anyway:
+  // accounts never expire. A stored date is history, shown grey, never a
+  // state.)
+  it('identifies the workshop they came from — and never claims access ends', async () => {
     render(<CustomerPanel user={USER} onClose={vi.fn()} onError={vi.fn()} />);
     await waitFor(() => expect(screen.getByText(/Riyadh · August/)).toBeInTheDocument());
     expect(screen.getByText('VOXEL-7UMD-Z66C')).toBeInTheDocument();
-    expect(screen.getByText(/access until 2026-09-02/)).toBeInTheDocument();
+    expect(screen.getByText(/lockout date on record 2026-09-02 — no longer enforced/)).toBeInTheDocument();
+    expect(screen.queryByText(/access until|access ended/)).toBeNull();
   });
 
-  it('☠ and says access ENDED once the date has passed', async () => {
-    // The other side of the same line. An expired customer reading "access
-    // until 2 September" on 3 September would be told the opposite of the truth
-    // by the screen that exists to answer their email.
+  it('☠ and once the date has passed it STILL never says access ended', async () => {
+    // The other side of the same line, kept on a frozen clock so it is
+    // exercised on purpose rather than by the calendar. Under the owner's rule
+    // (accounts never expire — credits do) a passed date is not a lockout: the
+    // customer can sign in, and a screen that exists to answer their email
+    // must not say "access ended" about them.
     vi.setSystemTime(new Date('2026-09-03T12:00:00Z'));
     render(<CustomerPanel user={USER} onClose={vi.fn()} onError={vi.fn()} />);
     await waitFor(() => expect(screen.getByText(/Riyadh · August/)).toBeInTheDocument());
-    expect(screen.getByText(/access ended 2026-09-02/)).toBeInTheDocument();
+    expect(screen.getByText(/lockout date on record 2026-09-02 — no longer enforced/)).toBeInTheDocument();
+    expect(screen.queryByText(/access ended/)).toBeNull();
   });
 
   it('shows how long a recorded generation actually took', async () => {
@@ -124,14 +119,18 @@ describe('marking a deduction as a deduction', () => {
   });
 });
 
-describe('an expired or empty account reads correctly', () => {
-  it('flags access that has already ended', async () => {
+describe('an old lockout date or an empty account reads correctly', () => {
+  // A date in the past used to render "access ended" in red. Under the
+  // owner's rule that sentence is false — the customer can sign in — so a
+  // past date reads exactly like a future one: history, grey, unenforced.
+  it('a past lockout date is shown as history, never as a lockout', async () => {
     customerOverview.mockResolvedValue({
       ...OVERVIEW,
       customer: { ...OVERVIEW.customer, expires_at: '2026-08-01T00:00:00Z' },
     });
     render(<CustomerPanel user={USER} onClose={vi.fn()} onError={vi.fn()} />);
-    await waitFor(() => expect(screen.getByText(/access ended 2026-08-01/)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/lockout date on record 2026-08-01 — no longer enforced/)).toBeInTheDocument());
+    expect(screen.queryByText(/access ended/)).toBeNull();
   });
 
   // The useful detail for a "why can't I do anything" email.

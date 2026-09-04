@@ -119,12 +119,42 @@ describe('server-side price computation (labels → workbook prices)', () => {
     expect(getVideoCredits('Kling 2.6', { resolution: '720p', duration: 5 })).toBe(7.5); // only 1080p priced
   });
 
-  it('Motion Control / Edit panels priced by quality field', () => {
-    expect(getVideoCredits('Kling 3.0 Motion Control', { resolution: '720p' })).toBe(8);
-    expect(getVideoCredits('Kling 3.0 Motion Control', { resolution: '1080p' })).toBe(11);
-    expect(getVideoCredits('Kling Motion Control', { resolution: undefined })).toBe(6); // defaultRes 720p
-    expect(getVideoCredits('Kling O1 Video Edit', { resolution: '1080p' })).toBe(10);
+  // Motion Control is billed per second of the reference clip since it moved
+  // to kie (2026-09-03) — a 30-second reference costs six times a 5-second
+  // one, as it does us. Edit stays flat per clip.
+  // Rates are the calculator's answers to kie's OWN price lines, both read
+  // from kie's pages by the owner on 2026-09-03: 3.0 $0.10 / $0.135 per s →
+  // 3 and 4 cr/s; 2.6 $0.055 / $0.09 per s → 1.5 and 2.5 cr/s.
+  it('Motion Control priced per second by quality; Edit flat per clip', () => {
+    expect(getVideoCredits('Kling 3.0 Motion Control', { resolution: '720p', duration: 5 })).toBe(15);
+    expect(getVideoCredits('Kling 3.0 Motion Control', { resolution: '1080p', duration: 5 })).toBe(20);
+    expect(getVideoCredits('Kling 3.0 Motion Control', { resolution: '1080p', duration: 30 })).toBe(120);
+    expect(getVideoCredits('Kling Motion Control', { resolution: undefined, duration: 5 })).toBe(7.5); // defaultRes 720p
+    expect(getVideoCredits('Kling Motion Control', { resolution: '1080p', duration: 12 })).toBe(30);
     expect(getVideoCredits('Kling 3.0 Omni Edit', {})).toBe(10);
+    expect(getVideoCredits('Kling 3.0 Omni Edit', { duration: 10 })).toBe(10);
+  });
+
+  it('both Motion Controls clear 40% against kie\'s own price lines at both resolutions', () => {
+    const CV = 0.063333;
+    const KIE = {
+      'Kling 3.0 Motion Control': { '720p': 0.10, '1080p': 0.135 },
+      'Kling Motion Control':     { '720p': 0.055, '1080p': 0.09 },
+    };
+    for (const [model, byRes] of Object.entries(KIE)) {
+      for (const [res, cost] of Object.entries(byRes)) {
+        const sale = getVideoCredits(model, { resolution: res, duration: 1 }) * CV;
+        expect((sale - cost) / sale, `${model} ${res}`).toBeGreaterThanOrEqual(0.40);
+      }
+    }
+  });
+
+  // No kie twin exists for these, so they must not be priceable — a price on
+  // file is what lets a stale client charge for a model the server retired.
+  it('retired Kling O1 rows are gone from both tables', () => {
+    expect(getVideoCredits('Kling O1', { resolution: '1080p' })).toBeNull();
+    expect(getVideoCredits('Kling O1 Video Edit', { resolution: '1080p' })).toBeNull();
+    expect(FRONTEND_VIDEO_CREDITS['kling-o1']).toBeUndefined();
   });
 });
 

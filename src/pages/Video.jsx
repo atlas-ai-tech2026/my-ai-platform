@@ -13,6 +13,7 @@ import VideoMotionControlLeftPanel from '@/components/video/VideoMotionControlLe
 import VideoTopTabs from '@/components/video/VideoTopTabs';
 import { toast } from 'sonner';
 import { prepareImageForFal } from '@/lib/uploadToFal';
+import { readMediaSeconds } from '@/lib/mediaSeconds';
 import { useAuth } from '@/lib/AuthContext';
 import { VOXEL_TOKEN_KEY } from '@/lib/adminApi';
 
@@ -61,19 +62,20 @@ export default function Video() {
   // (one per panel). No tab-change side-effects needed.
   const [videoTab, setVideoTab] = useState('create');
 
-  // ─── Edit Video state (Kling Omni Edit + Kling O1 Video Edit) ───
-  // Default model: Kling O1 Video Edit (matches Higgsfield's default).
+  // ─── Edit Video state (Kling 3.0 Omni Edit) ───
+  // Kling O1 Video Edit retired 2026-09-03 (ran on FAL; kie has no O1). The
+  // Edit tab is off the nav until the kie route is live — see VideoTopTabs.
   const [editVideoFile, setEditVideoFile] = useState(null);
   const [editRefImages, setEditRefImages] = useState([]);
   const [editKeepAudio, setEditKeepAudio] = useState(true);
   const [editAutoSettings, setEditAutoSettings] = useState(true);
   const [editQuality, setEditQuality] = useState('720p');
-  const [editModel, setEditModel] = useState('Kling O1 Video Edit');
+  const [editModel, setEditModel] = useState('Kling 3.0 Omni Edit');
 
   // ─── Motion Control state (motion transfer) ───
   // Default model: Kling 3.0 Motion Control (the flagship; uses Omni One
-  // physics). scene_control persists to history but isn't sent to FAL
-  // today (server-side note explains why).
+  // physics). scene_control persists to history but isn't sent to the
+  // provider today (server-side note explains why).
   const [motionCharImage, setMotionCharImage] = useState(null);
   const [motionRefVideo, setMotionRefVideo] = useState(null);
   const [motionQuality, setMotionQuality] = useState('720p');
@@ -342,11 +344,12 @@ export default function Video() {
 
   // ─── Motion Control (motion transfer) generate ───
   // Uploads the character image + the motion reference video once via
-  // /api/upload, then POSTs to /api/motion-control. The backend
-  // dispatches to the right Kling endpoint based on `model`. scene_control
-  // is sent for forward-compatibility — the server omits it from the FAL
-  // payload until Kling exposes the flag publicly.
-  const handleMotionControl = async (creditCost) => {
+  // /api/upload, then POSTs to /api/motion-control. The backend dispatches
+  // to the right kie Kling model based on `model` and bills PER SECOND of
+  // the reference clip — `duration` here is the length the browser read
+  // from the file; the server reads the file itself and that number wins.
+  // scene_control is sent for forward-compatibility only.
+  const handleMotionControl = async (creditCost, { seconds } = {}) => {
     if (!motionRefVideo) { toast.error('Add a motion reference video'); return; }
     if (!motionCharImage) { toast.error('Add a character image'); return; }
     if (!isAuthenticated) {
@@ -371,6 +374,7 @@ export default function Video() {
           ...(prompt?.trim() ? { prompt: prompt.trim() } : {}),
           quality: motionQuality,
           scene_control: motionSceneControl,
+          ...(seconds ? { duration: seconds } : {}),
           credit_cost: creditCost,
         }),
       });
@@ -388,10 +392,12 @@ export default function Video() {
         return;
       }
 
+      const billedSeconds = data.seconds || seconds || null;
       const saved = await History_.create({
         type: 'video', model: motionModel, prompt: prompt || '',
         job_id: data.job_id, model_id: data.model_id,
         status: 'pending',
+        ...(billedSeconds ? { duration: billedSeconds } : {}),
         character_image_url: charUrl,
         motion_video_url: motionUrl,
         quality: motionQuality,
@@ -400,6 +406,7 @@ export default function Video() {
       setVideos(prev => [{
         id: saved.id, prompt: prompt || '', model: motionModel,
         status: 'pending', job_id: data.job_id, model_id: data.model_id,
+        ...(billedSeconds ? { duration: billedSeconds } : {}),
         character_image_url: charUrl,
         motion_video_url: motionUrl,
         quality: motionQuality,
@@ -515,13 +522,18 @@ export default function Video() {
     const count = seedanceMedia[typeKey].length + 1;
     const label = type === 'image' ? `@Image${count}` : type === 'video' ? `@Video${count}` : `@Audio${count}`;
 
+    // A reference video's length drives the price and the request (the output
+    // follows the video — see /api/generate-video-ref). Read it now so the
+    // panel can show the price while the upload is still running.
+    const seconds = type === 'video' ? await readMediaSeconds(file) : null;
+
     setSeedanceMedia(prev => ({
       ...prev,
-      [typeKey]: [...prev[typeKey], { id, type, previewUrl, url: null, status: 'uploading', label }],
+      [typeKey]: [...prev[typeKey], { id, type, previewUrl, url: null, status: 'uploading', label, ...(seconds ? { seconds } : {}) }],
     }));
 
     try {
-      console.log(`[SEEDANCE UPLOAD] Uploading ${type} file:`, file.name, file.size, file.type);
+      console.log(`[SEEDANCE UPLOAD] Uploading ${type} file:`, file.name, file.size, file.type, seconds ? `${seconds.toFixed(1)}s` : '');
       const url = await prepareImageForFal(file, 0);
       console.log(`[SEEDANCE UPLOAD] ✅ Uploaded:`, url);
       setSeedanceMedia(prev => ({
@@ -638,8 +650,12 @@ export default function Video() {
     setIsGenerating(true);
     try {
       const readyImages = seedanceMedia.images.filter(i => i.url && (i.status === 'uploaded' || i.status === 'approved'));
-      const videoUrls = seedanceMedia.videos.filter(v => v.url).map(v => v.url);
+      const readyVideos = seedanceMedia.videos.filter(v => v.url);
+      const videoUrls = readyVideos.map(v => v.url);
       const audioUrls = seedanceMedia.audios.filter(a => a.url).map(a => a.url);
+      // The longest reference video, as the browser read it — the server reads
+      // the file itself and bills that; this is its cross-check.
+      const refVideoSeconds = readyVideos.reduce((m, v) => Math.max(m, Number(v.seconds) || 0), 0);
 
       // Separate images by role
       const referenceUrls = [];
@@ -698,6 +714,7 @@ export default function Video() {
       } else if (mode === 'reference') {
         if (referenceUrls.length > 0) body.image_urls = referenceUrls;
         if (videoUrls.length > 0) body.video_urls = videoUrls;
+        if (videoUrls.length > 0 && refVideoSeconds > 0) body.reference_video_seconds = refVideoSeconds;
         if (audioUrls.length > 0) body.audio_urls = audioUrls;
       }
 
@@ -721,13 +738,18 @@ export default function Video() {
         return;
       }
 
+      // With a reference video the server bills — and the video runs — for the
+      // video's own length, and says so in `seconds`. The card is labelled
+      // with THAT; the picker's "auto" would show as 0:05 for a 19-second clip
+      // (owner, dev test 2026-09-03).
+      const shownDuration = data.seconds ? String(data.seconds) : seedanceDuration;
       const saved = await History_.create({
         type: 'video', model: model.name, prompt,
         job_id: data.job_id, model_id: data.model_id,
-        status: 'pending', duration: seedanceDuration, ratio: seedanceAspect,
+        status: 'pending', duration: shownDuration, ratio: seedanceAspect,
       });
 
-      setVideos(prev => [{ id: saved.id, prompt, model: model.name, duration: seedanceDuration, aspectRatio: seedanceAspect, status: 'pending', job_id: data.job_id, model_id: data.model_id, created_date: saved.created_date }, ...prev]);
+      setVideos(prev => [{ id: saved.id, prompt, model: model.name, duration: shownDuration, aspectRatio: seedanceAspect, status: 'pending', job_id: data.job_id, model_id: data.model_id, created_date: saved.created_date }, ...prev]);
       pollVideo(saved.id, data.job_id, data.model_id);
       toast.success('Seedance generating — you can keep working!');
       refreshAuth();

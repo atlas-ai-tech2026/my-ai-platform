@@ -78,6 +78,9 @@ import { groupByExpiryDay, summarise, actionable, SOON_DAYS } from './expiry-rep
 import { addLot, mirrorSpend as mirrorLotSpend, backfillAllUsers, scheduleCreditLotSweep,
          lotsOverview, activateNow, userCreditSummary } from './credit-lots-db.js';
 import { CREDIT_LIFE_DAYS } from './credit-backfill.js';
+import { withContinuity } from './video-prompt.js';
+import { probeVideoDurationSeconds } from './media-probe.js';
+import { referenceVideoBilling } from './seedance-reference.js';
 import { audienceMiddleware, audienceReport, ensureAudienceTables } from './audience-store.js';
 import { runRate, breakEven, renewals, renewalHeadline, monthlySeries, CYCLES }
   from './expenses.js';
@@ -871,12 +874,23 @@ const VIDEO_MODELS = {
 // Direct model name → { t2v, i2v, imageParam } FAL endpoints
 // imageParam: how this model accepts images (start_image_url vs image_url)
 const VIDEO_DIRECT_MAP = {
-  // Kling V3 uses start_image_url / end_image_url
-  "Kling 3.0 Omni":        { t2v: "fal-ai/kling-video/v3/pro/text-to-video",         i2v: "fal-ai/kling-video/v3/pro/image-to-video",         imageParam: "start_image_url", endParam: "end_image_url" },
+  // ── EVERY Kling model runs on kie.ai — owner's rule, 2026-09-03: "if the
+  // user chooses Kling 3.0, generate from kie's Kling 3.0; if Kling Omni, from
+  // kie's Kling Omni; nothing from FAL." kling-on-kie.test.js fails the build
+  // if a Kling-labelled entry ever points at FAL again.
+  //
+  // Kling 3.0 Omni = kie's "Kling O3" (kie.ai/kling-o3). kie's page lists the
+  // same request names as Kling 3.0 — image_urls (first/last frame), mode
+  // std/pro/4K, duration 3–15, aspect_ratio 16:9/9:16/1:1 — with SEPARATE
+  // text-/image-to-video ids in the "<family>/<task>" pattern kie uses for
+  // 2.6. The text-to-video id was read from kie's docs; the image-to-video id
+  // follows their naming and is confirmed by the first real generation: if
+  // kie rejects it, the route retries once on the text-to-video id with the
+  // frames attached and logs "[KIE-VIDEO] model id fallback" — task #101.
+  "Kling 3.0 Omni":        { provider: "kie", family: "jobs", kieModel: "kling-3.0-omni/text-to-video", kieModelI2V: "kling-3.0-omni/image-to-video", kieStyle: "klingOmni" },
   // Kling 3.0 + 2.6 run on kie.ai (switched from FAL 2026-07-20). Kling 3.0
   // is ONE jobs model for t2v+i2v (frames via image_urls, quality via mode
   // std/pro/4K); 2.6 has separate t2v/i2v ids, duration "5"|"10" only.
-  // Omni/2.5/2.1/O1 stay on FAL — not confirmed available on kie.
   "Kling 3.0":             { provider: "kie", family: "jobs", kieModel: "kling-3.0/video" },
   // Kling 3.0 Turbo — the faster/cheaper V3 tier. SEPARATE t2v and i2v model
   // ids (unlike Kling 3.0, which is one model), and a DIFFERENT input schema:
@@ -889,19 +903,28 @@ const VIDEO_DIRECT_MAP = {
   // that is what kie's docs specify. duration is a STRING enum 4/6/8/10.
   "Gemini Omni":           { provider: "kie", family: "jobs", kieModel: "gemini-omni-video", kieStyle: "geminiOmni" },
   "Kling 2.6":             { provider: "kie", family: "jobs", kieModel: "kling-2.6/text-to-video", kieModelI2V: "kling-2.6/image-to-video" },
-  // Kling V2.5 uses image_url / tail_image_url
-  "Kling 2.5":             { t2v: "fal-ai/kling-video/v1.5/pro/text-to-video",       i2v: "fal-ai/kling-video/v1.5/pro/image-to-video",       imageParam: "image_url",       endParam: "tail_image_url" },
-  // Kling V2.1 uses image_url / tail_image_url
-  "Kling 2.1":             { t2v: "fal-ai/kling-video/v2.1/standard/text-to-video",  i2v: "fal-ai/kling-video/v2.1/standard/image-to-video",  imageParam: "image_url",       endParam: "tail_image_url" },
-  "Kling 2.1 Pro":         { t2v: "fal-ai/kling-video/v2.1/pro/text-to-video",       i2v: "fal-ai/kling-video/v2.1/pro/image-to-video",       imageParam: "image_url",       endParam: "tail_image_url" },
-  "Kling O1":              { t2v: "fal-ai/kling-video/v1.6/pro/text-to-video",       i2v: "fal-ai/kling-video/v1.6/pro/image-to-video",       imageParam: "image_url",       endParam: "tail_image_url" },
-  // Edit Video tab pseudo-models (no t2v/i2v — posted to /api/edit-video-omni).
+  // Kling 2.5 = kie's Kling 2.5 Turbo Pro (moved off FAL 2026-09-03). The
+  // image-to-video id is the one kie publishes for this model; the
+  // text-to-video id is its sibling in the same naming. Durations 5 | 10,
+  // 1080p, one start frame.
+  "Kling 2.5":             { provider: "kie", family: "jobs", kieModel: "kling/v2-5-turbo-text-to-video-pro", kieModelI2V: "kling/v2-5-turbo-image-to-video-pro", kieStyle: "kling25" },
+  // Kling 2.1 = kie's Kling 2.1 Standard (docs.kie.ai/market/kling/v2-1-standard):
+  // IMAGE-TO-VIDEO ONLY, 720p, 5 | 10 s. There is no 2.1 text-to-video twin
+  // on kie, so a text-only request is refused before charging with a named
+  // reason (i2vOnly) — never routed to another model under this name.
+  "Kling 2.1":             { provider: "kie", family: "jobs", kieModelI2V: "kling/v2-1-standard", kieStyle: "kling21", i2vOnly: true },
+  // "Kling 2.1 Pro" (never in the picker, never priced) and "Kling O1" (FAL's
+  // Kling 1.6 under another name — kie has no O1) retired 2026-09-03.
+  // Edit Video tab pseudo-model (no t2v/i2v — posted to /api/edit-video-omni).
   // Listed here so VideoDetailModal + history filters can label entries.
-  "Kling 3.0 Omni Edit":   { v2v_edit: "fal-ai/kling-video/o3/standard/video-to-video/reference" },
-  "Kling O1 Video Edit":   { v2v_edit: "fal-ai/kling-video/o1/video-to-video/reference" },
+  // Its FAL endpoint is gone; the kie twin (Kling O3 video reference) is
+  // pending confirmation of kie's request shape — task #102. Kling O1 Video
+  // Edit retired with it (no kie twin).
+  "Kling 3.0 Omni Edit":   { provider: "kie", v2v_edit: null },
   // Motion Control tab pseudo-models (no t2v/i2v — posted to /api/motion-control).
-  "Kling Motion Control":     { motion: "fal-ai/kling-video/v2.6/standard/motion-control" },
-  "Kling 3.0 Motion Control": { motion: "fal-ai/kling-video/v3/pro/motion-control" },
+  // kie jobs ids (docs.kie.ai/market/kling/motion-control, …/motion-control-v3).
+  "Kling Motion Control":     { provider: "kie", motion: "kling-2.6/motion-control" },
+  "Kling 3.0 Motion Control": { provider: "kie", motion: "kling-3.0/motion-control" },
   // Wan uses image_url
   // Wan 2.6 runs on kie.ai (switched 2026-07-21): duration "5"|"10"|"15",
   // 720p/1080p, single image_urls entry for i2v.
@@ -946,7 +969,8 @@ const VIDEO_DIRECT_MAP = {
   // Grok Imagine runs on kie.ai (switched 2026-07-21): duration 6-30s int,
   // 480p/720p, modes fun/normal/spicy (we always send normal).
   "Grok Imagine":          { provider: "kie", family: "jobs", kieModel: "grok-imagine/text-to-video", kieModelI2V: "grok-imagine/image-to-video", kieStyle: "grok" },
-  "Nano Banana Pro Video": { t2v: "fal-ai/kling-video/v1.6/pro/text-to-video",       i2v: "fal-ai/kling-video/v1.6/pro/image-to-video",       imageParam: "image_url",       endParam: "tail_image_url" },
+  // "Nano Banana Pro Video" removed 2026-09-03: never in the picker, never
+  // priced, and it was FAL's Kling 1.6 under a Google name.
 };
 
 const QUALITY_DIM = { "Draft": 512, "1K": 1024, "2K": 1536, "4K": 2048 };
@@ -1100,6 +1124,17 @@ function buildKieImageInput(cfg, { prompt, ratio, quality, imageUrls }) {
 // (video-charges.js) and unresolved rows are reconciled with the provider
 // at boot. The exactly-once guarantee is the row's status transition —
 // same refunded-flag-before-payout shape, moved into the database.
+
+// Did kie refuse the request because it does not know the MODEL ID (as
+// opposed to a bad input, a quota, or an outage)? kie answers a definitive
+// 4xx — sometimes as HTTP status, sometimes as its own `code` inside a 200 —
+// and names the model in the message. Only that case earns the one retry on
+// a sibling id that buildKieVideoSubmission may offer as `fallback`.
+function kieRejectedModelId(error) {
+  const code = Number(error?.kieCode ?? error?.httpStatus);
+  const definitive = code >= 400 && code < 500;
+  return definitive && /model/i.test(String(error?.message || ''));
+}
 
 // Build the kie.ai submission for a video model: which family endpoint to
 // hit, the POST body, and the 'kie:'-prefixed model_id the status routes
@@ -1270,6 +1305,78 @@ function buildKieVideoSubmission(mapping, { prompt, frames, duration, aspectRati
         },
       },
       modelIdTag: 'kie:jobs:' + kieModel,
+    };
+  }
+  if (mapping.family === 'jobs' && mapping.kieStyle === 'klingOmni') {
+    // Kling 3.0 Omni = kie's Kling O3 (moved off FAL 2026-09-03). kie's O3
+    // page lists the request names it shares with Kling 3.0: image_urls
+    // (first / last frame), mode std|pro|4K, duration 3–15, aspect_ratio
+    // 16:9|9:16|1:1 (optional once frames are given). Separate ids for text-
+    // and image-to-video. sound / multi_shots ride along exactly as they do
+    // for Kling 3.0: multi_shots is false unless the customer switched Multi
+    // Shot on — the single-shot rule of #101 — and with it on, only the first
+    // frame is sent. 4K is NOT requested: there is no 4K price on file for
+    // this model, so a 4K pick is served and charged as 1080p (pro).
+    const isI2V = frames.length > 0;
+    const kieModel = isI2V ? mapping.kieModelI2V : mapping.kieModel;
+    const dur = Math.min(15, Math.max(3, parseInt(duration, 10) || 5));
+    const mode = String(resolution).toUpperCase() === '720P' ? 'std' : 'pro';
+    const ms = !!multiShots;
+    const input = {
+      prompt,
+      duration: String(dur),
+      mode,
+      sound: !!audio,
+      multi_shots: ms,
+      ...(isI2V
+        ? { image_urls: ms ? [frames[0]] : frames.slice(0, 2) }
+        : { aspect_ratio: ['16:9', '9:16', '1:1'].includes(aspectRatio) ? aspectRatio : '16:9' }),
+    };
+    return {
+      family: 'jobs',
+      body: { model: kieModel, input },
+      modelIdTag: 'kie:jobs:' + kieModel,
+      // The image-to-video id follows kie's naming rather than a generation
+      // that has already worked. If kie says it does not know that model, the
+      // route retries ONCE with the same input on the text-to-video id (kie's
+      // Kling 3.0 takes image_urls on its single id) and logs it — #101.
+      ...(isI2V ? { fallback: { body: { model: mapping.kieModel, input }, modelIdTag: 'kie:jobs:' + mapping.kieModel } } : {}),
+    };
+  }
+  if (mapping.family === 'jobs' && mapping.kieStyle === 'kling25') {
+    // Kling 2.5 = kie's Kling 2.5 Turbo Pro (moved off FAL 2026-09-03):
+    // separate t2v / i2v ids, duration "5" | "10", 1080p only (no resolution
+    // field), ONE start frame in image_urls, aspect_ratio for text-to-video
+    // only (image-to-video adopts the image's) — the shape kie uses across
+    // its Kling 2.6 and 3.0 Turbo pairs.
+    const isI2V = frames.length > 0;
+    const kieModel = isI2V ? mapping.kieModelI2V : mapping.kieModel;
+    const dur = (parseInt(duration, 10) || 5) >= 8 ? '10' : '5';
+    return {
+      family: 'jobs',
+      body: {
+        model: kieModel,
+        input: {
+          prompt,
+          duration: dur,
+          ...(isI2V
+            ? { image_urls: [frames[0]] }
+            : { aspect_ratio: ['16:9', '9:16', '1:1'].includes(aspectRatio) ? aspectRatio : '16:9' }),
+        },
+      },
+      modelIdTag: 'kie:jobs:' + kieModel,
+    };
+  }
+  if (mapping.family === 'jobs' && mapping.kieStyle === 'kling21') {
+    // Kling 2.1 = kie's Kling 2.1 Standard: image-to-video ONLY, 720p,
+    // duration "5" | "10". The route refuses a text-only request before
+    // charging; this throw is the belt to that brace for any other caller.
+    if (!frames.length) throw new Error('Kling 2.1 needs a start frame — it is an image-to-video model');
+    const dur = (parseInt(duration, 10) || 5) >= 8 ? '10' : '5';
+    return {
+      family: 'jobs',
+      body: { model: mapping.kieModelI2V, input: { prompt, duration: dur, image_urls: [frames[0]] } },
+      modelIdTag: 'kie:jobs:' + mapping.kieModelI2V,
     };
   }
   if (mapping.family === 'jobs') {
@@ -1826,6 +1933,13 @@ app.post('/api/generate-video', verifyJwt, requireNotBanned, noDoubleCharge, req
 
   if (!modelAllowedForUser(req, model)) return res.status(403).json(MODEL_BLOCKED(model));
 
+  // Kling 2.1 on kie is image-to-video only (#101): a text-only request is
+  // refused here, before pricing or charging, with the reason — never quietly
+  // served by some other model under this name.
+  if (mapping.i2vOnly && !image_url) {
+    return res.status(400).json({ error: `${model} needs a start frame — it is an image-to-video model. Add an image, or pick Kling 2.6 for text-to-video.` });
+  }
+
   // C1: server-computed price; client credit_cost is a hint only.
   const serverCost = priceOrRespond(res, {
     kind: 'video', model, resolution, duration, audio,
@@ -1860,6 +1974,13 @@ app.post('/api/generate-video', verifyJwt, requireNotBanned, noDoubleCharge, req
     return res.status(500).json({ error: 'Credit charge failed.' });
   }
 
+  // The prompt the PROVIDER sees. For a Kling image-to-video request with
+  // Multi Shot off it carries a continuity instruction (owner, 2026-08-25:
+  // "the video must be generated from the same image — one shot"). The
+  // customer's own prompt is stored and shown untouched; see video-prompt.js.
+  const providerPrompt = withContinuity(prompt, { hasImage: !!image_url, multiShots: !!multi_shots, model });
+  if (providerPrompt !== prompt) console.log('[VIDEO] continuity guard applied for', model);
+
   // ── kie.ai-backed video (Veo 3 / Veo 3 Fast / Kling 3.0 / Kling 2.6) ──
   // Async task like FAL's queue; the kie:-prefixed model_id routes
   // /api/video-status polling to kie ('kie:jobs:' → Jobs API, plain 'kie:' →
@@ -1882,17 +2003,29 @@ app.post('/api/generate-video', verifyJwt, requireNotBanned, noDoubleCharge, req
       const rawRefs = Array.isArray(reference_urls) ? reference_urls.slice(0, 7) : [];
       const refs = rawRefs.length
         ? await resolveReferenceUrls(rawRefs, { forKie: true, tag: 'REFS-VIDEO' }) : [];
-      const { family, body, modelIdTag } = buildKieVideoSubmission(mapping, {
-        prompt, frames, duration, aspectRatio: aspect_ratio, resolution, audio,
+      const { family, body, modelIdTag, fallback } = buildKieVideoSubmission(mapping, {
+        prompt: providerPrompt, frames, duration, aspectRatio: aspect_ratio, resolution, audio,
         multiShots: multi_shots, refs,
       });
       // Full payload log — the ground truth of what kie was asked to do
       // (verifiable against kie.ai/logs when debugging output complaints).
       console.log('[KIE-VIDEO] payload:', JSON.stringify(body));
-      const taskId = await kieCreateTask(family, body, { tag: 'KIE-VIDEO' });
+      let taskId;
+      let usedTag = modelIdTag;
+      try {
+        taskId = await kieCreateTask(family, body, { tag: 'KIE-VIDEO' });
+      } catch (e) {
+        if (!fallback || !kieRejectedModelId(e)) throw e;
+        // This line in the log means the primary id is wrong and must be
+        // corrected in VIDEO_DIRECT_MAP — the retry is a bridge, not a fix.
+        console.error(`[KIE-VIDEO] model id fallback: kie rejected ${body.model} (${e.message}) — retrying on ${fallback.body.model}`);
+        console.log('[KIE-VIDEO] payload:', JSON.stringify(fallback.body));
+        taskId = await kieCreateTask(family, fallback.body, { tag: 'KIE-VIDEO' });
+        usedTag = fallback.modelIdTag;
+      }
       console.log(`[KIE-VIDEO] ✅ Submitted ${model} taskId: ${taskId}`);
-      await trackVideoCharge(taskId, { userId: req.user.id, kind: chargedKind, cost: chargedCost, modelLabel: chargedLabel, modelId: modelIdTag });
-      return res.json({ success: true, job_id: taskId, model_id: modelIdTag, model });
+      await trackVideoCharge(taskId, { userId: req.user.id, kind: chargedKind, cost: chargedCost, modelLabel: chargedLabel, modelId: usedTag });
+      return res.json({ success: true, job_id: taskId, model_id: usedTag, model });
     } catch (error) {
       console.error('[KIE-VIDEO] Error:', error.message);
       if (chargedKind) {
@@ -1916,7 +2049,7 @@ app.post('/api/generate-video', verifyJwt, requireNotBanned, noDoubleCharge, req
 
   // Build input with correct param names per model
   const input = {
-    prompt,
+    prompt: providerPrompt,
     ...(duration ? { duration: String(duration) } : {}),
     ...(aspect_ratio ? { aspect_ratio } : {}),
   };
@@ -1982,117 +2115,70 @@ app.post('/api/generate-video', verifyJwt, requireNotBanned, noDoubleCharge, req
   }
 });
 
-// ─── EDIT VIDEO (Kling Omni Edit + Kling O1 Video Edit) ──────────
-// Two video-to-video models behind the Edit Video tab. Both take a
-// source video + optional reference images + a prompt and return an
-// edited clip. Body: { model, video_url, image_urls[], prompt, duration,
-// aspect_ratio, keep_audio }. The frontend already polls via
-// pollVideo(), so we just submit to the FAL queue and hand back the
-// request_id.
+// ─── EDIT VIDEO (Kling 3.0 Omni Edit) — PAUSED while it moves to kie ──
+// Both Edit models ran on FAL (Kling O1 / O3 video-to-video/reference).
+// The owner's rule (2026-09-03) is that no Kling generation goes to FAL,
+// and the only kie twin — Kling O3's video-reference mode — has not had
+// its request shape read from kie's page yet (task #102). Until it has,
+// this route refuses with the reason and takes NO credits, and the Edit
+// tab is off the nav (VideoTopTabs.jsx). Kling O1 Video Edit is retired
+// for good: kie has no O1.
 const EDIT_VIDEO_MODELS = {
-  'Kling 3.0 Omni Edit': 'fal-ai/kling-video/o3/standard/video-to-video/reference',
-  'Kling O1 Video Edit': 'fal-ai/kling-video/o1/video-to-video/reference',
+  'Kling 3.0 Omni Edit': null, // kie id pending — #102
 };
 
-app.post('/api/edit-video-omni', verifyJwt, requireNotBanned, noDoubleCharge, requireFalKey, async (req, res) => {
-  const { model, video_url, image_urls, prompt, duration, aspect_ratio, keep_audio } = req.body || {};
+app.post('/api/edit-video-omni', verifyJwt, requireNotBanned, noDoubleCharge, async (req, res) => {
+  const { model } = req.body || {};
 
-  if (!model || !EDIT_VIDEO_MODELS[model]) {
+  if (!model || !(model in EDIT_VIDEO_MODELS)) {
     return res.status(400).json({ error: `Edit model not supported: ${model || '(missing)'}` });
   }
-  if (!video_url) return res.status(400).json({ error: 'video_url required' });
-  if (!prompt) return res.status(400).json({ error: 'prompt required' });
-
-  // C1: server-computed price (flat per clip; resolution rides in `quality`).
-  // N5: same position as /api/generate — after the model is resolved and
-  // before any charge, so a blocked attempt is never billed.
+  // N5: the allow-list gate stays where every credit-spending route has it,
+  // so the day this route generates again nothing has to be remembered.
   if (!modelAllowedForUser(req, model)) return res.status(403).json(MODEL_BLOCKED(model));
 
-  const serverCost = priceOrRespond(res, {
-    kind: 'video', model, resolution: req.body.quality,
-    clientCost: req.body.credit_cost,
+  console.error(`[VIDEO-EDIT-OMNI] refused: ${model} is paused while Edit Video moves from FAL to kie (#102)`);
+  return res.status(503).json({
+    error: 'Edit Video is being moved from FAL to kie (Kling O3) and is paused until that switch is confirmed. No credits were taken.',
   });
-  if (serverCost == null) return;
-
-  let chargedKind = null;
-  let chargedCost = null;
-  let chargedLabel = null;
-  try {
-    const charge = await chargeCredits({ userId: req.user.id, kind: 'video', ip: clientIp(req), cost: serverCost, note: `video: ${req.body?.model || 'Edit Video'}`, provider: 'fal' });
-    chargedKind = 'video';
-    chargedCost = charge.cost;
-    chargedLabel = charge.label;
-    res.setHeader('X-Credits-Remaining', String(charge.newBalance));
-  } catch (e) {
-    if (e instanceof InsufficientCreditsError) {
-      return res.status(402).json({
-        error: 'Not enough credits, please contact admin',
-        current_balance: e.balance, required: e.required,
-      });
-    }
-    if (e.code === 'BANNED') return res.status(403).json({ error: 'Account is banned.' });
-    console.error('[charge:video-edit-omni] error:', e);
-    return res.status(500).json({ error: 'Credit charge failed.' });
-  }
-
-  const falModel = EDIT_VIDEO_MODELS[model];
-  const refs = Array.isArray(image_urls) ? image_urls.slice(0, 4) : [];
-
-  // Per FAL schema (Kling O1 + O3 video-to-video/reference):
-  //   - video_url   = the REFERENCE video that drives motion/camera
-  //   - image_urls  = flat list of style/reference images (referenced as
-  //                   @Image1, @Image2 in the prompt). Up to 4.
-  //   - elements    = named characters/objects with custom shape — not
-  //                   what we want for plain style references.
-  const input = {
-    prompt,
-    video_url,
-    ...(refs.length ? { image_urls: refs } : {}),
-    keep_audio: keep_audio !== false,
-    ...(duration ? { duration: String(duration) } : {}),
-    ...(aspect_ratio ? { aspect_ratio } : {}),
-  };
-
-  console.log(`[VIDEO-EDIT-OMNI] Model: ${model} → ${falModel}`);
-  console.log('[VIDEO-EDIT-OMNI] Source video:', video_url);
-  console.log(`[VIDEO-EDIT-OMNI] Reference images: ${refs.length}`);
-  console.log('[VIDEO-EDIT-OMNI] Payload:', JSON.stringify(input, null, 2));
-
-  try {
-    const submitted = await fal.queue.submit(falModel, { input });
-    const requestId = submitted.request_id;
-    console.log(`[VIDEO-EDIT-OMNI] ✅ Submitted, request_id: ${requestId}`);
-    await trackVideoCharge(requestId, { userId: req.user.id, kind: chargedKind, cost: chargedCost, modelLabel: chargedLabel, modelId: falModel });
-
-    return res.json({ success: true, job_id: requestId, model_id: falModel, model });
-  } catch (error) {
-    console.error('[VIDEO-EDIT-OMNI] Error:', error.message);
-    if (chargedKind) {
-      refundCredits({
-        userId: req.user.id, kind: chargedKind, ip: clientIp(req), cost: chargedCost,
-        reason: `fal_video_edit_omni_threw: ${error.message}`.slice(0, 500),
-      }).catch(() => {});
-    }
-    return res.status(500).json({ error: 'Video edit failed: ' + publicError(error.message) });
-  }
 });
 
-// ─── MOTION CONTROL (motion transfer) ──────────────────────────────
-// Motion Control tab. Take a character image + a motion reference
-// video and return an animated clip of that character performing the
-// reference motion. Body: { model, image_url (character), video_url
-// (motion ref), prompt?, quality, scene_control }.
+// ─── MOTION CONTROL (motion transfer) — on kie ─────────────────────
+// Motion Control tab. A character image + a motion reference video → the
+// character performing that motion. On kie since 2026-09-03 (owner: every
+// Kling choice calls its kie twin; nothing on FAL):
+//   Kling 3.0 Motion Control → kling-3.0/motion-control
+//   Kling Motion Control     → kling-2.6/motion-control
+// Body: { model, image_url (character), video_url (motion ref), prompt?,
+// quality, duration?, scene_control }.
 //
-// scene_control isn't on FAL's public schema today; we DO NOT send it
-// to FAL but the frontend persists it to history so we can flip it on
-// later when Kling exposes the flag without breaking old rows.
+// kie's request (docs.kie.ai/market/kling/motion-control, …/motion-control-v3):
+// prompt, input_urls [character image], video_urls [reference clip], mode
+// std|pro, and on 3.0 character_orientation 'image' (reference ≤10 s) |
+// 'video' (≤30 s). kie bills PER SECOND of the reference clip, so the
+// charge here is per second too — and the seconds come from the FILE
+// (media-probe.js); the browser's figure is only a cross-check. A price
+// that rests on a number the customer's browser sends is the C1 hole.
+//
+// scene_control is still not a provider field; the frontend persists it to
+// history so it can be forwarded later without breaking old rows.
 const MOTION_CONTROL_MODELS = {
-  'Kling Motion Control':     'fal-ai/kling-video/v2.6/standard/motion-control',
-  'Kling 3.0 Motion Control': 'fal-ai/kling-video/v3/pro/motion-control',
+  'Kling Motion Control':     'kling-2.6/motion-control',
+  'Kling 3.0 Motion Control': 'kling-3.0/motion-control',
 };
+const MOTION_MIN_SECONDS = 3;
+const MOTION_MAX_SECONDS = 30;
+// kie rounds the reference to whole seconds and accepts 3–30 of them. Must
+// match billableSeconds() in VideoMotionControlLeftPanel.jsx, so the price
+// the customer saw is the price they are charged.
+function billableSeconds(seconds) {
+  const n = Math.round(Number(seconds));
+  if (!Number.isFinite(n)) return null;
+  return Math.max(MOTION_MIN_SECONDS, Math.min(MOTION_MAX_SECONDS, n));
+}
 
-app.post('/api/motion-control', verifyJwt, requireNotBanned, requireFalKey, async (req, res) => {
-  const { model, image_url, video_url, prompt, character_orientation, keep_original_sound } = req.body || {};
+app.post('/api/motion-control', verifyJwt, requireNotBanned, noDoubleCharge, requireKieKey, async (req, res) => {
+  const { model, image_url, video_url, prompt, character_orientation, duration } = req.body || {};
 
   if (!model || !MOTION_CONTROL_MODELS[model]) {
     return res.status(400).json({ error: `Motion model not supported: ${model || '(missing)'}` });
@@ -2100,14 +2186,48 @@ app.post('/api/motion-control', verifyJwt, requireNotBanned, requireFalKey, asyn
   if (!image_url) return res.status(400).json({ error: 'image_url (character) required' });
   if (!video_url) return res.status(400).json({ error: 'video_url (motion reference) required' });
 
-  // C1: server-computed price (flat per clip; resolution rides in `quality`).
   // N5: same position as /api/generate — after the model is resolved and
   // before any charge, so a blocked attempt is never billed.
   if (!modelAllowedForUser(req, model)) return res.status(403).json(MODEL_BLOCKED(model));
 
+  // kie fetches only public https — a data: URI from the upload fallback is
+  // re-hosted here exactly as on every other kie path. Nothing is charged
+  // yet, so a failure is a plain 400 with the reason.
+  let charUrl;
+  let refUrl;
+  try {
+    [charUrl] = await resolveReferenceUrls([image_url], { forKie: true, tag: 'MOTION-CONTROL' });
+    [refUrl] = await resolveReferenceUrls([video_url], { forKie: true, tag: 'MOTION-CONTROL' });
+  } catch (error) {
+    console.error('[MOTION-CONTROL] input re-host failed:', error.message);
+    return res.status(400).json({ error: publicError(error.message) });
+  }
+
+  // The seconds we bill are read from the file. The browser's number is used
+  // only when the file cannot be read (WebM, unreadable host) — and then the
+  // log says so. Never silently.
+  const declared = billableSeconds(duration);
+  const probed = billableSeconds(await probeVideoDurationSeconds(refUrl, { tag: 'MOTION-CONTROL' }));
+  if (probed == null && declared == null) {
+    return res.status(400).json({ error: 'Could not read the length of the motion reference video — please re-upload it as an MP4.' });
+  }
+  if (probed == null) {
+    console.error(`[MOTION-CONTROL] duration not readable from the file — billing the declared ${declared}s (${refUrl})`);
+  } else if (declared != null && declared !== probed) {
+    console.error(`[MOTION-CONTROL] browser declared ${declared}s, the file says ${probed}s — billing the file`);
+  }
+  const seconds = probed ?? declared;
+
+  // C1: server-computed price — per second of the reference clip, by quality.
+  // The client's credit_cost was worked out from ITS seconds; when the file
+  // disagreed, that hint is stale by construction and is not held against the
+  // request (it could never be corrected by retrying). The price is ours
+  // either way; the response returns the seconds billed.
+  const quality = req.body.quality === '1080p' ? '1080p' : '720p';
+  const hintStillValid = declared == null || seconds === declared;
   const serverCost = priceOrRespond(res, {
-    kind: 'video', model, resolution: req.body.quality,
-    clientCost: req.body.credit_cost,
+    kind: 'video', model, resolution: quality, duration: seconds,
+    clientCost: hintStillValid ? req.body.credit_cost : undefined,
   });
   if (serverCost == null) return;
 
@@ -2115,7 +2235,12 @@ app.post('/api/motion-control', verifyJwt, requireNotBanned, requireFalKey, asyn
   let chargedCost = null;
   let chargedLabel = null;
   try {
-    const charge = await chargeCredits({ userId: req.user.id, kind: 'video', ip: clientIp(req), cost: serverCost, note: `video: ${req.body?.model || 'Motion Control'}`, provider: 'fal' });
+    const charge = await chargeCredits({
+      userId: req.user.id, kind: 'video', ip: clientIp(req), cost: serverCost, note: `video: ${model}`,
+      provider: 'kie',
+      kieCredits: estimateKieCredits({ kind: 'video', model, resolution: quality, duration: seconds }),
+      falCost: null,
+    });
     chargedKind = 'video';
     chargedCost = charge.cost;
     chargedLabel = charge.label;
@@ -2132,40 +2257,38 @@ app.post('/api/motion-control', verifyJwt, requireNotBanned, requireFalKey, asyn
     return res.status(500).json({ error: 'Credit charge failed.' });
   }
 
-  const falModel = MOTION_CONTROL_MODELS[model];
-  // Default character_orientation to 'video' so we accept the full 3–30 s
-  // range the UI exposes. 'image' would cap the reference at 10 s and
-  // FAL would reject anything longer. Schema docs:
-  //   - 'video': matches ref video orientation, max 30 s, better for complex motions
-  //   - 'image': matches ref image orientation, max 10 s, better for camera movements
+  const kieModel = MOTION_CONTROL_MODELS[model];
+  // 'video' (default) follows the reference clip's orientation and allows the
+  // full 3–30 s the UI accepts; 'image' caps the reference at 10 s. Only the
+  // 3.0 model documents the field, so only it receives it.
   const orient = character_orientation === 'image' ? 'image' : 'video';
-  const input = {
-    image_url,
-    video_url,
-    ...(prompt ? { prompt } : {}),
-    character_orientation: orient,
-    keep_original_sound: keep_original_sound !== false,
+  const body = {
+    model: kieModel,
+    input: {
+      ...(prompt ? { prompt } : {}),
+      input_urls: [charUrl],
+      video_urls: [refUrl],
+      mode: quality === '1080p' ? 'pro' : 'std',
+      ...(kieModel.startsWith('kling-3.0') ? { character_orientation: orient } : {}),
+    },
   };
+  const modelIdTag = 'kie:jobs:' + kieModel;
 
-  console.log(`[MOTION-CONTROL] Model: ${model} → ${falModel}`);
-  console.log(`[MOTION-CONTROL] Character: ${image_url}`);
-  console.log(`[MOTION-CONTROL] Motion ref: ${video_url}`);
-  console.log(`[MOTION-CONTROL] Orientation: ${orient}, keep_original_sound: ${input.keep_original_sound}`);
-  console.log('[MOTION-CONTROL] Payload:', JSON.stringify(input, null, 2));
+  console.log(`[MOTION-CONTROL] Model: ${model} → ${kieModel} · ${seconds}s · ${quality}`);
+  console.log('[MOTION-CONTROL] payload:', JSON.stringify(body));
 
   try {
-    const submitted = await fal.queue.submit(falModel, { input });
-    const requestId = submitted.request_id;
-    console.log(`[MOTION-CONTROL] ✅ Submitted, request_id: ${requestId}`);
-    await trackVideoCharge(requestId, { userId: req.user.id, kind: chargedKind, cost: chargedCost, modelLabel: chargedLabel, modelId: falModel });
+    const taskId = await kieCreateTask('jobs', body, { tag: 'MOTION-CONTROL' });
+    console.log(`[MOTION-CONTROL] ✅ Submitted taskId: ${taskId}`);
+    await trackVideoCharge(taskId, { userId: req.user.id, kind: chargedKind, cost: chargedCost, modelLabel: chargedLabel, modelId: modelIdTag });
 
-    return res.json({ success: true, job_id: requestId, model_id: falModel, model });
+    return res.json({ success: true, job_id: taskId, model_id: modelIdTag, model, seconds });
   } catch (error) {
     console.error('[MOTION-CONTROL] Error:', error.message);
     if (chargedKind) {
       refundCredits({
         userId: req.user.id, kind: chargedKind, ip: clientIp(req), cost: chargedCost,
-        reason: `fal_motion_control_threw: ${error.message}`.slice(0, 500),
+        reason: `kie_motion_control_threw: ${error.message}`.slice(0, 500),
       }).catch(() => {});
     }
     return res.status(500).json({ error: 'Motion control failed: ' + publicError(error.message) });
@@ -2487,12 +2610,75 @@ app.post('/api/generate-video-ref', verifyJwt, requireNotBanned, noDoubleCharge,
 
   if (!modelAllowedForUser(req, modelLabel)) return res.status(403).json(MODEL_BLOCKED(modelLabel));
 
+  // Re-host any `data:` URI the upload fallback produced BEFORE the provider
+  // sees it — otherwise it rejects with "Only jpeg/jpg/png image formats are
+  // supported". Same step the image route has always performed.
+  // (Production bug, 2026-08-02.) Reference videos and audio go through it
+  // too since 2026-09-03 — kie cannot read a data: URI of any kind. This
+  // runs BEFORE the charge now, so a failure is a plain 400 with the reason
+  // and nothing to refund.
+  const isKieSeedance = VIDEO_DIRECT_MAP[modelLabel]?.provider === 'kie';
+  let startFrameUrl = start_frame;
+  let endFrameUrl = end_frame;
+  let refImageUrls = image_urls;
+  let refVideoUrls = Array.isArray(video_urls) ? video_urls.filter(Boolean) : [];
+  let refAudioUrls = Array.isArray(audio_urls) ? audio_urls.filter(Boolean) : [];
+  try {
+    const opts = { forKie: isKieSeedance, tag: 'REFS-SEEDANCE' };
+    if (start_frame) startFrameUrl = (await resolveReferenceUrls([start_frame], opts))[0];
+    if (end_frame) endFrameUrl = (await resolveReferenceUrls([end_frame], opts))[0];
+    if ((image_urls || []).length) refImageUrls = await resolveReferenceUrls(image_urls, opts);
+    if (refVideoUrls.length) refVideoUrls = await resolveReferenceUrls(refVideoUrls, opts);
+    if (refAudioUrls.length) refAudioUrls = await resolveReferenceUrls(refAudioUrls, opts);
+  } catch (error) {
+    console.error('[SEEDANCE] reference re-host failed:', error.message);
+    return res.status(400).json({ error: publicError(error.message) });
+  }
+
+  // ── A reference VIDEO: the output follows the video (owner, 2026-09-03) ──
+  // Seedance reads the prompt and, when it decides the job is EDITING the
+  // attached video, it requires ratio 'adaptive' and duration -1 — the result
+  // takes the input video's length and shape — and the video must be 4–30 s
+  // (the 2.0 family stops at its own 15 s ceiling). Voxel always sent a fixed
+  // number ("Auto" on the picker was silently 5), so every such job came
+  // back refused. With a reference video the request now sends -1 / adaptive
+  // (kie: "the model picks", valid for any Seedance 2.x job), and the charge
+  // is per second of the LONGEST reference video, read from the FILE
+  // (media-probe.js) — the browser's figure is only a cross-check. A video
+  // outside the range gets a plain 400 here, before any charge, instead of
+  // kie's refusal after it. See seedance-reference.js.
+  const maxSeconds = isV25 ? 30 : 15;
+  let billingDuration = duration;
+  let followsVideo = false;
+  let hintStale = false;
+  if (refVideoUrls.length) {
+    const probed = await Promise.all(refVideoUrls.map((u) => probeVideoDurationSeconds(u, { tag: 'SEEDANCE-REF' })));
+    const verdict = referenceVideoBilling({ probed, declared: req.body.reference_video_seconds, maxSeconds });
+    if (verdict.unreadable) {
+      return res.status(400).json({ error: 'Could not read the length of your reference video — please re-upload it as an MP4.' });
+    }
+    if (verdict.outOfRange) {
+      return res.status(400).json({
+        error: `Your reference video is ${verdict.longest} seconds long — ${modelLabel} accepts reference videos of 4 to ${maxSeconds} seconds.`,
+      });
+    }
+    if (verdict.source === 'declared') console.error(`[SEEDANCE] reference video length not readable from the file — billing the declared ${verdict.seconds}s`);
+    if (verdict.drift) console.error(`[SEEDANCE] browser declared ${verdict.declared}s, the file says ${verdict.seconds}s — billing the file`);
+    billingDuration = verdict.seconds;
+    followsVideo = true;
+    hintStale = verdict.drift;
+    console.log(`[SEEDANCE] reference video: output follows the video — billing ${verdict.seconds}s (${verdict.source})`);
+  }
+
   // C1: server-computed price; client credit_cost is a hint only. Audio
   // defaults ON here (generate_audio !== false), matching the submission.
+  // When the output follows a reference video, the hint was worked out from
+  // the browser's reading of that video; if the file disagreed the hint is
+  // stale by construction and is not held against the request.
   const serverCost = priceOrRespond(res, {
-    kind: 'video', model: modelLabel, resolution, duration,
+    kind: 'video', model: modelLabel, resolution, duration: billingDuration,
     audio: generate_audio !== false,
-    clientCost: req.body.credit_cost,
+    clientCost: hintStale ? undefined : req.body.credit_cost,
   });
   if (serverCost == null) return;
 
@@ -2502,11 +2688,11 @@ app.post('/api/generate-video-ref', verifyJwt, requireNotBanned, noDoubleCharge,
   try {
     const charge = await chargeCredits({
       userId: req.user.id, kind: 'video', ip: clientIp(req), cost: serverCost, note: `video: ${modelLabel}`,
-      provider: VIDEO_DIRECT_MAP[modelLabel]?.provider === 'kie' ? 'kie' : 'fal',
-      kieCredits: VIDEO_DIRECT_MAP[modelLabel]?.provider === 'kie'
-        ? estimateKieCredits({ kind: 'video', model: modelLabel, resolution, duration, audio: generate_audio }) : null,
-      falCost: VIDEO_DIRECT_MAP[modelLabel]?.provider === 'kie'
-        ? null : estimateFalCost({ kind: 'video', model: modelLabel, resolution, duration, audio: generate_audio }),
+      provider: isKieSeedance ? 'kie' : 'fal',
+      kieCredits: isKieSeedance
+        ? estimateKieCredits({ kind: 'video', model: modelLabel, resolution, duration: billingDuration, audio: generate_audio }) : null,
+      falCost: isKieSeedance
+        ? null : estimateFalCost({ kind: 'video', model: modelLabel, resolution, duration: billingDuration, audio: generate_audio }),
     });
     chargedKind = 'video';
     chargedCost = charge.cost;
@@ -2524,36 +2710,12 @@ app.post('/api/generate-video-ref', verifyJwt, requireNotBanned, noDoubleCharge,
     return res.status(500).json({ error: 'Credit charge failed.' });
   }
 
-  // Re-host any `data:` URI the upload fallback produced BEFORE the provider
-  // sees it — otherwise it rejects with "Only jpeg/jpg/png image formats are
-  // supported". Same step the image route has always performed.
-  // (Production bug, 2026-08-02.)
-  let startFrameUrl = start_frame;
-  let endFrameUrl = end_frame;
-  let refImageUrls = image_urls;
-  try {
-    const isKieSeedance = VIDEO_DIRECT_MAP[modelLabel]?.provider === 'kie';
-    const opts = { forKie: isKieSeedance, tag: 'REFS-SEEDANCE' };
-    if (start_frame) startFrameUrl = (await resolveReferenceUrls([start_frame], opts))[0];
-    if (end_frame) endFrameUrl = (await resolveReferenceUrls([end_frame], opts))[0];
-    if ((image_urls || []).length) refImageUrls = await resolveReferenceUrls(image_urls, opts);
-  } catch (error) {
-    console.error('[SEEDANCE] reference re-host failed:', error.message);
-    if (chargedKind) {
-      refundCredits({
-        userId: req.user.id, kind: chargedKind, ip: clientIp(req), cost: chargedCost,
-        reason: `seedance_ref_resolve_failed: ${error.message}`.slice(0, 500),
-      }).catch(() => {});
-    }
-    return res.status(400).json({ error: publicError(error.message) });
-  }
-
   // Determine which Seedance endpoint to use
   const hasStartFrame = !!startFrameUrl;
   const hasEndFrame = !!endFrameUrl;
   const hasRefImages = (refImageUrls || []).length > 0;
-  const hasRefVideos = (video_urls || []).length > 0;
-  const hasRefAudios = (audio_urls || []).length > 0;
+  const hasRefVideos = refVideoUrls.length > 0;
+  const hasRefAudios = refAudioUrls.length > 0;
 
   // ── kie.ai-backed Seedance (switched from FAL 2026-07-20) ──
   // One jobs model per variant covers t2v / i2v / reference in a single
@@ -2575,8 +2737,12 @@ app.post('/api/generate-video-ref', verifyJwt, requireNotBanned, noDoubleCharge,
         model: seedanceMapping.kieModel,
         input: {
           prompt,
-          aspect_ratio: ['1:1', '4:3', '3:4', '16:9', '9:16', '21:9'].includes(aspect_ratio) ? aspect_ratio : 'adaptive',
-          duration: durInt,
+          // With a reference video the output follows the video: -1 and
+          // 'adaptive' are what Seedance requires for an editing job and
+          // accepts for any other (see the block above the charge).
+          aspect_ratio: followsVideo ? 'adaptive'
+            : ['1:1', '4:3', '3:4', '16:9', '9:16', '21:9'].includes(aspect_ratio) ? aspect_ratio : 'adaptive',
+          duration: followsVideo ? -1 : durInt,
           resolution: res_,
           generate_audio: generate_audio !== false,
           ...(hasStartFrame ? { first_frame_url: startFrameUrl } : {}),
@@ -2585,11 +2751,12 @@ app.post('/api/generate-video-ref', verifyJwt, requireNotBanned, noDoubleCharge,
           // images, 10 videos and 10 audio clips (50 multimodal assets —
           // kie's published limits); 2.0-family keeps its 9 / 3 / 3.
           ...(hasRefImages ? { reference_image_urls: refImageUrls.slice(0, isV25 ? 30 : 9) } : {}),
-          ...(hasRefVideos ? { reference_video_urls: video_urls.slice(0, isV25 ? 10 : 3) } : {}),
-          ...(hasRefAudios ? { reference_audio_urls: audio_urls.slice(0, isV25 ? 10 : 3) } : {}),
+          ...(hasRefVideos ? { reference_video_urls: refVideoUrls.slice(0, isV25 ? 10 : 3) } : {}),
+          ...(hasRefAudios ? { reference_audio_urls: refAudioUrls.slice(0, isV25 ? 10 : 3) } : {}),
         },
       };
       console.log(`[SEEDANCE] [KIE] Variant: ${modelLabel} →`, seedanceMapping.kieModel);
+      console.log('[SEEDANCE] [KIE] payload:', JSON.stringify(body));
       const taskId = await kieCreateTask('jobs', body, { tag: 'KIE-SEEDANCE' });
       console.log(`[SEEDANCE] [KIE] ✅ Submitted taskId: ${taskId}`);
       await trackVideoCharge(taskId, { userId: req.user.id, kind: chargedKind, cost: chargedCost, modelLabel: chargedLabel, modelId: 'kie:jobs:' + seedanceMapping.kieModel });
@@ -2598,6 +2765,10 @@ app.post('/api/generate-video-ref', verifyJwt, requireNotBanned, noDoubleCharge,
         job_id: taskId,
         model_id: 'kie:jobs:' + seedanceMapping.kieModel,
         model: modelLabel,
+        // The seconds billed when the output follows a reference video — the
+        // page labels the card with these, not with the picker's "Auto",
+        // which the badge would otherwise show as 0:05 for a 19-second clip.
+        ...(followsVideo ? { seconds: billingDuration } : {}),
       });
     } catch (error) {
       console.error('[SEEDANCE] [KIE] Error:', error.message);
@@ -2630,8 +2801,8 @@ app.post('/api/generate-video-ref', verifyJwt, requireNotBanned, noDoubleCharge,
     // Reference-to-video mode (both variants accept image_urls/video_urls/audio_urls)
     falModel = `${endpointBase}/reference-to-video`;
     if (hasRefImages) input.image_urls = refImageUrls;
-    if (hasRefVideos) input.video_urls = video_urls;
-    if (hasRefAudios) input.audio_urls = audio_urls;
+    if (hasRefVideos) input.video_urls = refVideoUrls;
+    if (hasRefAudios) input.audio_urls = refAudioUrls;
     console.log(`[SEEDANCE] Mode: reference-to-video (images: ${(image_urls||[]).length}, videos: ${(video_urls||[]).length}, audio: ${(audio_urls||[]).length})`);
   } else {
     // Text-to-video mode (no images)
@@ -6265,22 +6436,29 @@ app.get('/api/admin/stats', adminGate, async (req, res) => {
 // user email, and a date range. Each row carries BOTH meters: `amount`
 // (signed voxel credits) and `kie_credits` (estimated KIE credits the
 // generation burned from our kie.ai balance; null → rendered "—").
+// The ledger filters, shared by the Logs page (one page of rows) and the
+// credit report (every matching row). One function, so the same filter means
+// the same rows on both — a report that disagreed with the screen it was
+// opened from would be worse than no report.
+const LEDGER_ACTIONS = ['spend', 'refund', 'grant', 'revoke', 'promo', 'gift', 'signup', 'set'];
+function ledgerFilters(query) {
+  const where = [];
+  const params = [];
+  const p = (v) => { params.push(v); return `$${params.length}`; };
+  const action = String(query.action || '').toLowerCase();
+  if (LEDGER_ACTIONS.includes(action)) where.push(`ch.action = ${p(action)}`);
+  if (query.q) where.push(`ch.reason ILIKE ${p('%' + String(query.q).slice(0, 100) + '%')}`);
+  if (query.email) where.push(`u.email ILIKE ${p('%' + String(query.email).slice(0, 100) + '%')}`);
+  if (query.from) where.push(`ch.created_at >= ${p(new Date(query.from))}`);
+  if (query.to) where.push(`ch.created_at < ${p(new Date(query.to))}::timestamptz + INTERVAL '1 day'`);
+  return { whereSql: where.length ? 'WHERE ' + where.join(' AND ') : '', params, p, action };
+}
+
 app.get('/api/admin/logs', adminGate, async (req, res) => {
   try {
     const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 50, 1), 200);
     const offset = Math.max(parseInt(req.query.offset, 10) || 0, 0);
-
-    const where = [];
-    const params = [];
-    const p = (v) => { params.push(v); return `$${params.length}`; };
-
-    const action = String(req.query.action || '').toLowerCase();
-    if (['spend', 'refund', 'grant', 'revoke', 'promo', 'gift', 'signup'].includes(action)) where.push(`ch.action = ${p(action)}`);
-    if (req.query.q) where.push(`ch.reason ILIKE ${p('%' + String(req.query.q).slice(0, 100) + '%')}`);
-    if (req.query.email) where.push(`u.email ILIKE ${p('%' + String(req.query.email).slice(0, 100) + '%')}`);
-    if (req.query.from) where.push(`ch.created_at >= ${p(new Date(req.query.from))}`);
-    if (req.query.to) where.push(`ch.created_at < ${p(new Date(req.query.to))}::timestamptz + INTERVAL '1 day'`);
-    const whereSql = where.length ? 'WHERE ' + where.join(' AND ') : '';
+    const { whereSql, params, p } = ledgerFilters(req.query);
 
     const [rows, count] = await Promise.all([
       pool.query(
@@ -6303,6 +6481,54 @@ app.get('/api/admin/logs', adminGate, async (req, res) => {
   } catch (err) {
     console.error('[admin/logs] error:', err);
     res.status(500).json({ error: 'Logs fetch failed.' });
+  }
+});
+
+// ─── ADMIN: CREDIT REPORT — every ledger row a filter matches ──────────────
+// Owner, 2026-09-03: "The workshop — we gave every student $25, 395 credits,
+// reason SPA4. I need a PDF: every email, the reason, how many credits." The
+// Logs page answers that fifty rows at a time. A workshop is one question with
+// one answer, so this returns EVERY matching row (capped, and it says when the
+// cap bit) with the totals; the browser lays it out as the report
+// (src/lib/creditReport.js) and prints it to PDF. Same filters, same rows as
+// the Logs page — ledgerFilters is shared on purpose.
+app.get('/api/admin/reports/credits', adminGate, async (req, res) => {
+  try {
+    const { whereSql, params, action } = ledgerFilters(req.query);
+    const cap = 5000;
+    const { rows } = await pool.query(
+      `SELECT ch.id, ch.created_at, ch.action, ch.amount, ch.reason, ch.admin_email,
+              u.id AS user_id, u.email
+         FROM credits_history ch
+         JOIN users u ON u.id = ch.user_id
+        ${whereSql}
+        ORDER BY ch.created_at ASC, ch.id ASC
+        LIMIT ${cap + 1}`,
+      params
+    );
+    const truncated = rows.length > cap;
+    const out = truncated ? rows.slice(0, cap) : rows;
+    const credits = out.reduce((sum, r) => sum + Number(r.amount), 0);
+    res.json({
+      rows: out,
+      totals: {
+        rows: out.length,
+        accounts: new Set(out.map((r) => r.user_id)).size,
+        credits: Math.round(credits * 100) / 100,
+      },
+      truncated,
+      cap,
+      filters: {
+        q: req.query.q ? String(req.query.q).slice(0, 100) : '',
+        action: LEDGER_ACTIONS.includes(action) ? action : '',
+        email: req.query.email ? String(req.query.email).slice(0, 100) : '',
+        from: req.query.from || '', to: req.query.to || '',
+      },
+      generated_at: new Date().toISOString(),
+    });
+  } catch (err) {
+    console.error('[admin/reports/credits] error:', err);
+    res.status(500).json({ error: 'Credit report failed.' });
   }
 });
 
