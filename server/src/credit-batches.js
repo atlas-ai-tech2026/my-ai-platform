@@ -132,7 +132,22 @@ const ms = (v) => {
  * an invoice bills for. A revoke is real money too, but it is not a line on an
  * invoice — and mixing the two makes a total that means neither thing.
  */
-export function groupBatches(rows = [], { creditValueUsd = 0.063333 } = {}) {
+export function groupBatches(rows = [], { creditValueUsd = 0.063333, describe = {} } = {}) {
+  // ☠ THE NAME OF A PROMO BATCH IS THE CODE'S DESCRIPTION, NOT THE CODE.
+  // Owner, 2026-09-05: "There is one column called promo code and you write it
+  // there. It is not necessary to write it two times. The name will be the
+  // description of the promo code, and keep the promo code as is."
+  // He is right — the reason on a promo ledger row is "promo: VOXEL-VPW9-DY93",
+  // so the Name column repeated the Promo code column on every promo row.
+  // "SPA News Academy 5th 4th" is the thing you would look for on an invoice.
+  //
+  // Only the LABEL changes. The grouping key still contains the code, because
+  // two different codes can share one description — "Ali Bin Awad Demo" is
+  // TWO codes on production — and merging them would put one code beside
+  // another code's money.
+  const described = new Map(
+    Object.entries(describe || {}).map(([code, d]) => [String(code).toUpperCase(), d]),
+  );
   const map = new Map();
   for (const r of rows) {
     const amount = Number(r.amount) || 0;
@@ -168,8 +183,13 @@ export function groupBatches(rows = [], { creditValueUsd = 0.063333 } = {}) {
   return [...map.values()].map((b) => {
     // Show the commonest spelling, never an invented tidy one.
     const [best] = [...b.spellings.entries()].sort((a, c) => c[1] - a[1]);
+    const spelt = best ? best[0] : b.name;
+    // A code with no description falls back to the code — a blank Name column
+    // would be worse than the repetition it replaces.
+    const described_name = b.code ? described.get(String(b.code).toUpperCase()) : null;
+    const name = String(described_name || '').trim() || spelt;
     return {
-      key: b.key, type: b.type, name: best ? best[0] : b.name, code: b.code,
+      key: b.key, type: b.type, name, code: b.code,
       date: day(b.first), date_to: day(b.last),
       // Sent as ISO strings so the browser formats them in the owner's own
       // timezone — the same way Manual Credits does, so the two screens agree.

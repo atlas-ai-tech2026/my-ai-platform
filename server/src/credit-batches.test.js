@@ -304,3 +304,64 @@ describe('rows arriving as pg Date objects, not ISO strings', () => {
     });
   }
 });
+
+// ─── A PROMO BATCH IS NAMED BY ITS DESCRIPTION ──────────────────────────────
+// Owner, 2026-09-05: "There is one column called promo code and you write it
+// there. It is not necessary to write it two times. The name will be the
+// description of the promo code, and keep the promo code as is."
+describe('promo batches are named by the description, not the code', () => {
+  const describe_ = {
+    'VOXEL-VPW9-DY93': 'SPA News Academy 5th 4th',
+    'VOXEL-V8YK-H7A7': 'Ali Bin Awad Demo',
+    'VOXEL-A2RF-VR54': 'Ali Bin Awad Demo',
+  };
+  const promoRow = (code, user_id) => ({
+    amount: 158, reason: `promo: ${code}`, source: 'promo', user_id,
+    created_at: new Date('2026-09-03T09:00:00Z'),
+  });
+
+  it('shows the description in Name and the code in Promo code', () => {
+    const [b] = groupBatches([promoRow('VOXEL-VPW9-DY93', 1)], { describe: describe_ });
+    expect(b.name).toBe('SPA News Academy 5th 4th');
+    expect(b.code).toBe('VOXEL-VPW9-DY93');
+  });
+
+  it('never writes the same string in both columns', () => {
+    const batches = groupBatches(
+      Object.keys(describe_).map((c, i) => promoRow(c, i + 1)), { describe: describe_ });
+    expect(batches).toHaveLength(3);
+    for (const b of batches) expect(b.name).not.toBe(b.code);
+  });
+
+  it('keeps two codes that share one description as SEPARATE rows', () => {
+    // "Ali Bin Awad Demo" is two codes on production. Merging them would put
+    // one code's string beside another code's money.
+    const batches = groupBatches(
+      [promoRow('VOXEL-V8YK-H7A7', 1), promoRow('VOXEL-A2RF-VR54', 2)], { describe: describe_ });
+    expect(batches).toHaveLength(2);
+    expect(batches.map((b) => b.code).sort())
+      .toEqual(['VOXEL-A2RF-VR54', 'VOXEL-V8YK-H7A7']);
+    expect(new Set(batches.map((b) => b.name))).toEqual(new Set(['Ali Bin Awad Demo']));
+  });
+
+  it('falls back to the code when there is no description', () => {
+    // A blank Name column would be worse than the repetition it replaces.
+    for (const d of [{}, { 'VOXEL-ZZZZ-0000': '' }, { 'VOXEL-ZZZZ-0000': '   ' }, null]) {
+      const [b] = groupBatches([promoRow('VOXEL-ZZZZ-0000', 1)], { describe: d });
+      expect(b.name).toBe('VOXEL-ZZZZ-0000');
+    }
+  });
+
+  it('leaves hand-typed grants alone — they have no code to describe', () => {
+    const [b] = groupBatches(
+      [{ amount: 50, reason: 'spa 4', user_id: 1, created_at: new Date('2026-08-20T09:00:00Z') }],
+      { describe: describe_ });
+    expect(b.name).toBe('spa 4');
+    expect(b.code).toBe(null);
+  });
+
+  it('matches the code case-insensitively', () => {
+    const [b] = groupBatches([promoRow('voxel-vpw9-dy93', 1)], { describe: describe_ });
+    expect(b.name).toBe('SPA News Academy 5th 4th');
+  });
+});

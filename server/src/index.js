@@ -6494,7 +6494,25 @@ app.get('/api/admin/credit-batches', adminGate, async (req, res) => {
     where.push(`COALESCE(ch.source, '') <> 'system'`);
     if (req.query.from) where.push(`ch.created_at >= ${p(new Date(req.query.from))}`);
     if (req.query.to) where.push(`ch.created_at < ${p(new Date(req.query.to))}::timestamptz + INTERVAL '1 day'`);
-    if (req.query.q) where.push(`ch.reason ILIKE ${p('%' + String(req.query.q).slice(0, 100) + '%')}`);
+    // A promo batch is NAMED by the code's description, so the search box has to
+    // look there too. Searching only ch.reason would mean typing the name you
+    // can see on the row and being told there is nothing.
+    const { rows: promos } = await pool.query(
+      'SELECT code, description FROM promo_codes',
+    ).catch(() => ({ rows: [] }));
+    const describe = Object.fromEntries(promos.map((r) => [r.code, r.description]));
+
+    if (req.query.q) {
+      const q = String(req.query.q).slice(0, 100);
+      const like = q.toLowerCase();
+      // Codes whose DESCRIPTION matches — their ledger rows say only the code.
+      const hits = promos
+        .filter((r) => String(r.description || '').toLowerCase().includes(like))
+        .map((r) => `%${r.code}%`);
+      where.push(hits.length
+        ? `(ch.reason ILIKE ${p('%' + q + '%')} OR ch.reason ILIKE ANY(${p(hits)}::text[]))`
+        : `ch.reason ILIKE ${p('%' + q + '%')}`);
+    }
     const sources = String(req.query.sources || '').split(',').map((x) => x.trim()).filter(Boolean)
       .filter((x) => ['manual', 'bulk', 'promo', 'gift'].includes(x));
     if (sources.length) where.push(`ch.source = ANY(${p(sources)})`);
@@ -6509,7 +6527,7 @@ app.get('/api/admin/credit-batches', adminGate, async (req, res) => {
     const { rows: st } = await pool.query('SELECT credit_value FROM pricing_settings WHERE id = 1')
       .catch(() => ({ rows: [] }));
     const creditValueUsd = Number(st?.[0]?.credit_value) || 0.063333;
-    const batches = groupBatches(rows, { creditValueUsd });
+    const batches = groupBatches(rows, { creditValueUsd, describe });
     res.json({ batches, totals: totalBatches(batches, { creditValueUsd }), credit_value: creditValueUsd });
   } catch (err) {
     console.error('[credit-batches] failed:', err);
