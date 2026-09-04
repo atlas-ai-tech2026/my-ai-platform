@@ -330,6 +330,11 @@ export const adminApi = {
   // both answer far too late.
   checkUserList: (emails) => request('POST', '/api/admin/users/check-list', { emails }),
 
+  // One row per batch — the invoice view. Grouped in the server so a total can
+  // never disagree with the rows behind it.
+  creditBatches: (q = {}) => request('GET', '/api/admin/credit-batches?' + new URLSearchParams(
+    Object.entries(q).filter(([, v]) => v !== '' && v != null)).toString()),
+
   // ── Bulk: credits for accounts that ALREADY exist ────────────────────────
   // Preview first, always: this spends real money, and a confirm box saying
   // "are you sure?" is not consent to $610. Apply sends back the account count

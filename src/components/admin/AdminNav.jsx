@@ -96,7 +96,7 @@ export const GROUPS = [
   // out of this list once and the fallback put it in System, which is where
   // you look when a machine is wrong, not when a customer is upset.
   { id: 'customers', label: 'Customers', tabs: ['users', 'audience', 'recovery', 'promos', 'gifts', 'bulk'] },
-  { id: 'money',     label: 'Money',     tabs: ['costing', 'manualcredits', 'offers', 'expenses'] },
+  { id: 'money',     label: 'Money',     tabs: ['batches', 'costing', 'manualcredits', 'offers', 'expenses'] },
   // 'speech' was never listed here. The fallback has been filing it under
   // System since it shipped, which is where it appears today — so naming it
   // explicitly changes NOTHING on screen. It only turns an accident into a

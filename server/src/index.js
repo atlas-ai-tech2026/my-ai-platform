@@ -70,6 +70,7 @@ import { normalizeBulkEmails, generateBulkPassword } from './bulk-helpers.js';
 import { splitList, describeSplit } from './list-check.js';
 import { planTopUp, topUpReason } from './bulk-credits.js';
 import { planTopUp as planPromoTopUp, topUpReason as promoTopUpReason } from './promo-topup.js';
+import { groupBatches, totalBatches } from './credit-batches.js';
 import { classifyRow, previewBackfill } from './credit-source-backfill.js';
 import { mayRedeem, capForInvites, capAfterAdding, splitInvites, REFUSAL } from './promo-audience.js';
 // ONE definition of "the same address", shared by auth, bulk and promo.
@@ -6472,6 +6473,49 @@ function ledgerFilters(query) {
   }
   return { whereSql: where.length ? 'WHERE ' + where.join(' AND ') : '', params, p, action };
 }
+
+// ── ONE ROW PER THING YOU DID, NOT PER PERSON ───────────────────────────────
+//
+// Owner: "I go manually to the promo codes and take the name, the credits, the
+// code, the number of accounts, then put it on the invoice by hand." That is
+// an invoice line, and the ledger holds one row per PERSON — so answering it
+// by hand means reading 71 rows and adding them up.
+//
+// Grouped in the server, from the same ledger every other money screen reads,
+// so a batch total can never disagree with the rows behind it.
+app.get('/api/admin/credit-batches', adminGate, async (req, res) => {
+  if (!dbReady()) return res.status(503).json({ error: 'Database not available.' });
+  try {
+    const where = ['ch.amount > 0'];
+    const params = [];
+    const p = (v) => { params.push(v); return `$${params.length}`; };
+    // 'system' is spend, refund, expiry, signup — none of them is a thing the
+    // owner DID, and none belongs on an invoice.
+    where.push(`COALESCE(ch.source, '') <> 'system'`);
+    if (req.query.from) where.push(`ch.created_at >= ${p(new Date(req.query.from))}`);
+    if (req.query.to) where.push(`ch.created_at < ${p(new Date(req.query.to))}::timestamptz + INTERVAL '1 day'`);
+    if (req.query.q) where.push(`ch.reason ILIKE ${p('%' + String(req.query.q).slice(0, 100) + '%')}`);
+    const sources = String(req.query.sources || '').split(',').map((x) => x.trim()).filter(Boolean)
+      .filter((x) => ['manual', 'bulk', 'promo', 'gift'].includes(x));
+    if (sources.length) where.push(`ch.source = ANY(${p(sources)})`);
+
+    const { rows } = await pool.query(
+      `SELECT ch.amount, ch.reason, ch.source, ch.created_at, ch.user_id
+         FROM credits_history ch
+        WHERE ${where.join(' AND ')}
+        ORDER BY ch.created_at DESC
+        LIMIT 200000`, params);
+
+    const { rows: st } = await pool.query('SELECT credit_value FROM pricing_settings WHERE id = 1')
+      .catch(() => ({ rows: [] }));
+    const creditValueUsd = Number(st?.[0]?.credit_value) || 0.063333;
+    const batches = groupBatches(rows, { creditValueUsd });
+    res.json({ batches, totals: totalBatches(batches, { creditValueUsd }), credit_value: creditValueUsd });
+  } catch (err) {
+    console.error('[credit-batches] failed:', err);
+    res.status(500).json({ error: 'Could not build the batch list.' });
+  }
+});
 
 app.get('/api/admin/logs', adminGate, async (req, res) => {
   try {

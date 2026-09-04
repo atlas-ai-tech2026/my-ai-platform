@@ -25,6 +25,7 @@ import BulkTab from '@/components/admin/BulkTab';
 import SecurityTab from '@/components/admin/SecurityTab';
 import CostingTab from '@/components/admin/CostingTab';
 import ManualCreditsTab from '@/components/admin/ManualCreditsTab';
+import BatchesTab from '@/components/admin/BatchesTab';
 import OffersTab from '@/components/admin/OffersTab';
 import NotificationsTab from '@/components/admin/NotificationsTab';
 import AlertsTab from '@/components/admin/AlertsTab';
@@ -108,6 +109,11 @@ const TABS = [
   // Every credit a person added or removed by hand. Sits under MONEY because
   // that is what it is: the record behind an invoice. Named for what it holds,
   // not for the table it reads.
+  // One row per thing you did, not per person — the invoice view. Sits FIRST
+  // in Money because it is the screen a person opens to answer "what did we
+  // hand out", and everything else here is a detail of that.
+  { id: 'batches', label: 'Batches',
+    desc: 'Every batch of credits you have handed out \u2014 one row per thing you did, not per person. Promo codes, Bulk, gift cards and hand-typed grants, with the name, the date, how many accounts and how many credits. Built for copying onto an invoice, and exports to CSV. Additions only: customer spending, refunds and credits taken back are not here. Hand-typed grants are switched OFF by default and the screen says what that leaves out.' },
   { id: 'manualcredits', label: 'Manual Credits',
     desc: 'Every credit added or removed BY HAND — from Users → + Credits. Promo redemptions, Bulk provisioning and gift cards are not here; each has its own screen. Filter by account, date, amount or type; the totals follow the filter. Read-only: nothing on this screen changes a balance.' },
   { id: 'costing', label: 'Costing',
@@ -364,6 +370,7 @@ export default function AdminPanel() {
         {tab === 'live' && <LiveTab onError={handleError} />}
         {tab === 'audience' && <AudienceTab onError={handleError} />}
         {tab === 'expenses' && <ExpensesTab onError={handleError} />}
+        {tab === 'batches' && <BatchesTab onError={handleError} />}
         {tab === 'manualcredits' && <ManualCreditsTab onError={handleError} />}
         {tab === 'costing' && <CostingTab onError={handleError} />}
         {tab === 'offers' && <OffersTab onError={handleError} />}
