@@ -162,6 +162,33 @@ export async function migrate() {
     // the admin UI renders those as "—".
     await client.query(`ALTER TABLE credits_history ADD COLUMN IF NOT EXISTS kie_credits NUMERIC(12,2);`);
 
+    // ── source: WHO OR WHAT put this row here ──────────────────────────────
+    //   'manual' — a person typed it into the panel (Users → + Credits)
+    //   'bulk'   — provisioning a batch of new accounts
+    //   'promo'  — a code was redeemed
+    //   'gift'   — a gift card
+    //   'system' — spend, refund, expiry, signup, ban, password reset
+    //
+    // ☠ WHY A COLUMN AND NOT A FILTER ON `action`. Bulk provisioning writes
+    // action 'grant' — the identical word a hand-typed grant writes. The only
+    // thing separating them today is the SENTENCE bulk happens to put in
+    // `reason`: "bulk provision: Basic plan". Filtering on that works right up
+    // until somebody edits the wording, and then the Manual Credits screen
+    // silently starts including hundreds of bulk rows with nothing to say so.
+    //
+    // The owner's whole reason for asking for that screen was that finding his
+    // own money required knowing what somebody typed months ago — "SPA4",
+    // "spa 4", "Spa 4.". Replacing one typed string with another would have
+    // solved nothing.
+    //
+    // Nullable on purpose: NULL means "written before this shipped", which the
+    // backfill classifies once, with the owner approving the counts. A test
+    // asserts every INSERT sets it, so a forgotten path fails the build rather
+    // than quietly landing as NULL and looking historical.
+    await client.query(`ALTER TABLE credits_history ADD COLUMN IF NOT EXISTS source VARCHAR(16);`);
+    await client.query(`CREATE INDEX IF NOT EXISTS credits_history_source_idx
+      ON credits_history (source, created_at DESC);`);
+
     // display_name: shown on the user's account page (higgsfield-style
     // profile). Optional — UI falls back to the email local-part.
     await client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS display_name VARCHAR(80);`);

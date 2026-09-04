@@ -4189,8 +4189,8 @@ app.post('/api/auth/register', registerLimiter, requireAuthInfra, async (req, re
     // today — when Stripe lands and we grant N free signup credits, the same
     // row will carry the actual amount and a 'signup' action.
     pool.query(
-      `INSERT INTO credits_history (user_id, amount, action, ip_address)
-       VALUES ($1, 0, 'signup', $2)`,
+      `INSERT INTO credits_history (user_id, amount, action, ip_address, source)
+       VALUES ($1, 0, 'signup', $2, 'system')`,
       [user.id, clientIp(req)]
     ).catch(err => console.error('[auth/register] credits_history insert failed:', err.message));
 
@@ -4627,8 +4627,8 @@ async function findOrCreateGoogleUser(identity, ip) {
   );
   const user = created.rows[0];
   pool.query(
-    `INSERT INTO credits_history (user_id, amount, action, ip_address)
-     VALUES ($1, 0, 'signup', $2)`,
+    `INSERT INTO credits_history (user_id, amount, action, ip_address, source)
+     VALUES ($1, 0, 'signup', $2, 'system')`,
     [user.id, ip]
   ).catch(err => console.error('[google] credits_history insert failed:', err.message));
   console.log(`[google] created user=${user.id} ${user.email}`);
@@ -4756,8 +4756,8 @@ async function findOrCreateMicrosoftUser(identity, ip) {
   );
   const user = created.rows[0];
   pool.query(
-    `INSERT INTO credits_history (user_id, amount, action, ip_address)
-     VALUES ($1, 0, 'signup', $2)`,
+    `INSERT INTO credits_history (user_id, amount, action, ip_address, source)
+     VALUES ($1, 0, 'signup', $2, 'system')`,
     [user.id, ip]
   ).catch(err => console.error('[microsoft] credits_history insert failed:', err.message));
   console.log(`[microsoft] created user=${user.id} ${user.email} (personal=${identity.isPersonalAccount})`);
@@ -5515,8 +5515,8 @@ app.post('/api/admin/users/:id/credits', adminGate, async (req, res) => {
       );
       await client.query(
         `INSERT INTO credits_history
-           (user_id, amount, action, admin_email, reason, ip_address)
-         VALUES ($1, $2, $3, $4, $5, $6)`,
+           (user_id, amount, action, admin_email, reason, ip_address, source)
+         VALUES ($1, $2, $3, $4, $5, $6, 'manual')`,
         [targetId, delta, action, req.user.email, reason, clientIp(req)]
       );
 
@@ -5575,8 +5575,8 @@ app.post('/api/admin/users/:id/ban', adminGate, async (req, res) => {
     // moderation history is in one place.
     pool.query(
       `INSERT INTO credits_history
-         (user_id, amount, action, admin_email, reason, ip_address)
-       VALUES ($1, 0, $2, $3, $4, $5)`,
+         (user_id, amount, action, admin_email, reason, ip_address, source)
+       VALUES ($1, 0, $2, $3, $4, $5, 'system')`,
       [targetId, banned ? 'ban' : 'unban', req.user.email, reason, clientIp(req)]
     ).catch(() => {});
 
@@ -5736,8 +5736,8 @@ app.post('/api/admin/users/:id/reset-password', adminGate, async (req, res) => {
     // Audit trail alongside the other moderation actions.
     pool.query(
       `INSERT INTO credits_history
-         (user_id, amount, action, admin_email, reason, ip_address)
-       VALUES ($1, 0, 'password_reset', $2, $3, $4)`,
+         (user_id, amount, action, admin_email, reason, ip_address, source)
+       VALUES ($1, 0, 'password_reset', $2, $3, $4, 'system')`,
       [targetId, req.user.email, 'admin password reset', clientIp(req)]
     ).catch(() => {});
 
@@ -6742,8 +6742,10 @@ async function grantRedeemedCredits(client, { userId, credits, action, reason, d
   const limitAfter = Number(cur.rows[0].credit_limit) + Number(credits);
   await client.query('UPDATE users SET credits = $1, credit_limit = $2 WHERE id = $3', [after, limitAfter, userId]);
   await client.query(
-    `INSERT INTO credits_history (user_id, amount, action, reason) VALUES ($1, $2, $3, $4)`,
-    [userId, credits, action, reason]
+    `INSERT INTO credits_history (user_id, amount, action, reason, source)
+     VALUES ($1, $2, $3, $4, $5)`,
+    // Only 'promo' and 'gift' reach here — a code redeemed, or a gift card.
+    [userId, credits, action, reason, action === 'gift' ? 'gift' : 'promo']
   );
   // The addition is a lot with its own life (a promo code's access_days, or
   // the 30-day standard). NOT wrapped in a savepoint like the spend mirror:
@@ -7386,8 +7388,8 @@ app.post('/api/admin/users/bulk', adminGate, async (req, res) => {
         );
         if (credits > 0) {
           await client.query(
-            `INSERT INTO credits_history (user_id, amount, action, admin_email, reason)
-             VALUES ($1, $2, 'grant', $3, $4)`,
+            `INSERT INTO credits_history (user_id, amount, action, admin_email, reason, source)
+             VALUES ($1, $2, 'grant', $3, $4, 'bulk')`,
             [ins.rows[0].id, credits, req.user?.email || ADMIN_EMAIL, `bulk provision: ${pkg} plan`]
           );
           // The batch's starting credits are an addition like any other:

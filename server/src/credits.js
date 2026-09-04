@@ -128,8 +128,8 @@ export async function chargeCredits({ userId, kind, ip, cost: costOverride, note
       fal = Math.round(cost * PROVIDER_COST_SHARE_USD * 10000) / 10000;
     }
     await client.query(
-      `INSERT INTO credits_history (user_id, amount, action, reason, ip_address, kie_credits, fal_cost)
-       VALUES ($1, $2, 'spend', $3, $4, $5, $6)`,
+      `INSERT INTO credits_history (user_id, amount, action, reason, ip_address, kie_credits, fal_cost, source)
+       VALUES ($1, $2, 'spend', $3, $4, $5, $6, 'system')`,
       [userId, -cost, (note || '').slice(0, 500) || null, ip || null, kie, fal]
     );
 
@@ -187,8 +187,8 @@ export async function refundCredits({ userId, kind, ip, reason, cost: costOverri
       [cost, userId]
     );
     await client.query(
-      `INSERT INTO credits_history (user_id, amount, action, reason, ip_address)
-       VALUES ($1, $2, 'refund', $3, $4)`,
+      `INSERT INTO credits_history (user_id, amount, action, reason, ip_address, source)
+       VALUES ($1, $2, 'refund', $3, $4, 'system')`,
       [userId, cost, reason || 'fal call failed', ip || null]
     );
     // The refund lands in the newest live lot (longest usable window), or a

@@ -222,8 +222,8 @@ export async function sweepDueLots({ label = 'sweep' } = {}) {
       );
       const days = [...new Set(taken.map((r) => new Date(r.granted_at).toISOString().slice(0, 10)))];
       await client.query(
-        `INSERT INTO credits_history (user_id, amount, action, reason)
-         VALUES ($1, $2, 'expire', $3)`,
+        `INSERT INTO credits_history (user_id, amount, action, reason, source)
+         VALUES ($1, $2, 'expire', $3, 'system')`,
         [user_id, -total,
          `credits expired — ${CREDIT_LIFE_DAYS} days after they were added (added ${days.join(', ')})`.slice(0, 500)]
       );
