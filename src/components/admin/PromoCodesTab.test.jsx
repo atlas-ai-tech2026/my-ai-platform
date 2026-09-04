@@ -639,3 +639,41 @@ describe('☠ AN OPEN CODE AND A BROKEN REQUEST MUST NOT LOOK THE SAME', () => {
     expect(screen.queryByText(/could not be read/)).toBeNull();
   });
 });
+
+describe('☠ THE TOP-UP MUST BE REACHABLE ON AN OPEN CODE', () => {
+  // It was first placed inside `invites[p.id]?.total > 0`, so it appeared only
+  // on codes WITH an email list — invisible on every open code. Every code
+  // issued before 20 August is open, including all the SPA ones: the control
+  // would have been missing from exactly the codes it was built for.
+  //
+  // Caught by reading the JSX before telling the owner where to find it —
+  // after doing the opposite with the sidebar an hour earlier and sending him
+  // hunting for a screen that was somewhere else.
+
+  it('appears on a code with NO invitation list', async () => {
+    api.promoInvites.mockResolvedValue({ total: 0, redeemedCount: 0, waitingCount: 0, waiting: [], redeemed: [] });
+    const user = userEvent.setup();
+    await openInvites(user, 'GULF-MEDIA');
+    expect(await screen.findByRole('button', { name: /Raise the value/ })).toBeInTheDocument();
+  });
+
+  it('and on a code that HAS one', async () => {
+    const user = userEvent.setup();
+    await openInvites(user);                       // default mock: 3 invited
+    expect(await screen.findByRole('button', { name: /Raise the value/ })).toBeInTheDocument();
+  });
+
+  it('☠ and it is not nested inside any invites condition', () => {
+    // The source check, because the two above would both pass if the panel
+    // were duplicated into each branch — and then they would drift.
+    const src = readFileSync(
+      resolve(process.cwd(), 'src/components/admin/PromoCodesTab.jsx'), 'utf8');
+    expect((src.match(/<PromoTopUpPanel/g) || []).length,
+      'the top-up panel is rendered more than once — two copies will drift').toBe(1);
+    const at = src.indexOf('<PromoTopUpPanel');
+    const before = src.slice(src.indexOf("{isExpanded && ("), at);
+    expect(before,
+      'the top-up sits inside an invites condition, so it is invisible on open codes')
+      .not.toMatch(/\{invites\[p\.id\]/);
+  });
+});

@@ -627,6 +627,21 @@ export default function PromoCodesTab({ onError }) {
                   {isExpanded && (
                     <tr style={{ background: 'var(--crm-w03)' }}>
                       <td colSpan={COLS} style={{ padding: '12px 14px 16px' }}>
+                        {/* ── RAISE THE VALUE FOR EVERYONE WHO USED IT ─────
+                            ☠ FIRST, AND OUTSIDE EVERY CONDITIONAL. It was
+                            nested inside `invites[p.id]?.total > 0` — so it
+                            appeared only on codes with an email list, and was
+                            invisible on every OPEN code. Every code issued
+                            before 20 August is open, including all the SPA
+                            ones: the button would have been missing from
+                            exactly the codes it was built for. Caught by
+                            reading the JSX before telling the owner where to
+                            find it, after doing the opposite with the sidebar
+                            an hour earlier. */}
+                        <div style={{ marginBottom: 14 }}>
+                          <PromoTopUpPanel promo={p} onError={onError} onDone={load} />
+                        </div>
+
                         {/* ── WHO HAS NOT TURNED UP ─────────────────────────
                             Shown ABOVE the redemptions, because before a
                             workshop the outstanding names are the useful ones.
@@ -688,14 +703,6 @@ export default function PromoCodesTab({ onError }) {
                                 </div>
                               </>
                             )}
-
-                            {/* ── RAISE THE VALUE FOR EVERYONE WHO USED IT ───
-                                The customer's actual request: keep the same
-                                code, give them more. Raising the number alone
-                                would reach only future redeemers. */}
-                            <div style={{ marginTop: 10 }}>
-                              <PromoTopUpPanel promo={p} onError={onError} onDone={load} />
-                            </div>
 
                             {/* ── ADD SOMEBODY WHO WAS LEFT OFF ──────────────
                                 The answer to "one person on the sheet cannot
