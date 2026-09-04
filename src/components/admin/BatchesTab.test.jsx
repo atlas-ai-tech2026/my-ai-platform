@@ -19,6 +19,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import BatchesTab from './BatchesTab';
 
 const api = vi.hoisted(() => ({ creditBatches: vi.fn() }));
@@ -48,6 +49,13 @@ beforeEach(() => {
     batches: BATCHES,
     totals: { batches: 2, accounts: 441, credits: 161151, usd: 10206.23 },
     credit_value: 0.063333,
+    promo_codes: {
+      total: 27,
+      unredeemed: [
+        { code: 'VOXEL-NEVR-0003', description: 'Made but never handed out', active: true },
+        { code: 'VOXEL-NEVR-0004', description: null, active: false },
+      ],
+    },
   });
 });
 
@@ -114,5 +122,58 @@ describe('BatchesTab', () => {
     await screen.findByText('SPA News Academy 5th 4th');
     expect(document.body.textContent).toMatch(/161,151/);
     expect(document.body.textContent).toMatch(/10,206/);
+  });
+});
+
+// ─── WHY 27 CODES DO NOT MAKE 27 LINES ──────────────────────────────────────
+// Amr counted 27 promo codes on the Promo Codes screen, counted the rows here,
+// found fewer, and guessed "maybe you only add the activated one". He had no
+// way to find out — the omission was correct and completely silent. Empty rows
+// are not the fix; naming the gap is.
+describe('BatchesTab · codes that were never redeemed', () => {
+  it('says how many exist and how many were never used', async () => {
+    render(<BatchesTab />);
+    await screen.findByText('SPA News Academy 5th 4th');
+    expect(document.body.textContent).toMatch(/27 promo codes exist/);
+    expect(document.body.textContent).toMatch(/2 of them have never been redeemed/);
+    expect(document.body.textContent).toMatch(/nothing was handed out/);
+  });
+
+  it('does not list them as empty rows', async () => {
+    // A row reading "0 accounts · $0.00" is noise on an invoice screen, and is
+    // something that could be invoiced by mistake.
+    render(<BatchesTab />);
+    await screen.findByText('SPA News Academy 5th 4th');
+    expect(screen.getAllByRole('row')).toHaveLength(1 + BATCHES.length);
+    expect(screen.queryByText('VOXEL-NEVR-0003')).toBeNull();
+  });
+
+  it('shows which ones on request', async () => {
+    render(<BatchesTab />);
+    await screen.findByText('SPA News Academy 5th 4th');
+    await userEvent.click(screen.getByRole('button', { name: /show which/i }));
+    expect(await screen.findByText('VOXEL-NEVR-0003')).toBeTruthy();
+    expect(document.body.textContent).toMatch(/Made but never handed out/);
+    // Whether it is switched off is shown, because he asked about active codes.
+    expect(document.body.textContent).toMatch(/deactivated/);
+  });
+
+  it('stays quiet when every code has been used', async () => {
+    api.creditBatches.mockResolvedValue({
+      batches: BATCHES, totals: { batches: 2, accounts: 441, credits: 161151, usd: 10206.23 },
+      credit_value: 0.063333, promo_codes: { total: 27, unredeemed: [] },
+    });
+    render(<BatchesTab />);
+    await screen.findByText('SPA News Academy 5th 4th');
+    expect(document.body.textContent).not.toMatch(/never been redeemed/);
+  });
+
+  it('stays quiet when promo codes are filtered out entirely', async () => {
+    render(<BatchesTab />);
+    await screen.findByText('SPA News Academy 5th 4th');
+    // The button reads "✓ Promo codes" while the type is on.
+    await userEvent.click(screen.getByRole('button', { name: /Promo codes/i }));
+    await waitFor(() =>
+      expect(document.body.textContent).not.toMatch(/never been redeemed/));
   });
 });

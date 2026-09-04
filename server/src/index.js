@@ -70,7 +70,7 @@ import { normalizeBulkEmails, generateBulkPassword } from './bulk-helpers.js';
 import { splitList, describeSplit } from './list-check.js';
 import { planTopUp, topUpReason } from './bulk-credits.js';
 import { planTopUp as planPromoTopUp, topUpReason as promoTopUpReason } from './promo-topup.js';
-import { groupBatches, totalBatches } from './credit-batches.js';
+import { groupBatches, totalBatches, unredeemedCodes } from './credit-batches.js';
 import { classifyRow, previewBackfill } from './credit-source-backfill.js';
 import { mayRedeem, capForInvites, capAfterAdding, splitInvites, REFUSAL } from './promo-audience.js';
 // ONE definition of "the same address", shared by auth, bulk and promo.
@@ -6498,9 +6498,19 @@ app.get('/api/admin/credit-batches', adminGate, async (req, res) => {
     // look there too. Searching only ch.reason would mean typing the name you
     // can see on the row and being told there is nothing.
     const { rows: promos } = await pool.query(
-      'SELECT code, description FROM promo_codes',
+      'SELECT code, description, active FROM promo_codes',
     ).catch(() => ({ rows: [] }));
     const describe = Object.fromEntries(promos.map((r) => [r.code, r.description]));
+
+    // Codes that exist but have never been redeemed have no ledger rows, so
+    // they have no batch — correctly, since nothing was handed out. Counted
+    // here so the screen can SAY so, instead of leaving the owner to wonder
+    // why 27 codes produced fewer lines. DISTINCT keeps this to one row per
+    // code rather than one per redemption.
+    const { rows: usedReasons } = await pool.query(
+      `SELECT DISTINCT reason FROM credits_history WHERE source = 'promo'`,
+    ).catch(() => ({ rows: [] }));
+    const unredeemed = unredeemedCodes(promos, usedReasons.map((r) => r.reason));
 
     if (req.query.q) {
       const q = String(req.query.q).slice(0, 100);
@@ -6528,7 +6538,12 @@ app.get('/api/admin/credit-batches', adminGate, async (req, res) => {
       .catch(() => ({ rows: [] }));
     const creditValueUsd = Number(st?.[0]?.credit_value) || 0.063333;
     const batches = groupBatches(rows, { creditValueUsd, describe });
-    res.json({ batches, totals: totalBatches(batches, { creditValueUsd }), credit_value: creditValueUsd });
+    res.json({
+      batches, totals: totalBatches(batches, { creditValueUsd }), credit_value: creditValueUsd,
+      // Unfiltered on purpose: narrowing the dates must not make a code that
+      // WAS used look as though it never had been.
+      promo_codes: { total: promos.length, unredeemed },
+    });
   } catch (err) {
     console.error('[credit-batches] failed:', err);
     res.status(500).json({ error: 'Could not build the batch list.' });

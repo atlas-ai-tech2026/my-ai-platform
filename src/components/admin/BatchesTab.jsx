@@ -111,6 +111,10 @@ export default function BatchesTab({ onError }) {
 
   const set = (k) => (e) => setQ((p) => ({ ...p, [k]: e.target.value }));
 
+  const [showUnredeemed, setShowUnredeemed] = useState(false);
+  const unredeemed = data?.promo_codes?.unredeemed ?? [];
+  const promoTotal = data?.promo_codes?.total ?? 0;
+
   const spellingNote = useMemo(
     () => batches.filter((b) => b.spellings > 1), [batches]);
 
@@ -201,6 +205,43 @@ export default function BatchesTab({ onError }) {
           {spellingNote.length} batch{spellingNote.length === 1 ? ' was' : 'es were'} named more than
           one way and {spellingNote.length === 1 ? 'has' : 'have'} been counted together.
           {' '}Hover a name marked <em>typed N ways</em> to see the spellings.
+        </div>
+      )}
+
+      {/* ☠ WHY 27 CODES DO NOT MAKE 27 LINES.
+          A promo code writes to the ledger only when somebody redeems it, so a
+          code nobody used has no batch — right, since nothing was handed out,
+          but silently right. Amr counted 27 on the Promo Codes screen, counted
+          the rows here, and had no way to find the difference. Empty rows are
+          not the fix: "0 accounts · $0.00" on an invoice screen is noise and
+          is something that could be invoiced by mistake. Naming the gap is. */}
+      {picked.has('promo') && unredeemed.length > 0 && (
+        <div style={{ fontSize: 12, color: 'var(--crm-w50)', marginBottom: 11, lineHeight: 1.6 }}>
+          {promoTotal} promo code{promoTotal === 1 ? '' : 's'} exist
+          {promoTotal === 1 ? 's' : ''}; {unredeemed.length} of them
+          {unredeemed.length === 1 ? ' has' : ' have'} never been redeemed, so
+          {unredeemed.length === 1 ? ' it is' : ' they are'} not listed — nothing was handed out.
+          {' '}
+          <button
+            type="button"
+            onClick={() => setShowUnredeemed((v) => !v)}
+            style={linkBtn}
+          >
+            {showUnredeemed ? 'hide' : 'show which'}
+          </button>
+          {showUnredeemed && (
+            <ul style={{ margin: '8px 0 0', paddingLeft: 18 }}>
+              {unredeemed.map((c) => (
+                <li key={c.code} style={{ marginBottom: 2 }}>
+                  <span style={{ fontFamily: '"JetBrains Mono", monospace', fontSize: 11.5 }}>
+                    {c.code}
+                  </span>
+                  {c.description ? ` — ${c.description}` : ''}
+                  {c.active ? '' : ' · deactivated'}
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       )}
 

@@ -217,3 +217,41 @@ export function totalBatches(batches = [], { creditValueUsd = 0.063333 } = {}) {
     usd: Math.round(credits * creditValueUsd * 100) / 100,
   };
 }
+
+/**
+ * Promo codes that exist but have never been redeemed.
+ *
+ * ☠ THEIR ABSENCE WAS CORRECT AND INVISIBLE, WHICH MADE IT A BUG.
+ * Owner, 2026-09-05: "The total number of promo codes on production is 27. I
+ * don't know why it's less than this. Maybe because you only add the activated
+ * one?"
+ *
+ * No — active is never consulted. Batches reads the credits ledger, which a
+ * code only writes to when somebody redeems it, so a code nobody used has no
+ * line. That is right: there is nothing to invoice. But he counted 27, counted
+ * the rows, and had no way to find out where the difference went — the same
+ * shape as the totals that covered the page instead of the filter.
+ *
+ * So the gap is named instead of being silently correct. Empty rows are NOT
+ * the answer: "0 accounts · $0.00" on an invoice screen is noise, and it is
+ * something that could be invoiced by mistake.
+ *
+ * @param promos  every row of promo_codes: { code, description, active }
+ * @param reasons every DISTINCT reason on a promo ledger row, unfiltered —
+ *                unfiltered on purpose, so narrowing the dates cannot make a
+ *                used code look like it was never used.
+ */
+export function unredeemedCodes(promos = [], reasons = []) {
+  const used = new Set();
+  for (const r of reasons) {
+    const c = codeIn(typeof r === 'string' ? r : r?.reason);
+    if (c) used.add(c);
+  }
+  return (promos || [])
+    .filter((p) => p?.code && !used.has(String(p.code).toUpperCase()))
+    .map((p) => ({
+      code: p.code,
+      description: String(p.description || '').trim() || null,
+      active: p.active !== false,
+    }));
+}

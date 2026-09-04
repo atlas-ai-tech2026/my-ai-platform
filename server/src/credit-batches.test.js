@@ -14,7 +14,7 @@
 // in a way that looks right.
 
 import { describe, it, expect } from 'vitest';
-import { groupBatches, totalBatches, batchType, batchName, codeIn, nameKey } from './credit-batches.js';
+import { groupBatches, totalBatches, batchType, batchName, codeIn, nameKey, unredeemedCodes } from './credit-batches.js';
 
 const row = (o) => ({ amount: 158, user_id: 1, created_at: '2026-09-04T14:00:00Z', ...o });
 
@@ -363,5 +363,73 @@ describe('promo batches are named by the description, not the code', () => {
   it('matches the code case-insensitively', () => {
     const [b] = groupBatches([promoRow('voxel-vpw9-dy93', 1)], { describe: describe_ });
     expect(b.name).toBe('SPA News Academy 5th 4th');
+  });
+});
+
+// ─── CODES THAT EXIST BUT WERE NEVER USED ───────────────────────────────────
+// Amr, 2026-09-05: "The total number of promo codes on production is 27. I
+// don't know why it's less than this. Maybe because you only add the activated
+// one?" Active is never consulted — only whether anybody redeemed it.
+describe('unredeemedCodes', () => {
+  const promos = [
+    { code: 'VOXEL-USED-0001', description: 'SPA News Academy', active: true },
+    { code: 'VOXEL-DEAD-0002', description: 'Old workshop', active: false },
+    { code: 'VOXEL-NEVR-0003', description: 'Made but never handed out', active: true },
+    { code: 'VOXEL-NEVR-0004', description: null, active: true },
+  ];
+  const reasons = [
+    'promo: VOXEL-USED-0001',
+    'promo top-up: VOXEL-DEAD-0002 raised to 158',
+    'bulk top-up: SPA News Academy V1.2',
+  ];
+
+  it('lists only the codes nobody redeemed', () => {
+    expect(unredeemedCodes(promos, reasons).map((c) => c.code))
+      .toEqual(['VOXEL-NEVR-0003', 'VOXEL-NEVR-0004']);
+  });
+
+  it('a DEACTIVATED code that was used is NOT listed — active is irrelevant', () => {
+    // The whole point of his question. A code redeemed 60 times and then
+    // switched off is real money and belongs on an invoice.
+    expect(unredeemedCodes(promos, reasons).map((c) => c.code))
+      .not.toContain('VOXEL-DEAD-0002');
+  });
+
+  it('an ACTIVE code that was never used IS listed', () => {
+    expect(unredeemedCodes(promos, reasons).map((c) => c.code))
+      .toContain('VOXEL-NEVR-0003');
+  });
+
+  it('counts a top-up as use — the code still moved money', () => {
+    expect(unredeemedCodes(
+      [{ code: 'VOXEL-TOPU-0005', description: 'x', active: true }],
+      ['promo top-up: VOXEL-TOPU-0005 raised from 100 to 158'],
+    )).toEqual([]);
+  });
+
+  it('carries the description and whether it is switched off', () => {
+    const [a, b] = unredeemedCodes(promos, reasons);
+    expect(a).toEqual({
+      code: 'VOXEL-NEVR-0003', description: 'Made but never handed out', active: true,
+    });
+    expect(b.description).toBe(null);
+  });
+
+  it('matches the code however the reason was cased', () => {
+    expect(unredeemedCodes(
+      [{ code: 'VOXEL-CASE-0006', active: true }], ['promo: voxel-case-0006'],
+    )).toEqual([]);
+  });
+
+  it('says everything is unredeemed when the ledger query failed', () => {
+    // The endpoint swallows a failed query into []. Better to over-report the
+    // gap than to claim every code was used.
+    expect(unredeemedCodes(promos, []).map((c) => c.code)).toHaveLength(4);
+  });
+
+  it('survives empty and missing input', () => {
+    expect(unredeemedCodes()).toEqual([]);
+    expect(unredeemedCodes([], [])).toEqual([]);
+    expect(unredeemedCodes([{ description: 'no code at all' }], [])).toEqual([]);
   });
 });
