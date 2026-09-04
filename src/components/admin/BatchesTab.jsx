@@ -194,11 +194,13 @@ export default function BatchesTab({ onError }) {
 
       {spellingNote.length > 0 && (
         <div style={{ fontSize: 12, color: 'var(--crm-w50)', marginBottom: 11, lineHeight: 1.6 }}>
+          {/* The spellings themselves used to be listed here, which made one
+              run-on line the width of the page. They live on the row that
+              absorbed them now — hover "typed N ways" — so the detail is a
+              hand's reach away instead of shouted at the top. */}
           {spellingNote.length} batch{spellingNote.length === 1 ? ' was' : 'es were'} named more than
-          one way and {spellingNote.length === 1 ? 'has' : 'have'} been counted together —{' '}
-          <span style={{ fontFamily: '"JetBrains Mono", monospace', fontSize: 11.5 }}>
-            {spellingNote.slice(0, 3).map((b) => b.spelt.join(' / ')).join(' · ')}
-          </span>
+          one way and {spellingNote.length === 1 ? 'has' : 'have'} been counted together.
+          {' '}Hover a name marked <em>typed N ways</em> to see the spellings.
         </div>
       )}
 
@@ -223,7 +225,11 @@ export default function BatchesTab({ onError }) {
                 <td style={{ ...td, fontWeight: 600 }}>
                   {b.name}
                   {b.spellings > 1 && (
-                    <span style={{ fontSize: 11, color: 'var(--crm-w40)', fontWeight: 400 }}>
+                    <span
+                      title={`Counted together: ${(b.spelt || []).join('  /  ')}`}
+                      style={{ fontSize: 11, color: 'var(--crm-w40)', fontWeight: 400,
+                               cursor: 'help', borderBottom: '1px dotted var(--crm-w20)' }}
+                    >
                       {' '}· typed {b.spellings} ways
                     </span>
                   )}
@@ -247,9 +253,16 @@ export default function BatchesTab({ onError }) {
                     </span>
                   )}
                 </td>
-                <td style={{ ...td, textAlign: 'right', fontWeight: 600 }}>{num(b.accounts)}</td>
-                <td style={{ ...td, textAlign: 'right', fontWeight: 700 }}>{num(b.credits)}</td>
-                <td style={{ ...td, textAlign: 'right', color: 'var(--crm-orange)', fontWeight: 700 }}>
+                <td style={{ ...td, textAlign: 'right', fontWeight: 600,
+                             fontVariantNumeric: 'tabular-nums' }}>{num(b.accounts)}</td>
+                <td style={{ ...td, textAlign: 'right', fontWeight: 700,
+                             fontVariantNumeric: 'tabular-nums' }}>{num(b.credits)}</td>
+                {/* Orange is this panel's money accent, not a warning — but a
+                    whole column of it competes with the Value tile above and
+                    makes 29 ordinary rows look urgent. The accent stays on the
+                    total, where the eye should land. */}
+                <td style={{ ...td, textAlign: 'right', fontWeight: 600,
+                             fontVariantNumeric: 'tabular-nums' }}>
                   {money(b.usd)}
                 </td>
               </tr>

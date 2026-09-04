@@ -1,0 +1,118 @@
+// ─── BatchesTab.test.jsx ─────────────────────────────────────────────────────
+// The invoice view. These tests guard the two things Amr looked at the screen
+// and told me were wrong, so that neither can come back quietly.
+//
+// 1. EVERY DATE READ "Invalid Date". node-postgres returns a timestamp as a
+//    Date OBJECT and the server did String(v).slice(0, 10) -> "Thu Aug 20".
+//    Fixed in credit-batches.js; asserted here at the place he actually looks,
+//    because a correct function and an unreadable screen is the failure this
+//    project keeps repeating.
+//
+// 2. THE NAME COLUMN REPEATED THE PROMO CODE COLUMN. "There is one column
+//    called promo code and you write it there. It is not necessary to write it
+//    two times." The name is the code's description now.
+//
+// And one thing he did not have to ask for: the spellings that used to run
+// across the top of the page in one long line moved onto the row that absorbed
+// them. Moving information is only safe if it is still reachable, so that is
+// tested rather than trusted.
+
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { render, screen, waitFor, within } from '@testing-library/react';
+import BatchesTab from './BatchesTab';
+
+const api = vi.hoisted(() => ({ creditBatches: vi.fn() }));
+vi.mock('@/lib/adminApi', () => ({ adminApi: api }));
+vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn() } }));
+
+const BATCHES = [
+  {
+    key: 'Promo code|voxel-vpw9-dy93', type: 'Promo code',
+    name: 'SPA News Academy 5th 4th', code: 'VOXEL-VPW9-DY93',
+    date: '2026-09-03', date_to: '2026-09-03', days: 1,
+    first: '2026-09-03T09:00:00.000Z', last: '2026-09-03T09:00:00.000Z',
+    accounts: 60, credits: 9480, usd: 600.4, entries: 60, spellings: 1, spelt: [],
+  },
+  {
+    key: 'Manual grant|spa 4', type: 'Manual grant', name: 'Spa 4', code: null,
+    date: '2026-08-20', date_to: '2026-08-27', days: 2,
+    first: '2026-08-20T09:00:00.000Z', last: '2026-08-27T09:00:00.000Z',
+    accounts: 381, credits: 151671, usd: 9605.83, entries: 402,
+    spellings: 3, spelt: ['spa 4', 'Spa 4', 'Spa 4.'],
+  },
+];
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  api.creditBatches.mockResolvedValue({
+    batches: BATCHES,
+    totals: { batches: 2, accounts: 441, credits: 161151, usd: 10206.23 },
+    credit_value: 0.063333,
+  });
+});
+
+const rowFor = async (name) => {
+  const cell = await screen.findByText(name);
+  return cell.closest('tr');
+};
+
+describe('BatchesTab', () => {
+  it('never prints "Invalid Date"', async () => {
+    render(<BatchesTab />);
+    await screen.findByText('SPA News Academy 5th 4th');
+    expect(document.body.textContent).not.toMatch(/Invalid Date/);
+  });
+
+  it('renders a real date for every row', async () => {
+    render(<BatchesTab />);
+    const row = await rowFor('SPA News Academy 5th 4th');
+    // 3 September 2026, however the runner's locale chooses to spell it.
+    expect(row.textContent).toMatch(/2026/);
+    expect(row.textContent).toMatch(/Sep|09|9/);
+  });
+
+  it('shows a date RANGE when a workshop ran over several days', async () => {
+    // SPA 4 ran on 20 AND 27 August. Grouping by day split it into two rows
+    // with two partial totals; it is one invoice line with a range.
+    render(<BatchesTab />);
+    const row = await rowFor('Spa 4');
+    expect(row.textContent).toMatch(/to /);
+    expect(row.textContent).toMatch(/2 days/);
+  });
+
+  it('puts the DESCRIPTION in Name and the CODE in Promo code, never twice', async () => {
+    render(<BatchesTab />);
+    const row = await rowFor('SPA News Academy 5th 4th');
+    const cells = within(row).getAllByRole('cell').map((c) => c.textContent.trim());
+    expect(cells[0]).toBe('SPA News Academy 5th 4th');
+    expect(cells[2]).toBe('VOXEL-VPW9-DY93');
+    // The code appears once on the row, in its own column.
+    expect(row.textContent.match(/VOXEL-VPW9-DY93/g)).toHaveLength(1);
+  });
+
+  it('keeps the spellings reachable after moving them off the banner', async () => {
+    // They used to be listed across the top in one run-on line. If the move
+    // lost them, the untidiness would be invisible instead of merely quiet.
+    render(<BatchesTab />);
+    const row = await rowFor('Spa 4');
+    const note = within(row).getByText(/typed 3 ways/);
+    for (const spelling of ['spa 4', 'Spa 4', 'Spa 4.']) {
+      expect(note.getAttribute('title')).toContain(spelling);
+    }
+  });
+
+  it('still says at the top that some batches were counted together', async () => {
+    render(<BatchesTab />);
+    await waitFor(() =>
+      expect(document.body.textContent).toMatch(/named more than one way/));
+  });
+
+  it('shows the totals, not just the page', async () => {
+    // ☠ Amr caught this one: "the amount it's more than this, there is
+    // something wrong." The tiles counted the rows on screen, not the filter.
+    render(<BatchesTab />);
+    await screen.findByText('SPA News Academy 5th 4th');
+    expect(document.body.textContent).toMatch(/161,151/);
+    expect(document.body.textContent).toMatch(/10,206/);
+  });
+});
