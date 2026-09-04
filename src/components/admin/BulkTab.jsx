@@ -329,7 +329,7 @@ export default function BulkTab({ onError }) {
             with nothing to say so. */}
         <div style={{ marginTop: 12 }}>
           <Field label="What is this batch for?"
-            info="Written into every credit entry this batch creates, so months later the record says which workshop or customer it was. It is what the Manual Credits screen, the credit report and any invoice read back. Optional — but a batch with no reason cannot be traced to anybody.">
+            info="Written into every credit entry this batch creates, so months later the record says which workshop or customer it was. It is what Logs, the credit report and any invoice read back — find the batch under SYSTEM \u2192 Logs with Status \u201cgrant\u201d and this text in the details filter. (NOT Manual Credits: that screen shows only credits typed one at a time on the Users tab, and a bulk batch is deliberately not one of those.) Optional — but a batch with no reason cannot be traced to anybody.">
             <input value={batchReason} onChange={e => setBatchReason(e.target.value)}
               placeholder="e.g. SPA News Academy 5th"
               style={{ ...inputStyle, width: '100%', maxWidth: 420 }} />

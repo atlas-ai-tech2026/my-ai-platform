@@ -104,8 +104,8 @@ export default function BulkCreditsPanel({ onError }) {
         </Field>
       </div>
       <div style={{ fontSize: 11.5, color: 'var(--crm-w40)', marginTop: 6 }}>
-        Blank access days means the standard 30, exactly as a promo code. The reason is what the
-        Manual Credits screen and any invoice will show.
+        Blank access days means the standard 30, exactly as a promo code. The reason is what
+        Logs and any invoice will show — search it there under Status &ldquo;grant&rdquo;.
       </div>
 
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginTop: 11 }}>
@@ -155,8 +155,9 @@ export default function BulkCreditsPanel({ onError }) {
                       padding: '12px 14px', background: 'var(--crm-green-bg)', fontSize: 13 }}>
           <b>{done.sentence}</b>
           <div style={{ fontSize: 12, color: 'var(--crm-w50)', marginTop: 4 }}>
-            Their credits live for {done.days} days. The entries are on Money → Manual Credits,
-            recorded as bulk.
+            Their credits live for {done.days} days. Find the entries under SYSTEM → Logs,
+            Status &ldquo;grant&rdquo;, with your reason in the details filter — recorded as bulk,
+            which is why they are not on Manual Credits.
           </div>
         </div>
       )}
