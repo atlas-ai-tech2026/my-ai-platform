@@ -104,12 +104,28 @@ describe('what belongs on an invoice, and what does not', () => {
     expect(b[0].credits).toBe(158);
   });
 
-  it('the same batch on two days is two rows — a date is part of what it was', () => {
+  it('☠ the same batch across several days is ONE row, with the date range', () => {
+    // This test used to assert the opposite — "a date is part of what it was".
+    // The owner's data settled it: his SPA 4 grants ran on 20 AND 27 August,
+    // and keying by day split one customer into two invoice lines each holding
+    // a partial total. He asked for them consolidated. Nothing is lost: the
+    // row carries the first date, the last, and how many days it spanned.
+    const b = groupBatches([
+      row({ source: 'manual', reason: 'spa 4', user_id: 1, amount: 395, created_at: '2026-08-20T22:00:00Z' }),
+      row({ source: 'manual', reason: 'Spa 4.', user_id: 2, amount: 103, created_at: '2026-08-27T13:43:00Z' }),
+    ]);
+    expect(b).toHaveLength(1);
+    expect(b[0]).toMatchObject({ accounts: 2, credits: 498, days: 2,
+      date: '2026-08-20', date_to: '2026-08-27' });
+  });
+
+  it('and a batch handed out in one afternoon says one day', () => {
     const b = groupBatches([
       row({ source: 'bulk', reason: 'bulk top-up: SPA', user_id: 1, created_at: '2026-09-04T10:00:00Z' }),
-      row({ source: 'bulk', reason: 'bulk top-up: SPA', user_id: 2, created_at: '2026-09-05T10:00:00Z' }),
+      row({ source: 'bulk', reason: 'bulk top-up: SPA', user_id: 2, created_at: '2026-09-04T10:05:00Z' }),
     ]);
-    expect(b).toHaveLength(2);
+    expect(b[0].days).toBe(1);
+    expect(b[0].date).toBe(b[0].date_to);
   });
 
   it('the same person twice in one batch counts as ONE account', () => {

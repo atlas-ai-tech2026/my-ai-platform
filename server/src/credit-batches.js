@@ -122,11 +122,16 @@ export function groupBatches(rows = [], { creditValueUsd = 0.063333 } = {}) {
     if (amount <= 0) continue;
     const type = batchType(r);
     const name = batchName(r.reason);
-    const key = `${type}|${nameKey(name)}|${day(r.created_at)}`;
+    // ☠ NOT KEYED BY DAY. A workshop is one thing even when the credits were
+    // handed out across several afternoons — the owner's own SPA 4 ran on
+    // 20 AND 27 August, and keying by day split one customer into two invoice
+    // lines with two partial totals. The dates are shown as a RANGE instead,
+    // so nothing about when it happened is lost.
+    const key = `${type}|${nameKey(name)}`;
     if (!map.has(key)) {
       map.set(key, {
         key, type, name, code: codeIn(r.reason), date: day(r.created_at),
-        accounts: new Set(), credits: 0, entries: 0,
+        accounts: new Set(), credits: 0, entries: 0, days: new Set(),
         spellings: new Map(), first: r.created_at, last: r.created_at,
       });
     }
@@ -135,6 +140,7 @@ export function groupBatches(rows = [], { creditValueUsd = 0.063333 } = {}) {
     b.credits += amount;
     if (r.user_id != null) b.accounts.add(r.user_id);
     b.spellings.set(name, (b.spellings.get(name) || 0) + 1);
+    if (r.created_at) b.days.add(day(r.created_at));
     if (r.created_at && r.created_at < b.first) b.first = r.created_at;
     if (r.created_at && r.created_at > b.last) b.last = r.created_at;
     if (!b.code) b.code = codeIn(r.reason);
@@ -145,7 +151,10 @@ export function groupBatches(rows = [], { creditValueUsd = 0.063333 } = {}) {
     const [best] = [...b.spellings.entries()].sort((a, c) => c[1] - a[1]);
     return {
       key: b.key, type: b.type, name: best ? best[0] : b.name, code: b.code,
-      date: b.date, first: b.first, last: b.last,
+      date: day(b.first), date_to: day(b.last), first: b.first, last: b.last,
+      // How many separate days this batch was handed out over. 1 is the quiet
+      // case; more than one is worth seeing on an invoice.
+      days: b.days.size,
       accounts: b.accounts.size, entries: b.entries,
       credits: Math.round(b.credits * 100) / 100,
       usd: Math.round(b.credits * creditValueUsd * 100) / 100,

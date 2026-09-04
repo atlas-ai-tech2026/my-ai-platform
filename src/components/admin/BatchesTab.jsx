@@ -10,12 +10,18 @@
 // different question. This answers his question directly: what did we hand
 // out, to how many people, on what day, and what is it worth.
 //
-// ☠ MANUAL GRANTS ARE OFF BY DEFAULT, NOT DELETED.
-// He asked for the old SPA 4 hand-grants to be left out — "this is behaviour
-// and action, we will not do it again". They are excluded from the default
-// view and the screen SAYS SO with a count, because $9,605 quietly missing
-// from a money total is the exact failure this project keeps finding. One
-// click brings them back.
+// ☠ MANUAL GRANTS WERE OFF BY DEFAULT, AND ARE NOW ON.
+// He first asked for the old hand-grants to be left out — "this is behaviour
+// and action, we will not do it again" — so they were excluded, with a line
+// saying what that left out. Then he looked at them: fourteen pages, almost
+// all of it SPA, SPA 2 and SPA 4, and he wanted each one collected into a
+// single line with its total. Off by default hid the very rows he needed.
+//
+// They are four tidy rows now instead of seventeen messy ones, so they belong
+// in the total. The type buttons still turn them off in one click, and when
+// they are off the screen still says what is being left out — because $9,605
+// quietly missing from a money total is the failure this project keeps
+// finding.
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { adminApi } from '@/lib/adminApi';
@@ -46,8 +52,13 @@ const SOURCES = [
 
 export default function BatchesTab({ onError }) {
   const [q, setQ] = useState({ q: '', from: '', to: '' });
-  // Manual off by default — the owner's request. Visible, not deleted.
-  const [picked, setPicked] = useState(() => new Set(['promo', 'bulk', 'gift']));
+  // ☠ ALL FOUR ON. Manual grants were off at first — the owner had said "we
+  // will not do it again, don't include it". Then he looked: fourteen pages of
+  // them, almost all SPA, SPA 2 and SPA 4, and he wanted each collected into
+  // one line with its total. Off by default hid the very rows he needed. They
+  // are four tidy rows now, not seventeen messy ones, so they belong in the
+  // total — and the type buttons still turn them off in one click.
+  const [picked, setPicked] = useState(() => new Set(['promo', 'bulk', 'gift', 'manual']));
   const [data, setData] = useState(null);
   const [hiddenManual, setHiddenManual] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -81,13 +92,16 @@ export default function BatchesTab({ onError }) {
 
   const exportCsv = useCallback(() => {
     if (!batches.length) { toast.error('Nothing to export'); return; }
-    const head = ['Name', 'Type', 'Promo code', 'Date', 'Accounts', 'Entries', 'Credits', 'Value USD'];
+    const head = ['Name', 'Type', 'Promo code', 'First date', 'Last date', 'Days',
+      'Accounts', 'Entries', 'Credits', 'Value USD'];
     const esc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
     const lines = [head.join(',')].concat(batches.map((b) => [
-      b.name, b.type, b.code || '', b.date, b.accounts, b.entries, b.credits, b.usd,
+      b.name, b.type, b.code || '', b.date, b.date_to || b.date, b.days || 1,
+      b.accounts, b.entries, b.credits, b.usd,
     ].map(esc).join(',')));
     lines.push('');
-    lines.push([esc('TOTAL'), '', '', '', esc(totals.accounts), '', esc(totals.credits), esc(totals.usd)].join(','));
+    lines.push([esc('TOTAL'), '', '', '', '', '',
+      esc(totals.accounts), '', esc(totals.credits), esc(totals.usd)].join(','));
     const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -192,7 +206,7 @@ export default function BatchesTab({ onError }) {
         <table style={{ borderCollapse: 'collapse', width: '100%', minWidth: 820 }}>
           <thead>
             <tr>
-              {['Name', 'Type', 'Promo code', 'Date', 'Accounts', 'Credits', 'Value'].map((h) => (
+              {['Name', 'Type', 'Promo code', 'Dates', 'Accounts', 'Credits', 'Value'].map((h) => (
                 <th key={h} style={th}>{h}</th>
               ))}
             </tr>
@@ -225,7 +239,14 @@ export default function BatchesTab({ onError }) {
                              color: b.code ? 'var(--crm-w60)' : 'var(--crm-w30)' }}>
                   {b.code || '—'}
                 </td>
-                <td style={{ ...td, whiteSpace: 'nowrap', color: 'var(--crm-w60)' }}>{dayText(b.date)}</td>
+                <td style={{ ...td, whiteSpace: 'nowrap', color: 'var(--crm-w60)' }}>
+                  {dayText(b.date)}
+                  {b.date_to && b.date_to !== b.date && (
+                    <span style={{ display: 'block', fontSize: 11, color: 'var(--crm-w40)' }}>
+                      to {dayText(b.date_to)} · {b.days} days
+                    </span>
+                  )}
+                </td>
                 <td style={{ ...td, textAlign: 'right', fontWeight: 600 }}>{num(b.accounts)}</td>
                 <td style={{ ...td, textAlign: 'right', fontWeight: 700 }}>{num(b.credits)}</td>
                 <td style={{ ...td, textAlign: 'right', color: 'var(--crm-orange)', fontWeight: 700 }}>
