@@ -106,7 +106,24 @@ export function nameKey(name = '') {
   return m ? `${m[1]}${m[2] ? ' ' + m[2] : ''}` : base;
 }
 
-const day = (iso) => (iso ? String(iso).slice(0, 10) : '');
+// ☠ node-postgres hands back Date OBJECTS for timestamp columns, not ISO
+// strings. The first version of this was `String(v).slice(0, 10)`, which on a
+// real row produces "Thu Aug 20" — and every date on the screen read
+// "Invalid Date". The unit tests passed because they fed ISO strings, which is
+// the shape I invented, not the shape the database sends. Accept both.
+const day = (v) => {
+  if (!v) return '';
+  const d = v instanceof Date ? v : new Date(v);
+  return Number.isNaN(d.getTime()) ? '' : d.toISOString().slice(0, 10);
+};
+
+/** A timestamp as a number, for comparing. NaN-free so sorting is stable. */
+const ms = (v) => {
+  if (!v) return 0;
+  const d = v instanceof Date ? v : new Date(v);
+  const t = d.getTime();
+  return Number.isNaN(t) ? 0 : t;
+};
 
 /**
  * Group ledger rows into batches.
@@ -141,8 +158,10 @@ export function groupBatches(rows = [], { creditValueUsd = 0.063333 } = {}) {
     if (r.user_id != null) b.accounts.add(r.user_id);
     b.spellings.set(name, (b.spellings.get(name) || 0) + 1);
     if (r.created_at) b.days.add(day(r.created_at));
-    if (r.created_at && r.created_at < b.first) b.first = r.created_at;
-    if (r.created_at && r.created_at > b.last) b.last = r.created_at;
+    // ☠ Compared as NUMBERS. Comparing the raw values put "Fri" before
+    // "Thu" and ordered the whole table by the name of the weekday.
+    if (r.created_at && ms(r.created_at) < ms(b.first)) b.first = r.created_at;
+    if (r.created_at && ms(r.created_at) > ms(b.last)) b.last = r.created_at;
     if (!b.code) b.code = codeIn(r.reason);
   }
 
@@ -151,7 +170,10 @@ export function groupBatches(rows = [], { creditValueUsd = 0.063333 } = {}) {
     const [best] = [...b.spellings.entries()].sort((a, c) => c[1] - a[1]);
     return {
       key: b.key, type: b.type, name: best ? best[0] : b.name, code: b.code,
-      date: day(b.first), date_to: day(b.last), first: b.first, last: b.last,
+      date: day(b.first), date_to: day(b.last),
+      // Sent as ISO strings so the browser formats them in the owner's own
+      // timezone — the same way Manual Credits does, so the two screens agree.
+      first: new Date(ms(b.first)).toISOString(), last: new Date(ms(b.last)).toISOString(),
       // How many separate days this batch was handed out over. 1 is the quiet
       // case; more than one is worth seeing on an invoice.
       days: b.days.size,
@@ -162,7 +184,7 @@ export function groupBatches(rows = [], { creditValueUsd = 0.063333 } = {}) {
       spellings: b.spellings.size,
       spelt: [...b.spellings.keys()],
     };
-  }).sort((a, b) => String(b.last).localeCompare(String(a.last)));
+  }).sort((a, b) => ms(b.last) - ms(a.last));
 }
 
 /** Totals for whatever is on screen — the figure that goes on the invoice. */

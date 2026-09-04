@@ -250,3 +250,57 @@ describe('☠ THE HAND-TYPED WORKSHOPS, WHICH WERE NAMED FREELY', () => {
     expect(nameKey('SPA News 4')).not.toBe(nameKey('SPA News 5'));
   });
 });
+
+// ─── THE SHAPE THE DATABASE ACTUALLY SENDS ──────────────────────────────────
+// Every test above this line feeds ISO strings, because that is the shape I
+// invented while writing the function. node-postgres does not send strings: a
+// timestamptz column arrives as a JS Date OBJECT. `String(aDate).slice(0, 10)`
+// is "Thu Aug 20", so every row on the owner's screen read "Invalid Date" and
+// the table was ordered alphabetically by the name of the weekday — while
+// 4,900 tests passed.
+//
+// RULE 2, exactly: the function was correct, and nobody could read the screen.
+// These tests pass rows in BOTH shapes, and assert the OUTPUT is a date a
+// browser can parse — not merely that a string came back.
+describe('rows arriving as pg Date objects, not ISO strings', () => {
+  const bothShapes = {
+    'pg Date objects': (iso) => new Date(iso),
+    'ISO strings': (iso) => iso,
+  };
+
+  for (const [shape, at] of Object.entries(bothShapes)) {
+    it(`emits parseable dates from ${shape}`, () => {
+      const batches = groupBatches([
+        { amount: 100, reason: 'spa 4', user_id: 1, created_at: at('2026-08-20T09:00:00Z') },
+        { amount: 200, reason: 'Spa 4.', user_id: 2, created_at: at('2026-08-27T09:00:00Z') },
+      ]);
+      expect(batches).toHaveLength(1);
+      for (const key of ['date', 'date_to']) {
+        // A browser renders these with `new Date(b.date + 'T00:00:00')`.
+        expect(Number.isNaN(new Date(`${batches[0][key]}T00:00:00`).getTime())).toBe(false);
+        expect(batches[0][key]).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+      }
+      expect(batches[0].date).toBe('2026-08-20');
+      expect(batches[0].date_to).toBe('2026-08-27');
+      expect(batches[0].days).toBe(2);
+      // first/last go to the browser to be formatted in local time.
+      expect(Number.isNaN(new Date(batches[0].first).getTime())).toBe(false);
+    });
+
+    it(`sorts newest first from ${shape} — not by the name of the weekday`, () => {
+      // ☠ THE DATES ARE CHOSEN, NOT ARBITRARY. Weekday names sort
+      // Fri < Mon < Sat < Sun < Thu < Tue < Wed, so for a descending STRING
+      // sort to disagree with a chronological one the newest date must fall on
+      // a Friday and the oldest on a Wednesday. My first attempt used three
+      // dates whose two orderings happened to coincide, so it passed against
+      // the broken sort and proved nothing.
+      //   Wed 7 Jan 2026  <  Mon 1 Jun 2026  <  Fri 4 Dec 2026
+      const batches = groupBatches([
+        { amount: 10, reason: 'january', user_id: 1, created_at: at('2026-01-07T09:00:00Z') },
+        { amount: 10, reason: 'august', user_id: 2, created_at: at('2026-06-01T09:00:00Z') },
+        { amount: 10, reason: 'december', user_id: 3, created_at: at('2026-12-04T09:00:00Z') },
+      ]);
+      expect(batches.map((b) => b.name)).toEqual(['december', 'august', 'january']);
+    });
+  }
+});
