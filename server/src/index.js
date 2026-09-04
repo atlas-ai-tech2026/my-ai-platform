@@ -6496,12 +6496,28 @@ app.get('/api/admin/logs', adminGate, async (req, res) => {
         params
       ),
       pool.query(
-        `SELECT count(*)::int AS total
+        // ☠ TOTALS OVER THE WHOLE FILTER, NOT THE PAGE.
+        //
+        // Manual Credits could only add up the 100 rows it had been sent, so a
+        // filter matching 914 entries reported the credits of 100 of them.
+        // Amr compared it with his own SPA 4 report — 396 entries, 151,671
+        // credits — and the screen was smaller. It said "on this page", which
+        // is honest and still useless: the question a money screen is asked is
+        // "how much altogether", and a label does not answer it.
+        //
+        // The sum is what the filter matches, whatever page you are looking at.
+        `SELECT count(*)::int AS total,
+                COALESCE(SUM(ch.amount), 0)::float AS credits_total,
+                COUNT(DISTINCT ch.user_id)::int AS accounts_total
            FROM credits_history ch JOIN users u ON u.id = ch.user_id ${whereSql}`,
         params.slice(0, params.length - 2)
       ),
     ]);
-    res.json({ logs: rows.rows, total: count.rows[0].total, limit, offset });
+    res.json({
+      logs: rows.rows, total: count.rows[0].total, limit, offset,
+      credits_total: Number(count.rows[0].credits_total) || 0,
+      accounts_total: count.rows[0].accounts_total,
+    });
   } catch (err) {
     console.error('[admin/logs] error:', err);
     res.status(500).json({ error: 'Logs fetch failed.' });

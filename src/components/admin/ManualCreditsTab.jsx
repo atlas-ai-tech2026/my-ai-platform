@@ -37,6 +37,7 @@ export default function ManualCreditsTab({ onError }) {
   const [q, setQ] = useState({ email: '', from: '', to: '', min: '', max: '', action: '', q: '' });
   const [rows, setRows] = useState(null);
   const [total, setTotal] = useState(0);
+  const [totals, setTotals] = useState({ credits: null, accounts: null });
   const [page, setPage] = useState(0);
   const LIMIT = 100;
 
@@ -47,6 +48,10 @@ export default function ManualCreditsTab({ onError }) {
       });
       setRows(r.logs || []);
       setTotal(r.total || 0);
+      // Totals for EVERYTHING the filter matches, computed by the database.
+      // The screen used to add up only the rows it had been sent, so a filter
+      // matching 914 entries reported the credits of the 100 on screen.
+      setTotals({ credits: r.credits_total ?? null, accounts: r.accounts_total ?? null });
     } catch (e) { onError?.(e, 'Could not load manual credits'); }
   }, [q, page, onError]);
 
@@ -54,15 +59,8 @@ export default function ManualCreditsTab({ onError }) {
 
   const set = (k) => (e) => { setQ((p) => ({ ...p, [k]: e.target.value })); setPage(0); };
 
-  // Totals over the PAGE, labelled as such. A total that silently covers only
-  // what is on screen, while the header says 396, is the kind of number this
-  // project has been burned by.
-  const shown = useMemo(() => {
-    const list = rows || [];
-    const credits = list.reduce((t, r) => t + Number(r.amount || 0), 0);
-    const accounts = new Set(list.map((r) => String(r.email || '').toLowerCase())).size;
-    return { credits, accounts, rows: list.length };
-  }, [rows]);
+  // How many rows are actually on screen — used only to say "showing N of M".
+  const shown = useMemo(() => ({ rows: (rows || []).length }), [rows]);
 
   // The checks a careful bookkeeper does by hand, from your SPA 4 report:
   // who appears twice, and which amounts are unusual.
@@ -122,10 +120,12 @@ export default function ManualCreditsTab({ onError }) {
       </div>
 
       <div style={{ display: 'grid', gap: 10, gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', marginBottom: 14 }}>
-        <Stat k="Entries" v={num(total)} n={total > shown.rows ? `showing ${shown.rows} on this page` : 'all on this page'} />
-        <Stat k="Accounts" v={num(shown.accounts)} n="distinct, on this page" />
-        <Stat k="Credits" v={num(shown.credits)} n="on this page" />
-        <Stat k="Value" v={money(shown.credits * CREDIT_USD)} n={`at $${CREDIT_USD}/credit`} accent />
+        <Stat k="Entries" v={num(total)}
+          n={total > shown.rows ? `showing ${shown.rows} on this page` : 'all shown'} />
+        <Stat k="Accounts" v={totals.accounts == null ? '—' : num(totals.accounts)} n="distinct, everything matched" />
+        <Stat k="Credits" v={totals.credits == null ? '—' : num(totals.credits)} n="everything matched" />
+        <Stat k="Value" v={totals.credits == null ? '—' : money(totals.credits * CREDIT_USD)}
+          n={`at $${CREDIT_USD}/credit`} accent />
       </div>
 
       {twice.length > 0 && (
