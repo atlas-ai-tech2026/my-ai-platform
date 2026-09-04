@@ -6479,8 +6479,13 @@ app.get('/api/admin/logs', adminGate, async (req, res) => {
 
     const [rows, count] = await Promise.all([
       pool.query(
+        // admin_email and source are SELECTed because screens display them.
+        // Manual Credits showed "Added by —" on every row for exactly as long
+        // as this list left admin_email out: the column was rendered, the
+        // query never sent it, and nothing failed — it just quietly said
+        // nobody did it.
         `SELECT ch.id, ch.created_at, ch.action, ch.amount, ch.kie_credits, ch.fal_cost,
-                ch.reason, u.id AS user_id, u.email
+                ch.reason, ch.admin_email, ch.source, u.id AS user_id, u.email
            FROM credits_history ch
            JOIN users u ON u.id = ch.user_id
           ${whereSql}
