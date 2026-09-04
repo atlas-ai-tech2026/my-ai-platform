@@ -321,6 +321,17 @@ export const adminApi = {
   // both answer far too late.
   checkUserList: (emails) => request('POST', '/api/admin/users/check-list', { emails }),
 
+  // ── Manual credits ───────────────────────────────────────────────────────
+  // The ledger, filtered to what a person did by hand. `source` is structural
+  // — it cannot be misspelled the way a typed reason can.
+  manualCredits: (q = {}) => request('GET', '/api/admin/logs?' + new URLSearchParams(
+    Object.entries(q).filter(([, v]) => v !== '' && v != null)).toString()),
+  // Labelling the rows written before `source` existed. The preview only
+  // looks; apply writes only the total the preview showed.
+  creditBackfillPreview: () => request('GET', '/api/admin/credits/backfill-preview'),
+  creditBackfillApply: (expectRows) =>
+    request('POST', '/api/admin/credits/backfill-apply', { expect_rows: expectRows }),
+
   // ─── One-shot maintenance ─────────────────────────────────────────
   // These four endpoints existed for days with NOTHING that could call
   // them. A GET can be run by pasting the url in the address bar while

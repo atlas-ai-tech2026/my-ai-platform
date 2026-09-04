@@ -24,6 +24,7 @@ import GiftCardsTab from '@/components/admin/GiftCardsTab';
 import BulkTab from '@/components/admin/BulkTab';
 import SecurityTab from '@/components/admin/SecurityTab';
 import CostingTab from '@/components/admin/CostingTab';
+import ManualCreditsTab from '@/components/admin/ManualCreditsTab';
 import OffersTab from '@/components/admin/OffersTab';
 import NotificationsTab from '@/components/admin/NotificationsTab';
 import AlertsTab from '@/components/admin/AlertsTab';
@@ -104,6 +105,11 @@ const TABS = [
     desc: 'Your own admin account: two-factor authentication, recovery codes, and recent sign-ins. Nothing here affects customers.' },
   // Costing calculator — works out what prices SHOULD be. It does not charge
   // anybody; pricing.js remains the charging authority (finding C1).
+  // Every credit a person added or removed by hand. Sits under MONEY because
+  // that is what it is: the record behind an invoice. Named for what it holds,
+  // not for the table it reads.
+  { id: 'manualcredits', label: 'Manual Credits',
+    desc: 'Every credit added or removed BY HAND — from Users → + Credits. Promo redemptions, Bulk provisioning and gift cards are not here; each has its own screen. Filter by account, date, amount or type; the totals follow the filter. Read-only: nothing on this screen changes a balance.' },
   { id: 'costing', label: 'Costing',
     desc: 'What each model costs you and what it should sell for at your margin target — plus workshop profit and which models are reliable enough to demonstrate live. A CALCULATOR: nothing here changes what customers are charged until you deliberately carry a number across.' },
   // Offers — promotions priced against the Costing engine's margin target.
@@ -358,6 +364,7 @@ export default function AdminPanel() {
         {tab === 'live' && <LiveTab onError={handleError} />}
         {tab === 'audience' && <AudienceTab onError={handleError} />}
         {tab === 'expenses' && <ExpensesTab onError={handleError} />}
+        {tab === 'manualcredits' && <ManualCreditsTab onError={handleError} />}
         {tab === 'costing' && <CostingTab onError={handleError} />}
         {tab === 'offers' && <OffersTab onError={handleError} />}
         {tab === 'notifications' && <NotificationsTab onError={handleError} />}

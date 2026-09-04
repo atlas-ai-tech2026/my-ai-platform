@@ -6442,6 +6442,7 @@ app.get('/api/admin/stats', adminGate, async (req, res) => {
 // credit report (every matching row). One function, so the same filter means
 // the same rows on both — a report that disagreed with the screen it was
 // opened from would be worse than no report.
+const LEDGER_SOURCES = ['manual', 'bulk', 'promo', 'gift', 'system'];
 const LEDGER_ACTIONS = ['spend', 'refund', 'grant', 'revoke', 'promo', 'gift', 'signup', 'set'];
 function ledgerFilters(query) {
   const where = [];
@@ -6453,6 +6454,20 @@ function ledgerFilters(query) {
   if (query.email) where.push(`u.email ILIKE ${p('%' + String(query.email).slice(0, 100) + '%')}`);
   if (query.from) where.push(`ch.created_at >= ${p(new Date(query.from))}`);
   if (query.to) where.push(`ch.created_at < ${p(new Date(query.to))}::timestamptz + INTERVAL '1 day'`);
+  // WHO put the row there — structural, unlike `reason`, which is typed by
+  // hand and was spelled three ways for one workshop ("SPA4", "spa 4",
+  // "Spa 4."). 'unclassified' means the backfill could not place it.
+  const source = String(query.source || '').toLowerCase();
+  if (LEDGER_SOURCES.includes(source)) where.push(`ch.source = ${p(source)}`);
+  else if (source === 'unclassified') where.push('ch.source IS NULL');
+  // Amount range, on the SIZE of the movement — a revoke of 50 and a grant of
+  // 50 are both "50 credits" to someone hunting for a number they remember.
+  if (query.min !== undefined && query.min !== '' && Number.isFinite(Number(query.min))) {
+    where.push(`ABS(ch.amount) >= ${p(Number(query.min))}`);
+  }
+  if (query.max !== undefined && query.max !== '' && Number.isFinite(Number(query.max))) {
+    where.push(`ABS(ch.amount) <= ${p(Number(query.max))}`);
+  }
   return { whereSql: where.length ? 'WHERE ' + where.join(' AND ') : '', params, p, action };
 }
 
