@@ -69,6 +69,7 @@ import { formatProviderError, providerErrorParts, isProviderRefusal } from './pr
 import { normalizeBulkEmails, generateBulkPassword } from './bulk-helpers.js';
 import { splitList, describeSplit } from './list-check.js';
 import { planTopUp, topUpReason } from './bulk-credits.js';
+import { planTopUp as planPromoTopUp, topUpReason as promoTopUpReason } from './promo-topup.js';
 import { classifyRow, previewBackfill } from './credit-source-backfill.js';
 import { mayRedeem, capForInvites, capAfterAdding, splitInvites, REFUSAL } from './promo-audience.js';
 // ONE definition of "the same address", shared by auth, bulk and promo.
@@ -8038,6 +8039,113 @@ app.post('/api/admin/promocodes/:id/invites', adminGate, async (req, res) => {
     await client.query('ROLLBACK').catch(() => {});
     console.error('[admin/promocodes/invites] add error:', err);
     res.status(500).json({ error: 'Could not add to the invitation list.' });
+  } finally {
+    client.release();
+  }
+});
+
+// ── RAISING A CODE'S VALUE, AND LEVELLING UP EVERYONE WHO USED IT ───────────
+//
+// Owner: "we need to keep it with the same promo code, and I need to increase
+// the credit." Raising the number alone would reach only FUTURE redeemers —
+// the people who already used it get nothing, and cannot redeem again. So this
+// does both: the code goes up, and everyone who already redeemed receives the
+// difference.
+//
+// ☠ IT SPENDS REAL MONEY. 59 people × 92 credits is about $344. The preview
+// says that in words before anything moves, and apply is refused unless it is
+// handed the same headcount the preview showed.
+app.get('/api/admin/promocodes/:id/topup-preview', adminGate, async (req, res) => {
+  if (!dbReady()) return res.status(503).json({ error: 'Database not available.' });
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isFinite(id)) return res.status(400).json({ error: 'Bad promo id.' });
+    const { rows } = await pool.query(
+      `SELECT p.id, p.code, p.credits, p.access_days,
+              (SELECT COUNT(*)::int FROM promo_redemptions r WHERE r.code_id = p.id) AS redeemed
+         FROM promo_codes p WHERE p.id = $1`, [id]);
+    const code = rows[0];
+    if (!code) return res.status(404).json({ error: 'Promo code not found.' });
+    const { rows: s } = await pool.query('SELECT credit_value FROM pricing_settings WHERE id = 1')
+      .catch(() => ({ rows: [] }));
+    res.json({
+      code: code.code, current: Number(code.credits), redeemed: code.redeemed,
+      access_days: code.access_days,
+      ...planPromoTopUp(code, code.redeemed, req.query.credits, {
+        creditValueUsd: Number(s?.[0]?.credit_value) || 0.063333,
+      }),
+    });
+  } catch (err) {
+    console.error('[promo-topup] preview failed:', err);
+    res.status(500).json({ error: 'Could not work out what this would do.' });
+  }
+});
+
+app.post('/api/admin/promocodes/:id/topup', adminGate, async (req, res) => {
+  if (!dbReady()) return res.status(503).json({ error: 'Database not available.' });
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'Bad promo id.' });
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    // FOR UPDATE: two admins raising the same code at once must not each read
+    // the old value and each grant the same difference.
+    const { rows } = await client.query(
+      `SELECT id, code, credits, access_days FROM promo_codes WHERE id = $1 FOR UPDATE`, [id]);
+    const code = rows[0];
+    if (!code) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Promo code not found.' }); }
+
+    const { rows: red } = await client.query(
+      `SELECT user_id FROM promo_redemptions WHERE code_id = $1`, [id]);
+    const plan = planPromoTopUp(code, red.length, req.body?.credits);
+    if (!plan.ok) { await client.query('ROLLBACK'); return res.status(400).json({ error: plan.sentence }); }
+
+    // ☠ THE HEADCOUNT MUST NOT HAVE MOVED. The owner approved "59 people,
+    // $344". If someone redeemed in between, that approval was for a different
+    // bill — and they would be paid twice, having already received the new
+    // value at redemption.
+    const expected = Number(req.body?.expect_people);
+    if (!Number.isFinite(expected) || expected !== red.length) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({
+        error: `The code changed since you looked — you approved ${
+          Number.isFinite(expected) ? expected : 'an unknown number of'} people and `
+             + `${red.length} have now redeemed it. Open the preview again.`,
+        now: red.length,
+      });
+    }
+
+    await client.query('UPDATE promo_codes SET credits = $2 WHERE id = $1', [id, plan.to]);
+
+    // The difference lands as its own dated lot, living exactly as long as the
+    // code's own access days — so a top-up cannot outlive the workshop it
+    // belongs to, nor die before it.
+    const reason = promoTopUpReason(code.code, plan.from, plan.to);
+    const days = code.access_days != null && Number(code.access_days) > 0
+      ? Number(code.access_days) : CREDIT_LIFE_DAYS;
+    for (const r of red) {
+      await grantRedeemedCredits(client, {
+        userId: r.user_id, credits: plan.each, action: 'promo', reason, days,
+        source: 'promo', adminEmail: req.user?.email || ADMIN_EMAIL,
+      });
+    }
+    await client.query('COMMIT');
+
+    console.log(`[promo-topup] ${req.user?.email} raised ${code.code} ${plan.from} → ${plan.to}`
+      + ` · ${red.length} levelled up by ${plan.each} each · credits live ${days}d`);
+    res.json({
+      code: code.code, from: plan.from, to: plan.to, each: plan.each,
+      people: red.length, total_credits: plan.total_credits, days,
+      sentence: red.length
+        ? `${code.code} is now worth ${plan.to} credits. ${red.length} `
+          + `${red.length === 1 ? 'person' : 'people'} received ${plan.each} more each.`
+        : `${code.code} is now worth ${plan.to} credits. Nobody had redeemed it, so no credits were given out.`,
+    });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('[promo-topup] failed:', err);
+    res.status(500).json({ error: 'Nothing was changed — the top-up failed.' });
   } finally {
     client.release();
   }

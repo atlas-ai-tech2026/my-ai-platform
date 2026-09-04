@@ -21,6 +21,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import Field, { FieldRow, buttonRowOffset } from './FormField';
 import { adminApi } from '@/lib/adminApi';
+import PromoTopUpPanel from './PromoTopUpPanel';
 
 /** Active / expired / used up — more useful than active-or-not now that
  *  expiry dates are something the admin manages. */
@@ -687,6 +688,14 @@ export default function PromoCodesTab({ onError }) {
                                 </div>
                               </>
                             )}
+
+                            {/* ── RAISE THE VALUE FOR EVERYONE WHO USED IT ───
+                                The customer's actual request: keep the same
+                                code, give them more. Raising the number alone
+                                would reach only future redeemers. */}
+                            <div style={{ marginTop: 10 }}>
+                              <PromoTopUpPanel promo={p} onError={onError} onDone={load} />
+                            </div>
 
                             {/* ── ADD SOMEBODY WHO WAS LEFT OFF ──────────────
                                 The answer to "one person on the sheet cannot

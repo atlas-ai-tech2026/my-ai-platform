@@ -150,6 +150,15 @@ export const adminApi = {
   // for it. The cap follows the list where the list set it.
   promoInvitesAdd: (id, emails) =>
     request('POST', `/api/admin/promocodes/${id}/invites`, { emails }),
+
+  // ── Raise a code's value, and level up everyone who already used it ──────
+  // Preview first: 59 people × 92 credits is about $344, and an approval is
+  // for a specific headcount — apply sends it back so a code that moved is
+  // refused rather than paying somebody twice.
+  promoTopUpPreview: (id, credits) =>
+    request('GET', `/api/admin/promocodes/${id}/topup-preview?credits=${encodeURIComponent(credits)}`),
+  promoTopUpApply: (id, credits, expectPeople) =>
+    request('POST', `/api/admin/promocodes/${id}/topup`, { credits, expect_people: expectPeople }),
   // Who loses access, and when. Added urgently 2026-08-20 — the Users tab shows
   // Credit expiry, the 2026-08-25 rule: credits die 30 days after they were
   // added; accounts never expire. Two calls on purpose: one only LOOKS, one
