@@ -61,13 +61,49 @@ export function batchName(reason = '') {
   return s.trim() || '(no reason given)';
 }
 
+/**
+ * Workshops whose entries were named freely before there was a field for it.
+ *
+ * ☠ A CUSTOMER'S NAME IN THE CODE IS A SMELL, AND IT IS THE HONEST FIX TODAY.
+ * The owner, 2026-09-04: "Anything starting with SPA alone, and there is SPA
+ * two, and there is SPA four. Anything else is very small and was testing."
+ * His hand-typed grants carry "spa", "spa 2", "spa 3 promo code", "SPA4",
+ * "Spa 4.", and one that reads "Spa 4 its was his credit and we removed and
+ * then we returned agian" — all of them the same three or four workshops,
+ * split across nine invoice lines.
+ *
+ * Everything written from now on carries a proper reason field, so this
+ * pattern covers a closed set of history and does not grow. The permanent fix
+ * is the workshop record, which already exists in `workshops`.
+ *
+ * The trailing boundary matters: without it `spain` in "director from spain"
+ * matches, and a person's note becomes a workshop.
+ */
+// ☠ THE NUMBER IS WHAT MAKES IT A MATCH, and the first version got it wrong.
+// `/^spa\s*(\d+)?\b/` also matched "SPA News Academy V1.2" — the owner's
+// CURRENT workshop — and folded it into the old "spa" grants. An existing test
+// caught it. So: "spa" must be followed by a NUMBER, or by nothing at all.
+//   spa            -> spa          (alone, the owner's first workshop)
+//   spa 3 promo code -> spa 3      (a number, then anything)
+//   SPA4           -> spa 4        (spacing normalised before this runs)
+//   SPA News 4     -> unchanged    (a word follows, not a number)
+//   spain          -> unchanged    (no boundary after "spa")
+const WORKSHOP_PREFIX = /^(spa)(?:\s*(\d+)\b|\b(?=[\s.,;:!?]*$))/i;
+
 /** The key two spellings of one workshop must share. */
 export function nameKey(name = '') {
-  return String(name)
+  const base = String(name)
     .toLowerCase()
+    // "SPA4" and "spa 4" are the same workshop typed two ways.
+    .replace(/([a-z])(\d)/g, '$1 $2')
     .replace(/[.,;:!?]+$/g, '')      // "Spa 4." and "Spa 4" are one workshop
     .replace(/\s+/g, ' ')
     .trim();
+  // A reason that STARTS with a workshop belongs to it, whatever follows —
+  // "spa 3 promo code" and "Spa 4 its was his credit…" are that workshop's
+  // money, not two more workshops.
+  const m = WORKSHOP_PREFIX.exec(base);
+  return m ? `${m[1]}${m[2] ? ' ' + m[2] : ''}` : base;
 }
 
 const day = (iso) => (iso ? String(iso).slice(0, 10) : '');

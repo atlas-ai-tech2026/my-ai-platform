@@ -168,3 +168,69 @@ describe('☠ THE ROUTE LEAVES NOTHING OUT SILENTLY', () => {
     expect(code()).toMatch(/\['manual', 'bulk', 'promo', 'gift'\]\.includes\(x\)/);
   });
 });
+
+describe('☠ THE HAND-TYPED WORKSHOPS, WHICH WERE NAMED FREELY', () => {
+  // Owner, 2026-09-04: "Anything starting with SPA alone, and there is SPA
+  // two, and there is SPA four. Anything else is very small and was testing."
+  //
+  // His grants carry "spa", "spa 2", "spa 3 promo code", "SPA4", "Spa 4.",
+  // and one reading "Spa 4 its was his credit and we removed and then we
+  // returned agian" — three or four workshops split across NINE invoice lines.
+  const grants = [
+    'spa', 'SPA', 'Spa',
+    'spa 2', 'Spa 2',
+    'spa 3', 'spa 3 promo code',
+    'spa 4', 'Spa 4', 'Spa 4.', 'SPA4',
+    'Spa 4 its was his credit and we removed and then we returned agian',
+    'director from spain', 'imad test',
+  ].map((reason, i) => ({
+    source: 'manual', reason, amount: 395, user_id: i + 1,
+    created_at: '2026-08-20T22:00:00Z',
+  }));
+
+  const byName = () => Object.fromEntries(
+    groupBatches(grants).map((b) => [b.name.toLowerCase(), b]));
+
+  it('SPA4 with no space is the same workshop as spa 4', () => {
+    expect(nameKey('SPA4')).toBe(nameKey('spa 4'));
+    expect(byName()['spa 4'].accounts).toBe(5);
+  });
+
+  it('a reason that STARTS with a workshop belongs to it, whatever follows', () => {
+    // "spa 3 promo code" is that workshop's money, not a fifth workshop.
+    expect(nameKey('spa 3 promo code')).toBe(nameKey('spa 3'));
+    expect(byName()['spa 3'].accounts).toBe(2);
+  });
+
+  it('including the long correction note', () => {
+    expect(nameKey('Spa 4 its was his credit and we removed and then we returned agian'))
+      .toBe(nameKey('spa 4'));
+  });
+
+  it('☠ but "director from spain" is NOT a workshop', () => {
+    // Without a word boundary after the prefix, "spain" matches "spa" and a
+    // person's note becomes a workshop — money filed under the wrong customer.
+    expect(nameKey('director from spain')).not.toBe(nameKey('spa'));
+    expect(byName()['director from spain'].accounts).toBe(1);
+  });
+
+  it('SPA, SPA 2, SPA 3 and SPA 4 stay four separate workshops', () => {
+    const names = groupBatches(grants).map((b) => nameKey(b.name));
+    for (const k of ['spa', 'spa 2', 'spa 3', 'spa 4']) expect(names).toContain(k);
+    expect(new Set(names).size).toBe(6);      // four workshops + two one-offs
+  });
+
+  it('and the count of spellings is still reported, so nothing is hidden', () => {
+    expect(byName()['spa 4'].spellings).toBe(5);
+  });
+
+  it('☠ and the owner\'s CURRENT workshop is NOT folded into the old ones', () => {
+    // The bug the first version of this rule had: /^spa\\s*(\\d+)?\\b/ matched
+    // "SPA News Academy V1.2" and collapsed it into the old "spa" grants —
+    // September's money filed under August's workshop. An existing test
+    // caught it. The number is what makes it a match.
+    expect(nameKey('SPA News Academy V1.2')).not.toBe('spa');
+    expect(nameKey('SPA News 4')).not.toBe(nameKey('spa 4'));
+    expect(nameKey('SPA News 4')).not.toBe(nameKey('SPA News 5'));
+  });
+});
