@@ -11,6 +11,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import Field from './FormField';
 import { adminApi } from '@/lib/adminApi';
+import ListCheckPanel from './ListCheckPanel';
 import { CREDIT_PLANS } from '@/lib/creditPricing';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
@@ -214,6 +215,12 @@ export default function BulkTab({ onError }) {
         generated password (shown once — export the CSV), the chosen plan&rsquo;s credits,
         an optional model allow-list, and an optional expiry date.
       </div>
+
+      {/* Before anything else: which of these people do we already have?
+          Bulk skips existing accounts, so a list that is half returning
+          customers half-works — and reads as success. Answering first is
+          cheaper than explaining afterwards. */}
+      <ListCheckPanel onError={onError} />
 
       {/* ── WHAT THIS SCREEN DOES NOT DO ──────────────────────────────────
           The owner nearly topped up an existing customer through here on

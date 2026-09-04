@@ -67,6 +67,7 @@ import { deepHealth } from './health-deep.js';
 import { AGENT_SYSTEM } from './edit-agent-prompt.js';
 import { formatProviderError, providerErrorParts, isProviderRefusal } from './provider-error.js';
 import { normalizeBulkEmails, generateBulkPassword } from './bulk-helpers.js';
+import { splitList, describeSplit } from './list-check.js';
 import { mayRedeem, capForInvites, capAfterAdding, splitInvites, REFUSAL } from './promo-audience.js';
 // ONE definition of "the same address", shared by auth, bulk and promo.
 import { normalizeEmail } from './email-normalize.js';
@@ -7269,6 +7270,63 @@ app.post('/api/admin/credit-lots/activate', adminGate, async (req, res) => {
   } catch (err) {
     console.error('[admin/credit-lots] activate error:', err);
     res.status(500).json({ error: 'Activation failed — nothing was changed.' });
+  }
+});
+
+// ── WHICH OF THESE PEOPLE DO WE ALREADY KNOW? ───────────────────────────────
+//
+// Read-only. Takes a list of addresses and says which already have accounts,
+// which are new, and which are not usable — BEFORE anything is created or
+// charged.
+//
+// ☠ THE COST OF NOT HAVING THIS, from the owner's own SPA 4 report: fifteen
+// accounts received credits twice on the same day, hours apart, because there
+// was no way to see which half of a list was already known. Bulk creates and
+// silently skips; a promo code invites and silently refuses. Both answer the
+// question far too late, in a report, after the money has moved.
+//
+// Matching runs through normalizeEmail on BOTH sides — the same comparison
+// sign-in uses. A list of 84 on 2026-09-02 held nine addresses with capitals
+// and one with an invisible right-to-left mark; without this, all ten would be
+// called "new" and given duplicate accounts.
+app.post('/api/admin/users/check-list', adminGate, async (req, res) => {
+  if (!dbReady()) return res.status(503).json({ error: 'Database not available.' });
+  try {
+    const raw = Array.isArray(req.body?.emails) ? req.body.emails
+      : String(req.body?.emails ?? '').split(/[\s,;]+/);
+    if (raw.length > 5000) {
+      return res.status(400).json({ error: `Too many addresses (${raw.length}) — max 5000 at a time.` });
+    }
+    // Ask only about the addresses actually submitted. LOWER() on the stored
+    // side as well, so an account saved with capitals is still recognised as
+    // existing rather than reported as new — the duplicate-account trap.
+    const probe = splitList(raw, []);
+    const { rows } = probe.counts.usable
+      ? await pool.query(
+        `SELECT id, email, credits, created_at FROM users WHERE LOWER(email) = ANY($1)`,
+        [[...probe.existing, ...probe.fresh]])
+      : { rows: [] };
+
+    const split = splitList(raw, rows.map((r) => r.email));
+    const byEmail = new Map(rows.map((r) => [String(r.email).toLowerCase(), r]));
+    console.log(`[check-list] ${req.user?.email} checked ${split.counts.submitted} — `
+      + `${split.counts.existing} known, ${split.counts.fresh} new, ${split.counts.invalid} unusable`);
+    res.json({
+      ...split,
+      // One line a person can read out loud. Built on the server so the
+      // screen and any future report cannot word the same answer differently.
+      sentence: describeSplit(split),
+      // The known ones carry their balance, because the next question is
+      // always "how many credits do they have now".
+      accounts: split.existing.map((e) => {
+        const u = byEmail.get(e);
+        return { email: e, id: u?.id ?? null, credits: u ? Number(u.credits) : null,
+                 created_at: u?.created_at ?? null };
+      }),
+    });
+  } catch (err) {
+    console.error('[check-list] error:', err);
+    res.status(500).json({ error: 'Could not check the list.' });
   }
 });
 

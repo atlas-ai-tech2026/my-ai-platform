@@ -316,6 +316,10 @@ export const adminApi = {
   // ─── Bulk user provisioning ───────────────────────────────────────
   listModels: () => request('GET', '/api/admin/models'),
   bulkCreateUsers: (body) => request('POST', '/api/admin/users/bulk', body),
+  // Which of these addresses already have accounts? Read-only — it creates
+  // nothing and moves no credits. Answers the question Bulk and promo codes
+  // both answer far too late.
+  checkUserList: (emails) => request('POST', '/api/admin/users/check-list', { emails }),
 
   // ─── One-shot maintenance ─────────────────────────────────────────
   // These four endpoints existed for days with NOTHING that could call
