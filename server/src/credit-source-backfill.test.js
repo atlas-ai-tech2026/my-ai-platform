@@ -10,7 +10,7 @@
 // a large confident lie.
 
 import { describe, it, expect } from 'vitest';
-import { classifyRow, previewBackfill, BULK_REASON } from './credit-backfill.js';
+import { classifyRow, previewBackfill, BULK_REASON } from './credit-source-backfill.js';
 
 describe('what an old credit row gets labelled', () => {
   it('a code redemption is promo, a gift card is gift', () => {
