@@ -92,6 +92,8 @@ export default function BulkTab({ onError }) {
   // Options
   const [plan, setPlan] = useState('Basic');
   const [credits, setCredits] = useState('300');
+  const [accessDays, setAccessDays] = useState('');
+  const [batchReason, setBatchReason] = useState('');
   const [allModels, setAllModels] = useState(true);
   const [catalog, setCatalog] = useState(null); // { image: [], video: [] }
   const [picked, setPicked] = useState(new Set());
@@ -168,10 +170,16 @@ export default function BulkTab({ onError }) {
     if (!allModels && picked.size === 0) { toast.error('Pick at least one model, or choose All models'); return; }
     const c = Number(credits);
     if (!Number.isFinite(c) || c < 0) { toast.error('Credits must be a number'); return; }
-    if (!window.confirm(`Create ${emails.length} account(s) on the ${plan} plan with ${c} credits each?${c > 0 ? ' Their credits expire 30 days from today.' : ''}`)) return;
+    if (!window.confirm(
+      `Create ${emails.length} account(s) on the ${plan} plan with ${c} credits each?`
+      + (c > 0 ? `\nTheir credits live for ${accessDays || 30} days.` : '')
+      + (batchReason.trim() ? `\nRecorded as: ${batchReason.trim()}` : '\nNo reason given — these credits will not be traceable to a workshop.')
+    )) return;
     setRunning(true);
     try {
       const r = await adminApi.bulkCreateUsers({
+        reason: batchReason.trim() || undefined,
+        access_days: accessDays || undefined,
         emails,
         package: plan,
         credits: c,
@@ -301,13 +309,37 @@ export default function BulkTab({ onError }) {
               style={{ ...inputStyle, width: 110, ...(missCredits ? invalidStyle : null) }} />
           </Field>
           {/* 2026-08-25: the "Expires" date box is gone on purpose. Accounts
-              never expire any more — the batch's CREDITS expire 30 days after
-              creation, automatically, like every other credit addition. A date
-              field here would be a control that silently does nothing. */}
-          <span style={{ fontSize: 11.5, color: 'var(--crm-w40)', alignSelf: 'center' }}
-            title="Every credit addition lives 30 days from the day it was added, then the unspent remainder expires on its own. Accounts themselves never expire.">
-            credits expire 30 days after creation · accounts never do
-          </span>
+              never expire any more. What follows is the CREDIT life, which is
+              a different thing and does something. */}
+          <Field label="Access days"
+            info="How many days these credits live before the unspent remainder expires. Blank means the standard 30, exactly as a promo code's Access days. Some workshops run longer than a month — this is where you say so. Accounts themselves never expire.">
+            <input type="number" min="1" max="3650" value={accessDays}
+              onChange={e => setAccessDays(e.target.value)}
+              placeholder="Blank = 30 days"
+              style={{ ...inputStyle, width: 150 }} />
+          </Field>
+        </div>
+
+        {/* ☠ WHAT THIS BATCH WAS FOR — the link that did not exist.
+            The ledger used to say only "bulk provision: Basic plan": the plan,
+            never the WORKSHOP. So an account created here carried nothing
+            tying it to the customer who paid, and Workshops & P&L — which
+            joins a workshop to its people by promo code — could not see these
+            people at all. Half a cohort could vanish from a profit number
+            with nothing to say so. */}
+        <div style={{ marginTop: 12 }}>
+          <Field label="What is this batch for?"
+            info="Written into every credit entry this batch creates, so months later the record says which workshop or customer it was. It is what the Manual Credits screen, the credit report and any invoice read back. Optional — but a batch with no reason cannot be traced to anybody.">
+            <input value={batchReason} onChange={e => setBatchReason(e.target.value)}
+              placeholder="e.g. SPA News Academy 5th"
+              style={{ ...inputStyle, width: '100%', maxWidth: 420 }} />
+          </Field>
+          {!batchReason.trim() && Number(credits) > 0 && (
+            <div style={{ fontSize: 11.5, color: 'var(--crm-amber)', marginTop: 5 }}>
+              Without this, these credits will say only &ldquo;{plan} plan&rdquo; — with nothing to
+              tie them to a workshop or an invoice.
+            </div>
+          )}
         </div>
       </div>
 

@@ -100,7 +100,18 @@ describe('every credit addition becomes a dated lot', () => {
   });
 
   it('bulk-provisioned starting credits get their lot', () => {
-    expect(source).toMatch(/source: 'bulk',\s*\n\s*reason: `bulk provision/);
+    // The reason used to be an inline literal. It is now `provisionReason`,
+    // built once above so the ledger row and the lot cannot describe the same
+    // batch differently — and so a typed workshop name reaches both. The lot
+    // is still planted, which is what this test is actually about.
+    expect(source).toMatch(/source: 'bulk',\s*\n\s*reason: provisionReason,/);
+  });
+
+  it('☠ and that lot honours the batch\'s access days', () => {
+    // A control that is accepted and ignored is worse than no control — the
+    // retired "Expires" box did exactly that for weeks. If Access days does
+    // not reach addLot, the field is a lie on the screen.
+    expect(source).toMatch(/reason: provisionReason,\s*\n\s*days: bulkDays \?\? CREDIT_LIFE_DAYS,/);
   });
 });
 

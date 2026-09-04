@@ -75,7 +75,11 @@ describe('the five sources mean what the screens assume they mean', () => {
   });
 
   it("☠ bulk provisioning is 'bulk', NOT 'manual' — the whole point", () => {
-    const bulk = find('bulk provision');
+    // Found by `provisionReason`, not by the literal "bulk provision": the
+    // sentence is now built once above and shared by the ledger row and the
+    // credit lot, so a typed workshop name reaches both and they cannot
+    // describe the same batch differently.
+    const bulk = find('provisionReason');
     expect(bulk, 'the bulk provisioning insert vanished').toBeTruthy();
     expect(bulk.tail).toContain("'bulk'");
     expect(bulk.tail).not.toContain("'manual'");

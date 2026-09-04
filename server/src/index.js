@@ -7598,6 +7598,32 @@ app.post('/api/admin/users/bulk', adminGate, async (req, res) => {
     }
 
     const pkg = String(req.body?.package || 'Free').slice(0, 32);
+    // ☠ WHAT THIS BATCH WAS FOR, in the admin's own words.
+    //
+    // Until now the ledger said only "bulk provision: Basic plan" — the plan,
+    // never the WORKSHOP. So an account created here carried no link to the
+    // customer who paid for it, and Workshops & P&L, which joins a workshop to
+    // its people by promo code, could not see them at all. Half a cohort could
+    // vanish from a profit number with nothing to say so.
+    //
+    // Optional, because a batch genuinely unrelated to any workshop is a real
+    // thing. When given, it is what the Manual Credits screen, the credit
+    // report and any invoice read back.
+    const batchReason = String(req.body?.reason || '').trim().slice(0, 300);
+    // How long the credits live — blank means the standard 30, exactly as a
+    // promo code's Access days. Some workshops run longer than a month.
+    let bulkDays = null;
+    if (req.body?.access_days != null && req.body.access_days !== '') {
+      bulkDays = parseInt(req.body.access_days, 10);
+      if (!Number.isInteger(bulkDays) || bulkDays < 1 || bulkDays > 3650) {
+        return res.status(400).json({ error: 'Access days must be a whole number between 1 and 3650, or blank for the standard 30 days.' });
+      }
+    }
+    // One sentence, built once, so the ledger row and the credit lot can never
+    // describe the same batch differently.
+    const provisionReason = batchReason
+      ? `bulk provision: ${pkg} plan — ${batchReason}`
+      : `bulk provision: ${pkg} plan`;
     const credits = Math.min(Math.max(Number(req.body?.credits) || 0, 0), 100000);
     // expires_at used to set an ACCOUNT lockout date here. Retired 2026-08-25
     // by the owner's rule — accounts never expire; the batch's credits get the
@@ -7644,13 +7670,14 @@ app.post('/api/admin/users/bulk', adminGate, async (req, res) => {
           await client.query(
             `INSERT INTO credits_history (user_id, amount, action, admin_email, reason, source)
              VALUES ($1, $2, 'grant', $3, $4, 'bulk')`,
-            [ins.rows[0].id, credits, req.user?.email || ADMIN_EMAIL, `bulk provision: ${pkg} plan`]
+            [ins.rows[0].id, credits, req.user?.email || ADMIN_EMAIL, provisionReason]
           );
           // The batch's starting credits are an addition like any other:
           // thirty days from today, per the owner's rule.
           await addLot(client, {
             userId: ins.rows[0].id, amount: credits, source: 'bulk',
-            reason: `bulk provision: ${pkg} plan`,
+            reason: provisionReason,
+            days: bulkDays ?? CREDIT_LIFE_DAYS,
           });
         }
         await client.query('COMMIT');
