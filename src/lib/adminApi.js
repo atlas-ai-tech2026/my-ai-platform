@@ -321,6 +321,13 @@ export const adminApi = {
   // both answer far too late.
   checkUserList: (emails) => request('POST', '/api/admin/users/check-list', { emails }),
 
+  // ── Bulk: credits for accounts that ALREADY exist ────────────────────────
+  // Preview first, always: this spends real money, and a confirm box saying
+  // "are you sure?" is not consent to $610. Apply sends back the account count
+  // the preview showed and is refused if the list moved.
+  bulkCreditsPreview: (body) => request('POST', '/api/admin/users/bulk-credits/preview', body),
+  bulkCreditsApply: (body) => request('POST', '/api/admin/users/bulk-credits/apply', body),
+
   // ── Manual credits ───────────────────────────────────────────────────────
   // The ledger, filtered to what a person did by hand. `source` is structural
   // — it cannot be misspelled the way a typed reason can.

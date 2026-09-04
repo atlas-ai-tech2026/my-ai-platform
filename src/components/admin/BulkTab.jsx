@@ -12,6 +12,7 @@ import { toast } from 'sonner';
 import Field from './FormField';
 import { adminApi } from '@/lib/adminApi';
 import ListCheckPanel from './ListCheckPanel';
+import BulkCreditsPanel from './BulkCreditsPanel';
 import { CREDIT_PLANS } from '@/lib/creditPricing';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
@@ -221,6 +222,22 @@ export default function BulkTab({ onError }) {
           customers half-works — and reads as success. Answering first is
           cheaper than explaining afterwards. */}
       <ListCheckPanel onError={onError} />
+
+      {/* ☠ TWO MODES, NAMED — never one button that guesses.
+          Creating an account and topping one up are different things done to
+          different people. A single control that "creates if missing, tops up
+          if present" leaves you unable to say afterwards which happened to
+          whom, which is the confusion these screens exist to end. */}
+      <BulkCreditsPanel onError={onError} />
+
+      <div style={{ margin: '18px 0 14px', display: 'flex', alignItems: 'center', gap: 10 }}>
+        <div style={{ flex: 1, height: 1, background: 'var(--crm-w08)' }} />
+        <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.1em',
+                       textTransform: 'uppercase', color: 'var(--crm-w40)' }}>
+          or create new accounts
+        </span>
+        <div style={{ flex: 1, height: 1, background: 'var(--crm-w08)' }} />
+      </div>
 
       {/* ── WHAT THIS SCREEN DOES NOT DO ──────────────────────────────────
           The owner nearly topped up an existing customer through here on

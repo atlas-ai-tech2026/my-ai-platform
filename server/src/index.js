@@ -68,6 +68,7 @@ import { AGENT_SYSTEM } from './edit-agent-prompt.js';
 import { formatProviderError, providerErrorParts, isProviderRefusal } from './provider-error.js';
 import { normalizeBulkEmails, generateBulkPassword } from './bulk-helpers.js';
 import { splitList, describeSplit } from './list-check.js';
+import { planTopUp, topUpReason } from './bulk-credits.js';
 import { classifyRow, previewBackfill } from './credit-source-backfill.js';
 import { mayRedeem, capForInvites, capAfterAdding, splitInvites, REFUSAL } from './promo-audience.js';
 // ONE definition of "the same address", shared by auth, bulk and promo.
@@ -6756,17 +6757,31 @@ const normalizeCode = (c) => String(c || '').trim().toUpperCase().replace(/\s+/g
 
 // Shared grant-on-redeem: mirrors the admin grant transaction. Returns the
 // new balance. Caller owns the client + transaction.
-async function grantRedeemedCredits(client, { userId, credits, action, reason, days = CREDIT_LIFE_DAYS }) {
+/**
+ * Add credits and record the addition, in one transaction.
+ *
+ * `source` and `adminEmail` are OPTIONAL and default to the historical
+ * behaviour — a code redemption or a gift card, with no admin named. They are
+ * parameters because the Bulk top-up also grants through here, and passing
+ * them without the function accepting them would have written every top-up as
+ * source 'promo' with "Added by —": wrong on the Manual Credits screen, wrong
+ * on any invoice, and silent. I did exactly that and caught it before it ran.
+ */
+async function grantRedeemedCredits(client, {
+  userId, credits, action, reason, days = CREDIT_LIFE_DAYS,
+  source = null, adminEmail = null,
+}) {
   const cur = await client.query('SELECT credits, credit_limit FROM users WHERE id = $1 FOR UPDATE', [userId]);
   if (cur.rowCount === 0) throw new Error('User not found');
   const after = Number(cur.rows[0].credits) + Number(credits);
   const limitAfter = Number(cur.rows[0].credit_limit) + Number(credits);
   await client.query('UPDATE users SET credits = $1, credit_limit = $2 WHERE id = $3', [after, limitAfter, userId]);
   await client.query(
-    `INSERT INTO credits_history (user_id, amount, action, reason, source)
-     VALUES ($1, $2, $3, $4, $5)`,
-    // Only 'promo' and 'gift' reach here — a code redeemed, or a gift card.
-    [userId, credits, action, reason, action === 'gift' ? 'gift' : 'promo']
+    `INSERT INTO credits_history (user_id, amount, action, reason, source, admin_email)
+     VALUES ($1, $2, $3, $4, $5, $6)`,
+    // Unless the caller says otherwise, only 'promo' and 'gift' reach here.
+    [userId, credits, action, reason,
+     source || (action === 'gift' ? 'gift' : 'promo'), adminEmail]
   );
   // The addition is a lot with its own life (a promo code's access_days, or
   // the 30-day standard). NOT wrapped in a savepoint like the spend mirror:
@@ -7445,6 +7460,129 @@ app.post('/api/admin/users/check-list', adminGate, async (req, res) => {
   } catch (err) {
     console.error('[check-list] error:', err);
     res.status(500).json({ error: 'Could not check the list.' });
+  }
+});
+
+// ── GIVING CREDITS TO ACCOUNTS THAT ALREADY EXIST ───────────────────────────
+//
+// Bulk has only ever CREATED accounts; a list of returning attendees is
+// skipped entirely, which reads as success. This is the other half.
+//
+// ☠ TWO ENDPOINTS, AND THE SECOND DISTRUSTS THE FIRST. The preview states the
+// accounts, the credits and the DOLLARS; apply sends back the count it was
+// shown and is refused if the list has changed. 61 accounts × 158 credits is
+// about $610 — a confirm box saying "are you sure?" is not consent to that.
+async function accountsFor(emails) {
+  if (!emails.length) return [];
+  const { rows } = await pool.query(
+    `SELECT id, email, credits FROM users WHERE LOWER(email) = ANY($1)`, [emails]);
+  return rows;
+}
+
+app.post('/api/admin/users/bulk-credits/preview', adminGate, async (req, res) => {
+  if (!dbReady()) return res.status(503).json({ error: 'Database not available.' });
+  try {
+    const raw = Array.isArray(req.body?.emails) ? req.body.emails
+      : String(req.body?.emails ?? '').split(/[\s,;]+/);
+    const probe = splitList(raw, []);
+    const rows = await accountsFor([...probe.fresh, ...probe.existing]);
+    const { rows: s } = await pool.query('SELECT credit_value FROM pricing_settings WHERE id = 1')
+      .catch(() => ({ rows: [] }));
+    const plan = planTopUp(raw, rows.map((r) => r.email), {
+      credits: req.body?.credits,
+      accessDays: req.body?.access_days,
+      creditValueUsd: Number(s?.[0]?.credit_value) || 0.063333,
+    });
+    res.json(plan);
+  } catch (err) {
+    console.error('[bulk-credits] preview failed:', err);
+    res.status(500).json({ error: 'Could not work out what this would do.' });
+  }
+});
+
+app.post('/api/admin/users/bulk-credits/apply', adminGate, async (req, res) => {
+  if (!dbReady()) return res.status(503).json({ error: 'Database not available.' });
+
+  const each = Number(req.body?.credits);
+  if (!Number.isFinite(each) || each <= 0 || each > 100000) {
+    return res.status(400).json({ error: 'Credits must be a positive number.' });
+  }
+  // A reason is REQUIRED, exactly as it is on the panel's own credit box. It
+  // is what the Manual Credits screen and every future invoice read back.
+  const typed = String(req.body?.reason || '').trim();
+  if (!typed) return res.status(400).json({ error: 'Say what these credits are for — it is what the record will show.' });
+
+  let days = null;
+  if (req.body?.access_days != null && req.body.access_days !== '') {
+    days = parseInt(req.body.access_days, 10);
+    if (!Number.isInteger(days) || days < 1 || days > 3650) {
+      return res.status(400).json({ error: 'Access days must be a whole number between 1 and 3650, or blank for the standard 30 days.' });
+    }
+  }
+
+  const raw = Array.isArray(req.body?.emails) ? req.body.emails
+    : String(req.body?.emails ?? '').split(/[\s,;]+/);
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const probe = splitList(raw, []);
+    const { rows: found } = await client.query(
+      `SELECT id, email FROM users WHERE LOWER(email) = ANY($1) FOR UPDATE`,
+      [[...probe.fresh, ...probe.existing]]);
+
+    // ☠ THE LIST MUST NOT HAVE MOVED. The owner approved "61 accounts, $610".
+    // If an account has appeared or gone since, that approval was for a
+    // different bill.
+    const expected = Number(req.body?.expect_accounts);
+    if (!Number.isFinite(expected) || expected !== found.length) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({
+        error: `The list changed since you looked — you approved ${
+          Number.isFinite(expected) ? expected : 'an unknown number of'} accounts and there are now `
+             + `${found.length}. Press Check again so you are approving what is actually there.`,
+        now: found.length,
+      });
+    }
+    if (!found.length) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'None of these addresses has an account — nobody would receive anything.' });
+    }
+
+    const reason = topUpReason(typed);
+    for (const u of found) {
+      await grantRedeemedCredits(client, {
+        userId: u.id, credits: each, action: 'grant', reason,
+        days: days ?? CREDIT_LIFE_DAYS,
+        // A batch from the Bulk screen is 'bulk', not 'manual' — it is one of
+        // the standard flows, which is exactly what keeps it OFF the Manual
+        // Credits screen.
+        source: 'bulk',
+        adminEmail: req.user?.email || ADMIN_EMAIL,
+      });
+    }
+    await client.query('COMMIT');
+
+    const missing = probe.fresh.filter((e) => !found.some((f) => String(f.email).toLowerCase() === e));
+    console.log(`[bulk-credits] ${req.user?.email} gave ${each} credits to ${found.length} account(s)`
+      + ` · life ${days ?? CREDIT_LIFE_DAYS}d · ${missing.length} had no account · "${typed}"`);
+    res.json({
+      credited: found.length,
+      credits_each: each,
+      total_credits: Math.round(each * found.length * 100) / 100,
+      days: days ?? CREDIT_LIFE_DAYS,
+      no_account: missing,
+      sentence: `${found.length} account${found.length === 1 ? '' : 's'} received ${each} credits each`
+        + (missing.length
+          ? `. ${missing.length} address${missing.length === 1 ? '' : 'es'} had no account and received NOTHING.`
+          : '.'),
+    });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('[bulk-credits] apply failed:', err);
+    res.status(500).json({ error: 'Nothing was changed — the top-up failed.' });
+  } finally {
+    client.release();
   }
 });
 
