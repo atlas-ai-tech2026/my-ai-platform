@@ -8,6 +8,8 @@
 // reachable only by someone who already knew they existed. Losing a feature by
 // omission is the exact bug this panel keeps producing.
 
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -42,6 +44,35 @@ describe('grouping', () => {
     const withNew = [...TABS, { id: 'knowledge', label: 'Knowledge Base' }];
     const placed = groupTabs(withNew).flatMap((g) => g.items.map((t) => t.id));
     expect(placed, 'an ungrouped tab disappeared from the navigation').toContain('knowledge');
+  });
+
+  // ☠ THE REAL TABS, NOT A FIXTURE — the bug the fixture could not see.
+  //
+  // On 2026-09-04 the Manual Credits tab was added and NOT listed in any
+  // group. The fallback did its job and kept it visible — under SYSTEM, where
+  // nobody looks for money. I then told the owner to find it under MONEY. He
+  // could not, because it was never there.
+  //
+  // The fallback is right to exist: a tab in the wrong section beats a tab
+  // that vanished. But a REAL tab relying on it is a tab somebody forgot, and
+  // that should fail the build rather than quietly filing itself under System.
+  it('☠ every REAL tab is named in a group — none relies on the fallback', () => {
+    const source = readFileSync(
+      path.join(process.cwd(), 'src/pages/AdminPanel.jsx'), 'utf8');
+    const realIds = [...source.matchAll(/\{\s*id:\s*'([a-z]+)',\s+label:\s*'[^']+',/g)]
+      .map((m) => m[1]);
+    expect(realIds.length, 'could not read the tab list').toBeGreaterThan(12);
+
+    const listed = new Set(GROUPS.flatMap((g) => g.tabs));
+    const relyingOnFallback = realIds.filter((id) => !listed.has(id));
+    expect(relyingOnFallback,
+      'These tabs are in no group, so groupTabs() files them under System — visible, but not '
+      + 'where anyone would look for them. Add each to the right group in GROUPS.').toEqual([]);
+  });
+
+  it('and Manual Credits sits under Money, where money lives', () => {
+    const money = GROUPS.find((g) => g.id === 'money');
+    expect(money.tabs).toContain('manualcredits');
   });
 
   it('does not invent a group with nothing in it', () => {
