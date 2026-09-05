@@ -8,6 +8,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import {
   saveDraft, loadDraft, clearDrafts, DRAFT_PREFIX, DRAFT_SCHEMA, DRAFT_PAGES,
+  durableUrls,
 } from './prompt-draft.js';
 
 /** A storage that behaves, unless told otherwise. */
@@ -129,5 +130,71 @@ describe('☠ logout must destroy every draft', () => {
     const logout = src.slice(src.indexOf('const logout'));
     const body = logout.slice(0, logout.indexOf('}, ['));
     expect(body, 'clearDrafts() must be called inside logout()').toMatch(/clearDrafts\(\)/);
+  });
+});
+
+// ─── ONLY WHAT WILL STILL EXIST TOMORROW ────────────────────────────────────
+// Video's frames and references can be a File, a blob: URL, a data: URI or an
+// http URL. Restoring a broken picture is worse than restoring nothing — the
+// customer cannot tell until they press Generate.
+describe('durableUrls', () => {
+  it('keeps http and https', () => {
+    const live = 'https://voxel-ai-store.nyc3.cdn.digitaloceanspaces.com/x.png';
+    expect(durableUrls([live, 'http://example.com/a.png'])).toEqual([live, 'http://example.com/a.png']);
+    expect(durableUrls(live)).toBe(live);
+  });
+
+  it('drops a blob: URL — it dies with the page', () => {
+    expect(durableUrls(['blob:https://dev.voxel-ai.ai/abc-123'])).toEqual([]);
+    expect(durableUrls('blob:https://dev.voxel-ai.ai/abc-123')).toBe(null);
+  });
+
+  it('drops a data: URI', () => {
+    expect(durableUrls(['data:image/png;base64,AAAA'])).toEqual([]);
+  });
+
+  it('drops a File or anything not a string', () => {
+    // JSON.stringify(new File(...)) is "{}" — it would be stored as nothing.
+    expect(durableUrls([{ name: 'a.png' }, null, undefined, 42])).toEqual([]);
+    expect(durableUrls({ name: 'a.png' })).toBe(null);
+    expect(durableUrls(null)).toBe(null);
+  });
+
+  it('keeps the good ones out of a mixed list', () => {
+    const live = 'https://voxel-ai-store.nyc3.cdn.digitaloceanspaces.com/keep.png';
+    expect(durableUrls([live, 'blob:x', 'data:image/png;base64,A', { f: 1 }])).toEqual([live]);
+  });
+});
+
+// ─── BOTH PAGES MUST ACTUALLY USE IT ────────────────────────────────────────
+// The module can be perfect and wired into neither page. That is this
+// project's most-repeated bug, so the wiring is read from the source.
+describe('the pages are really wired to the draft store', () => {
+  for (const [file, page] of [['src/pages/Image.jsx', 'image'], ['src/pages/Video.jsx', 'video']]) {
+    const src = readFileSync(path.resolve(process.cwd(), file), 'utf8');
+    it(`${file} restores on mount`, () => {
+      expect(src).toMatch(new RegExp(`loadDraft\\('${page}'\\)`));
+    });
+    it(`${file} saves the draft`, () => {
+      expect(src).toMatch(new RegExp(`saveDraft\\('${page}'`));
+    });
+  }
+
+  it('Video filters its frames through durableUrls — Image does not need to', () => {
+    // Video's frames can be a File or a blob: URL; Image's references are
+    // already durable Spaces links by the time they are attached.
+    const v = readFileSync(path.resolve(process.cwd(), 'src/pages/Video.jsx'), 'utf8');
+    for (const field of ['startFrame', 'endFrame', 'genericRefs']) {
+      expect(v, `${field} must be filtered`).toMatch(new RegExp(`durableUrls\\(${field}`));
+    }
+  });
+
+  it('Video never persists the File object', () => {
+    // JSON.stringify(new File(...)) is "{}" — storing it would look like a
+    // saved video that silently is not there.
+    const v = readFileSync(path.resolve(process.cwd(), 'src/pages/Video.jsx'), 'utf8');
+    const save = v.slice(v.indexOf("saveDraft('video'"));
+    expect(save.slice(0, save.indexOf('});')), 'editVideoFile must not be in the draft')
+      .not.toMatch(/editVideoFile/);
   });
 });

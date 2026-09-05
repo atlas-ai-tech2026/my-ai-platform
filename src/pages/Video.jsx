@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { base44 } from '@/api/base44Client';
 import { useHistoryFeed, useOnVisible } from '@/lib/history-feed';
 import VideoLeftPanel from '@/components/video/VideoLeftPanel';
@@ -16,6 +16,7 @@ import { prepareImageForFal } from '@/lib/uploadToFal';
 import { readMediaSeconds } from '@/lib/mediaSeconds';
 import { useAuth } from '@/lib/AuthContext';
 import { VOXEL_TOKEN_KEY } from '@/lib/adminApi';
+import { loadDraft, saveDraft, durableUrls } from '@/lib/prompt-draft';
 
 // /api/generate-video and /api/generate-video-ref both go through verifyJwt
 // on the server. The raw fetch calls in this file don't go through the
@@ -33,26 +34,50 @@ const DEFAULT_MODEL = { id: 'kling-3', name: 'Kling 3.0', brand: 'Kling', color:
 
 export default function Video() {
   const { user, isAuthenticated, isLoadingAuth, openAuthModal, refresh: refreshAuth } = useAuth();
-  const [prompt, setPrompt] = useState('');
+  // Same draft store as the Image page. Read ONCE so the initial state is
+  // already right rather than flashing empty and then filling in.
+  const vDraft = useMemo(() => loadDraft('video') || {}, []);
+
+  const [prompt, setPrompt] = useState(vDraft.prompt || '');
   const [isGenerating, setIsGenerating] = useState(false);
   // Synchronous re-entrancy lock — blocks double-click / spam from firing two
   // generations (and two credit charges) before the button disables. Shared by
   // all three generate handlers (generate / motion-control / edit-video).
   const generatingRef = useRef(false);
-  const [count, setCount] = useState(1);
-  const [model, setModel] = useState(DEFAULT_MODEL);
-  const [duration, setDuration] = useState('5s');
-  const [resolution, setResolution] = useState('1080p');
-  const [aspectRatio, setAspectRatio] = useState('16:9');
+  const [count, setCount] = useState(vDraft.count || 1);
+  const [model, setModel] = useState(vDraft.model || DEFAULT_MODEL);
+  const [duration, setDuration] = useState(vDraft.duration || '5s');
+  const [resolution, setResolution] = useState(vDraft.resolution || '1080p');
+  const [aspectRatio, setAspectRatio] = useState(vDraft.aspectRatio || '16:9');
   const [showModelModal, setShowModelModal] = useState(false);
   const [selectedVideo, setSelectedVideo] = useState(null);
-  const [startFrame, setStartFrame] = useState(null);
-  const [endFrame, setEndFrame] = useState(null);
+  // Only a durable http URL is restored — see durableUrls. A blob: URL or a
+  // File would come back broken, and the customer would not know until they
+  // pressed Generate.
+  const [startFrame, setStartFrame] = useState(durableUrls(vDraft.startFrame));
+  const [endFrame, setEndFrame] = useState(durableUrls(vDraft.endFrame));
   // Reference images beyond the frames, for models whose backend pools them
   // (Gemini Omni first — owner, 2026-08-25). Blob-URL strings, same type the
   // frames use, so prepareImageForFal handles both identically.
-  const [genericRefs, setGenericRefs] = useState([]);
-  const [cameraMotion, setCameraMotion] = useState(null); // { id, label } | null — backend-only injection
+  const [genericRefs, setGenericRefs] = useState(durableUrls(vDraft.genericRefs || []));
+  const [cameraMotion, setCameraMotion] = useState(vDraft.cameraMotion ?? null); // { id, label } | null — backend-only injection
+
+  // ☠ SAVE ONLY WHAT SURVIVES. editVideoFile is a File object — JSON.stringify
+  // turns it into {} — and the frames may be blob: URLs that die with the page.
+  // durableUrls keeps the http ones and drops the rest, because restoring a
+  // broken picture is worse than restoring none.
+  useEffect(() => {
+    const t = setTimeout(() => {
+      saveDraft('video', {
+        prompt, model, duration, resolution, aspectRatio, count, cameraMotion,
+        startFrame: durableUrls(startFrame),
+        endFrame: durableUrls(endFrame),
+        genericRefs: durableUrls(genericRefs || []),
+      });
+    }, 600);
+    return () => clearTimeout(t);
+  }, [prompt, model, duration, resolution, aspectRatio, count, cameraMotion,
+      startFrame, endFrame, genericRefs]);
   const pollingRef = useRef({});
 
   // ─── Top-tab nav (Create / Edit / Motion) ───

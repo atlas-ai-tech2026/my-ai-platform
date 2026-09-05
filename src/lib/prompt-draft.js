@@ -58,8 +58,27 @@ const defaultStorage = () => {
 const keyFor = (page) => `${DRAFT_PREFIX}${page}`;
 
 /**
- * Save a draft. Returns { ok } — never throws, and never claims success it
- * did not have.
+ * Keep only the references that will still exist tomorrow.
+ *
+ * ☠ THE IMAGE PAGE COULD SKIP THIS; THE VIDEO PAGE CANNOT. Video's start
+ * frame, end frame and references reach prepareImageForFal as any of: a File,
+ * a Blob, a blob: URL, a data: URI, or an http URL. Only the last one survives
+ * the page being left — a blob: URL dies with the document and comes back as a
+ * broken thumbnail, and a File cannot be serialised at all (JSON.stringify
+ * turns it into {}).
+ *
+ * Restoring a broken picture is worse than restoring nothing: the customer
+ * cannot tell the difference until they press Generate.
+ */
+export function durableUrls(value) {
+  const ok = (u) => typeof u === 'string' && /^https?:\/\//i.test(u);
+  if (Array.isArray(value)) return value.filter(ok);
+  return ok(value) ? value : null;
+}
+
+/**
+ * Save a draft. Returns { ok } — never throws, and never claims success it did
+ * not have.
  */
 export function saveDraft(page, fields, { storage = defaultStorage() } = {}) {
   if (!DRAFT_PAGES.includes(page)) return { ok: false, reason: 'unknown page' };
