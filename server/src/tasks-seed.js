@@ -893,6 +893,39 @@ export const SEED = [
       + '☠ THE WORSE BUG, FOUND WHILE FIXING THE FIRST: CostingTab\'s credit-value field rendered defaultValue as .toFixed(6), so 0.06333333 displayed as "0.063333"; its onBlur compared that against the stored value, found a 3.3e-7 gap over its 1e-12 threshold, and SAVED it. Clicking into that box and clicking out, typing nothing, would have permanently reduced the credit value for the whole platform. Both databases were verified as still holding the full value, so it never fired. Look for other fields that round-trip a stored number through a shorter display format. '
       + 'Shipped to production as 004fa9c.' },
 
+  // ── THE FOUR AMR DESCRIBED ON 2026-09-05 ──────────────────────────────────
+  { ref: '112', owner: 'claude', status: 'in_progress', priority: 2,
+    title: 'Reference images were dropped without a word — and failed uploads said nothing at all',
+    why: 'Amr, 2026-09-05: "When I try to upload many reference images in the prompt bar there is an error and the images are not sent."',
+    detail: 'TWO SILENCES, both now fixed on production (0b13868). '
+      + '(1) ImagePromptBar caught every upload failure as `catch { remove the thumbnail }` — no message, no log. A rejected file type, a network blip and a file too large all looked identical: the picture simply disappeared, and the reason died in that catch. It now names the file and the reason. '
+      + '(2) buildKieImageInput silently sliced the reference array to whatever each model takes: Flux Kontext / Kontext Max and Midjourney use imageUrls[0] (3 of 4 dropped); the five FAL models take one imgParam; and Imagen 4, Flux 2 and Seedream 4.5 send NO image field at all, so every reference was ignored while the credits were still spent. server/src/reference-limits.js is now the single answer to "how many does this model take" and the route REFUSES with a plain sentence before charging. '
+      + '☠ MY FIRST VERSION PUT THAT REFUSAL AFTER chargeCredits — credits gone, then refused. A test now fails if it ever moves after the charge again. '
+      + 'STILL OPEN, WHICH IS WHY THIS IS NOT DONE: the specific failure Amr saw was never reproduced. His test on 2026-09-05 SUCCEEDED — four references on Nano Banana Pro, both images delivered. If the failure was Flux Kontext or Midjourney this is the fix; if another model, the model name is still needed. Ask before closing.' },
+
+  { ref: '113', owner: 'claude', status: 'pending', priority: 12,
+    title: 'Drag and drop into the prompt boxes — images, video, audio, node',
+    why: 'Amr, 2026-09-05: "I need it on the prompt box of the images and videos and audios and node — the same one you use on Edit Cut, but on production."',
+    detail: 'MEASURED 2026-09-05. Real drop handlers exist in only three places: the Edit Cut screens (dev only), voxel-node/Canvas.jsx (one file at a time) and admin/ProjectsTab.jsx. The generation surfaces have none: ImagePromptBar (1 upload input), VideoLeftPanel (2), VideoMotionControlLeftPanel (2), VideoEditOmniLeftPanel (4), SeedanceRightPanel (1), NodePanel (1). '
+      + 'BUILD: extract ONE shared DropZone from edit/UploadsPanel.jsx — it already has the right shape (highlight while dragging, several files at once, click-to-browse fallback, disabled state). Edit Cut stays on dev; the component is generic and ships on its own. Wrap it round each upload area above, and replace the Node canvas one-file handler so several files become several nodes. On Images it must honour the model reference limit from #112, or it becomes a second way to feed images into a path that refuses them. '
+      + '⚠️ AUDIO NEEDS A DECISION FIRST, NOT A DROP ZONE. LipsyncTab, VoiceCloneTab and MusicSyncTab render "Upload Video / Upload Audio / Choose Video" boxes with dashed borders and upload icons — and none of them does anything: no file input, no handler, no request. The only audio routes that exist are /api/tts and /api/tts/preview. There is nothing to drop onto. Ask Amr whether to build those three or hide them; a button that looks real and does nothing is what this project keeps finding.' },
+
+  { ref: '114', owner: 'claude', status: 'pending', priority: 11,
+    title: 'The prompt and its reference images vanish when you switch to another page',
+    why: 'Amr, 2026-09-05: "I write the prompt and upload pictures, then I click Video to do something, and when I come back to Images the prompt and the images are gone. I need it kept as long as I am logged in."',
+    detail: 'CONFIRMED IN CODE 2026-09-05: Image and Video are separate routes, leaving the page unmounts it, and nothing persists the draft — no localStorage or sessionStorage anywhere in Image.jsx, Video.jsx, ImagePromptBar.jsx or VideoLeftPanel.jsx. Not a bug in the code; an absence. '
+      + 'BUILD: a per-page draft store holding the prompt, the settings and the reference URLs. The references are durable Spaces links by the time they are attached, so they survive a reload rather than needing re-upload. Kept while signed in, CLEARED ON LOGOUT — a shared computer at a workshop must not show the next person the last one\'s prompt. Survives switching pages and a full refresh. '
+      + 'Do it WITH or AFTER #112: it touches the same screen and the same reference list.' },
+
+  { ref: '115', owner: 'claude', status: 'pending', priority: 10,
+    title: 'Adding a model from kie should be a checklist, not thirteen files',
+    why: 'Amr, 2026-09-05: "When you find a new model you tell me, and you ask me the size, the aspect ratio, the quality, the number of generations, negative prompt or not, style, then camera. When I answer, you integrate it from kie. You can read the page of the same model from kie."',
+    detail: 'TODAY a new model touches 13 files: server/src/index.js (MODEL_CONFIG + buildKieImageInput), fal-pricing.js, fal-catalog.js, kie-pricing.js, costing-coverage.js, costing-seed.js, pricing.js, ImagePromptBar.jsx, ModelDropdown.jsx, nodeRegistry.js, ModelPicker.jsx, creditPricing.js, Image.jsx. That is why it is slow. '
+      + 'BUILD A MODEL REGISTRY: each model\'s facts as DATA, not code in thirteen places — aspect ratios, quality tiers, output count, negative prompt yes/no, style, camera, HOW MANY REFERENCES IT ACCEPTS (#112\'s limits belong here permanently), and the price. Picker and server both read it. '
+      + 'THE INTAKE, as Amr described it: (1) he names a model; (2) I read its kie page — verified 2026-09-05 that kie.ai/<model> returns 200 and the catalogue API POST api.kie.ai/api/v1/playground/pagePlaygroundGroup lists all 104 groups with taskType and path; (3) I fill the checklist and ask him ratio / quality / count / negative prompt / style / camera, and for video length, ratio, audio, references; (4) price it at the 40% margin against kie\'s cost — EVERY price needs his explicit yes; (5) dev, one real generation, his confirmation, then production. '
+      + '⚠️ HONESTY: "click Add in the control panel and it lands on dev" cannot be a button. A new model changes billing, so it will always be code plus a dev deploy plus his approval. The registry makes that an afternoon instead of a week. It is a checklist, not a button. '
+      + 'Pairs with #40 (the supplier costs spreadsheet): pricing is part of the intake, so that sheet is wanted before this is built.' },
+
 ];
 
 /**
