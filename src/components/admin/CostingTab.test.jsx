@@ -24,6 +24,7 @@ const api = vi.hoisted(() => ({
   costingApprove: vi.fn(),
   costingDiscard: vi.fn(),
   costingDismissCatalog: vi.fn(),
+  costingCatalogDecision: vi.fn(),
 }));
 
 vi.mock('@/lib/adminApi', () => ({ adminApi: api }));
@@ -330,14 +331,42 @@ describe('New Models', () => {
     expect(screen.getByText(/kie\.ai publishes no catalogue API/i)).toBeInTheDocument();
   });
 
-  it('hides a model on request and takes the refreshed state from the server', async () => {
+  // ☠ HIDE BECAME REMOVE, one of three decisions Amr asked for on 2026-09-05:
+  // "if it is necessary I add it, if not I remove it, or say keep it pending,
+  // hold, not now." Remove still sets the same `dismissed` flag underneath, so
+  // everything he had already hidden keeps its state — the button changed, the
+  // meaning did not.
+  it('removes a model on request and takes the refreshed state from the server', async () => {
     const after = { ...STATE, catalog: [STATE.catalog[0]] };
-    api.costingDismissCatalog.mockResolvedValue(after);
+    api.costingCatalogDecision.mockResolvedValue(after);
     const user = await openTab();
     await user.click(within((await screen.findByText('Qwen Image 3')).closest('tr'))
-      .getByRole('button', { name: /hide/i }));
-    await waitFor(() => expect(api.costingDismissCatalog).toHaveBeenCalledWith(2, true));
+      .getByRole('button', { name: /^remove$/i }));
+    await waitFor(() => expect(api.costingCatalogDecision).toHaveBeenCalledWith(2, 'remove'));
     await waitFor(() => expect(screen.queryByText('Qwen Image 3')).toBeNull());
+  });
+
+  it('offers all three decisions, and holding is not removing', async () => {
+    api.costingCatalogDecision.mockResolvedValue(STATE);
+    const user = await openTab();
+    const row = within((await screen.findByText('Qwen Image 3')).closest('tr'));
+    for (const label of [/^add$/i, /^hold$/i, /^remove$/i]) {
+      expect(row.getByRole('button', { name: label })).toBeTruthy();
+    }
+    await user.click(row.getByRole('button', { name: /^hold$/i }));
+    expect(api.costingCatalogDecision).toHaveBeenCalledWith(2, 'hold');
+  });
+
+  it('clicking the current decision again clears it back to undecided', async () => {
+    // Undecided is a real state, not an absence — an unjudged row hidden among
+    // decided ones is how a queue rots.
+    const held = { ...STATE, catalog: STATE.catalog.map((c) => ({ ...c, decision: 'hold' })) };
+    api.costingState.mockResolvedValue(held);
+    api.costingCatalogDecision.mockResolvedValue(held);
+    const user = await openTab();
+    const row = within((await screen.findByText('Qwen Image 3')).closest('tr'));
+    await user.click(row.getByRole('button', { name: /^hold$/i }));
+    expect(api.costingCatalogDecision).toHaveBeenCalledWith(2, null);
   });
 
   it('survives a server that returns no catalog field at all', async () => {

@@ -105,6 +105,17 @@ export default function CostingTab({ onError }) {
     });
   }, [state]);
 
+  // Add / Hold / Remove on a discovered model. Passing null clears the
+  // decision and returns the row to "not decided yet", which is a real state
+  // here rather than an absence.
+  const decideCatalog = useCallback(async (id, decision) => {
+    setBusy(true);
+    try {
+      setState(await adminApi.costingCatalogDecision(id, decision));
+    } catch (e) { onError?.(e, 'Could not save that decision'); }
+    finally { setBusy(false); }
+  }, [onError]);
+
   const dismissCatalog = useCallback(async (id, dismissed) => {
     setBusy(true);
     try {
@@ -251,7 +262,7 @@ export default function CostingTab({ onError }) {
 
       {tab === 'new' && (
         <NewModels rows={state.catalog || []} busy={busy}
-          onDismiss={dismissCatalog} settings={S}
+          onDismiss={dismissCatalog} onDecide={decideCatalog} settings={S}
           onError={onError} onRefresh={load} />
       )}
 
@@ -518,7 +529,50 @@ const VIOLET = 'var(--crm-violet)';
 const VIOLET_BG = 'var(--crm-violet-bg)';
 const VIOLET_LINE = 'var(--crm-violet-br)';
 
-function NewModels({ rows, busy, onDismiss, settings, onError, onRefresh }) {
+/**
+ * Add · Hold · Remove, with the current choice shown as chosen.
+ *
+ * A held row carries the DATE it was held, because a hold with no date quietly
+ * becomes forever — which is how 32 of 82 models ended up in limbo, nobody able
+ * to tell the retired ones from the merely unpriced.
+ */
+function DecisionButtons({ row, busy, onDecide }) {
+  const opts = [
+    ['add', 'Add', 'var(--crm-green)'],
+    ['hold', 'Hold', 'var(--crm-orange)'],
+    ['remove', 'Remove', 'var(--crm-w60)'],
+  ];
+  return (
+    <span style={{ display: 'inline-flex', gap: 4, alignItems: 'center' }}>
+      {opts.map(([value, label, colour]) => {
+        const on = row.decision === value;
+        return (
+          <button
+            key={value}
+            disabled={busy}
+            title={on ? `Currently ${label.toLowerCase()} — click again to undo` : label}
+            onClick={() => onDecide(row.id, on ? null : value)}
+            style={{
+              border: `1px solid ${on ? colour : 'var(--crm-w14)'}`,
+              background: on ? 'var(--crm-w06)' : 'none',
+              color: on ? colour : 'var(--crm-w60)',
+              borderRadius: 7, padding: '4px 9px', fontSize: 11.5,
+              fontWeight: on ? 700 : 400,
+              cursor: busy ? 'wait' : 'pointer', fontFamily: 'inherit',
+            }}
+          >{label}</button>
+        );
+      })}
+      {row.decision === 'hold' && row.decided_at && (
+        <span style={{ fontSize: 11, color: 'var(--crm-w40)' }}>
+          since {String(row.decided_at).slice(0, 10)}
+        </span>
+      )}
+    </span>
+  );
+}
+
+function NewModels({ rows, busy, onDismiss, onDecide, settings, onError, onRefresh }) {
   const [showDismissed, setShowDismissed] = useState(false);
   const priced = rows.filter((r) => r.price_usd != null);
 
@@ -610,12 +664,15 @@ function NewModels({ rows, busy, onDismiss, settings, onError, onRefresh }) {
                     <td style={{ ...td, textAlign: 'left' }}>
                       {r.first_seen ? String(r.first_seen).slice(0, 10) : '—'}
                     </td>
-                    <td style={td}>
-                      <button disabled={busy} onClick={() => onDismiss(r.id, true)} style={{
-                        border: '1px solid var(--crm-w14)', background: 'none',
-                        color: 'var(--crm-w60)', borderRadius: 7, padding: '4px 10px',
-                        fontSize: 11.5, cursor: busy ? 'wait' : 'pointer', fontFamily: 'inherit',
-                      }}>Hide</button>
+                    <td style={{ ...td, whiteSpace: 'nowrap' }}>
+                      {/* ☠ THREE DECISIONS, AND "NOT DECIDED" IS ONE OF THEM.
+                          Amr, 2026-09-05: "If it is necessary I add it, if not I
+                          remove it, or say keep it pending, hold, not now — I can
+                          return back to add it if I need to."
+                          The old Hide is now Remove; everything already hidden
+                          keeps its state, because remove sets the same
+                          `dismissed` flag it always did. */}
+                      <DecisionButtons row={r} busy={busy} onDecide={onDecide} />
                     </td>
                   </tr>
                 );

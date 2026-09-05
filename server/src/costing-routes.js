@@ -181,6 +181,54 @@ export function registerCostingRoutes(app, deps) {
     }
   });
 
+  // ── the owner's decision on a catalogue row ───────────────────────
+  // Amr, 2026-09-05: "You will give me all models. If it is necessary I add it,
+  // if not I remove it, or say keep it pending, hold, not now — I can return
+  // back to add it if I need to."
+  //
+  // Three states plus "not decided yet", which is deliberately its own state:
+  // an unjudged row hidden among decided ones is how a queue rots, and that is
+  // exactly what happened to the supplier costs.
+  //
+  // `remove` also sets the old `dismissed` boolean, so everything he hid before
+  // this existed keeps behaving the same and the Hide button he already knows
+  // keeps working. Build before you delete.
+  app.post('/api/costing/catalog/:id/decision', adminGate, async (req, res) => {
+    if (!dbReady()) return res.status(503).json({ error: 'Database not configured.' });
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isInteger(id)) return res.status(400).json({ error: 'Bad id.' });
+    const raw = req.body?.decision;
+    const decision = raw === null || raw === '' ? null : String(raw);
+    if (decision !== null && !['add', 'remove', 'hold'].includes(decision)) {
+      return res.status(400).json({ error: 'Decision must be add, remove, hold, or empty to clear it.' });
+    }
+    const note = String(req.body?.note || '').slice(0, 500) || null;
+    try {
+      const { rows } = await pool.query(
+        `UPDATE pricing_catalog_models
+            SET decision = $2,
+                decided_at = CASE WHEN $2::text IS NULL THEN NULL ELSE NOW() END,
+                decision_note = $3,
+                dismissed = ($2::text = 'remove'),
+                dismissed_at = CASE WHEN $2::text = 'remove' THEN NOW() ELSE NULL END
+          WHERE id = $1 RETURNING family`,
+        [id, decision, note],
+      );
+      if (!rows.length) return res.status(404).json({ error: 'Not found.' });
+      await pool.query(
+        `INSERT INTO pricing_audit_log (entity, entity_id, field, new_value, changed_by, note)
+         VALUES ('catalog', $1, 'decision', $2, $3, $4)`,
+        [id, decision || 'cleared', req.user?.email || 'admin', rows[0].family],
+      ).catch(() => {});
+      const state = decorate(await loadState());
+      state.catalog = await loadCatalog();
+      res.json(state);
+    } catch (e) {
+      console.error('[costing/catalog/decision]', e);
+      res.status(500).json({ error: 'Could not save that decision.' });
+    }
+  });
+
   // ── provider catalogue: dismiss / restore ─────────────────────────
   // Name matching between fal's catalogue and our labels cannot be exact, so
   // the owner needs a way to say "we already have this" permanently. Dismissal

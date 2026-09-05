@@ -190,6 +190,11 @@ export const adminApi = {
   // "New models": what a provider offers that the website does not sell yet.
   costingDismissCatalog: (id, dismissed = true) =>
     request('POST', `/api/costing/catalog/${id}/dismiss`, { dismissed }),
+
+  // add / remove / hold on a discovered model. `remove` also sets the old
+  // dismissed flag, so the Hide behaviour he already knows keeps working.
+  costingCatalogDecision: (id, decision, note) =>
+    request('POST', `/api/costing/catalog/${id}/decision`, { decision, note }),
   costingSaveDraft:(plans)       => request('PUT',    '/api/costing/plans/draft', { plans }),
   costingApprove:  ()            => request('POST',   '/api/costing/plans/approve'),
   // Run the supplier sweep now rather than waiting for midnight.

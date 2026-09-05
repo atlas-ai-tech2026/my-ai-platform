@@ -449,7 +449,27 @@ export async function migrate() {
     `);
     await client.query(`
       CREATE UNIQUE INDEX IF NOT EXISTS pricing_catalog_identity_idx
-        ON pricing_catalog_models (provider, family);
+        ON pricing_catalog_models (provider, family);`);
+    // ── THE OWNER'S DECISION, AND MINE, KEPT APART (2026-09-05) ───────────
+    // Amr: "You will give me all models. If it is necessary I add it, if not I
+    // remove it, or say keep it pending, hold, not now."
+    //
+    // `dismissed` already existed as a boolean and STAYS — everything he has
+    // already hidden keeps working, and `remove` simply sets it. Build before
+    // you delete applies to columns.
+    //
+    // ☠ read_state IS MINE AND decision IS HIS. They must never be one column.
+    // A model I could not read must never appear as ready for him to add —
+    // "I cannot read this, not confirmed from my side" is a state, not an
+    // error to hide.
+    await client.query(`ALTER TABLE pricing_catalog_models
+      ADD COLUMN IF NOT EXISTS decision      VARCHAR(10),
+      ADD COLUMN IF NOT EXISTS decided_at    TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS decision_note TEXT,
+      ADD COLUMN IF NOT EXISTS read_state    VARCHAR(16),
+      ADD COLUMN IF NOT EXISTS read_note     TEXT,
+      ADD COLUMN IF NOT EXISTS family_shape  VARCHAR(24),
+      ADD COLUMN IF NOT EXISTS kie_path      VARCHAR(120);
     `);
 
     // ─── SUPPLIER PRICE CHANGES (2026-08-16) ──────────────────────────
