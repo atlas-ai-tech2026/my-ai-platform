@@ -934,7 +934,10 @@ export const SEED = [
       + '── TWO LIMITS THAT MUST BE VISIBLE ON THE ROW ── '
       + 'A) "Add lands it on dev" is only true when the model fits a request shape Voxel already speaks. There are exactly four: jobs, flux, mj, gpt4o. A model in one of those is a REGISTRY ROW and the button genuinely works with no code. A model with a new shape NEEDS CODE, and the row must say "needs code, not just a row" BEFORE he clicks. '
       + 'B) I do not run between his messages. A data-only model lands when he clicks; one needing code records the decision and waits for a session. No button may imply work happens while he is away — that promise was broken once already, see feedback-never-promise-work-while-away. '
-      + 'C) EVERY PRICE STILL NEEDS HIS EXPLICIT YES. Add and Confirm are about the model working; the 40% margin figure is money and stays a separate approval.' },
+      + 'C) EVERY PRICE STILL NEEDS HIS EXPLICIT YES. Add and Confirm are about the model working; the 40% margin figure is money and stays a separate approval. '
+      + '── PRICING, AS HE SPECIFIED IT 2026-09-05 ── kie prices a model differently by RESOLUTION (1K / 2K / 4K), by ratio and by number of generations, so a single number is the wrong shape. The registry therefore holds the price STRUCTURE — a credit cost per tier — and the row carries, for each tier: kie\'s actual cost, and a SUGGESTED price at the 40% margin. '
+      + '☠ THE FINAL NUMBER IS A FIELD HE SETS ON THAT PAGE, NEVER ONE I WRITE INTO CODE. His words: "you can keep the credit amount and the credit number, and I will decide it on this page." I gather; he decides. Then dev, his test, production, and the model becomes available to customers on voxel-ai.ai. '
+      + 'This is the same rule as [[project-pricing-margin-rule]] — no existing price changes without his approval — extended to new ones.' },
 
 ];
 

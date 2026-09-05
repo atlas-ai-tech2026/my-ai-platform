@@ -1,5 +1,6 @@
 import React, { createContext, useState, useContext, useEffect, useCallback, useRef } from 'react';
 import { VOXEL_TOKEN_KEY } from '@/lib/adminApi';
+import { clearDrafts } from './prompt-draft.js';
 
 // Single source of truth for the public site's auth state.
 //
@@ -161,6 +162,10 @@ export const AuthProvider = ({ children }) => {
     // account's history from being served to the next person who signs in on
     // this browser.
     localStorage.removeItem('voxel_GenerationHistory');
+    // ☠ AND THE UNSENT DRAFTS. A workshop laptop is shared: without this the
+    // next person to sign in finds the last person's prompt — and the
+    // photographs they uploaded as references — sitting in the box.
+    clearDrafts();
     setUser(null);
   }, []);
 

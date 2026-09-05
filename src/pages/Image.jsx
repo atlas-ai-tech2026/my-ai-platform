@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { base44 } from '@/api/base44Client';
 import { useHistoryFeed, useOnVisible } from '@/lib/history-feed';
 const History_ = base44.entities.GenerationHistory;
@@ -31,6 +31,7 @@ import ImageDetailModal from '@/components/image/ImageDetailModal';
 import { History, Globe, Heart, Download, RefreshCw, Maximize2, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '@/lib/AuthContext';
+import { loadDraft, saveDraft } from '@/lib/prompt-draft';
 
 const MODEL_SUBTITLES = {
   'Nano Banana Pro': 'Create stunning, high-aesthetic images in seconds',
@@ -288,8 +289,18 @@ function ImageCard({ img, index, onExpand, onLoaded, isFirst = false, modelBadge
 
 export default function Image() {
   const { user, isAuthenticated, isLoadingAuth, openAuthModal, refresh: refreshAuth } = useAuth();
-  const [selectedModel, setSelectedModel] = useState({ id: 'nano-pro', name: 'Nano Banana Pro' });
-  const [prompt, setPrompt] = useState('');
+  // ☠ WHAT WAS TYPED SURVIVES LEAVING THE PAGE.
+  // Amr, 2026-09-05: "I write the prompt and upload pictures, then I click
+  // Video, and when I come back the prompt and the images are gone."
+  // Image and Video are separate routes, so leaving unmounts this component
+  // and everything below was lost. The draft is read ONCE, here, so the
+  // initial state is already right rather than flashing empty and then
+  // filling in.
+  const draft = useMemo(() => loadDraft('image') || {}, []);
+
+  const [selectedModel, setSelectedModel] = useState(
+    draft.selectedModel || { id: 'nano-pro', name: 'Nano Banana Pro' });
+  const [prompt, setPrompt] = useState(draft.prompt || '');
   // Number of images currently being generated across ALL in-flight batches.
   // A counter (not a boolean lock) lets the user fire several generations
   // back-to-back without the button locking — each batch charges credits
@@ -323,11 +334,26 @@ export default function Image() {
   const [detailImage, setDetailImage] = useState(null);
   const [selectedTemplate, setSelectedTemplate] = useState(null);
   const [activeTab, setActiveTab] = useState('history');
-  const [aspectRatio, setAspectRatio] = useState('16:9');
-  const [style, setStyle] = useState(null);
-  const [quality, setQuality] = useState('2K');
-  const [imageUrls, setImageUrls] = useState([]);  // ready uploaded URLs
-  const [negativePrompt, setNegativePrompt] = useState('');
+  const [aspectRatio, setAspectRatio] = useState(draft.aspectRatio || '16:9');
+  const [style, setStyle] = useState(draft.style ?? null);
+  const [quality, setQuality] = useState(draft.quality || '2K');
+  // Durable Spaces URLs by the time they are attached, so they survive a
+  // reload — a blob: URL would come back as a broken thumbnail.
+  const [imageUrls, setImageUrls] = useState(draft.imageUrls || []);
+  const [negativePrompt, setNegativePrompt] = useState(draft.negativePrompt || '');
+
+  // ☠ AND THE SAVE HALF. Debounced, because a prompt is typed a character at a
+  // time and serialising on every keystroke would write hundreds of times a
+  // minute. 600ms is long enough that a sentence is one write and short enough
+  // that nothing worth having is lost when the page is left.
+  useEffect(() => {
+    const t = setTimeout(() => {
+      saveDraft('image', {
+        prompt, imageUrls, selectedModel, aspectRatio, quality, style, negativePrompt,
+      });
+    }, 600);
+    return () => clearTimeout(t);
+  }, [prompt, imageUrls, selectedModel, aspectRatio, quality, style, negativePrompt]);
   const [cameraSelection, setCameraSelection] = useState({ camera: null, focalLength: null, lens: null, fstop: null });
 
   // Pre-fill prompt from URL params (e.g. from Discover page)
