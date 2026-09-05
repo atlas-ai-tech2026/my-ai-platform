@@ -937,7 +937,15 @@ export const SEED = [
       + 'C) EVERY PRICE STILL NEEDS HIS EXPLICIT YES. Add and Confirm are about the model working; the 40% margin figure is money and stays a separate approval. '
       + '── PRICING, AS HE SPECIFIED IT 2026-09-05 ── kie prices a model differently by RESOLUTION (1K / 2K / 4K), by ratio and by number of generations, so a single number is the wrong shape. The registry therefore holds the price STRUCTURE — a credit cost per tier — and the row carries, for each tier: kie\'s actual cost, and a SUGGESTED price at the 40% margin. '
       + '☠ THE FINAL NUMBER IS A FIELD HE SETS ON THAT PAGE, NEVER ONE I WRITE INTO CODE. His words: "you can keep the credit amount and the credit number, and I will decide it on this page." I gather; he decides. Then dev, his test, production, and the model becomes available to customers on voxel-ai.ai. '
-      + 'This is the same rule as [[project-pricing-margin-rule]] — no existing price changes without his approval — extended to new ones.' },
+      + 'This is the same rule as [[project-pricing-margin-rule]] — no existing price changes without his approval — extended to new ones. '
+      + '── IT IS A WIZARD, IN HIS STEPS, 2026-09-05 ── A NEW TAB under MONEY called Models, not a section of Costing: Costing answers "are we making 40% on what exists", this answers "something new arrived, read it, decide, add it". A queue buried in a report is a queue nobody checks — which is how 32 of 53 models ended up with no cost recorded (#40). The two stay joined at the price: the number he sets here is the same pricing_settings and the same 40% rule Costing reports on. '
+      + 'STEP 0 — the tab lists EVERY model kie offers, with what Voxel already has marked. He clicks one. '
+      + 'STEP 1 — I say plainly whether I read kie\'s API document COMPLETELY and understood it, or could not. If I could not, the wizard STOPS there: "I cannot read this — not confirmed from my side." No Next button. His requirement and the right one. '
+      + 'STEP 2 — he presses NEXT and I do the integration work. '
+      + 'STEP 3 — it lands on dev and he TESTS it there. '
+      + 'STEP 4 — only then do I ask the costing questions: kie\'s cost per resolution tier, the suggested price at 40%, and he sets the credit amount and the number. Costing comes AFTER the model is proven to work, not before — his ordering, and it is the right way round: there is no point pricing something that does not run. '
+      + 'STEP 5 — NEXT → production. STEP 6 — he tests production. STEP 7 — done, and the model is live for customers on voxel-ai.ai. '
+      + 'Each row carries its state so nothing is ambiguous: not read · read and understood · CANNOT READ · needs code not just a row · on dev awaiting his test · priced · live.' },
 
 ];
 
