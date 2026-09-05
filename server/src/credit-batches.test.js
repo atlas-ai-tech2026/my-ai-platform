@@ -494,3 +494,70 @@ describe('excluded batches', () => {
     expect({ ...on, excluded: false }).toEqual(off);
   });
 });
+
+// ─── A PROMO ROW IS DATED BY THE DAY THE CODE WAS GENERATED ─────────────────
+// Amr, 2026-09-05: "I attach for you the whole promo code created day. You can
+// put it on the same place of the promo code."
+//
+// The ledger only knows when people REDEEMED. That is a fact about the
+// attendees' afternoon, not about the workshop he bills for — VOXEL-VPW9-DY93
+// was generated on 3 September and its Promo Codes row says 9/3/2026, so that
+// is the invoice date whether the first person used it that night or the next.
+describe('promo batches are dated by the code, not the redemption', () => {
+  const redeemed = (code, iso, user_id) => ({
+    amount: 158, reason: `promo: ${code}`, source: 'promo', user_id, created_at: new Date(iso),
+  });
+  const describe_ = { 'VOXEL-VPW9-DY93': 'SPA News Academy 5th 4th' };
+  const issued = { 'VOXEL-VPW9-DY93': new Date('2026-09-03T12:00:00Z') };
+
+  it('uses the code creation day even when redemption came later', () => {
+    const [b] = groupBatches([redeemed('VOXEL-VPW9-DY93', '2026-09-04T22:00:00Z', 1)],
+      { describe: describe_, issued });
+    expect(b.date).toBe('2026-09-03');
+    expect(b.first_used).toBe('2026-09-04');
+  });
+
+  it('keeps the redemption day rather than overwriting it', () => {
+    // The audit trail is the reason this is safe: nothing is lost, it is just
+    // not the number on the invoice.
+    const [b] = groupBatches([
+      redeemed('VOXEL-VPW9-DY93', '2026-09-04T09:00:00Z', 1),
+      redeemed('VOXEL-VPW9-DY93', '2026-09-06T09:00:00Z', 2),
+    ], { describe: describe_, issued });
+    expect(b.date).toBe('2026-09-03');
+    expect(b.first_used).toBe('2026-09-04');
+    expect(b.date_to).toBe('2026-09-06');
+    expect(b.issued).toMatch(/^2026-09-03T/);
+  });
+
+  it('leaves grants and bulk on their first ledger day', () => {
+    // For a hand-typed grant the ledger entry IS the moment it was generated,
+    // which is the date Amr gave for spa 4: 20 August.
+    const [b] = groupBatches(
+      [{ amount: 395, reason: 'spa 4', user_id: 1, created_at: new Date('2026-08-20T20:00:00Z') }],
+      { describe: describe_, issued });
+    expect(b.date).toBe('2026-08-20');
+    expect(b.issued).toBe(null);
+  });
+
+  it('falls back to the first ledger day for a code with no creation date', () => {
+    const [b] = groupBatches([redeemed('VOXEL-GONE-0000', '2026-09-04T09:00:00Z', 1)], { issued });
+    expect(b.date).toBe('2026-09-04');
+    expect(b.issued).toBe(null);
+  });
+
+  it('orders the table by the date it shows, not by a hidden one', () => {
+    // A column ordered by a number it does not display looks unsorted.
+    const out = groupBatches([
+      redeemed('VOXEL-VPW9-DY93', '2026-09-10T09:00:00Z', 1),  // made 3 Sep, used 10 Sep
+      { amount: 50, reason: 'later grant', user_id: 2, created_at: new Date('2026-09-05T09:00:00Z') },
+    ], { describe: describe_, issued });
+    expect(out.map((b) => b.date)).toEqual(['2026-09-05', '2026-09-03']);
+  });
+
+  it('matches the code case-insensitively', () => {
+    const [b] = groupBatches([redeemed('voxel-vpw9-dy93', '2026-09-09T09:00:00Z', 1)],
+      { describe: describe_, issued });
+    expect(b.date).toBe('2026-09-03');
+  });
+});

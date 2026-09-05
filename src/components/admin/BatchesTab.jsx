@@ -30,6 +30,22 @@ import InfoDot from './InfoDot';
 const num = (n) => Number(n || 0).toLocaleString('en-US', { maximumFractionDigits: 2 });
 const money = (u) => '$' + Number(u || 0).toLocaleString('en-US',
   { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+// What the date column does NOT show, for anyone who wants it.
+//
+// A promo row is dated by the day the CODE was generated — the date Amr
+// invoices on — so the day people actually redeemed is a different fact and is
+// kept here rather than thrown away. Everything else is dated by its first
+// ledger day, and only says anything when a batch spanned more than one.
+const dateNote = (b) => {
+  const parts = [];
+  if (b.issued) {
+    parts.push(`Code generated ${dayText(b.date)}`);
+    if (b.first_used && b.first_used !== b.date) parts.push(`first redeemed ${dayText(b.first_used)}`);
+  }
+  if (b.days > 1) parts.push(`handed out over ${b.days} days, to ${dayText(b.date_to)}`);
+  return parts.length ? `${parts.join(' · ')}.` : '';
+};
+
 const dayText = (d) => (d ? new Date(d + 'T00:00:00').toLocaleDateString(undefined,
   { day: '2-digit', month: 'short', year: 'numeric' }) : '—');
 
@@ -334,9 +350,9 @@ export default function BatchesTab({ onError }) {
                     batch a two-line cell. The span is not thrown away — it is
                     on hover, the same place the spellings went. */}
                 <td style={{ ...td, whiteSpace: 'nowrap', color: 'var(--crm-w60)' }}>
-                  {b.days > 1 ? (
+                  {dateNote(b) ? (
                     <span
-                      title={`Handed out over ${b.days} days, ${dayText(b.date)} to ${dayText(b.date_to)} — one session.`}
+                      title={dateNote(b)}
                       style={{ cursor: 'help', borderBottom: '1px dotted var(--crm-w20)' }}
                     >
                       {dayText(b.date)}

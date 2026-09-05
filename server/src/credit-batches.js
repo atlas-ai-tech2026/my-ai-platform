@@ -133,7 +133,19 @@ const ms = (v) => {
  * invoice — and mixing the two makes a total that means neither thing.
  */
 export function groupBatches(rows = [],
-  { creditValueUsd = 0.063333, describe = {}, excluded = [] } = {}) {
+  { creditValueUsd = 0.063333, describe = {}, issued = {}, excluded = [] } = {}) {
+  // ☠ A PROMO BATCH IS DATED BY THE DAY THE CODE WAS GENERATED.
+  // Amr, 2026-09-05: "I attach for you the whole promo code created day. You
+  // can put it on the same place of the promo code."
+  // The ledger only knows when people REDEEMED, which is a fact about the
+  // attendees' afternoon, not about the workshop he bills for. A code made on
+  // 3 September and first used on the 4th is a 3 September line.
+  //
+  // Everything else keeps its first ledger day, because for a grant or a bulk
+  // run the ledger entry IS the moment it was generated.
+  const issuedOn = new Map(
+    Object.entries(issued || {}).map(([code, at]) => [String(code).toUpperCase(), at]),
+  );
   // Batches the owner has marked as not billable — test grants, mostly. The
   // rows stay visible and stay in the ledger; they are struck out and left
   // out of the money.
@@ -193,10 +205,19 @@ export function groupBatches(rows = [],
     // would be worse than the repetition it replaces.
     const described_name = b.code ? described.get(String(b.code).toUpperCase()) : null;
     const name = String(described_name || '').trim() || spelt;
+    const madeOn = b.code ? issuedOn.get(String(b.code).toUpperCase()) : null;
+    // The date the row is dated by, and the date it sorts by — the same one,
+    // so the column you read is the column the table is ordered on.
+    const shown = day(madeOn) || day(b.first);
     return {
       key: b.key, type: b.type, name, code: b.code,
       excluded: isExcluded.has(b.key),
-      date: day(b.first), date_to: day(b.last),
+      date: shown, date_to: day(b.last),
+      // When the code itself was generated, or null for anything without
+      // a code. Kept separate from the ledger dates so the hover can show
+      // both without either one pretending to be the other.
+      issued: madeOn ? new Date(ms(madeOn)).toISOString() : null,
+      first_used: day(b.first),
       // Sent as ISO strings so the browser formats them in the owner's own
       // timezone — the same way Manual Credits does, so the two screens agree.
       first: new Date(ms(b.first)).toISOString(), last: new Date(ms(b.last)).toISOString(),
@@ -210,7 +231,10 @@ export function groupBatches(rows = [],
       spellings: b.spellings.size,
       spelt: [...b.spellings.keys()],
     };
-  }).sort((a, b) => ms(b.last) - ms(a.last));
+  }).sort((a, b) =>
+    // Ordered by the date on screen, then by the most recent activity so two
+    // codes generated the same day have a stable order.
+    (ms(`${b.date}T00:00:00Z`) - ms(`${a.date}T00:00:00Z`)) || (ms(b.last) - ms(a.last)));
 }
 
 /** Totals for whatever is on screen — the figure that goes on the invoice. */

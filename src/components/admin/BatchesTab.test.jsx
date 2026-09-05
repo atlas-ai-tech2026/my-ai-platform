@@ -30,14 +30,16 @@ const BATCHES = [
   {
     key: 'Promo code|voxel-vpw9-dy93', type: 'Promo code',
     name: 'SPA News Academy 5th 4th', code: 'VOXEL-VPW9-DY93',
-    date: '2026-09-03', date_to: '2026-09-03', days: 1,
-    first: '2026-09-03T09:00:00.000Z', last: '2026-09-03T09:00:00.000Z',
+    date: '2026-09-03', date_to: '2026-09-04', days: 2,
+    first: '2026-09-03T21:00:00.000Z', last: '2026-09-04T09:00:00.000Z',
+    issued: '2026-09-03T12:00:00.000Z', first_used: '2026-09-03',
     accounts: 60, credits: 9480, usd: 600.4, entries: 60, spellings: 1, spelt: [],
   },
   {
     key: 'Manual grant|spa 4', type: 'Manual grant', name: 'Spa 4', code: null,
     date: '2026-08-20', date_to: '2026-08-27', days: 2,
     first: '2026-08-20T09:00:00.000Z', last: '2026-08-27T09:00:00.000Z',
+    issued: null, first_used: '2026-08-20',
     accounts: 381, credits: 151671, usd: 9605.83, entries: 402,
     spellings: 3, spelt: ['spa 4', 'Spa 4', 'Spa 4.'],
   },
@@ -99,13 +101,30 @@ describe('BatchesTab', () => {
     const row = await rowFor('Spa 4');
     const marked = within(row).getAllByRole('cell')[3].querySelector('[title]');
     expect(marked.getAttribute('title')).toMatch(/2 days/);
-    expect(marked.getAttribute('title')).toMatch(/one session/);
+    // The end of the span, so the days are recoverable — asserted by substance
+    // rather than by wording, which has already changed once.
+    expect(marked.getAttribute('title')).toMatch(/Aug 27/);
   });
 
-  it('does not mark a single-day batch as having a span', async () => {
+  it('does not mark a plain single-day grant as having anything extra', async () => {
+    api.creditBatches.mockResolvedValue({
+      batches: [{ ...BATCHES[1], key: 'k9', name: 'one day grant', days: 1,
+        date: '2026-08-20', date_to: '2026-08-20', issued: null, first_used: '2026-08-20',
+        spellings: 1, spelt: [] }],
+      totals: { batches: 1, accounts: 1, credits: 1, usd: 1 },
+      credit_value: 0.063333, promo_codes: { total: 27, unredeemed: [] },
+    });
+    render(<BatchesTab />);
+    const row = await rowFor('one day grant');
+    expect(within(row).getAllByRole('cell')[3].querySelector('[title]')).toBeNull();
+  });
+
+  it('says on hover that a promo row is dated by the CODE, not the redemption', async () => {
     render(<BatchesTab />);
     const row = await rowFor('SPA News Academy 5th 4th');
-    expect(within(row).getAllByRole('cell')[3].querySelector('[title]')).toBeNull();
+    const marked = within(row).getAllByRole('cell')[3].querySelector('[title]');
+    expect(marked.getAttribute('title')).toMatch(/Code generated/);
+    expect(marked.getAttribute('title')).toMatch(/2 days/);
   });
 
   it('puts the DESCRIPTION in Name and the CODE in Promo code, never twice', async () => {

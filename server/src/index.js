@@ -6497,10 +6497,28 @@ app.get('/api/admin/credit-batches', adminGate, async (req, res) => {
     // A promo batch is NAMED by the code's description, so the search box has to
     // look there too. Searching only ch.reason would mean typing the name you
     // can see on the row and being told there is nothing.
-    const { rows: promos } = await pool.query(
-      'SELECT code, description, active FROM promo_codes',
-    ).catch(() => ({ rows: [] }));
+    // ☠ THIS USED TO FAIL SILENTLY. `.catch(() => ({ rows: [] }))` meant that
+    // if this query ever broke, every promo row would quietly fall back to
+    // showing its code and nothing would say why — which is indistinguishable
+    // from the rename never having shipped. Amr reported exactly that symptom,
+    // so the swallow is gone: it logs, and the response says the names could
+    // not be resolved.
+    let promos = [];
+    let describeFailed = false;
+    try {
+      ({ rows: promos } = await pool.query(
+        'SELECT code, description, active, created_at FROM promo_codes'));
+    } catch (err) {
+      describeFailed = true;
+      console.error('[credit-batches] could not read promo_codes — promo rows will '
+        + 'show their code instead of their description:', err);
+    }
     const describe = Object.fromEntries(promos.map((r) => [r.code, r.description]));
+    // The day the code was GENERATED, which is the date Amr invoices on — not
+    // the day the first person happened to redeem it.
+    // Amr, 2026-09-05: "I attach for you the whole promo code created day. You
+    // can put it on the same place of the promo code."
+    const issued = Object.fromEntries(promos.map((r) => [r.code, r.created_at]));
 
     // Codes that exist but have never been redeemed have no ledger rows, so
     // they have no batch — correctly, since nothing was handed out. Counted
@@ -6545,12 +6563,12 @@ app.get('/api/admin/credit-batches', adminGate, async (req, res) => {
     const { rows: st } = await pool.query('SELECT credit_value FROM pricing_settings WHERE id = 1')
       .catch(() => ({ rows: [] }));
     const creditValueUsd = Number(st?.[0]?.credit_value) || 0.063333;
-    const batches = groupBatches(rows, { creditValueUsd, describe, excluded });
+    const batches = groupBatches(rows, { creditValueUsd, describe, issued, excluded });
     res.json({
       batches, totals: totalBatches(batches, { creditValueUsd }), credit_value: creditValueUsd,
       // Unfiltered on purpose: narrowing the dates must not make a code that
       // WAS used look as though it never had been.
-      promo_codes: { total: promos.length, unredeemed },
+      promo_codes: { total: promos.length, unredeemed, describe_failed: describeFailed },
     });
   } catch (err) {
     console.error('[credit-batches] failed:', err);
