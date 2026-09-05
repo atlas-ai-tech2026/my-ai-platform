@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
+import { toast } from 'sonner';
 import MicButton, { MicKeyframes } from '@/components/common/MicButton';
 import { Sparkles, ChevronDown, Minus, Plus, Pencil, Type, X, Check, ImagePlus, ArrowLeftRight } from 'lucide-react';
 import PageSwitcher from '@/components/common/PageSwitcher';
@@ -499,8 +500,15 @@ export default function ImagePromptBar({
             if (onImagesChange) onImagesChange(updated.filter(i => i.status === 'ready').map(i => i.uploadedUrl));
             return updated;
           });
-        } catch {
+        } catch (err) {
+          // ☠ THIS USED TO BE `catch { remove it }` — NO MESSAGE AT ALL.
+          // Amr, 2026-09-05: "there is an error and the images are not sent."
+          // There was an error; it just never reached him. The thumbnail
+          // vanished and the reason died here, so a rejected file, a network
+          // blip and a file too large all looked identical: the picture simply
+          // disappeared. Silent failures are bugs — the project's own rule.
           setUploadedImages(prev => prev.filter(img => img.id !== imageId));
+          toast.error(`"${file.name}" could not be attached — ${err?.message || 'the upload failed'}`);
         }
       })();
     }

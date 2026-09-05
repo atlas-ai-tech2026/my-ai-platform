@@ -72,6 +72,7 @@ import { planTopUp, topUpReason } from './bulk-credits.js';
 import { planTopUp as planPromoTopUp, topUpReason as promoTopUpReason } from './promo-topup.js';
 import { groupBatches, totalBatches, unredeemedCodes } from './credit-batches.js';
 import { readCreditValue } from './credit-value.js';
+import { referenceLimit, referenceWarning } from './reference-limits.js';
 import { classifyRow, previewBackfill } from './credit-source-backfill.js';
 import { mayRedeem, capForInvites, capAfterAdding, splitInvites, REFUSAL } from './promo-audience.js';
 // ONE definition of "the same address", shared by auth, bulk and promo.
@@ -1603,6 +1604,23 @@ app.post('/api/generate', verifyJwt, requireNotBanned, noDoubleCharge, requireMo
     clientCost: req.body.credit_cost,
   });
   if (serverCost == null) return;
+
+    // ☠ REFUSE BEFORE CHARGING — and BEFORE, because my first attempt put this
+    // AFTER chargeCredits, which would have taken the credits and then refused.
+    //
+    // buildKieImageInput slices the array to whatever the model takes, so four
+    // references handed to Flux Kontext became one and the other three vanished
+    // with no message; a text-to-image model like Imagen 4 discarded ALL of them
+    // while the credits were still spent. Amr reported this on 2026-09-05 as
+    // "the images are not sent" — they were sent, then quietly dropped.
+    if (type === 'image') {
+      const refCount = Array.isArray(imageUrls) ? imageUrls.filter(Boolean).length : 0;
+      const refWarning = referenceWarning(cfg, refCount, model);
+      if (refWarning) {
+        console.warn(`[REFS] refused before charging: ${model} limit=${referenceLimit(cfg)} given=${refCount}`);
+        return res.status(400).json({ error: refWarning });
+      }
+    }
 
   // Charge BEFORE the provider call so a user can't burn through quota by
   // spamming requests that race past the balance check.
