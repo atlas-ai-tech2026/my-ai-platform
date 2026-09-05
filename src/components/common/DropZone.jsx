@@ -23,6 +23,54 @@
 
 import React, { useCallback, useRef, useState } from 'react';
 
+/**
+ * ☠ STOP THE BROWSER OPENING A DROPPED FILE.
+ *
+ * Amr, 2026-09-05: "It works on Mac, but on Windows when I put the image on the
+ * prompt box it opens a new tab and shows the image."
+ *
+ * A drop zone only cancels the default for drops that land EXACTLY on it. A
+ * file dropped one pixel outside — and the prompt bar is a fixed strip at the
+ * bottom of a tall page, so most of the window is outside — falls through to
+ * the browser, which navigates to the file. Whatever was on the page is gone:
+ * the prompt, the other references, everything.
+ *
+ * It is not a Windows bug. It is the default everywhere; Windows just makes it
+ * easier to miss the target, because the scrollbar sits inside the layout and
+ * Chrome there routes the textarea's own drop differently.
+ *
+ * So the WINDOW refuses file drops by default, and the zones opt back in. One
+ * listener pair, installed once however many zones are mounted.
+ */
+let guards = 0;
+const swallow = (e) => {
+  // Only file drags. A text selection dragged inside a textarea, or a node
+  // dragged on the canvas, must still work exactly as before.
+  if (!Array.from(e.dataTransfer?.types || []).includes('Files')) return;
+  // A zone that handled it already called preventDefault; this is only for the
+  // ones that got away.
+  if (e.defaultPrevented) return;
+  e.preventDefault();
+  if (e.type === 'drop' && e.dataTransfer) e.dataTransfer.dropEffect = 'none';
+};
+
+function useWindowDropGuard() {
+  React.useEffect(() => {
+    guards += 1;
+    if (guards === 1) {
+      window.addEventListener('dragover', swallow);
+      window.addEventListener('drop', swallow);
+    }
+    return () => {
+      guards -= 1;
+      if (guards === 0) {
+        window.removeEventListener('dragover', swallow);
+        window.removeEventListener('drop', swallow);
+      }
+    };
+  }, []);
+}
+
 /** Does this file match an accept string like "image/png,image/jpeg" or "image/*"? */
 export function fileMatches(file, accept) {
   if (!accept) return true;
@@ -67,6 +115,7 @@ export default function DropZone({
   children, onFiles, onRejected, accept, maxBytes, multiple = true,
   disabled = false, style, className, label,
 }) {
+  useWindowDropGuard();
   const [dragging, setDragging] = useState(false);
   // A drag entering a CHILD element fires dragleave on the parent, so a naive
   // boolean flickers and can stick "on" after the pointer has gone. Counting

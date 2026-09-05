@@ -158,3 +158,60 @@ describe('the generation surfaces are wired to it', () => {
     expect(src).toMatch(/acceptMediaFiles\(files\)/);
   });
 });
+
+// ─── THE BROWSER MUST NOT OPEN A DROPPED FILE ───────────────────────────────
+// Amr, 2026-09-05: "It works on Mac, but on Windows when I put the image on the
+// prompt box it opens a new tab and shows the image."
+//
+// A drop zone only cancels the default for drops that land EXACTLY on it. The
+// prompt bar is a fixed strip at the bottom of a tall page, so most of the
+// window is outside it — and a file landing there navigates the browser away,
+// losing the prompt and every other reference. Not a Windows bug: the default
+// everywhere, just easier to hit there.
+describe('☠ a file dropped anywhere on the page never navigates', () => {
+  const fileDrag = (type) => {
+    const e = new Event(type, { bubbles: true, cancelable: true });
+    e.dataTransfer = { types: ['Files'], files: [], dropEffect: 'copy' };
+    return e;
+  };
+  const textDrag = (type) => {
+    const e = new Event(type, { bubbles: true, cancelable: true });
+    e.dataTransfer = { types: ['text/plain'], files: [] };
+    return e;
+  };
+
+  it('cancels a file drop that misses every zone', () => {
+    const { unmount } = render(<DropZone onFiles={() => {}}><p>bar</p></DropZone>);
+    const e = fileDrag('drop');
+    window.dispatchEvent(e);
+    expect(e.defaultPrevented, 'an unhandled file drop must be cancelled').toBe(true);
+    unmount();
+  });
+
+  it('cancels the dragover too — without it the drop still navigates', () => {
+    const { unmount } = render(<DropZone onFiles={() => {}}><p>bar</p></DropZone>);
+    const e = fileDrag('dragover');
+    window.dispatchEvent(e);
+    expect(e.defaultPrevented).toBe(true);
+    unmount();
+  });
+
+  it('leaves NON-file drags alone — dragging text must still work', () => {
+    // A text selection inside a textarea, or a node dragged on the canvas.
+    const { unmount } = render(<DropZone onFiles={() => {}}><p>bar</p></DropZone>);
+    const e = textDrag('drop');
+    window.dispatchEvent(e);
+    expect(e.defaultPrevented, 'text drags must be untouched').toBe(false);
+    unmount();
+  });
+
+  it('stops guarding once the last zone unmounts', () => {
+    // Otherwise every page in the app would refuse file drops forever, on a
+    // listener nobody can find.
+    const { unmount } = render(<DropZone onFiles={() => {}}><p>bar</p></DropZone>);
+    unmount();
+    const e = fileDrag('drop');
+    window.dispatchEvent(e);
+    expect(e.defaultPrevented).toBe(false);
+  });
+});
