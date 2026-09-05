@@ -44,8 +44,14 @@ export async function waitForImage(jobId, {
   now = () => Date.now(),
   intervalMs = POLL_EVERY_MS,
   maxMs = STOP_ASKING_AFTER_MS,
+  // ☠ TIME ALREADY SPENT BEFORE THIS WATCH BEGAN. The server waits 90 seconds
+  // before handing the job off; without this the browser's counter starts at
+  // zero and the screen reads "Still working — 1s" for an image that has been
+  // generating for a minute and a half. Amr sent a screenshot of exactly that
+  // on 2026-09-05. A number that is wrong is worse than no number.
+  alreadyWaitedMs = 0,
 } = {}) {
-  const started = now();
+  const started = now() - alreadyWaitedMs;
 
   for (;;) {
     let answer = null;

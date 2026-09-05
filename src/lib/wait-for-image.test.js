@@ -146,3 +146,61 @@ describe('telling the customer how long it has been', () => {
     expect(waitedLabel(-5)).toBe('0s');
   });
 });
+
+// ─── THE COUNTER MUST NOT RESTART AT ZERO ───────────────────────────────────
+// Amr, 2026-09-05, with a screenshot: the banner read "Still working — 1s" for
+// an image the server had already been waiting on for ninety seconds. The
+// browser's timer started when the hand-off arrived, not when he pressed
+// Generate, so the one number on screen was wrong in the one situation it
+// exists for.
+//
+// A wrong number is worse than no number: it tells someone a long generation
+// has just begun, which is the opposite of what the message is trying to say.
+describe('the wait continues the server\'s clock', () => {
+  const completed = { status: 'COMPLETED', image_url: 'https://x/i.png' };
+
+  it('counts from when the REQUEST started, not from the hand-off', async () => {
+    const ticks = [];
+    let t = 0;
+    await waitForImage('job-1', {
+      // never finishes on the first poll, so onTick runs
+      poll: async () => (t > 12_000 ? completed : null),
+      onTick: (s) => ticks.push(s),
+      sleep: async (ms) => { t += ms; },
+      now: () => t,
+      intervalMs: 3000,
+      alreadyWaitedMs: 90_000,      // what the server already spent
+    });
+    expect(ticks.length).toBeGreaterThan(0);
+    // The first thing the customer sees must be ~90s, never 0 or 1.
+    expect(ticks[0]).toBeGreaterThanOrEqual(90);
+  });
+
+  it('still starts at zero when nothing was waited first', async () => {
+    const ticks = [];
+    let t = 0;
+    await waitForImage('job-2', {
+      poll: async () => (t > 12_000 ? completed : null),
+      onTick: (s) => ticks.push(s),
+      sleep: async (ms) => { t += ms; },
+      now: () => t,
+      intervalMs: 3000,
+    });
+    expect(ticks[0]).toBeLessThan(10);
+  });
+
+  it('keeps counting upward', async () => {
+    const ticks = [];
+    let t = 0;
+    await waitForImage('job-3', {
+      poll: async () => (t > 20_000 ? completed : null),
+      onTick: (s) => ticks.push(s),
+      sleep: async (ms) => { t += ms; },
+      now: () => t,
+      intervalMs: 3000,
+      alreadyWaitedMs: 90_000,
+    });
+    expect(ticks).toEqual([...ticks].sort((a, b) => a - b));
+    expect(ticks[ticks.length - 1]).toBeGreaterThan(ticks[0]);
+  });
+});

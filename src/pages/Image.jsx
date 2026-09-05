@@ -605,12 +605,23 @@ export default function Image() {
         let alreadyInHistory = false;
         if (!url && response.data?.pending && response.data?.job_id) {
           const jobId = response.data.job_id;
-          toast.info(response.data.message || 'This one is taking longer than usual — still working.');
+          // ☠ ONE MESSAGE, NOT TWO. This used to fire a toast AND render the
+          // banner below, saying the same thing twice — Amr's screenshot on
+          // 2026-09-05 shows both on screen at once. The banner is the better
+          // of the two: it is calm, it stays put, and it counts. The toast is
+          // gone; the banner starts immediately with the server's own wording
+          // rather than appearing blank until the first poll returns.
+          const waitedMs = Number(response.data.waited_ms) || 0;
+          setSlowNote(response.data.message
+            || 'Still generating. You can leave this page; it will be in your history when it is done.');
           try {
             const out = await waitForImage(jobId, {
               poll: async (id) => (await base44.functions.invoke('image-status', { job_id: id })).data,
-              onTick: (secs) => setSlowNote(`Still working — ${waitedLabel(secs)}. You can leave this page; `
-                + 'it will be in your history when it is done.'),
+              // The counter continues from the time the server already spent,
+              // so it never claims a long generation has just started.
+              alreadyWaitedMs: waitedMs,
+              onTick: (secs) => setSlowNote(`Still generating — ${waitedLabel(secs)} so far. `
+                + 'You can leave this page; it will be in your history when it is done.'),
             });
             if (!out.done) {
               // Stopped watching, NOT failed. Saying anything stronger would be

@@ -998,6 +998,15 @@ function getDimensions(ratio, quality) {
 // generic { prompt, ratio, quality, imageUrls } into what that family
 // expects. Dedicated families take the input at the body root; the Jobs API
 // wraps it as { model, input }.
+// How long the REQUEST waits for a kie image before handing the job off.
+//
+// ☠ THIS CANNOT SIMPLY BE RAISED. Cloudflare cuts a proxied request at about
+// 100 seconds, so a longer wait does not buy patience — it moves the failure
+// to a place we cannot refund from. The hand-off exists precisely because the
+// ceiling is not ours to move. Amr asked on 2026-09-05 whether we could wait
+// longer for Nano Banana Pro; this is the answer, kept next to the number.
+const KIE_IMAGE_WAIT_MS = 90_000;
+
 function buildKieImageInput(cfg, { prompt, ratio, quality, imageUrls }) {
   const hasImages = imageUrls.length > 0;
   if (cfg.family === 'jobs') {
@@ -1649,7 +1658,7 @@ app.post('/api/generate', verifyJwt, requireNotBanned, noDoubleCharge, requireMo
 
         let done;
         try {
-          done = await kiePollUntilDone(cfg.family, taskId, { timeoutMs: 90_000, tag: 'KIE-IMG' });
+          done = await kiePollUntilDone(cfg.family, taskId, { timeoutMs: KIE_IMAGE_WAIT_MS, tag: 'KIE-IMG' });
         } catch (e) {
           // ── THE HAND-OFF (2026-08-28) ──
           // Only for running out of PATIENCE. A real provider failure still
@@ -1675,9 +1684,19 @@ app.post('/api/generate', verifyJwt, requireNotBanned, noDoubleCharge, requireMo
           console.log(`[KIE-IMG] handed off taskId=${taskId} user=${req.user.id} — the job continues`);
           return res.json({
             success: true, type: 'image', pending: true, job_id: taskId, mode,
-            message: 'This one is taking longer than usual. It will finish on its own — '
-              + 'it appears here and in your history the moment it does, and you keep your credits '
-              + 'only if it fails.',
+            // ☠ HOW LONG WE ALREADY WAITED, so the screen can carry on counting
+            // instead of restarting at zero. Amr's screenshot on 2026-09-05 read
+            // "Still working — 1s" for an image that had been generating for a
+            // minute and a half: the browser's timer started at the hand-off,
+            // not at the request, and a wrong number is worse than none.
+            waited_ms: KIE_IMAGE_WAIT_MS,
+            // The wording no longer says "longer than usual". For this model
+            // with several references it IS usual — production shows 90 of
+            // 2,628 Nano Banana Pro images take this path — and calling a
+            // normal wait unusual is how a working generation reads as broken.
+            message: 'Still generating — this model takes a few minutes with reference images. '
+              + 'You can leave this page; it appears here and in your history the moment it is '
+              + 'ready, and you keep your credits only if it fails.',
           });
         }
 
@@ -3951,7 +3970,7 @@ app.post('/api/node/run-node', verifyJwt, requireNotBanned, noDoubleCharge, requ
       });
       console.log(`[node:run] user=${req.user.id} type=${type} model="${settings?.model || '-'}" → kie:${nodeImgCfg.kieModel}`);
       const taskId = await kieCreateTask(nodeImgCfg.family, body, { tag: 'KIE-NODE' });
-      const done = await kiePollUntilDone(nodeImgCfg.family, taskId, { timeoutMs: 90_000, tag: 'KIE-NODE' });
+      const done = await kiePollUntilDone(nodeImgCfg.family, taskId, { timeoutMs: KIE_IMAGE_WAIT_MS, tag: 'KIE-NODE' });
       const url = await persistOrFallback(done.resultUrls[0], 'image');
       console.log(`[node:run] ✅ ${url}`);
       return res.json({ success: true, outputs: { [spec.outKey]: url } });
