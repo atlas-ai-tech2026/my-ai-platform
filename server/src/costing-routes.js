@@ -214,7 +214,14 @@ export function registerCostingRoutes(app, deps) {
                 -- log said when Amr pressed Add and nothing happened.
                 decided_at = CASE WHEN $2::text IS NULL THEN NULL ELSE NOW() END,
                 decision_note = $3,
-                dismissed = ($2::text = 'remove'),
+                -- ☠ NULL = 'remove' IS NULL IN SQL, NOT FALSE. Clearing a
+                -- decision therefore tried to write NULL into a NOT NULL column
+                -- and the whole statement failed — "null value in column
+                -- dismissed violates not-null constraint", which is exactly
+                -- what dev's log said the second time Amr pressed a button.
+                -- Three-valued logic is the oldest trap in SQL and it caught me
+                -- one commit after the last one.
+                dismissed = COALESCE($2::text = 'remove', FALSE),
                 dismissed_at = CASE WHEN $2::text = 'remove' THEN NOW() ELSE NULL END
           WHERE id = $1 RETURNING family`,
         [id, decision, note],

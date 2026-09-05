@@ -194,3 +194,51 @@ describe('the decision statement casts $2 the same way everywhere', () => {
       .toBe(0);
   });
 });
+
+// ─── THE OTHER SQL TRAP: THREE-VALUED LOGIC ─────────────────────────────────
+// ☠ ONE COMMIT AFTER THE CAST BUG, a second one. Amr pressed a button and got
+// "Could not save that decision." Dev's log:
+//
+//   null value in column "dismissed" violates not-null constraint
+//
+// Because `NULL = 'remove'` in SQL is NULL, not FALSE. Clearing a decision
+// therefore wrote NULL into a NOT NULL column and the statement died. Verified
+// against the real database: NULL = 'remove' → null; COALESCE(…, FALSE) → false.
+//
+// Two SQL bugs in two commits, both invisible to 5,000 unit tests, both named
+// exactly by the server log. The lesson is in the third test below: read the
+// log, do not reason about the query.
+describe('the decision statement survives a cleared decision', () => {
+  const src = () => {
+    const { readFileSync } = require('node:fs');
+    const p = require('node:path');
+    return readFileSync(p.resolve(process.cwd(), 'server/src/costing-routes.js'), 'utf8');
+  };
+  const stmt = () => {
+    const s = src();
+    const from = s.indexOf('SET decision');
+    return s.slice(from, s.indexOf('RETURNING', from))
+      .split('\n').filter((l) => !l.trim().startsWith('--')).join('\n');
+  };
+
+  it('never assigns a bare comparison to the NOT NULL dismissed column', () => {
+    const body = stmt();
+    const bare = /dismissed\s*=\s*\(\$2::text\s*=\s*'remove'\)/.test(body);
+    expect(bare, 'NULL = \'remove\' is NULL, and dismissed is NOT NULL — wrap it in COALESCE')
+      .toBe(false);
+  });
+
+  it('uses COALESCE so a cleared decision writes FALSE', () => {
+    expect(stmt()).toMatch(/dismissed\s*=\s*COALESCE\(\$2::text\s*=\s*'remove',\s*FALSE\)/i);
+  });
+
+  it('and dismissed really is NOT NULL, which is why this matters', () => {
+    // If the column were nullable this would all be moot. It is not — the
+    // schema says so, and that is what turned a wrong value into a failed
+    // request rather than a quiet one.
+    const { readFileSync } = require('node:fs');
+    const p = require('node:path');
+    const db = readFileSync(p.resolve(process.cwd(), 'server/src/db.js'), 'utf8');
+    expect(db).toMatch(/dismissed\s+BOOLEAN\s+NOT NULL/);
+  });
+});
