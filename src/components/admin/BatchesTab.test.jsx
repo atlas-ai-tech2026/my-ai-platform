@@ -80,13 +80,32 @@ describe('BatchesTab', () => {
     expect(row.textContent).toMatch(/Sep|09|9/);
   });
 
-  it('shows a date RANGE when a workshop ran over several days', async () => {
-    // SPA 4 ran on 20 AND 27 August. Grouping by day split it into two rows
-    // with two partial totals; it is one invoice line with a range.
+  it('shows ONE date — the first day — for a workshop that ran over several', async () => {
+    // Amr, 2026-09-05: "Put SPA one the first day only… because it's only for
+    // one session." SPA 4's credits were typed on 20 AND 27 August, but that
+    // is a fact about the typing, not about the workshop.
     render(<BatchesTab />);
     const row = await rowFor('Spa 4');
-    expect(row.textContent).toMatch(/to /);
-    expect(row.textContent).toMatch(/2 days/);
+    const dateCell = within(row).getAllByRole('cell')[3];
+    expect(dateCell.textContent).toMatch(/Aug/);
+    expect(dateCell.textContent).not.toMatch(/ to /);
+    expect(dateCell.textContent).not.toMatch(/2 days/);
+  });
+
+  it('keeps the span on hover, so the days are not thrown away', async () => {
+    // Same rule as the spellings: moving information is only safe if it is
+    // still reachable.
+    render(<BatchesTab />);
+    const row = await rowFor('Spa 4');
+    const marked = within(row).getAllByRole('cell')[3].querySelector('[title]');
+    expect(marked.getAttribute('title')).toMatch(/2 days/);
+    expect(marked.getAttribute('title')).toMatch(/one session/);
+  });
+
+  it('does not mark a single-day batch as having a span', async () => {
+    render(<BatchesTab />);
+    const row = await rowFor('SPA News Academy 5th 4th');
+    expect(within(row).getAllByRole('cell')[3].querySelector('[title]')).toBeNull();
   });
 
   it('puts the DESCRIPTION in Name and the CODE in Promo code, never twice', async () => {

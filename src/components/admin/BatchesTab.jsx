@@ -321,13 +321,27 @@ export default function BatchesTab({ onError }) {
                              color: b.code ? 'var(--crm-w60)' : 'var(--crm-w30)' }}>
                   {b.code || '—'}
                 </td>
+                {/* ☠ ONE DATE, THE FIRST DAY — NOT A RANGE.
+                    Amr, 2026-09-05: "The grant codes are created on different
+                    times, and I will put it in one column. Put SPA one the
+                    first day only, and anything that's on a different time or
+                    different day, all of them, because it's only for one
+                    session. And do the same for everything."
+                    He is right and I had this backwards. A workshop is one
+                    session; that its credits were typed in over two afternoons
+                    is an artefact of how the typing went, not a fact about the
+                    workshop, and putting it in the column made every long
+                    batch a two-line cell. The span is not thrown away — it is
+                    on hover, the same place the spellings went. */}
                 <td style={{ ...td, whiteSpace: 'nowrap', color: 'var(--crm-w60)' }}>
-                  {dayText(b.date)}
-                  {b.date_to && b.date_to !== b.date && (
-                    <span style={{ display: 'block', fontSize: 11, color: 'var(--crm-w40)' }}>
-                      to {dayText(b.date_to)} · {b.days} days
+                  {b.days > 1 ? (
+                    <span
+                      title={`Handed out over ${b.days} days, ${dayText(b.date)} to ${dayText(b.date_to)} — one session.`}
+                      style={{ cursor: 'help', borderBottom: '1px dotted var(--crm-w20)' }}
+                    >
+                      {dayText(b.date)}
                     </span>
-                  )}
+                  ) : dayText(b.date)}
                 </td>
                 <td style={{ ...td, textAlign: 'right', fontWeight: 600,
                              fontVariantNumeric: 'tabular-nums' }}>{num(b.accounts)}</td>
