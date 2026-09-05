@@ -34,6 +34,10 @@ const PAGE = {
   ],
   total: 914,
   credits_total: 151671,      // what the FILTER matches, not the page
+  // ☠ The rate is no longer written into ManualCreditsTab.jsx. It read
+  // $9,605.78 from a hardcoded 0.063333 while Batches read $9,605.83 from
+  // the database — two screens, one workshop, two invoices.
+  credit_value: 0.06333333,
   accounts_total: 381,
 };
 
@@ -58,7 +62,7 @@ describe('☠ THE TOTALS DESCRIBE THE FILTER, NOT THE PAGE', () => {
 
   it('prices the whole filter in dollars', async () => {
     render(<ManualCreditsTab onError={vi.fn()} />);
-    // 151,671 × $0.063333 ≈ $9,605.75
+    // 151,671 × $0.06333333 = $9,605.83, the value the database holds
     await waitFor(() => expect(screen.getByText(/\$9,605\./)).toBeInTheDocument());
   });
 

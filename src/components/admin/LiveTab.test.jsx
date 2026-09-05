@@ -30,6 +30,10 @@ const RUNNING = {
   active_window_min: 20,
   generations_recent: 812,
   credits_per_min: 118,
+  // The rate comes from the API now — the screen used to carry 0.063333 in
+  // the file, which could not follow a price change. Without this the screen
+  // correctly says 'rate unavailable' rather than inventing a number.
+  credit_value: 0.06333333,
   per_minute: [{ minute: '10:04', n: 12 }, { minute: '10:05', n: 31 }],
   top_models: [{ model: 'Kling 3.0', attempts: 44 }],
   workshop: { code: 'VOXEL-7UMD-Z66C', title: 'Riyadh · August', cohort_size: 169, active: 143 },

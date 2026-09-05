@@ -19,7 +19,18 @@ import { adminApi } from '@/lib/adminApi';
 import InfoDot from './InfoDot';
 import BackfillPanel from './BackfillPanel';
 
-const CREDIT_USD = 0.063333;
+// ☠ THIS WAS a money rate written into the file, which never asked the
+// database. Amr filtered this screen to "spa 4" on 2026-09-05 and it read
+// $9,605.78 where Batches read $9,605.83 on the same 151,671 credits. Both
+// are numbers he invoices from.
+//
+// Five cents is nothing. It mattered because of the day the price CHANGES:
+// screens reading the database would show the new rate and this one would
+// silently keep showing the old, with nothing on the page saying so.
+//
+// The rate now comes from the API, which reads pricing_settings. If it is
+// missing the screen shows a dash — an unknown price is not a price, and the
+// rule here is that `unknown` is never rendered as if it were `ok`.
 const money = (usd) => '$' + Number(usd).toLocaleString('en-US',
   { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const num = (n) => Number(n || 0).toLocaleString('en-US', { maximumFractionDigits: 2 });
@@ -38,6 +49,7 @@ export default function ManualCreditsTab({ onError }) {
   const [rows, setRows] = useState(null);
   const [total, setTotal] = useState(0);
   const [totals, setTotals] = useState({ credits: null, accounts: null });
+  const [creditUsd, setCreditUsd] = useState(null);
   const [page, setPage] = useState(0);
   const LIMIT = 100;
 
@@ -52,6 +64,8 @@ export default function ManualCreditsTab({ onError }) {
       // The screen used to add up only the rows it had been sent, so a filter
       // matching 914 entries reported the credits of the 100 on screen.
       setTotals({ credits: r.credits_total ?? null, accounts: r.accounts_total ?? null });
+      // Number(null) is 0, which would price every workshop at nothing.
+      setCreditUsd(Number(r.credit_value) > 0 ? Number(r.credit_value) : null);
     } catch (e) { onError?.(e, 'Could not load manual credits'); }
   }, [q, page, onError]);
 
@@ -124,8 +138,8 @@ export default function ManualCreditsTab({ onError }) {
           n={total > shown.rows ? `showing ${shown.rows} on this page` : 'all shown'} />
         <Stat k="Accounts" v={totals.accounts == null ? '—' : num(totals.accounts)} n="distinct, everything matched" />
         <Stat k="Credits" v={totals.credits == null ? '—' : num(totals.credits)} n="everything matched" />
-        <Stat k="Value" v={totals.credits == null ? '—' : money(totals.credits * CREDIT_USD)}
-          n={`at $${CREDIT_USD}/credit`} accent />
+        <Stat k="Value" v={totals.credits == null || !creditUsd ? '—' : money(totals.credits * creditUsd)}
+          n={creditUsd ? `at $${creditUsd}/credit` : 'rate unavailable'} accent />
       </div>
 
       {twice.length > 0 && (
@@ -170,7 +184,7 @@ export default function ManualCreditsTab({ onError }) {
                       {amt > 0 ? '+' : ''}{num(amt)}
                     </span>
                     <span style={{ display: 'block', fontSize: 11.5, color: 'var(--crm-w40)' }}>
-                      {money(Math.abs(amt) * CREDIT_USD)}
+                      {creditUsd ? money(Math.abs(amt) * creditUsd) : '—'}
                     </span>
                   </td>
                   <td style={td}>

@@ -66,6 +66,8 @@ async function busiestPast(pool, days = 45) {
   return rows[0]?.anchor || null;
 }
 
+import { readCreditValue } from './credit-value.js';
+
 export function registerLiveRoutes(app, { pool, dbReady, adminGate }) {
   app.get('/api/admin/live', adminGate, async (req, res) => {
     if (!dbReady()) return res.status(503).json({ error: 'Database not configured.' });
@@ -98,6 +100,7 @@ export function registerLiveRoutes(app, { pool, dbReady, adminGate }) {
         if (anchor && Number.isNaN(anchor.getTime())) anchor = null;
         if (!anchor) {
           return res.json({ live: false, replay: true, no_history: true,
+            credit_value: await readCreditValue(pool),
             active_window_min: ACTIVE_WINDOW_MIN, fail_window_min: FAIL_WINDOW_MIN,
             active_now: 0, generating_now: { n: 0, video: 0, image: 0 }, failed_recent: 0,
             generations_recent: 0, credits_per_min: 0, per_minute: [], top_models: [],
@@ -231,6 +234,9 @@ export function registerLiveRoutes(app, { pool, dbReady, adminGate }) {
 
       res.json({
         live,
+        // The screen showed "≈ $x/min" from a hardcoded 0.063333 — the same
+        // bug as Manual Credits: a money figure that never asks the database.
+        credit_value: await readCreditValue(pool),
         replay: !!anchor,
         replay_at: anchor ? anchor.toISOString() : null,
         session_started: p.session_started || null,

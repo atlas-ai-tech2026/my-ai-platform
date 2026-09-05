@@ -71,6 +71,7 @@ import { splitList, describeSplit } from './list-check.js';
 import { planTopUp, topUpReason } from './bulk-credits.js';
 import { planTopUp as planPromoTopUp, topUpReason as promoTopUpReason } from './promo-topup.js';
 import { groupBatches, totalBatches, unredeemedCodes } from './credit-batches.js';
+import { readCreditValue } from './credit-value.js';
 import { classifyRow, previewBackfill } from './credit-source-backfill.js';
 import { mayRedeem, capForInvites, capAfterAdding, splitInvites, REFUSAL } from './promo-audience.js';
 // ONE definition of "the same address", shared by auth, bulk and promo.
@@ -6649,6 +6650,11 @@ app.get('/api/admin/logs', adminGate, async (req, res) => {
       logs: rows.rows, total: count.rows[0].total, limit, offset,
       credits_total: Number(count.rows[0].credits_total) || 0,
       accounts_total: count.rows[0].accounts_total,
+      // ☠ THE SCREEN HAD NO WAY TO ASK. ManualCreditsTab carried
+      // `const CREDIT_USD = 0.063333` because this response never told it what
+      // a credit is worth — so it showed $9,605.78 where Batches showed
+      // $9,605.83 for the same 151,671 credits.
+      credit_value: await readCreditValue(pool),
     });
   } catch (err) {
     console.error('[admin/logs] error:', err);

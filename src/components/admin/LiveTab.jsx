@@ -141,8 +141,12 @@ export default function LiveTab({ onError }) {
             <Card k={`Failed / ${data.fail_window_min} min`} v={data.failed_recent}
               n={data.failed_recent ? 'see below' : 'nothing failing'}
               tone={data.failed_recent >= 15 ? 'crit' : data.failed_recent >= 5 ? 'warn' : 'ok'} />
+            {/* The rate comes from the API now. It used to be written into the
+                line below as 0.063333, so it could not follow a price change. */}
             <Card k="Credits / min" v={data.credits_per_min}
-              n={`≈ $${(data.credits_per_min * 0.063333).toFixed(2)}/min`} />
+              n={data.credit_value
+                ? `≈ $${(data.credits_per_min * Number(data.credit_value)).toFixed(2)}/min`
+                : 'rate unavailable'} />
           </div>
 
           <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fit,minmax(260px,1fr))' }}>

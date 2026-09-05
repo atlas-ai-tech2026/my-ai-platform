@@ -224,7 +224,8 @@ export default function BatchesTab({ onError }) {
         <Stat k="Accounts" v={totals ? num(totals.accounts) : '—'} n="added together per batch" />
         <Stat k="Credits" v={totals ? num(totals.credits) : '—'} n="handed out" />
         <Stat k="Value" v={totals ? money(totals.usd) : '—'}
-          n={`at $${data?.credit_value ?? 0.063333}/credit`} accent />
+          n={data?.credit_value ? `at $${data.credit_value}/credit` : 'rate unavailable'}
+          accent />
       </div>
 
       {/* The exclusion must never itself become a silence. Money quietly

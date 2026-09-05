@@ -156,7 +156,7 @@ export default function CostingTab({ onError }) {
           note={worst >= S.margin_target - 1e-6 ? 'every plan clears its target' : 'BELOW TARGET'}
           color={worst >= S.margin_target - 1e-6 ? 'var(--crm-green)' : 'var(--crm-red)'} />
         <Stat label="Margin target" value={pct(S.margin_target)} note="of sale price" />
-        <Stat label="Credit value" value={`$${Number(S.credit_value).toFixed(6)}`} note="$19 plan ÷ 300 credits" />
+        <Stat label="Credit value" value={`$${Number(S.credit_value).toFixed(8)}`} note="$19 plan ÷ 300 credits" />
         <Stat label="Models costed" value={num(state.models.length)}
           note={`${state.models.filter((m) => m.fal_cost == null).length} KIE-only rows`} />
         <Stat label="Awaiting cost" value={num(state.models.filter((m) => m.needs_cost).length)}
@@ -179,7 +179,13 @@ export default function CostingTab({ onError }) {
             }} style={input} />
         </Field>
         <Field label="Credit value ($ per credit)">
-          <input type="number" step="0.000001" min="0.000001" defaultValue={Number(S.credit_value).toFixed(6)}
+          {/* ☠ THIS FIELD LOST PRECISION BY BEING LOOKED AT. defaultValue was
+              .toFixed(6), so 0.06333333 rendered as "0.063333". onBlur then
+              compared that against the stored value, found a 3.3e-7 gap — over
+              its 1e-12 threshold — and SAVED it. Clicking in and out, changing
+              nothing, permanently reduced the credit value. The column is
+              NUMERIC(12,8): show eight places and step in the same units. */}
+          <input type="number" step="0.00000001" min="0.00000001" defaultValue={Number(S.credit_value).toFixed(8)}
             onBlur={(e) => {
               const v = Number(e.target.value);
               if (Number.isFinite(v) && Math.abs(v - S.credit_value) > 1e-12) {
