@@ -950,6 +950,19 @@ export const SEED = [
       + 'So each row carries HIS decision as well as my reading: ADD · REMOVE · HOLD (with the date he held it, so a hold does not silently become forever). A model he has not judged yet is its own state and must be visible as such — an unjudged row hidden among decided ones is how a queue rots. '
       + '☠ THIS IS ALSO HOW #40 GETS FINISHED. 32 of 82 active rows in pricing_models have no supplier cost (measured on production 2026-09-05, 61% coverage). Several look retired rather than missing — "Kling O1 Video Edit" is retired everywhere yet still is_active. Walking this list with ADD / REMOVE / HOLD resolves both questions at once: the retired ones get removed, the live ones get priced, and nothing stays in the middle by accident.' },
 
+  { ref: '116', owner: 'claude', status: 'pending', priority: 6,
+    title: 'API Integration tab — go direct to the model providers, one model at a time',
+    why: 'Amr, 2026-09-05: "Add a very important task, integration with all models. We will build one tab on the control panel called API Integration, and we will build one by one."',
+    detail: 'THE IDEA: stop paying an aggregator margin by calling the model providers directly — Google for Nano Banana, and so on — instead of routing everything through kie.ai. A new tab, API Integration, holds one row per provider with its credentials, its request shape and which models it serves. '
+      + '── WHAT HIS OWN NUMBERS SAY (production, 60 days, measured 2026-09-05) ── '
+      + 'Kling 3.0 = 10,328 runs (55.2%) · Nano Banana Pro = 7,617 (40.7%). Together 95.9%. The other thirteen models are 4.1% COMBINED. '
+      + '☠ SO "ALL MODELS" IS NOT WHERE THE VALUE IS, AND SAYING SO IS THE HONEST PART. Eighty-two models direct means eighty-two accounts, keys, invoices, request shapes and failure modes, for a two-person team — and 4% of the volume. The task is built ONE AT A TIME, largest first, and each one only when the arithmetic justifies it. Amr agreed to one-by-one; this records WHICH one first. '
+      + 'NANO BANANA PRO IS THE ONE THAT MIGHT PAY. It is Google, Google publishes a real API, and it is 41% of volume. '
+      + 'KLING PROBABLY IS NOT. It is Kuaishou — a Chinese provider with business-entity requirements and no simple route from Kuwait. That 55% is exactly the work an aggregator is for, and kie is doing it. '
+      + '── STEP ZERO, BEFORE ANY CODE ── MEASURE KIE\'S MARKUP. Compare kie\'s recorded cost against the provider\'s published price for the same model: kie charges $0.040/image for Nano Banana 2 and $0.020 for Nano Banana. If kie takes 20% this task is not worth starting; if they take 200% it pays for itself. That measurement is an hour with Firecrawl and Perplexity and it decides everything after it. DO NOT SKIP IT. '
+      + '── AND kie IS ALREADY CHEAPER THAN FAL, WHICH IS WHY THIS IS NOT URGENT ── measured the same day: Nano Banana kie $0.020 vs fal $0.039 (49% cheaper); Nano Banana 2 kie $0.040 vs fal $0.150 (73% cheaper); Kling 3.0 kie $0.090 vs fal $0.084 (fal marginally cheaper). Moving to kie was the right call and the aggregator is not obviously overcharging. '
+      + '── DESIGN CONSTRAINT FOR #115 ── the model registry must carry provider = kie | fal | direct FROM DAY ONE. Then "go direct on Nano Banana Pro" is one row plus one adapter rather than a rewrite. Cheap to design in now, expensive to retrofit — which is the whole reason this task is recorded before it is started.' },
+
 ];
 
 /**
