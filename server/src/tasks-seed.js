@@ -846,6 +846,53 @@ export const SEED = [
       + 'dead ones should SAY they are unavailable rather than showing a grey '
       + 'tile forever.' },
 
+  // ── ADDED 2026-09-05, from measuring the repo rather than guessing at it ────
+  { ref: '106', owner: 'claude', status: 'pending', priority: 7,
+    title: 'The pre-commit hook blocks main but does not scan for secrets',
+    why: 'The hook\'s own comment says: "When a mistake has happened more than twice, stop trying harder and make it mechanically impossible." It was built for the wrong accident. The one that actually cost money was `git add -A` on 2026-08-06, which published a file of supplier costs and profit margins to a PUBLIC GitHub repository. The hook would not have stopped it.',
+    detail: 'MEASURED 2026-09-05: .githooks/pre-commit refuses commits to main and nothing else — zero matches for sk-, pplx-, fc-, AKIA, BEGIN PRIVATE KEY or any secret pattern in its source. '
+      + 'BUILD: scan the STAGED diff (not the working tree) for known key shapes and for files that should never be committed — .env, anything under server/scripts/, and any file whose path or content matches the cost/margin data. Refuse the commit with the file and line named. '
+      + 'THE TEST THAT MATTERS: stage a file containing a fake key of each shape and assert the hook exits non-zero. A hook nobody has watched refuse anything is a hook nobody knows works. '
+      + 'Cheap — an afternoon — and it closes a hole that has already been used once, by me.' },
+
+  { ref: '107', owner: 'claude', status: 'pending', priority: 13,
+    title: 'Four moderate npm vulnerabilities — uuid via exceljs, and react-router',
+    why: 'Routine, but they are the kind of thing that is embarrassing to be asked about and trivial to have already done.',
+    detail: 'MEASURED 2026-09-05 with `npm audit --omit=dev`: 4 moderate. uuid (reached through exceljs), react-router and react-router-dom. '
+      + 'react-router is the one to be careful with — a major bump touches every route in the app, so read what changed before taking it. exceljs drives the Excel exports on the Logs and Batches screens; if it moves, those two exports need opening for real, not just a passing build.' },
+
+  { ref: '108', owner: 'claude', status: 'pending', priority: 9,
+    title: 'Nobody can answer "are dev and production the same shape?"',
+    why: 'The schema grew by hand and has no version. When something behaves differently on dev than on production, the first question is whether the two databases match — and today that question has no answer short of comparing 46 tables by eye.',
+    detail: 'MEASURED 2026-09-05: server/src/db.js is 1,362 lines and runs 46 CREATE TABLE IF NOT EXISTS and 25 ADD COLUMN IF NOT EXISTS at every boot, with ZERO version tracking — no schema_version table, no migration history, no rollback. Additive changes are safe by luck rather than by design. '
+      + 'BUILD: a schema_version row written by db.js, plus a schema snapshot checked into git and a test asserting the code produces exactly that snapshot. Drift then fails a test instead of surprising someone at 3am. '
+      + 'NOT a migration framework — that is a bigger decision. This is the smallest thing that makes drift visible.' },
+
+  { ref: '109', owner: 'claude', status: 'pending', priority: 16,
+    title: 'Nineteen admin screens have no test at all — two of them matter',
+    why: 'The Invalid Date bug reached the owner through a screen no test had ever rendered, while 5,000 tests passed. A passing suite that never opens the screen says nothing about whether anyone can read it.',
+    detail: 'MEASURED 2026-09-05: 19 of 43 components in src/components/admin have no matching test file. '
+      + 'DO NOT WRITE ALL NINETEEN. Two earn it: HistoryModal.jsx, which is on record for hiding columns and still has no test; and ManualCreditsTab.jsx, the screen the owner uses most for invoicing, edited twice this week. '
+      + 'The rest can wait for the next time one of them is touched.' },
+
+  // ── DONE 2026-09-05 — recorded so the board carries the history ────────────
+  { ref: '110', owner: 'claude', status: 'done', priority: 2,
+    title: 'Read the real database instead of saying "I have not verified this"',
+    why: 'Owner, 2026-09-05: "We will do all of these together tomorrow." Deferred twice before that. Every question about real data — how many rows, whether a screen shows the truth — had to be answered with a hedge, and the owner had to check the work himself.',
+    detail: 'DONE 2026-09-05, with the owner in the DigitalOcean console. His IP is a trusted source on both clusters; a voxel_readonly role exists on each with SELECT-only grants. '
+      + 'PROVEN, NOT ASSUMED: `ALTER ROLE ... SET default_transaction_read_only = on` is only a default and any session can switch it off, so the proof turns that flag OFF first and then attempts writes. UPDATE, INSERT, DELETE, CREATE TABLE and DROP TABLE all still fail on privileges. The protection is the grants. '
+      + 'WHAT IT SETTLED THE SAME DAY: the thumbnail sweep, unverified since 1 September, is finished — 12,492 images = 8,803 done + 3,687 whose FAL source expired + 2 that fail repeatedly. And spa 4 matches the owner\'s PDF exactly: 381 accounts, 151,671 credits, $9,605.83 across 396 entries. '
+      + 'STANDING CAUTION: his home IP is dynamic. Before reading production, check the current IP still matches the trusted-source rule — if it has drifted, that rule now points at somebody else and must be removed.' },
+
+  { ref: '111', owner: 'claude', status: 'done', priority: 2,
+    title: 'Two money screens gave two different totals for the same workshop',
+    why: 'Owner, 2026-09-05: he filtered Manual Credits to "spa 4" and the Value tile read $9,605.78. Batches, on the same 396 entries and the same 151,671 credits, read $9,605.83. Both are figures he builds invoices from.',
+    detail: 'ONE QUESTION HAD FOUR ANSWERS: the database stores 0.06333333; most endpoints fell back to 0.063333; pnl-routes fell back to 0.06333333; ManualCreditsTab.jsx held `const CREDIT_USD = 0.063333` and LiveTab.jsx inlined the same literal — neither ever asked the database. '
+      + 'Five cents on $9,605 was never the point. It mattered because of the day the price CHANGES: screens reading the database would show the new rate and the hardcoded ones would silently keep showing the old. '
+      + 'FIXED: server/src/credit-value.js is the only thing with an opinion; the logs and live endpoints send the rate; screens that cannot get it say "rate unavailable" rather than inventing one. src/no-hardcoded-money-rate.test.jsx fails on any hardcoded rate and caught BatchesTab\'s own fallback on its first run. '
+      + '☠ THE WORSE BUG, FOUND WHILE FIXING THE FIRST: CostingTab\'s credit-value field rendered defaultValue as .toFixed(6), so 0.06333333 displayed as "0.063333"; its onBlur compared that against the stored value, found a 3.3e-7 gap over its 1e-12 threshold, and SAVED it. Clicking into that box and clicking out, typing nothing, would have permanently reduced the credit value for the whole platform. Both databases were verified as still holding the full value, so it never fired. Look for other fields that round-trip a stored number through a shorter display format. '
+      + 'Shipped to production as 004fa9c.' },
+
 ];
 
 /**
