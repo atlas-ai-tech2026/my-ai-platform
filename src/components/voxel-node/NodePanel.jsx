@@ -8,6 +8,7 @@ import {
   Upload, Search, PanelLeftClose, PanelLeftOpen,
 } from 'lucide-react';
 import { NODE_LIST } from './nodeRegistry';
+import DropZone from '@/components/common/DropZone';
 
 const ICONS = { Type, Image: ImageIcon, Video: VideoIcon, StickyNote, Mic, Music };
 
@@ -69,6 +70,13 @@ export default function NodePanel({ onAdd, onUpload }) {
   }
 
   return (
+      <DropZone
+        accept="image/png,image/jpeg,image/webp"
+        multiple={false}
+        onFiles={(files) => files[0] && onUpload?.(files[0])}
+        onRejected={() => {}}
+        label="Drop an image"
+      >
     <div
       style={{
         position: 'absolute', top: 0, left: 0, bottom: 0, width: 248, zIndex: 21,
@@ -89,6 +97,9 @@ export default function NodePanel({ onAdd, onUpload }) {
       {/* Prominent Upload */}
       <div style={{ flexShrink: 0, padding: '0 12px 10px' }}>
         <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/webp" onChange={onFile} style={{ display: 'none' }} />
+        {/* The canvas already accepted a drop, but only the FIRST file. The
+            library panel takes one image at a time by design — same limit,
+            now reachable by dragging as well as clicking. */}
         <button
           onClick={() => fileRef.current?.click()}
           style={{
@@ -155,5 +166,6 @@ export default function NodePanel({ onAdd, onUpload }) {
         </div>
       </div>
     </div>
+      </DropZone>
   );
 }

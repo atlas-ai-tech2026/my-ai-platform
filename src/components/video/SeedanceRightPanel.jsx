@@ -2,6 +2,7 @@ import React, { useRef } from 'react';
 import VideoTile from '@/components/video/VideoTile';
 import { Upload, Image as ImageIcon, Film, Puzzle, Heart, Plus } from 'lucide-react';
 import SeedanceMediaGrid from './SeedanceMediaGrid';
+import DropZone from '@/components/common/DropZone';
 
 const S = { font: '"DM Sans", sans-serif' };
 
@@ -23,17 +24,28 @@ export default function SeedanceRightPanel({
 }) {
   const fileInputRef = useRef(null);
 
-  const handleFileSelect = (e) => {
-    const files = Array.from(e.target.files || []);
-    e.target.value = '';
-    files.forEach(file => {
+  // ONE path for the button and the drop.
+  const acceptMediaFiles = (files) => {
+    (files || []).forEach(file => {
       const type = file.type.startsWith('video/') ? 'video' : file.type.startsWith('audio/') ? 'audio' : 'image';
       onMediaUpload?.(type, file);
     });
   };
+
+  const handleFileSelect = (e) => {
+    const files = Array.from(e.target.files || []);
+    e.target.value = '';
+    acceptMediaFiles(files);
+  };
   const allMedia = [...(media?.images || []), ...(media?.videos || []), ...(media?.audios || [])];
 
   return (
+      <DropZone
+        accept="image/*,video/*,audio/*"
+        onFiles={acceptMediaFiles}
+        onRejected={() => {}}
+        label="Drop images, video or audio"
+      >
     <div style={{
       ...(isPopup ? { height: '100%' } : { marginLeft: 380, height: 'calc(100vh - 60px)' }),
       overflowY: 'auto',
@@ -163,5 +175,6 @@ export default function SeedanceRightPanel({
         )}
       </div>
     </div>
+      </DropZone>
   );
 }

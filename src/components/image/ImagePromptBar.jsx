@@ -7,6 +7,7 @@ import { detectCompositionIntent } from '@/lib/enhancePrompt';
 import { toProviderSafeImage } from '@/lib/uploadToFal';
 import CameraSelector from './CameraSelector';
 import { getImageCredits } from '@/lib/creditPricing';
+import DropZone from '@/components/common/DropZone';
 
 // ─── Image Models ────────────────────────────────────────────────────────────
 // Full catalog — kie.ai-first (verified ids), FAL for models kie doesn't
@@ -459,10 +460,10 @@ export default function ImagePromptBar({
     return uploadedImages.filter(i => i.status === 'ready').length >= 2 && detectCompositionIntent(prompt);
   }, [prompt, uploadedImages]);
 
-  const handleImageUpload = async (e) => {
-    const files = Array.from(e.target.files || []);
-    if (!files.length) return;
-    e.target.value = '';
+  // ONE path for both the button and the drop, so a picture cannot arrive with
+  // different handling depending on how it got here.
+  const acceptImageFiles = async (files) => {
+    if (!files?.length) return;
 
     for (const file of files) {
       if (uploadedImages.length >= 14) break;
@@ -512,6 +513,12 @@ export default function ImagePromptBar({
         }
       })();
     }
+  };
+
+  const handleImageUpload = async (e) => {
+    const files = Array.from(e.target.files || []);
+    e.target.value = '';
+    await acceptImageFiles(files);
   };
 
   const removeImage = (imageId) => {
@@ -707,6 +714,14 @@ export default function ImagePromptBar({
           background-image trick (fill in padding-box, gradient in
           border-box). Multi-layer shadow finishes the depth: drop
           shadow + double-line inset highlight + warm red halo. ── */}
+      {/* Drag pictures anywhere onto the prompt bar. The button still works;
+          this is a second way in, through the same acceptImageFiles path. */}
+      <DropZone
+        accept="image/jpeg,image/png,image/webp"
+        onFiles={acceptImageFiles}
+        onRejected={(reasons) => reasons.forEach((r) => toast.error(r))}
+        label="Drop to use as a reference"
+      >
       <div style={{
         position: 'fixed',
         bottom: 28,
@@ -1120,6 +1135,7 @@ export default function ImagePromptBar({
         </div>
 
       </div>
+      </DropZone>
     </>
   );
 }
