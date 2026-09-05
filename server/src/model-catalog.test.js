@@ -166,3 +166,31 @@ describe('summarise', () => {
     expect(s.undecided).toBe(2);   // C and D — neither owned nor decided
   });
 });
+
+// ─── THE SQL MUST BE CONSISTENT ABOUT ITS PARAMETER TYPES ───────────────────
+// ☠ Amr pressed Add and nothing happened. Dev's log said:
+//   [costing/catalog/decision] error: inconsistent types deduced for parameter $2
+// The statement used $2 bare in the assignment (varchar(10)) and $2::text in
+// the comparisons, and Postgres refused the whole thing. Every unit test passed
+// — none of them ran SQL. This one reads the statement instead.
+describe('the decision statement casts $2 the same way everywhere', () => {
+  it('never mixes a bare $2 with $2::text in one statement', async () => {
+    const { readFileSync } = await import('node:fs');
+    const path = await import('node:path');
+    const src = readFileSync(path.resolve(process.cwd(), 'server/src/costing-routes.js'), 'utf8');
+    // Just the one UPDATE: from "SET decision" to its RETURNING clause.
+    const from = src.indexOf('SET decision');
+    expect(from, 'the decision UPDATE should exist').toBeGreaterThan(-1);
+    // ☠ STRIP THE SQL COMMENTS FIRST. The first version of this test counted
+    // the "$2" inside the comment EXPLAINING the fix and failed on correct
+    // code — a check that cannot tell code from prose is a check that gets
+    // switched off.
+    const body = src.slice(from, src.indexOf('RETURNING', from))
+      .split('\n').filter((l) => !l.trim().startsWith('--')).join('\n');
+    const bare = (body.match(/\$2(?!::)/g) || []).length;
+    const cast = (body.match(/\$2::text/g) || []).length;
+    expect(cast, 'the casts should be there').toBeGreaterThan(0);
+    expect(bare, `found ${bare} uncast $2 alongside ${cast} cast ones — Postgres will refuse this`)
+      .toBe(0);
+  });
+});

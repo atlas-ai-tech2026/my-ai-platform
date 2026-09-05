@@ -206,7 +206,12 @@ export function registerCostingRoutes(app, deps) {
     try {
       const { rows } = await pool.query(
         `UPDATE pricing_catalog_models
-            SET decision = $2,
+            SET decision = $2::text,
+                -- ☠ EVERY $2 CARRIES THE SAME CAST. Without it Postgres deduces
+                -- varchar(10) from the assignment and text from the comparisons
+                -- below, and refuses the whole statement with "inconsistent
+                -- types deduced for parameter $2" — which is exactly what dev's
+                -- log said when Amr pressed Add and nothing happened.
                 decided_at = CASE WHEN $2::text IS NULL THEN NULL ELSE NOW() END,
                 decision_note = $3,
                 dismissed = ($2::text = 'remove'),
