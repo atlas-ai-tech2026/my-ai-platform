@@ -335,6 +335,11 @@ export const adminApi = {
   creditBatches: (q = {}) => request('GET', '/api/admin/credit-batches?' + new URLSearchParams(
     Object.entries(q).filter(([, v]) => v !== '' && v != null)).toString()),
 
+  // Mark a batch as not billable (or bill for it again). Never touches the
+  // ledger — the credits stay with the people who hold them.
+  excludeBatch: (key, excluded, label) =>
+    request('POST', '/api/admin/credit-batches/exclude', { key, excluded, label }),
+
   // ── Bulk: credits for accounts that ALREADY exist ────────────────────────
   // Preview first, always: this spends real money, and a confirm box saying
   // "are you sure?" is not consent to $610. Apply sends back the account count

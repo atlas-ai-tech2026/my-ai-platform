@@ -132,7 +132,12 @@ const ms = (v) => {
  * an invoice bills for. A revoke is real money too, but it is not a line on an
  * invoice — and mixing the two makes a total that means neither thing.
  */
-export function groupBatches(rows = [], { creditValueUsd = 0.063333, describe = {} } = {}) {
+export function groupBatches(rows = [],
+  { creditValueUsd = 0.063333, describe = {}, excluded = [] } = {}) {
+  // Batches the owner has marked as not billable — test grants, mostly. The
+  // rows stay visible and stay in the ledger; they are struck out and left
+  // out of the money.
+  const isExcluded = new Set(excluded || []);
   // ☠ THE NAME OF A PROMO BATCH IS THE CODE'S DESCRIPTION, NOT THE CODE.
   // Owner, 2026-09-05: "There is one column called promo code and you write it
   // there. It is not necessary to write it two times. The name will be the
@@ -190,6 +195,7 @@ export function groupBatches(rows = [], { creditValueUsd = 0.063333, describe = 
     const name = String(described_name || '').trim() || spelt;
     return {
       key: b.key, type: b.type, name, code: b.code,
+      excluded: isExcluded.has(b.key),
       date: day(b.first), date_to: day(b.last),
       // Sent as ISO strings so the browser formats them in the owner's own
       // timezone — the same way Manual Credits does, so the two screens agree.
@@ -209,12 +215,21 @@ export function groupBatches(rows = [], { creditValueUsd = 0.063333, describe = 
 
 /** Totals for whatever is on screen — the figure that goes on the invoice. */
 export function totalBatches(batches = [], { creditValueUsd = 0.063333 } = {}) {
-  const credits = batches.reduce((t, b) => t + b.credits, 0);
+  // ☠ EXCLUDED BATCHES ARE NOT IN THE TOTAL. That is the entire reason the
+  // flag exists: a figure Amr invoices from must not contain "dahi test".
+  // They are still RETURNED, struck out, so the exclusion stays visible —
+  // money silently missing from a money total is this project's oldest bug,
+  // and the cure for it is not a second silence.
+  const billable = batches.filter((b) => !b.excluded);
+  const credits = billable.reduce((t, b) => t + b.credits, 0);
   return {
-    batches: batches.length,
-    accounts: batches.reduce((t, b) => t + b.accounts, 0),
+    batches: billable.length,
+    accounts: billable.reduce((t, b) => t + b.accounts, 0),
     credits: Math.round(credits * 100) / 100,
     usd: Math.round(credits * creditValueUsd * 100) / 100,
+    excluded: batches.length - billable.length,
+    excluded_credits: Math.round(
+      batches.filter((b) => b.excluded).reduce((t, b) => t + b.credits, 0) * 100) / 100,
   };
 }
 

@@ -6512,6 +6512,14 @@ app.get('/api/admin/credit-batches', adminGate, async (req, res) => {
     ).catch(() => ({ rows: [] }));
     const unredeemed = unredeemedCodes(promos, usedReasons.map((r) => r.reason));
 
+    // Batches the owner has marked as not billable. Read every time rather
+    // than cached: the whole value of the flag is that the next number he
+    // looks at already reflects it.
+    const { rows: exRows } = await pool.query(
+      'SELECT batch_key, label FROM batch_exclusions',
+    ).catch(() => ({ rows: [] }));
+    const excluded = exRows.map((r) => r.batch_key);
+
     if (req.query.q) {
       const q = String(req.query.q).slice(0, 100);
       const like = q.toLowerCase();
@@ -6537,7 +6545,7 @@ app.get('/api/admin/credit-batches', adminGate, async (req, res) => {
     const { rows: st } = await pool.query('SELECT credit_value FROM pricing_settings WHERE id = 1')
       .catch(() => ({ rows: [] }));
     const creditValueUsd = Number(st?.[0]?.credit_value) || 0.063333;
-    const batches = groupBatches(rows, { creditValueUsd, describe });
+    const batches = groupBatches(rows, { creditValueUsd, describe, excluded });
     res.json({
       batches, totals: totalBatches(batches, { creditValueUsd }), credit_value: creditValueUsd,
       // Unfiltered on purpose: narrowing the dates must not make a code that
@@ -6547,6 +6555,35 @@ app.get('/api/admin/credit-batches', adminGate, async (req, res) => {
   } catch (err) {
     console.error('[credit-batches] failed:', err);
     res.status(500).json({ error: 'Could not build the batch list.' });
+  }
+});
+
+// Mark a batch as not billable, or bill for it again.
+//
+// ☠ THIS NEVER TOUCHES credits_history. Amr asked to get test rows out of the
+// table; he did not ask to take credits back off the people who hold them, and
+// deleting a ledger row to tidy a report would break a balance and the FIFO
+// lots behind it. This records a judgement about an invoice, nothing more —
+// which is why it is reversible in one click.
+app.post('/api/admin/credit-batches/exclude', adminGate, async (req, res) => {
+  if (!dbReady()) return res.status(503).json({ error: 'Database not available.' });
+  const key = String(req.body?.key || '').slice(0, 500);
+  if (!key) return res.status(400).json({ error: 'Which batch? No key was sent.' });
+  const excluded = req.body?.excluded !== false;
+  try {
+    if (excluded) {
+      await pool.query(
+        `INSERT INTO batch_exclusions (batch_key, label, excluded_by)
+              VALUES ($1, $2, $3)
+         ON CONFLICT (batch_key) DO UPDATE SET label = EXCLUDED.label`,
+        [key, String(req.body?.label || '').slice(0, 300) || null, req.user?.email || ADMIN_EMAIL || null]);
+    } else {
+      await pool.query('DELETE FROM batch_exclusions WHERE batch_key = $1', [key]);
+    }
+    res.json({ key, excluded });
+  } catch (err) {
+    console.error('[credit-batches] exclude failed:', err);
+    res.status(500).json({ error: 'Could not save that.' });
   }
 });
 

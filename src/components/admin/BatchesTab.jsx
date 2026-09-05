@@ -81,6 +81,22 @@ export default function BatchesTab({ onError }) {
 
   useEffect(() => { load(); }, [load]);
 
+  // ☠ MARKING A BATCH NOT-BILLABLE NEVER TOUCHES THE LEDGER.
+  // Amr, 2026-09-05: "If there is something we need to do to remove it from
+  // the table, because it's not logical. I just want the actual data which I
+  // have." He means "dahi test" and "radwan from senyar agency ( test )" must
+  // not sit inside a figure he invoices from — NOT that those people should
+  // lose their credits. So the row stays, struck out, and leaves the total.
+  const setExcluded = async (b, excluded) => {
+    try {
+      await adminApi.excludeBatch(b.key, excluded, b.name);
+      toast.success(excluded
+        ? `"${b.name}" is out of the total.`
+        : `"${b.name}" is back in the total.`);
+      load();
+    } catch (e) { onError?.(e, 'Could not save that'); }
+  };
+
   const toggle = (id) => setPicked((p) => {
     const n = new Set(p);
     if (n.has(id)) n.delete(id); else n.add(id);
@@ -92,16 +108,22 @@ export default function BatchesTab({ onError }) {
 
   const exportCsv = useCallback(() => {
     if (!batches.length) { toast.error('Nothing to export'); return; }
+    // ☠ THE EXPORTED TOTAL IS THE BILLABLE TOTAL. A file that adds up test
+    // grants is worse than no file — it becomes an invoice.
     const head = ['Name', 'Type', 'Promo code', 'First date', 'Last date', 'Days',
-      'Accounts', 'Entries', 'Credits', 'Value USD'];
+      'Accounts', 'Entries', 'Credits', 'Value USD', 'On the invoice'];
     const esc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
     const lines = [head.join(',')].concat(batches.map((b) => [
       b.name, b.type, b.code || '', b.date, b.date_to || b.date, b.days || 1,
-      b.accounts, b.entries, b.credits, b.usd,
+      b.accounts, b.entries, b.credits, b.usd, b.excluded ? 'NO' : 'yes',
     ].map(esc).join(',')));
     lines.push('');
-    lines.push([esc('TOTAL'), '', '', '', '', '',
-      esc(totals.accounts), '', esc(totals.credits), esc(totals.usd)].join(','));
+    lines.push([esc('TOTAL (on the invoice)'), '', '', '', '', '',
+      esc(totals.accounts), '', esc(totals.credits), esc(totals.usd), ''].join(','));
+    if (totals.excluded) {
+      lines.push([esc(`${totals.excluded} batch(es) left out of that total`),
+        '', '', '', '', '', '', '', esc(totals.excluded_credits), '', esc('NO')].join(','));
+    }
     const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -189,6 +211,18 @@ export default function BatchesTab({ onError }) {
           n={`at $${data?.credit_value ?? 0.063333}/credit`} accent />
       </div>
 
+      {/* The exclusion must never itself become a silence. Money quietly
+          missing from a money total is this project's oldest bug; the cure for
+          it cannot be a second, quieter version of it. */}
+      {totals?.excluded > 0 && (
+        <div style={{ fontSize: 12, color: 'var(--crm-w50)', marginBottom: 11, lineHeight: 1.6 }}>
+          {totals.excluded} batch{totals.excluded === 1 ? ' is' : 'es are'} marked not-billable and
+          {totals.excluded === 1 ? ' is' : ' are'} left out of these totals
+          — {num(totals.excluded_credits)} credits. {totals.excluded === 1 ? 'It is' : 'They are'}
+          {' '}struck out below; the credits themselves were not touched.
+        </div>
+      )}
+
       <div style={{ display: 'flex', gap: 8, marginBottom: 11, alignItems: 'center', flexWrap: 'wrap' }}>
         <button onClick={exportCsv} disabled={!batches.length} style={btn}>⬇ Excel / CSV</button>
         <span style={{ fontSize: 12, color: 'var(--crm-w40)' }}>
@@ -249,21 +283,22 @@ export default function BatchesTab({ onError }) {
         <table style={{ borderCollapse: 'collapse', width: '100%', minWidth: 820 }}>
           <thead>
             <tr>
-              {['Name', 'Type', 'Promo code', 'Dates', 'Accounts', 'Credits', 'Value'].map((h) => (
-                <th key={h} style={th}>{h}</th>
+              {['Name', 'Type', 'Promo code', 'Dates', 'Accounts', 'Credits', 'Value', ''].map((h, i) => (
+                <th key={h || `act${i}`} style={th}>{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
-            {data === null && <tr><td colSpan={7} style={{ ...td, color: 'var(--crm-w40)' }}>Loading…</td></tr>}
+            {data === null && <tr><td colSpan={8} style={{ ...td, color: 'var(--crm-w40)' }}>Loading…</td></tr>}
             {data && batches.length === 0 && (
-              <tr><td colSpan={7} style={{ ...td, color: 'var(--crm-w40)' }}>
+              <tr><td colSpan={8} style={{ ...td, color: 'var(--crm-w40)' }}>
                 No batches match these filters.
               </td></tr>
             )}
             {batches.map((b) => (
-              <tr key={b.key}>
-                <td style={{ ...td, fontWeight: 600 }}>
+              <tr key={b.key} style={b.excluded ? { opacity: 0.45 } : undefined}>
+                <td style={{ ...td, fontWeight: 600,
+                             textDecoration: b.excluded ? 'line-through' : 'none' }}>
                   {b.name}
                   {b.spellings > 1 && (
                     <span
@@ -305,6 +340,18 @@ export default function BatchesTab({ onError }) {
                 <td style={{ ...td, textAlign: 'right', fontWeight: 600,
                              fontVariantNumeric: 'tabular-nums' }}>
                   {money(b.usd)}
+                </td>
+                <td style={{ ...td, textAlign: 'right', whiteSpace: 'nowrap' }}>
+                  <button
+                    type="button"
+                    onClick={() => setExcluded(b, !b.excluded)}
+                    style={linkBtn}
+                    title={b.excluded
+                      ? 'Put this batch back into the total'
+                      : 'Leave this batch out of the total. The credits are not touched.'}
+                  >
+                    {b.excluded ? 'Bill for it' : "Don't bill"}
+                  </button>
                 </td>
               </tr>
             ))}

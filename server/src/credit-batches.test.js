@@ -433,3 +433,64 @@ describe('unredeemedCodes', () => {
     expect(unredeemedCodes([{ description: 'no code at all' }], [])).toEqual([]);
   });
 });
+
+// ─── BATCHES THE OWNER DOES NOT BILL FOR ────────────────────────────────────
+// Amr, 2026-09-05: "Is it a good idea deploying with test [rows]? If there is
+// something we need to do to remove it from the table, because it's not
+// logical. I just want the actual data which I have."
+//
+// "dahi test" and "radwan from senyar agency ( test )" must not sit inside a
+// figure he invoices from. They must ALSO not be deleted: those people hold
+// the credits, the lots are real, and removing a credits_history row to tidy a
+// report would break a balance. So the row stays and leaves the total.
+describe('excluded batches', () => {
+  const rows = [
+    { amount: 9480, reason: 'promo: VOXEL-REAL-0001', source: 'promo', user_id: 1,
+      created_at: new Date('2026-09-03T09:00:00Z') },
+    { amount: 100, reason: 'dahi test', user_id: 2, created_at: new Date('2026-09-02T09:00:00Z') },
+  ];
+  const keyOf = (name) => groupBatches(rows).find((b) => b.name === name).key;
+
+  it('marks the batch instead of dropping it', () => {
+    const out = groupBatches(rows, { excluded: [keyOf('dahi test')] });
+    expect(out).toHaveLength(2);
+    expect(out.find((b) => b.name === 'dahi test').excluded).toBe(true);
+    expect(out.find((b) => b.name !== 'dahi test').excluded).toBe(false);
+  });
+
+  it('leaves it out of the total', () => {
+    const out = groupBatches(rows, { excluded: [keyOf('dahi test')] });
+    const t = totalBatches(out);
+    expect(t.credits).toBe(9480);
+    expect(t.accounts).toBe(1);
+    expect(t.batches).toBe(1);
+  });
+
+  it('SAYS what it left out — the cure cannot be a second silence', () => {
+    const t = totalBatches(groupBatches(rows, { excluded: [keyOf('dahi test')] }));
+    expect(t.excluded).toBe(1);
+    expect(t.excluded_credits).toBe(100);
+  });
+
+  it('counts everything when nothing is excluded', () => {
+    const t = totalBatches(groupBatches(rows));
+    expect(t.credits).toBe(9580);
+    expect(t.excluded).toBe(0);
+    expect(t.excluded_credits).toBe(0);
+  });
+
+  it('ignores a key that no longer matches any batch', () => {
+    const t = totalBatches(groupBatches(rows, { excluded: ['Manual grant|gone'] }));
+    expect(t.credits).toBe(9580);
+    expect(t.excluded).toBe(0);
+  });
+
+  it('is reversible — nothing about the batch itself changed', () => {
+    const on = groupBatches(rows, { excluded: [keyOf('dahi test')] })
+      .find((b) => b.name === 'dahi test');
+    const off = groupBatches(rows).find((b) => b.name === 'dahi test');
+    expect(on.credits).toBe(off.credits);
+    expect(on.accounts).toBe(off.accounts);
+    expect({ ...on, excluded: false }).toEqual(off);
+  });
+});

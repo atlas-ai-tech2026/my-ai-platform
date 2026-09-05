@@ -22,7 +22,7 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import BatchesTab from './BatchesTab';
 
-const api = vi.hoisted(() => ({ creditBatches: vi.fn() }));
+const api = vi.hoisted(() => ({ creditBatches: vi.fn(), excludeBatch: vi.fn() }));
 vi.mock('@/lib/adminApi', () => ({ adminApi: api }));
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn() } }));
 
@@ -45,6 +45,7 @@ const BATCHES = [
 
 beforeEach(() => {
   vi.clearAllMocks();
+  api.excludeBatch.mockResolvedValue({ ok: true });
   api.creditBatches.mockResolvedValue({
     batches: BATCHES,
     totals: { batches: 2, accounts: 441, credits: 161151, usd: 10206.23 },
@@ -175,5 +176,63 @@ describe('BatchesTab · codes that were never redeemed', () => {
     await userEvent.click(screen.getByRole('button', { name: /Promo codes/i }));
     await waitFor(() =>
       expect(document.body.textContent).not.toMatch(/never been redeemed/));
+  });
+});
+
+// ─── ROWS HE DOES NOT BILL FOR ──────────────────────────────────────────────
+// "dahi test" must not be inside a figure he invoices from. It must also not
+// be deleted — the person holds the credits.
+describe('BatchesTab · not-billable batches', () => {
+  const withTest = {
+    batches: [
+      ...BATCHES,
+      { key: 'Manual grant|dahi test', type: 'Manual grant', name: 'dahi test', code: null,
+        date: '2026-09-02', date_to: '2026-09-02', days: 1,
+        first: '2026-09-02T09:00:00.000Z', last: '2026-09-02T09:00:00.000Z',
+        accounts: 1, credits: 100, usd: 6.33, entries: 1, spellings: 1, spelt: [],
+        excluded: true },
+    ],
+    totals: { batches: 2, accounts: 441, credits: 161151, usd: 10206.23,
+      excluded: 1, excluded_credits: 100 },
+    credit_value: 0.063333,
+    promo_codes: { total: 27, unredeemed: [] },
+  };
+
+  it('still shows the row, struck through', async () => {
+    api.creditBatches.mockResolvedValue(withTest);
+    render(<BatchesTab />);
+    const cell = await screen.findByText('dahi test');
+    expect(cell.style.textDecoration).toBe('line-through');
+  });
+
+  it('says how much the totals leave out', async () => {
+    api.creditBatches.mockResolvedValue(withTest);
+    render(<BatchesTab />);
+    await screen.findByText('dahi test');
+    expect(document.body.textContent).toMatch(/1 batch is marked not-billable/);
+    expect(document.body.textContent).toMatch(/100 credits/);
+    expect(document.body.textContent).toMatch(/credits themselves were not touched/);
+  });
+
+  it('offers to bill for it again, not to delete it', async () => {
+    api.creditBatches.mockResolvedValue(withTest);
+    render(<BatchesTab />);
+    await screen.findByText('dahi test');
+    expect(screen.getByRole('button', { name: /bill for it/i })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /delete|remove/i })).toBeNull();
+  });
+
+  it('excludes a batch without touching the ledger', async () => {
+    render(<BatchesTab />);
+    await screen.findByText('SPA News Academy 5th 4th');
+    const row = (await screen.findByText('Spa 4')).closest('tr');
+    await userEvent.click(within(row).getByRole('button', { name: /don't bill/i }));
+    expect(api.excludeBatch).toHaveBeenCalledWith('Manual grant|spa 4', true, 'Spa 4');
+  });
+
+  it('says nothing about exclusions when there are none', async () => {
+    render(<BatchesTab />);
+    await screen.findByText('SPA News Academy 5th 4th');
+    expect(document.body.textContent).not.toMatch(/not-billable/);
   });
 });

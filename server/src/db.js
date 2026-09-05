@@ -1277,6 +1277,25 @@ export async function migrate() {
         created_at   TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
         updated_at   TIMESTAMPTZ   NOT NULL DEFAULT NOW()
       )`);
+    // ── BATCHES YOU DO NOT BILL FOR (2026-09-05) ──────────────────────────
+    // Amr: "Is it a good idea deploying with test [rows]? If there is
+    // something we need to do to remove it from the table, because it's not
+    // logical. I just want the actual data which I have."
+    //
+    // He is right that "dahi test" and "radwan from senyar agency ( test )"
+    // must not be inside a figure he invoices from. He is NOT asking to undo
+    // the credits — those people hold them, the lots are real, and deleting a
+    // credits_history row would break a balance to tidy a report.
+    //
+    // So the ledger is never touched. This records the owner's judgement that
+    // a batch is not billable, and the screen honours it in the totals.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS batch_exclusions (
+        batch_key   TEXT         PRIMARY KEY,
+        label       TEXT,
+        excluded_by VARCHAR(255),
+        created_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+      )`);
     await client.query(`
       CREATE TABLE IF NOT EXISTS provider_invoices (
         provider   VARCHAR(40)   NOT NULL,
