@@ -910,10 +910,10 @@ export const SEED = [
       + 'BUILD: extract ONE shared DropZone from edit/UploadsPanel.jsx — it already has the right shape (highlight while dragging, several files at once, click-to-browse fallback, disabled state). Edit Cut stays on dev; the component is generic and ships on its own. Wrap it round each upload area above, and replace the Node canvas one-file handler so several files become several nodes. On Images it must honour the model reference limit from #112, or it becomes a second way to feed images into a path that refuses them. '
       + '⚠️ AUDIO NEEDS A DECISION FIRST, NOT A DROP ZONE. LipsyncTab, VoiceCloneTab and MusicSyncTab render "Upload Video / Upload Audio / Choose Video" boxes with dashed borders and upload icons — and none of them does anything: no file input, no handler, no request. The only audio routes that exist are /api/tts and /api/tts/preview. There is nothing to drop onto. Ask Amr whether to build those three or hide them; a button that looks real and does nothing is what this project keeps finding.' },
 
-  { ref: '114', owner: 'claude', status: 'pending', priority: 11,
+  { ref: '114', owner: 'claude', status: 'done', priority: 11,
     title: 'The prompt and its reference images vanish when you switch to another page',
     why: 'Amr, 2026-09-05: "I write the prompt and upload pictures, then I click Video to do something, and when I come back to Images the prompt and the images are gone. I need it kept as long as I am logged in."',
-    detail: 'CONFIRMED IN CODE 2026-09-05: Image and Video are separate routes, leaving the page unmounts it, and nothing persists the draft — no localStorage or sessionStorage anywhere in Image.jsx, Video.jsx, ImagePromptBar.jsx or VideoLeftPanel.jsx. Not a bug in the code; an absence. '
+    detail: 'DONE 2026-09-05, both pages on production (a1e1bb1 Image, 425f5e5 Video). Amr tested each on dev before it shipped. Video needed something Image did not: its frames can be a File or a blob: URL, so only durable http URLs are restored — restoring a broken picture is worse than restoring none. Cleared at logout, because a workshop laptop is shared. CONFIRMED IN CODE 2026-09-05: Image and Video are separate routes, leaving the page unmounts it, and nothing persists the draft — no localStorage or sessionStorage anywhere in Image.jsx, Video.jsx, ImagePromptBar.jsx or VideoLeftPanel.jsx. Not a bug in the code; an absence. '
       + 'BUILD: a per-page draft store holding the prompt, the settings and the reference URLs. The references are durable Spaces links by the time they are attached, so they survive a reload rather than needing re-upload. Kept while signed in, CLEARED ON LOGOUT — a shared computer at a workshop must not show the next person the last one\'s prompt. Survives switching pages and a full refresh. '
       + 'Do it WITH or AFTER #112: it touches the same screen and the same reference list.' },
 
@@ -945,7 +945,10 @@ export const SEED = [
       + 'STEP 3 — it lands on dev and he TESTS it there. '
       + 'STEP 4 — only then do I ask the costing questions: kie\'s cost per resolution tier, the suggested price at 40%, and he sets the credit amount and the number. Costing comes AFTER the model is proven to work, not before — his ordering, and it is the right way round: there is no point pricing something that does not run. '
       + 'STEP 5 — NEXT → production. STEP 6 — he tests production. STEP 7 — done, and the model is live for customers on voxel-ai.ai. '
-      + 'Each row carries its state so nothing is ambiguous: not read · read and understood · CANNOT READ · needs code not just a row · on dev awaiting his test · priced · live.' },
+      + 'Each row carries its state so nothing is ambiguous: not read · read and understood · CANNOT READ · needs code not just a row · on dev awaiting his test · priced · live. '
+      + '── AND THE TAB LISTS EVERY MODEL, NOT ONLY THE NEW ONES (Amr, 2026-09-05) ── "You will give me all models. If the model is necessary I will add it. If it is not necessary I will remove it. Or say keep it pending, hold, not now — I can come back to add it if I need to." '
+      + 'So each row carries HIS decision as well as my reading: ADD · REMOVE · HOLD (with the date he held it, so a hold does not silently become forever). A model he has not judged yet is its own state and must be visible as such — an unjudged row hidden among decided ones is how a queue rots. '
+      + '☠ THIS IS ALSO HOW #40 GETS FINISHED. 32 of 82 active rows in pricing_models have no supplier cost (measured on production 2026-09-05, 61% coverage). Several look retired rather than missing — "Kling O1 Video Edit" is retired everywhere yet still is_active. Walking this list with ADD / REMOVE / HOLD resolves both questions at once: the retired ones get removed, the live ones get priced, and nothing stays in the middle by accident.' },
 
 ];
 
