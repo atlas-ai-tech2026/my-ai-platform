@@ -924,7 +924,17 @@ export const SEED = [
       + 'BUILD A MODEL REGISTRY: each model\'s facts as DATA, not code in thirteen places — aspect ratios, quality tiers, output count, negative prompt yes/no, style, camera, HOW MANY REFERENCES IT ACCEPTS (#112\'s limits belong here permanently), and the price. Picker and server both read it. '
       + 'THE INTAKE, as Amr described it: (1) he names a model; (2) I read its kie page — verified 2026-09-05 that kie.ai/<model> returns 200 and the catalogue API POST api.kie.ai/api/v1/playground/pagePlaygroundGroup lists all 104 groups with taskType and path; (3) I fill the checklist and ask him ratio / quality / count / negative prompt / style / camera, and for video length, ratio, audio, references; (4) price it at the 40% margin against kie\'s cost — EVERY price needs his explicit yes; (5) dev, one real generation, his confirmation, then production. '
       + '⚠️ HONESTY: "click Add in the control panel and it lands on dev" cannot be a button. A new model changes billing, so it will always be code plus a dev deploy plus his approval. The registry makes that an afternoon instead of a week. It is a checklist, not a button. '
-      + 'Pairs with #40 (the supplier costs spreadsheet): pricing is part of the intake, so that sheet is wanted before this is built.' },
+      + 'Pairs with #40 (the supplier costs spreadsheet): pricing is part of the intake, so that sheet is wanted before this is built. '
+      + '── THE WORKFLOW AMR SPECIFIED, 2026-09-05, in his words ── '
+      + '(1) The control panel TELLS HIM a new model exists — kie\'s catalogue compared against what Voxel already has. Verified the same day: POST api.kie.ai/api/v1/playground/pagePlaygroundGroup returns 104 groups (56 touch Image, 37 touch Video) with groupName, path and taskType, which is enough to LIST what is new. '
+      + '(2) BEFORE a row is offered as addable, I read that model\'s kie API page and fill the checklist. '
+      + '(3) The row shows my confirmation: read, understood, here is what it needs. '
+      + '(4) He clicks ADD → it goes to dev. (5) He tests dev, clicks CONFIRM → production. '
+      + '(6) ☠ IF I COULD NOT REACH KIE OR COULD NOT UNDERSTAND ITS DOCS, THE ROW MUST SAY SO — "I cannot read this, not confirmed from my side" — and must never appear as ready. His requirement, and the right one: a model shown as ready that nobody actually read is this project\'s recurring bug in a new place. '
+      + '── TWO LIMITS THAT MUST BE VISIBLE ON THE ROW ── '
+      + 'A) "Add lands it on dev" is only true when the model fits a request shape Voxel already speaks. There are exactly four: jobs, flux, mj, gpt4o. A model in one of those is a REGISTRY ROW and the button genuinely works with no code. A model with a new shape NEEDS CODE, and the row must say "needs code, not just a row" BEFORE he clicks. '
+      + 'B) I do not run between his messages. A data-only model lands when he clicks; one needing code records the decision and waits for a session. No button may imply work happens while he is away — that promise was broken once already, see feedback-never-promise-work-while-away. '
+      + 'C) EVERY PRICE STILL NEEDS HIS EXPLICIT YES. Add and Confirm are about the model working; the 40% margin figure is money and stays a separate approval.' },
 
 ];
 
